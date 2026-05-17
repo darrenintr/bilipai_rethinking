@@ -45,6 +45,10 @@ class UiSkinInstallStore(
                 assetFiles = assetFiles
             )
             writeJson(installedFile(installed.installId), installed)
+            deleteInstalledRecordsForSameSkin(
+                skinId = installed.skinId,
+                keepInstallId = installed.installId
+            )
             installed
         }
     }
@@ -59,7 +63,17 @@ class UiSkinInstallStore(
                 }.getOrNull()
             }
             ?: emptyList()
-        return listOf(BuiltInUiSkins.winterCloudInstallRecord) + external
+        val deduplicatedExternal = external
+            .groupBy { it.skinId }
+            .values
+            .map { records ->
+                records.maxWith(
+                    compareBy<InstalledUiSkinPackage> { it.installedAtMillis }
+                        .thenBy { it.installId }
+                )
+            }
+            .sortedBy { it.displayName }
+        return listOf(BuiltInUiSkins.winterCloudInstallRecord) + deduplicatedExternal
     }
 
     companion object {
@@ -84,6 +98,22 @@ class UiSkinInstallStore(
 
     private fun installedFile(installId: String): File {
         return File(installedDir(), "${installId.safeUiSkinFileSegment()}.json")
+    }
+
+    private fun deleteInstalledRecordsForSameSkin(
+        skinId: String,
+        keepInstallId: String
+    ) {
+        installedDir()
+            .listFiles { file -> file.extension == "json" }
+            ?.forEach { file ->
+                val installed = runCatching {
+                    json.decodeFromString(InstalledUiSkinPackage.serializer(), file.readText())
+                }.getOrNull()
+                if (installed?.skinId == skinId && installed.installId != keepInstallId) {
+                    file.delete()
+                }
+            }
     }
 
     private fun extractDeclaredAssets(

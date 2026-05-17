@@ -118,17 +118,29 @@ object UiSkinImportPackageResolver {
 
     private fun selectPackageZipOrNull(entries: Map<String, ByteArray>): ByteArray? {
         return entries
-            .filterKeys { it.endsWith("_package.zip") }
-            .toSortedMap()
-            .values
+            .filterKeys { path ->
+                val name = path.substringAfterLast("/")
+                name.endsWith("_package.zip") ||
+                    (name.startsWith("package_url") && name.endsWith(".zip"))
+            }
+            .toList()
+            .sortedWith(compareBy(
+                { (path, _) -> if (path.substringAfterLast("/").endsWith("_package.zip")) 0 else 1 },
+                { (path, _) -> path }
+            ))
+            .map { (_, bytes) -> bytes }
             .firstOrNull()
     }
 
     private fun parseThemeJson(bytes: ByteArray): BilibiliSkinTheme {
         val root = json.parseToJsonElement(bytes.decodeToString()).jsonObject
         val dataObject = root.objectOrNull("data")
-        val properties = dataObject?.objectOrNull("properties") ?: dataObject ?: JsonObject(emptyMap())
-        val id = root.stringOrNull("id")
+        val properties = dataObject?.objectOrNull("properties")
+            ?: root.objectOrNull("properties")
+            ?: dataObject
+            ?: JsonObject(emptyMap())
+        val id = root.stringOrNull("item_id")
+            ?: root.stringOrNull("id")
             ?: dataObject?.stringOrNull("item_id")
             ?: dataObject?.stringOrNull("id")
             ?: properties.stringOrNull("item_id")
@@ -225,11 +237,11 @@ object UiSkinImportPackageResolver {
     ): ByteArray {
         return ByteArrayOutputStream().use { output ->
             ZipOutputStream(output).use { zip ->
-                zip.putNextEntry(ZipEntry("skin-manifest.json"))
+                zip.putStableEntry("skin-manifest.json")
                 zip.write(json.encodeToString(UiSkinManifest.serializer(), manifest).toByteArray())
                 zip.closeEntry()
                 assetBytesByPath.forEach { (path, bytes) ->
-                    zip.putNextEntry(ZipEntry(path))
+                    zip.putStableEntry(path)
                     zip.write(bytes)
                     zip.closeEntry()
                 }
@@ -328,8 +340,8 @@ object UiSkinImportPackageResolver {
             ?.replace(Regex("[^A-Za-z0-9_.-]"), "_")
             ?.trim('_')
             ?.lowercase()
-        return nameSlug.takeIf { it.isNotBlank() }
-            ?: idSlug?.takeIf { it.isNotBlank() }
+        return idSlug?.takeIf { it.isNotBlank() }
+            ?: nameSlug.takeIf { it.isNotBlank() }
             ?: "theme"
     }
 }
@@ -342,3 +354,11 @@ private data class BilibiliSkinTheme(
     val colorSecondPage: String?,
     val tailColor: String?
 )
+
+private fun ZipOutputStream.putStableEntry(name: String) {
+    putNextEntry(
+        ZipEntry(name).apply {
+            time = 0L
+        }
+    )
+}

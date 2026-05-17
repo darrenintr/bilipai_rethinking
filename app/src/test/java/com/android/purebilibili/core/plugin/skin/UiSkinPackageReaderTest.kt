@@ -312,6 +312,62 @@ class UiSkinPackageReaderTest {
     }
 
     @Test
+    fun bilibiliSkinArchiveWithSkinSuitAndPackageUrlZip_readsOfficialNameAndItemId() {
+        val bytes = bilibiliThemeArchive(
+            "skin/skin_suit.json" to luotianyiSkinSuitJson().toByteArray(),
+            "skin/package_urld1465d44aa720226f5b04d05348950c753552f10.zip" to skinPackage(
+                "tail_bg.png" to pngBytes(),
+                "head_bg.jpg" to jpegBytes(),
+                "head_tab_bg.png" to pngBytes(),
+                "tail_icon_main.png" to pngBytes(),
+                "tail_icon_selected_main.png" to pngBytes(),
+                "tail_icon_dynamic.png" to pngBytes(),
+                "tail_icon_selected_dynamic.png" to pngBytes(),
+                "tail_icon_shop.png" to pngBytes(),
+                "tail_icon_selected_shop.png" to pngBytes(),
+                "tail_icon_myself.png" to pngBytes(),
+                "tail_icon_selected_myself.png" to pngBytes()
+            )
+        )
+
+        val importPackage = UiSkinImportPackageResolver.resolve(bytes).getOrThrow()
+        val preview = UiSkinPackageReader.preview(importPackage.packageBytes).getOrThrow()
+
+        assertEquals(UiSkinImportSource.BILIBILI_SKIN_ARCHIVE, importPackage.source)
+        assertEquals("local.bilibili_skin.1770793106001", preview.manifest.skinId)
+        assertEquals("洛天依拜年纪个性主题", preview.manifest.displayName)
+        assertEquals("1774972800", preview.manifest.version)
+        assertEquals("assets/tail_bg.png", preview.manifest.assets.bottomBarTrim)
+        assertEquals("assets/head_bg.jpg", preview.manifest.assets.topAtmosphere)
+        assertEquals("assets/tail_icon_main.png", preview.manifest.assets.bottomBarIcons["home"])
+        assertEquals("assets/tail_icon_selected_main.png", preview.manifest.assets.bottomBarIcons["home_selected"])
+        assertEquals("#BEFFE4", preview.manifest.colors.bottomBarTrimTint)
+        assertEquals("#51A2F0", preview.manifest.colors.topAtmosphereTint)
+        assertEquals("#000000", preview.manifest.colors.searchCapsuleTint)
+    }
+
+    @Test
+    fun bilibiliSkinArchiveConversion_isStableForSameInput() {
+        val bytes = bilibiliThemeArchive(
+            "skin/skin_suit.json" to luotianyiSkinSuitJson().toByteArray(),
+            "skin/package_urlabcdef.zip" to skinPackage(
+                "tail_bg.png" to pngBytes(),
+                "head_bg.jpg" to jpegBytes()
+            )
+        )
+
+        val first = UiSkinImportPackageResolver.resolve(bytes).getOrThrow().packageBytes
+        Thread.sleep(1100)
+        val second = UiSkinImportPackageResolver.resolve(bytes).getOrThrow().packageBytes
+
+        assertEquals(first.toList(), second.toList())
+        assertEquals(
+            UiSkinPackageReader.preview(first).getOrThrow().packageSha256,
+            UiSkinPackageReader.preview(second).getOrThrow().packageSha256
+        )
+    }
+
+    @Test
     fun bilibiliSkinDirectPackageZip_convertsWithoutThemeJson() {
         val bytes = skinPackage(
             "tail_bg.png" to pngBytes(),
@@ -468,6 +524,21 @@ class UiSkinPackageReaderTest {
                   "color_second_page": "#4e536a",
                   "tail_color": "#6bb4ff"
                 }
+              }
+            }
+        """.trimIndent()
+    }
+
+    private fun luotianyiSkinSuitJson(): String {
+        return """
+            {
+              "item_id": 1770793106001,
+              "name": "洛天依拜年纪个性主题",
+              "properties": {
+                "ver": "1774972800",
+                "color": "#000000",
+                "color_second_page": "#51A2F0",
+                "tail_color": "#BEFFE4"
               }
             }
         """.trimIndent()

@@ -11,6 +11,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class UiSkinInstallStoreTest {
@@ -52,7 +53,7 @@ class UiSkinInstallStoreTest {
     }
 
     @Test
-    fun installPreview_keepsDifferentPackagesWithSameSkinId() {
+    fun installPreview_replacesOlderPackageWithSameSkinId() {
         val rootDir = createTempDirectory("ui-skin-store").toFile()
         var now = 100L
         val store = UiSkinInstallStore(
@@ -87,12 +88,49 @@ class UiSkinInstallStoreTest {
         val installedPackages = store.listInstalledPackages()
             .filter { it.skinId == "local.bilibili_skin.local_package" }
 
-        assertEquals(2, installedPackages.size)
-        assertTrue(installedPackages.any { it.installId == firstInstalled.installId })
-        assertTrue(installedPackages.any { it.installId == secondInstalled.installId })
+        assertEquals(1, installedPackages.size)
+        assertEquals(secondInstalled.installId, installedPackages.single().installId)
         assertTrue(firstInstalled.installId != secondInstalled.installId)
-        assertTrue(File(checkNotNull(firstInstalled.assetFiles["assets/first.png"])).exists())
+        assertNull(
+            rootDir.resolve("installed/${firstInstalled.installId}.json").takeIf { it.exists() }
+        )
         assertTrue(File(checkNotNull(secondInstalled.assetFiles["assets/second.png"])).exists())
+    }
+
+    @Test
+    fun listInstalledPackages_collapsesHistoricalDuplicatesBySkinId() {
+        val rootDir = createTempDirectory("ui-skin-store").toFile()
+        val installedDir = rootDir.resolve("installed").also { it.mkdirs() }
+        val oldRecord = InstalledUiSkinPackage(
+            manifest = manifest(
+                displayName = "本地装扮资源包",
+                version = "1.0.0",
+                bottomBarTrim = "assets/old.png"
+            ),
+            packageSha256 = "old-sha",
+            packagePath = "/tmp/old.bpskin",
+            installedAtMillis = 100L
+        )
+        val latestRecord = InstalledUiSkinPackage(
+            manifest = manifest(
+                displayName = "洛天依拜年纪个性主题",
+                version = "1774972800",
+                bottomBarTrim = "assets/latest.png"
+            ),
+            packageSha256 = "latest-sha",
+            packagePath = "/tmp/latest.bpskin",
+            installedAtMillis = 200L
+        )
+        installedDir.resolve("old.json").writeText(Json.encodeToString(oldRecord))
+        installedDir.resolve("latest.json").writeText(Json.encodeToString(latestRecord))
+        val store = UiSkinInstallStore(rootDir = rootDir)
+
+        val installedPackages = store.listInstalledPackages()
+            .filter { it.skinId == "local.bilibili_skin.local_package" }
+
+        assertEquals(1, installedPackages.size)
+        assertEquals("洛天依拜年纪个性主题", installedPackages.single().displayName)
+        assertEquals(200L, installedPackages.single().installedAtMillis)
     }
 
     private fun manifest(
