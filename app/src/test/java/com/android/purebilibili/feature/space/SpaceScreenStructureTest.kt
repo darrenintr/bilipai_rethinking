@@ -46,14 +46,31 @@ class SpaceScreenStructureTest {
     fun `contribution toolbar long press expands full horizontal tab rail`() {
         val source = loadSource("app/src/main/java/com/android/purebilibili/feature/space/SpaceScreen.kt")
 
+        assertTrue(source.contains("SpaceContributionToolbarDock("))
         assertTrue(source.contains("SpaceContributionCollapsedTab("))
         assertTrue(source.contains("SpaceContributionExpandedTabRail("))
+        assertTrue(source.contains("Surface("))
+        assertTrue(source.contains("AppShapes.container(ContainerLevel.Pill)"))
         assertTrue(source.contains(".combinedClickable("))
         assertTrue(source.contains("onExpand = { expanded = true }"))
         assertTrue(source.contains("onLongClick = onExpand"))
-        assertTrue(source.contains("AnimatedVisibility("))
         assertTrue(source.contains("horizontalScroll(scrollState)"))
+        assertTrue(source.contains("if (expanded) {"))
+        assertTrue(source.contains("} else {\n                    SpaceContributionCollapsedTab("))
         assertTrue(source.contains("if (toolbarSpec.collapseAfterTabSelection) expanded = false"))
+        assertFalse(source.contains("AnimatedVisibility(visible = expanded)"))
+        assertFalse(
+            source.contains(
+                """
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(toolbarSpec.tabHeightDp.dp)
+                ) {
+                    if (expanded) {
+                """.trimIndent()
+            )
+        )
     }
 
     private fun loadSource(path: String): String {

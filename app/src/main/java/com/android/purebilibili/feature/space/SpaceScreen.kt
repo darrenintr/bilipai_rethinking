@@ -2,7 +2,6 @@ package com.android.purebilibili.feature.space
 
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SizeTransform
@@ -95,6 +94,8 @@ import coil.request.ImageRequest
 import com.android.purebilibili.R
 import com.android.purebilibili.core.ui.AdaptiveScaffold
 import com.android.purebilibili.core.ui.AdaptiveTopAppBar
+import com.android.purebilibili.core.ui.AppShapes
+import com.android.purebilibili.core.ui.ContainerLevel
 import com.android.purebilibili.core.ui.blur.BlurSurfaceType
 import com.android.purebilibili.core.ui.blur.rememberRecoverableHazeState
 import com.android.purebilibili.core.ui.blur.unifiedBlur
@@ -1983,7 +1984,7 @@ private fun SpaceContributionToolbar(
                 selectedTitle = selectedTitle
             )
         }
-        Column(
+        SpaceContributionToolbarDock(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = toolbarSpec.horizontalPaddingDp.dp)
@@ -1993,13 +1994,31 @@ private fun SpaceContributionToolbar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SpaceContributionCollapsedTab(
-                    title = selectedTitle,
-                    toolbarSpec = toolbarSpec,
-                    onExpand = { expanded = true }
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
+                if (expanded) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(toolbarSpec.tabHeightDp.dp)
+                    ) {
+                        SpaceContributionExpandedTabRail(
+                            tabs = tabs,
+                            selectedTabId = selectedTabId,
+                            selectedSubTab = selectedSubTab,
+                            toolbarSpec = toolbarSpec,
+                            onSelect = { tabId ->
+                                onSelect(tabId)
+                                if (toolbarSpec.collapseAfterTabSelection) expanded = false
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                } else {
+                    SpaceContributionCollapsedTab(
+                        title = selectedTitle,
+                        toolbarSpec = toolbarSpec,
+                        onExpand = { expanded = true }
+                    )
+                }
 
                 if (toolbarSpec.showVideoActions) {
                     SpaceContributionVideoToolbarActions(
@@ -2013,23 +2032,26 @@ private fun SpaceContributionToolbar(
                     )
                 }
             }
-
-            AnimatedVisibility(visible = expanded) {
-                SpaceContributionExpandedTabRail(
-                    tabs = tabs,
-                    selectedTabId = selectedTabId,
-                    selectedSubTab = selectedSubTab,
-                    toolbarSpec = toolbarSpec,
-                    onSelect = { tabId ->
-                        onSelect(tabId)
-                        if (toolbarSpec.collapseAfterTabSelection) expanded = false
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp)
-                )
-            }
         }
+    }
+}
+
+@Composable
+private fun SpaceContributionToolbarDock(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = AppShapes.container(ContainerLevel.Pill),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            content = content
+        )
     }
 }
 
@@ -2060,10 +2082,10 @@ private fun SpaceContributionCollapsedTab(
         Box(
             modifier = Modifier
                 .matchParentSize()
-            .combinedClickable(
-                onClick = {},
-                onLongClick = onExpand
-            )
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = onExpand
+                )
         )
     }
 }
