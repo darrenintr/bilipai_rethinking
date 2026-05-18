@@ -232,6 +232,20 @@ class BottomBarIndicatorPolicyTest {
     }
 
     @Test
+    fun `transparent glass preset keeps foreground content above indicator glass`() {
+        assertTrue(
+            shouldRenderBottomBarForegroundAboveIndicator(
+                preset = BottomBarLiquidGlassPreset.BACKDROP_NATIVE
+            )
+        )
+        assertFalse(
+            shouldRenderBottomBarForegroundAboveIndicator(
+                preset = BottomBarLiquidGlassPreset.BILIPAI_TUNED
+            )
+        )
+    }
+
+    @Test
     fun `heavy bottom bar effects require settled interaction progress`() {
         assertFalse(
             shouldRenderBottomBarHeavyInteractiveEffects(

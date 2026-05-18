@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import androidx.compose.ui.zIndex
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.android.purebilibili.R
@@ -595,6 +596,12 @@ internal fun shouldUseBottomBarCombinedIndicatorBackdrop(
     preset: BottomBarLiquidGlassPreset
 ): Boolean {
     return preset == BottomBarLiquidGlassPreset.BILIPAI_TUNED
+}
+
+internal fun shouldRenderBottomBarForegroundAboveIndicator(
+    preset: BottomBarLiquidGlassPreset
+): Boolean {
+    return preset == BottomBarLiquidGlassPreset.BACKDROP_NATIVE
 }
 
 internal fun shouldComposeBottomBarDockContent(
@@ -2774,6 +2781,7 @@ private fun KernelSuAlignedBottomBar(
                 }
             }
             val transparentGlassPreset = liquidGlassPreset == BottomBarLiquidGlassPreset.BACKDROP_NATIVE
+            val foregroundAboveIndicator = shouldRenderBottomBarForegroundAboveIndicator(liquidGlassPreset)
             val backdropPresetProgress = resolveBottomBarBackdropPresetProgress(
                 motionProgress = motionProgress,
                 verticalProgress = verticalGlassProfile.progress,
@@ -2949,6 +2957,7 @@ private fun KernelSuAlignedBottomBar(
                             .fillMaxSize()
                             .padding(dockContentPadding)
                             .alpha(dockContentAlpha)
+                            .zIndex(if (foregroundAboveIndicator) 1f else 0f)
                             .graphicsLayer { translationX = presetPanelOffsets.visiblePanelOffsetPx },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
