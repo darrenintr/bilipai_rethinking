@@ -1,0 +1,14 @@
+name: bilipai_flutter
+description: A first Flutter multiplatform port of BiliPai focused on Android and iOS.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
