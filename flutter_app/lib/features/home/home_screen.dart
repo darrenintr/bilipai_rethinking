@@ -41,7 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final item = items[index];
               return Card(
