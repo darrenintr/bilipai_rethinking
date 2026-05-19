@@ -1,0 +1,51 @@
+name: Flutter
+
+on:
+  push:
+    paths:
+      - 'flutter_app/**'
+      - '.github/workflows/Flutter.yml'
+  pull_request:
+    paths:
+      - 'flutter_app/**'
+      - '.github/workflows/Flutter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flutter_app
+    steps:
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐦 Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 📦 Install dependencies
+        run: flutter pub get
+
+      - name: 🔍 Analyze
+        run: flutter analyze
+
+      - name: ✅ Run tests
+        run: flutter test
+
+      - name: 🏗️ Build Android APK (debug)
+        run: flutter build apk --debug
+
+      - name: 📤 Upload Flutter APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bilipai-flutter-debug-apk
+          path: flutter_app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 7
