@@ -38,7 +38,9 @@ class BiliPaiNavDisplayHostStructureTest {
 
         assertTrue(source.contains("rememberNavigationEventState("))
         assertTrue(source.contains("NavigationBackHandler("))
-        assertTrue(source.contains("onBackCompleted = { onBack() }"))
+        assertTrue(source.contains("onBackCompleted = {"))
+        assertTrue(source.contains("predictiveBackMotion.onBackPressed("))
+        assertTrue(source.contains("onBack()"))
         assertTrue(source.contains("navigationEventState = navigationEventState"))
         assertTrue(source.contains("sceneState = sceneState"))
         kotlin.test.assertFalse(source.contains("NavDisplay(\n        backStack = safeBackStack"))

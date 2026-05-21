@@ -1,5 +1,6 @@
 package com.android.purebilibili.navigation3
 
+import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import com.android.purebilibili.navigation.AppSystemBackAction
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,7 +14,7 @@ class BiliPaiNavMotionPolicyTest {
         assertEquals(
             BiliPaiNavMotionMode.PREDICTIVE_NAV_DISPLAY,
             resolveBiliPaiNavMotionMode(
-                predictiveBackAnimationEnabled = true,
+                predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP,
                 cardTransitionEnabled = true
             )
         )
@@ -24,10 +25,28 @@ class BiliPaiNavMotionPolicyTest {
         assertEquals(
             BiliPaiNavMotionMode.CLASSIC_CARD,
             resolveBiliPaiNavMotionMode(
-                predictiveBackAnimationEnabled = false,
+                predictiveBackAnimationStyle = PredictiveBackAnimationStyle.NONE,
                 cardTransitionEnabled = true
             )
         )
+    }
+
+    @Test
+    fun installerXStylesWithCards_useNavDisplayPredictiveMode() {
+        listOf(
+            PredictiveBackAnimationStyle.AOSP,
+            PredictiveBackAnimationStyle.MIUIX,
+            PredictiveBackAnimationStyle.SCALE,
+            PredictiveBackAnimationStyle.CLASSIC
+        ).forEach { style ->
+            assertEquals(
+                BiliPaiNavMotionMode.PREDICTIVE_NAV_DISPLAY,
+                resolveBiliPaiNavMotionMode(
+                    predictiveBackAnimationStyle = style,
+                    cardTransitionEnabled = true
+                )
+            )
+        }
     }
 
     @Test
@@ -35,7 +54,7 @@ class BiliPaiNavMotionPolicyTest {
         val decision = resolveBiliPaiNavMotionDecision(
             fromKey = BiliPaiNavKey.VideoDetail("BV1"),
             toKey = BiliPaiNavKey.Home,
-            predictiveBackAnimationEnabled = true,
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP,
             cardTransitionEnabled = true,
             sharedTransitionReady = true
         )
@@ -47,7 +66,7 @@ class BiliPaiNavMotionPolicyTest {
     @Test
     fun predictiveEnabledSharedVideoReturnLetsNavDisplayOwnBackGesture() {
         val decision = resolveBiliPaiBackGestureDecision(
-            predictiveBackAnimationEnabled = true,
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP,
             cardTransitionEnabled = true,
             systemBackAction = AppSystemBackAction.NAVIGATE_UP,
             currentKey = BiliPaiNavKey.VideoDetail("BV1", sourceRoute = "home"),
@@ -68,7 +87,7 @@ class BiliPaiNavMotionPolicyTest {
     @Test
     fun predictiveEnabledStaleVideoReturnUsesNavDisplayDefaultPredictivePop() {
         val decision = resolveBiliPaiBackGestureDecision(
-            predictiveBackAnimationEnabled = true,
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP,
             cardTransitionEnabled = true,
             systemBackAction = AppSystemBackAction.NAVIGATE_UP,
             currentKey = BiliPaiNavKey.VideoDetail("BV2", sourceRoute = "home"),
@@ -89,7 +108,7 @@ class BiliPaiNavMotionPolicyTest {
     @Test
     fun predictiveDisabledNavigateUpUsesClassicAppBack() {
         val decision = resolveBiliPaiBackGestureDecision(
-            predictiveBackAnimationEnabled = false,
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.NONE,
             cardTransitionEnabled = true,
             systemBackAction = AppSystemBackAction.NAVIGATE_UP,
             currentKey = BiliPaiNavKey.VideoDetail("BV1", sourceRoute = "home"),
@@ -110,7 +129,7 @@ class BiliPaiNavMotionPolicyTest {
     @Test
     fun returnToHomeTabAlwaysUsesAppActionBack() {
         val decision = resolveBiliPaiBackGestureDecision(
-            predictiveBackAnimationEnabled = true,
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP,
             cardTransitionEnabled = true,
             systemBackAction = AppSystemBackAction.RETURN_TO_HOME_TAB,
             currentKey = BiliPaiNavKey.MainHost,
@@ -179,7 +198,7 @@ class BiliPaiNavMotionPolicyTest {
         val decision = resolveBiliPaiNavMotionDecision(
             fromKey = BiliPaiNavKey.Home,
             toKey = BiliPaiNavKey.VideoDetail("BV1", sourceRoute = "home"),
-            predictiveBackAnimationEnabled = false,
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.NONE,
             cardTransitionEnabled = true,
             sharedTransitionReady = true
         )
@@ -193,7 +212,7 @@ class BiliPaiNavMotionPolicyTest {
         val decision = resolveBiliPaiNavMotionDecision(
             fromKey = BiliPaiNavKey.VideoDetail("BV1"),
             toKey = BiliPaiNavKey.Home,
-            predictiveBackAnimationEnabled = false,
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.NONE,
             cardTransitionEnabled = true,
             sharedTransitionReady = false
         )

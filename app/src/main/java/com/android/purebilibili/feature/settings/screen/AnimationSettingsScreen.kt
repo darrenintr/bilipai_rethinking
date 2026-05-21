@@ -3,11 +3,13 @@ package com.android.purebilibili.feature.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable // [Fix] Missing import
-import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -27,6 +28,7 @@ import com.android.purebilibili.core.ui.blur.BlurIntensity
 import com.android.purebilibili.core.ui.blur.shouldAllowHomeChromeLiquidGlass
 import com.android.purebilibili.core.store.LiquidGlassMode
 import com.android.purebilibili.core.store.BottomBarLiquidGlassPreset
+import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.ui.AppShapes
 import com.android.purebilibili.core.ui.AppSurfaceTokens
@@ -141,11 +143,19 @@ fun AnimationSettingsContent(
     }
     val predictiveBackToggleState = remember(
         state.cardTransitionEnabled,
-        state.predictiveBackAnimationEnabled
+        state.predictiveBackAnimationStyle
     ) {
         resolvePredictiveBackToggleUiState(
             cardTransitionEnabled = state.cardTransitionEnabled,
-            predictiveBackAnimationEnabled = state.predictiveBackAnimationEnabled
+            predictiveBackAnimationStyle = state.predictiveBackAnimationStyle
+        )
+    }
+    var showPredictiveBackAnimationDialog by remember { mutableStateOf(false) }
+    if (showPredictiveBackAnimationDialog) {
+        PredictiveBackAnimationDialog(
+            currentStyle = state.predictiveBackAnimationStyle,
+            onSelect = { style -> viewModel.setPredictiveBackAnimationStyle(style) },
+            onDismiss = { showPredictiveBackAnimationDialog = false }
         )
     }
     val isLiquidGlassAvailable = shouldAllowHomeChromeLiquidGlass(Build.VERSION.SDK_INT)
@@ -196,18 +206,22 @@ fun AnimationSettingsContent(
                             iconTint = iOSTeal
                         )
                         IOSDivider()
-	                        IOSSwitchItem(
+	                        IOSClickableItem(
 	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.PREDICTIVE_BACK),
                             title = predictiveBackToggleState.title,
                             subtitle = predictiveBackToggleState.subtitle,
-                            checked = predictiveBackToggleState.checked,
-                            onCheckedChange = {
-                                if (predictiveBackToggleState.enabled) {
-                                    viewModel.togglePredictiveBackAnimation(it)
+                            value = predictiveBackToggleState.selectedStyle.displayName,
+                            onClick = if (predictiveBackToggleState.enabled) {
+                                {
+                                    showPredictiveBackAnimationDialog = true
                                 }
+                            } else {
+                                null
                             },
-                            enabled = predictiveBackToggleState.enabled,
-                            iconTint = if (predictiveBackToggleState.enabled) iOSBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                            iconTint = if (predictiveBackToggleState.enabled) iOSBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                            textColor = if (predictiveBackToggleState.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            showChevron = predictiveBackToggleState.enabled
                         )
                         IOSDivider()
                         Column(
@@ -286,7 +300,6 @@ fun AnimationSettingsContent(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(BottomBarLiquidGlassPreset.BILIPAI_TUNED).forEach { preset ->
                                         val isSelected = bottomBarLiquidGlassPreset == preset
@@ -355,7 +368,6 @@ fun AnimationSettingsContent(
                             }
                             IOSDivider()
                         }
-
                         // 磨砂效果 (始终显示)
 	                        IOSSwitchItem(
 	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.TOP_BAR_BLUR),
@@ -388,7 +400,6 @@ fun AnimationSettingsContent(
             }
             
             // 📐 底栏样式
-            // 📐 底栏样式
             item {
                 Box(modifier = Modifier.staggeredEntrance(4, isVisible, motionTier = settingsEntranceMotionTier)) {
                     IOSSectionTitle("底栏样式")
@@ -409,7 +420,6 @@ fun AnimationSettingsContent(
                 }
             }
             
-            //  提示
             //  提示
             item {
                 Box(modifier = Modifier.staggeredEntrance(6, isVisible, motionTier = settingsEntranceMotionTier)) {
@@ -444,3 +454,55 @@ fun AnimationSettingsContent(
             item { Spacer(modifier = Modifier.height(32.dp)) }
         }
     }
+
+@Composable
+private fun PredictiveBackAnimationDialog(
+    currentStyle: PredictiveBackAnimationStyle,
+    onSelect: (PredictiveBackAnimationStyle) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "选择预测性返回的动画效果",
+                style = MaterialTheme.typography.headlineSmall
+            )
+        },
+        text = {
+            Column {
+                PredictiveBackAnimationStyle.entries.forEach { style ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelect(style)
+                                onDismiss()
+                            }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = style == currentStyle,
+                            onClick = {
+                                onSelect(style)
+                                onDismiss()
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = style.displayName,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        },
+        shape = RoundedCornerShape(28.dp)
+    )
+}

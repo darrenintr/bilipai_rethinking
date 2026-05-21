@@ -311,7 +311,8 @@ fun AppNavigation(
         )
     }
     val cardTransitionEnabled = appearance.cardTransitionEnabled
-    val predictiveBackAnimationEnabled = appearance.predictiveBackAnimationEnabled
+    val predictiveBackAnimationStyle = appearance.predictiveBackAnimationStyle
+    val predictiveBackAnimationEnabled = predictiveBackAnimationStyle.usesPredictiveBack
     val isBottomBarBlurEnabled = appearance.bottomBarBlurEnabled
     val bottomBarLabelMode = appearance.bottomBarLabelMode
     val isBottomBarFloating = appearance.bottomBarFloating
@@ -475,9 +476,9 @@ fun AppNavigation(
                 cardTransitionEnabled = cardTransitionEnabled
             )
         }
-        val backRouteMotionMode = remember(predictiveBackAnimationEnabled, cardTransitionEnabled) {
+        val backRouteMotionMode = remember(predictiveBackAnimationStyle, cardTransitionEnabled) {
             resolveBiliPaiNavMotionMode(
-                predictiveBackAnimationEnabled = predictiveBackAnimationEnabled,
+                predictiveBackAnimationStyle = predictiveBackAnimationStyle,
                 cardTransitionEnabled = cardTransitionEnabled
             )
         }
@@ -492,9 +493,9 @@ fun AppNavigation(
                 homeItem = BottomNavItem.HOME
             )
         }
-        val navigation3MotionMode = remember(predictiveBackAnimationEnabled, cardTransitionEnabled) {
+        val navigation3MotionMode = remember(predictiveBackAnimationStyle, cardTransitionEnabled) {
             resolveBiliPaiNavMotionMode(
-                predictiveBackAnimationEnabled = predictiveBackAnimationEnabled,
+                predictiveBackAnimationStyle = predictiveBackAnimationStyle,
                 cardTransitionEnabled = cardTransitionEnabled
             )
         }
@@ -677,7 +678,7 @@ fun AppNavigation(
         val navigation3SourceMetadata = currentNavigation3SourceMetadata()
         val previousNavigation3Key = navigation3BackStack.getOrNull(navigation3BackStack.lastIndex - 1)
         val backGestureDecision = remember(
-            predictiveBackAnimationEnabled,
+            predictiveBackAnimationStyle,
             cardTransitionEnabled,
             systemBackAction,
             currentNavigation3Key,
@@ -685,7 +686,7 @@ fun AppNavigation(
             navigation3SourceMetadata
         ) {
             resolveBiliPaiBackGestureDecision(
-                predictiveBackAnimationEnabled = predictiveBackAnimationEnabled,
+                predictiveBackAnimationStyle = predictiveBackAnimationStyle,
                 cardTransitionEnabled = cardTransitionEnabled,
                 systemBackAction = systemBackAction,
                 currentKey = currentNavigation3Key,
@@ -2098,6 +2099,7 @@ fun AppNavigation(
                 BiliPaiNavDisplayHost(
                     backStack = navigation3BackStack,
                     motionMode = navigation3MotionMode,
+                    predictiveBackAnimationStyle = predictiveBackAnimationStyle,
                     sourceMetadata = navigation3SourceMetadata,
                     onBack = { performSystemBackAction() },
                     modifier = Modifier.fillMaxSize(),

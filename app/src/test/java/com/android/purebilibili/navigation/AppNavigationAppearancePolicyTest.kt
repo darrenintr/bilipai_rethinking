@@ -1,6 +1,7 @@
 package com.android.purebilibili.navigation
 
 import com.android.purebilibili.core.store.HomeSettings
+import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import com.android.purebilibili.core.theme.AndroidNativeVariant
 import com.android.purebilibili.core.theme.UiPreset
 import java.io.File
@@ -20,13 +21,13 @@ class AppNavigationAppearancePolicyTest {
                 isBottomBarBlurEnabled = false,
                 cardTransitionEnabled = false,
                 videoTransitionRealtimeBlurEnabled = false,
-                predictiveBackAnimationEnabled = false
+                predictiveBackAnimationStyle = PredictiveBackAnimationStyle.NONE
             )
         )
 
         assertFalse(appearance.cardTransitionEnabled)
         assertFalse(appearance.videoTransitionRealtimeBlurEnabled)
-        assertFalse(appearance.predictiveBackAnimationEnabled)
+        assertEquals(PredictiveBackAnimationStyle.NONE, appearance.predictiveBackAnimationStyle)
         assertFalse(appearance.bottomBarBlurEnabled)
         assertEquals(2, appearance.bottomBarLabelMode)
         assertFalse(appearance.bottomBarFloating)
@@ -38,7 +39,7 @@ class AppNavigationAppearancePolicyTest {
 
         assertTrue(appearance.cardTransitionEnabled)
         assertTrue(appearance.videoTransitionRealtimeBlurEnabled)
-        assertTrue(appearance.predictiveBackAnimationEnabled)
+        assertEquals(PredictiveBackAnimationStyle.AOSP, appearance.predictiveBackAnimationStyle)
         assertTrue(appearance.bottomBarBlurEnabled)
         assertEquals(0, appearance.bottomBarLabelMode)
         assertTrue(appearance.bottomBarFloating)

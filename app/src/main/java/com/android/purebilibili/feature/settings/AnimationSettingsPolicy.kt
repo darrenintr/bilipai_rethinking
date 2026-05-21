@@ -1,22 +1,20 @@
 package com.android.purebilibili.feature.settings
 
 import com.android.purebilibili.core.store.LiquidGlassMode
+import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import com.android.purebilibili.core.store.normalizeLiquidGlassProgress
 import com.android.purebilibili.core.store.normalizeLiquidGlassStrength
 import com.android.purebilibili.core.store.resolveLegacyLiquidGlassProgress
 
-internal const val PREDICTIVE_BACK_TOGGLE_TITLE = "预测性返回预览"
-internal const val PREDICTIVE_BACK_TOGGLE_ACTIVE_SUBTITLE =
-    "普通返回交给系统和 Navigation3 预览；共享元素回程只保留元素形变"
-internal const val PREDICTIVE_BACK_TOGGLE_INACTIVE_SUBTITLE =
-    "应用壳接管经典返回，关闭 Navigation3 栈返回预览"
+internal const val PREDICTIVE_BACK_ANIMATION_TITLE = "预测性返回动画"
+internal const val PREDICTIVE_BACK_ANIMATION_SUBTITLE_PREFIX = "当前："
 internal const val PREDICTIVE_BACK_TOGGLE_DEPENDENCY_SUBTITLE =
     "需先开启“过渡动画”后，才能调整返回动效"
 
 internal data class PredictiveBackToggleUiState(
     val title: String,
     val enabled: Boolean,
-    val checked: Boolean,
+    val selectedStyle: PredictiveBackAnimationStyle,
     val subtitle: String
 )
 
@@ -29,25 +27,21 @@ internal data class LiquidGlassPreviewUiState(
 
 internal fun resolvePredictiveBackToggleUiState(
     cardTransitionEnabled: Boolean,
-    predictiveBackAnimationEnabled: Boolean
+    predictiveBackAnimationStyle: PredictiveBackAnimationStyle
 ): PredictiveBackToggleUiState {
     if (!cardTransitionEnabled) {
         return PredictiveBackToggleUiState(
-            title = PREDICTIVE_BACK_TOGGLE_TITLE,
+            title = PREDICTIVE_BACK_ANIMATION_TITLE,
             enabled = false,
-            checked = false,
+            selectedStyle = PredictiveBackAnimationStyle.NONE,
             subtitle = PREDICTIVE_BACK_TOGGLE_DEPENDENCY_SUBTITLE
         )
     }
     return PredictiveBackToggleUiState(
-        title = PREDICTIVE_BACK_TOGGLE_TITLE,
+        title = PREDICTIVE_BACK_ANIMATION_TITLE,
         enabled = true,
-        checked = predictiveBackAnimationEnabled,
-        subtitle = if (predictiveBackAnimationEnabled) {
-            PREDICTIVE_BACK_TOGGLE_ACTIVE_SUBTITLE
-        } else {
-            PREDICTIVE_BACK_TOGGLE_INACTIVE_SUBTITLE
-        }
+        selectedStyle = predictiveBackAnimationStyle,
+        subtitle = "$PREDICTIVE_BACK_ANIMATION_SUBTITLE_PREFIX${predictiveBackAnimationStyle.displayName}"
     )
 }
 

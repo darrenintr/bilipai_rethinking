@@ -10,6 +10,7 @@ import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.store.BottomBarSearchAutoExpandMode
 import com.android.purebilibili.core.store.HomeFeedCardWidthPreset
 import com.android.purebilibili.core.store.LiquidGlassMode
+import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import com.android.purebilibili.core.store.allManagedAppIconLauncherAliases
 import com.android.purebilibili.core.store.resolveDefaultLiquidGlassStrength
 import com.android.purebilibili.core.store.resolveLegacyLiquidGlassProgress
@@ -62,7 +63,8 @@ data class SettingsUiState(
     val cardAnimationEnabled: Boolean = false,     //  卡片进场动画（默认关闭）
     val cardTransitionEnabled: Boolean = false,    //  卡片过渡动画（默认关闭）
     val videoTransitionRealtimeBlurEnabled: Boolean = true,
-    val predictiveBackAnimationEnabled: Boolean = true, // 预测性返回预览支持
+    val predictiveBackAnimationStyle: PredictiveBackAnimationStyle =
+        PredictiveBackAnimationStyle.Default, // 预测性返回动画样式
     val smartVisualGuardEnabled: Boolean = false, // [Retired] 智能流畅优先已下线
     val cacheSize: String = "计算中...",
     val cacheBreakdown: CacheUtils.CacheBreakdown? = null,  //  详细缓存统计
@@ -94,6 +96,9 @@ data class SettingsUiState(
 ) {
     val isLiquidGlassEnabled: Boolean
         get() = bottomBarLiquidGlassEnabled
+
+    val predictiveBackAnimationEnabled: Boolean
+        get() = predictiveBackAnimationStyle.usesPredictiveBack
 }
 
 // 内部数据类，用于分批合并流
@@ -128,7 +133,7 @@ data class ExtraSettings(
     val cardAnimationEnabled: Boolean,
     val cardTransitionEnabled: Boolean,
     val videoTransitionRealtimeBlurEnabled: Boolean,
-    val predictiveBackAnimationEnabled: Boolean,
+    val predictiveBackAnimationStyle: PredictiveBackAnimationStyle,
     val smartVisualGuardEnabled: Boolean,
     val hapticFeedbackEnabled: Boolean, // [Restored]
     val bottomBarLiquidGlassEnabled: Boolean = true,
@@ -186,7 +191,7 @@ private data class BaseSettings(
     val cardAnimationEnabled: Boolean, //  卡片进场动画
     val cardTransitionEnabled: Boolean, //  卡片过渡动画
     val videoTransitionRealtimeBlurEnabled: Boolean,
-    val predictiveBackAnimationEnabled: Boolean, // [New]
+    val predictiveBackAnimationStyle: PredictiveBackAnimationStyle, // [New]
     val smartVisualGuardEnabled: Boolean, // [New]
     val hapticFeedbackEnabled: Boolean, // [新增]
     val bottomBarLiquidGlassEnabled: Boolean,
@@ -282,7 +287,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         SettingsManager.getCardAnimationEnabled(context).asAnyFlow(), // [Restored]
         SettingsManager.getCardTransitionEnabled(context).asAnyFlow(),
         SettingsManager.getVideoTransitionRealtimeBlurEnabled(context).asAnyFlow(),
-        SettingsManager.getPredictiveBackAnimationEnabled(context).asAnyFlow(), // [New]
+        SettingsManager.getPredictiveBackAnimationStyle(context).asAnyFlow(), // [New]
         SettingsManager.getSmartVisualGuardEnabled(context).asAnyFlow(), // [New]
         SettingsManager.getHapticFeedbackEnabled(context).asAnyFlow(), // [新增]
         SettingsManager.getBottomBarLiquidGlassEnabled(context).asAnyFlow(),
@@ -304,7 +309,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val cardAnimation = values[3] as Boolean
         val cardTransition = values[4] as Boolean
         val videoTransitionRealtimeBlur = values[5] as Boolean
-        val predictiveBackAnimation = values[6] as Boolean
+        val predictiveBackAnimation = values[6] as PredictiveBackAnimationStyle
         val smartVisualGuard = values[7] as Boolean
         val hapticFeedback = values[8] as Boolean
         val bottomBarLiquidGlass = values[9] as Boolean
@@ -327,7 +332,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val ca: Boolean,
             val ct: Boolean,
             val vtrb: Boolean,
-            val pba: Boolean,
+            val pba: PredictiveBackAnimationStyle,
             val svg: Boolean,
             val h: Boolean,
             val blg: Boolean,
@@ -386,7 +391,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             cardAnimationEnabled = ui2.ca,
             cardTransitionEnabled = ui2.ct,
             videoTransitionRealtimeBlurEnabled = ui2.vtrb,
-            predictiveBackAnimationEnabled = ui2.pba,
+            predictiveBackAnimationStyle = ui2.pba,
             smartVisualGuardEnabled = ui2.svg,
             hapticFeedbackEnabled = ui2.h, // [新增]
             bottomBarLiquidGlassEnabled = ui2.blg,
@@ -474,7 +479,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             cardAnimationEnabled = extra.cardAnimationEnabled,
             cardTransitionEnabled = extra.cardTransitionEnabled,
             videoTransitionRealtimeBlurEnabled = extra.videoTransitionRealtimeBlurEnabled,
-            predictiveBackAnimationEnabled = extra.predictiveBackAnimationEnabled,
+            predictiveBackAnimationStyle = extra.predictiveBackAnimationStyle,
             smartVisualGuardEnabled = extra.smartVisualGuardEnabled,
             hapticFeedbackEnabled = extra.hapticFeedbackEnabled, // [新增]
             bottomBarLiquidGlassEnabled = extra.bottomBarLiquidGlassEnabled,
@@ -531,7 +536,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             cardAnimationEnabled = settings.cardAnimationEnabled,
             cardTransitionEnabled = settings.cardTransitionEnabled,
             videoTransitionRealtimeBlurEnabled = settings.videoTransitionRealtimeBlurEnabled,
-            predictiveBackAnimationEnabled = settings.predictiveBackAnimationEnabled,
+            predictiveBackAnimationStyle = settings.predictiveBackAnimationStyle,
             smartVisualGuardEnabled = settings.smartVisualGuardEnabled,
             hapticFeedbackEnabled = settings.hapticFeedbackEnabled, // [新增]
             bottomBarLiquidGlassEnabled = settings.bottomBarLiquidGlassEnabled,
@@ -755,6 +760,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun togglePredictiveBackAnimation(value: Boolean) {
         viewModelScope.launch {
             SettingsManager.setPredictiveBackAnimationEnabled(context, value)
+        }
+    }
+
+    fun setPredictiveBackAnimationStyle(style: PredictiveBackAnimationStyle) {
+        viewModelScope.launch {
+            SettingsManager.setPredictiveBackAnimationStyle(context, style)
         }
     }
 

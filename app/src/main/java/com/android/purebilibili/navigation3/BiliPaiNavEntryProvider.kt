@@ -100,8 +100,6 @@ internal fun biliPaiNavEntryMetadata(
         resolveBiliPaiNavContentTransform(transition)
     } + NavDisplay.popTransitionSpec {
         resolveBiliPaiNavContentTransform(transitions.pop)
-    } + NavDisplay.predictivePopTransitionSpec {
-        resolveBiliPaiNavPredictivePopContentTransform(transitions.predictivePop)
     }
 }
 

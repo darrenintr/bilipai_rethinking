@@ -1,13 +1,14 @@
 package com.android.purebilibili.navigation
 
 import com.android.purebilibili.core.store.HomeSettings
+import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import com.android.purebilibili.core.theme.AndroidNativeVariant
 import com.android.purebilibili.core.theme.UiPreset
 
 internal data class AppNavigationAppearance(
     val cardTransitionEnabled: Boolean,
     val videoTransitionRealtimeBlurEnabled: Boolean,
-    val predictiveBackAnimationEnabled: Boolean,
+    val predictiveBackAnimationStyle: PredictiveBackAnimationStyle,
     val bottomBarBlurEnabled: Boolean,
     val bottomBarLabelMode: Int,
     val bottomBarFloating: Boolean
@@ -21,7 +22,7 @@ internal fun resolveAppNavigationAppearance(
     return AppNavigationAppearance(
         cardTransitionEnabled = homeSettings.cardTransitionEnabled,
         videoTransitionRealtimeBlurEnabled = homeSettings.videoTransitionRealtimeBlurEnabled,
-        predictiveBackAnimationEnabled = homeSettings.predictiveBackAnimationEnabled,
+        predictiveBackAnimationStyle = homeSettings.predictiveBackAnimationStyle,
         bottomBarBlurEnabled = homeSettings.isBottomBarBlurEnabled,
         bottomBarLabelMode = homeSettings.bottomBarLabelMode,
         bottomBarFloating = homeSettings.isBottomBarFloating

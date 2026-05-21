@@ -1,5 +1,6 @@
 package com.android.purebilibili.feature.settings
 
+import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,42 +11,45 @@ import kotlin.test.assertTrue
 class AnimationSettingsPolicyTest {
 
     @Test
-    fun predictiveBackToggle_cardTransitionEnabled_usesPredictiveGestureState() {
-        val enabledAndChecked = resolvePredictiveBackToggleUiState(
+    fun predictiveBackEntry_cardTransitionEnabled_usesSelectedStyleState() {
+        val aosp = resolvePredictiveBackToggleUiState(
             cardTransitionEnabled = true,
-            predictiveBackAnimationEnabled = true
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP
         )
-        assertTrue(enabledAndChecked.enabled)
-        assertTrue(enabledAndChecked.checked)
-        assertEquals(PREDICTIVE_BACK_TOGGLE_TITLE, enabledAndChecked.title)
-        assertEquals("预测性返回预览", enabledAndChecked.title)
-        assertEquals(PREDICTIVE_BACK_TOGGLE_ACTIVE_SUBTITLE, enabledAndChecked.subtitle)
-        assertTrue(enabledAndChecked.subtitle.contains("系统"))
-        assertTrue(enabledAndChecked.subtitle.contains("Navigation3"))
-        assertTrue(enabledAndChecked.subtitle.contains("共享元素"))
+        assertTrue(aosp.enabled)
+        assertEquals(PredictiveBackAnimationStyle.AOSP, aosp.selectedStyle)
+        assertEquals(PREDICTIVE_BACK_ANIMATION_TITLE, aosp.title)
+        assertEquals("预测性返回动画", aosp.title)
+        assertEquals("当前：AOSP", aosp.subtitle)
 
-        val enabledAndUnchecked = resolvePredictiveBackToggleUiState(
+        val none = resolvePredictiveBackToggleUiState(
             cardTransitionEnabled = true,
-            predictiveBackAnimationEnabled = false
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.NONE
         )
-        assertTrue(enabledAndUnchecked.enabled)
-        assertFalse(enabledAndUnchecked.checked)
-        assertEquals(PREDICTIVE_BACK_TOGGLE_TITLE, enabledAndUnchecked.title)
-        assertEquals(PREDICTIVE_BACK_TOGGLE_INACTIVE_SUBTITLE, enabledAndUnchecked.subtitle)
-        assertTrue(enabledAndUnchecked.subtitle.contains("经典返回"))
-        assertTrue(enabledAndUnchecked.subtitle.contains("应用壳"))
+        assertTrue(none.enabled)
+        assertEquals(PredictiveBackAnimationStyle.NONE, none.selectedStyle)
+        assertEquals("当前：无", none.subtitle)
     }
 
     @Test
-    fun predictiveBackToggle_cardTransitionDisabled_forcesDisabledUnchecked() {
+    fun predictiveBackEntry_cardTransitionDisabled_forcesDisabledNone() {
         val disabledState = resolvePredictiveBackToggleUiState(
             cardTransitionEnabled = false,
-            predictiveBackAnimationEnabled = true
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP
         )
         assertFalse(disabledState.enabled)
-        assertFalse(disabledState.checked)
-        assertEquals(PREDICTIVE_BACK_TOGGLE_TITLE, disabledState.title)
+        assertEquals(PredictiveBackAnimationStyle.NONE, disabledState.selectedStyle)
+        assertEquals(PREDICTIVE_BACK_ANIMATION_TITLE, disabledState.title)
         assertEquals(PREDICTIVE_BACK_TOGGLE_DEPENDENCY_SUBTITLE, disabledState.subtitle)
+    }
+
+    @Test
+    fun predictiveBackStyles_matchInstallerXDialogOrder() {
+        assertEquals(
+            listOf("无", "AOSP", "Miuix", "缩放", "经典"),
+            PredictiveBackAnimationStyle.entries.map { it.displayName }
+        )
+        assertEquals(PredictiveBackAnimationStyle.AOSP, PredictiveBackAnimationStyle.Default)
     }
 
     @Test

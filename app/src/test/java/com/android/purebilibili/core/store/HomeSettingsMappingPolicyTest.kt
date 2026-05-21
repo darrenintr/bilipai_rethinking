@@ -4,6 +4,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.android.purebilibili.core.theme.UiPreset
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,6 +43,7 @@ class HomeSettingsMappingPolicyTest {
         assertTrue(result.cardTransitionEnabled)
         assertTrue(result.videoTransitionRealtimeBlurEnabled)
         assertTrue(result.predictiveBackAnimationEnabled)
+        assertEquals(PredictiveBackAnimationStyle.AOSP, result.predictiveBackAnimationStyle)
         assertFalse(result.smartVisualGuardEnabled)
         assertTrue(result.compactVideoStatsOnCover)
         assertTrue(result.showHomeVideoDurationBadges)
@@ -116,6 +118,7 @@ class HomeSettingsMappingPolicyTest {
         assertFalse(result.cardTransitionEnabled)
         assertFalse(result.videoTransitionRealtimeBlurEnabled)
         assertFalse(result.predictiveBackAnimationEnabled)
+        assertEquals(PredictiveBackAnimationStyle.NONE, result.predictiveBackAnimationStyle)
         assertFalse(result.smartVisualGuardEnabled)
         assertFalse(result.compactVideoStatsOnCover)
         assertFalse(result.showHomeVideoDurationBadges)
@@ -136,6 +139,31 @@ class HomeSettingsMappingPolicyTest {
         val result = mapHomeSettingsFromPreferences(prefs)
 
         assertEquals(HomeFeedCardWidthPreset.AUTO, result.homeFeedCardWidthPreset)
+    }
+
+    @Test
+    fun predictiveBackAnimationStyle_prefersNewStringKey() {
+        val prefs = mutablePreferencesOf(
+            booleanPreferencesKey("predictive_back_animation_enabled") to false,
+            stringPreferencesKey("predictive_back_animation_style") to PredictiveBackAnimationStyle.SCALE.value
+        )
+
+        val result = mapHomeSettingsFromPreferences(prefs)
+
+        assertTrue(result.predictiveBackAnimationEnabled)
+        assertEquals(PredictiveBackAnimationStyle.SCALE, result.predictiveBackAnimationStyle)
+    }
+
+    @Test
+    fun invalidPredictiveBackAnimationStyleFallsBackToAosp() {
+        val prefs = mutablePreferencesOf(
+            stringPreferencesKey("predictive_back_animation_style") to "bad"
+        )
+
+        val result = mapHomeSettingsFromPreferences(prefs)
+
+        assertTrue(result.predictiveBackAnimationEnabled)
+        assertEquals(PredictiveBackAnimationStyle.AOSP, result.predictiveBackAnimationStyle)
     }
 
     @Test

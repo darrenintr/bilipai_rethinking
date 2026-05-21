@@ -1,8 +1,10 @@
 package com.android.purebilibili.navigation3
 
 import com.android.purebilibili.navigation.ScreenRoutes
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BiliPaiNavEntryProviderPolicyTest {
@@ -149,5 +151,15 @@ class BiliPaiNavEntryProviderPolicyTest {
 
         assertEquals(key.toString(), entry.contentKey)
         assertTrue(entry.metadata.isNotEmpty())
+    }
+
+    @Test
+    fun providerDoesNotOwnPredictivePopTransition() {
+        val source = listOf(
+            File("app/src/main/java/com/android/purebilibili/navigation3/BiliPaiNavEntryProvider.kt"),
+            File("src/main/java/com/android/purebilibili/navigation3/BiliPaiNavEntryProvider.kt")
+        ).first { it.exists() }.readText()
+
+        assertFalse(source.contains("NavDisplay.predictivePopTransitionSpec"))
     }
 }

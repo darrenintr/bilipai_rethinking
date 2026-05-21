@@ -1,5 +1,6 @@
 package com.android.purebilibili.navigation3
 
+import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import com.android.purebilibili.navigation.AppSystemBackAction
 
 internal enum class BiliPaiNavMotionMode {
@@ -38,11 +39,11 @@ internal data class BiliPaiBackGestureDecision(
 }
 
 internal fun resolveBiliPaiNavMotionMode(
-    predictiveBackAnimationEnabled: Boolean,
+    predictiveBackAnimationStyle: PredictiveBackAnimationStyle,
     cardTransitionEnabled: Boolean
 ): BiliPaiNavMotionMode {
     if (!cardTransitionEnabled) return BiliPaiNavMotionMode.CARD_DISABLED
-    return if (predictiveBackAnimationEnabled) {
+    return if (predictiveBackAnimationStyle.usesPredictiveBack) {
         BiliPaiNavMotionMode.PREDICTIVE_NAV_DISPLAY
     } else {
         BiliPaiNavMotionMode.CLASSIC_CARD
@@ -52,13 +53,13 @@ internal fun resolveBiliPaiNavMotionMode(
 internal fun resolveBiliPaiNavMotionDecision(
     fromKey: BiliPaiNavKey?,
     toKey: BiliPaiNavKey?,
-    predictiveBackAnimationEnabled: Boolean,
+    predictiveBackAnimationStyle: PredictiveBackAnimationStyle,
     cardTransitionEnabled: Boolean,
     sharedTransitionReady: Boolean,
     appBackActionRequiresInterception: Boolean = false
 ): BiliPaiNavMotionDecision {
     val mode = resolveBiliPaiNavMotionMode(
-        predictiveBackAnimationEnabled = predictiveBackAnimationEnabled,
+        predictiveBackAnimationStyle = predictiveBackAnimationStyle,
         cardTransitionEnabled = cardTransitionEnabled
     )
     val isVideoToCardReturn = fromKey is BiliPaiNavKey.VideoDetail &&
@@ -90,7 +91,7 @@ internal fun resolveBiliPaiNavMotionDecision(
 }
 
 internal fun resolveBiliPaiBackGestureDecision(
-    predictiveBackAnimationEnabled: Boolean,
+    predictiveBackAnimationStyle: PredictiveBackAnimationStyle,
     cardTransitionEnabled: Boolean,
     systemBackAction: AppSystemBackAction,
     currentKey: BiliPaiNavKey?,
@@ -98,7 +99,7 @@ internal fun resolveBiliPaiBackGestureDecision(
     sourceMetadata: BiliPaiNavSourceMetadata
 ): BiliPaiBackGestureDecision {
     val motionMode = resolveBiliPaiNavMotionMode(
-        predictiveBackAnimationEnabled = predictiveBackAnimationEnabled,
+        predictiveBackAnimationStyle = predictiveBackAnimationStyle,
         cardTransitionEnabled = cardTransitionEnabled
     )
     val routeTransition = resolveBiliPaiNavDisplayPredictivePopRouteTransition(
@@ -110,14 +111,14 @@ internal fun resolveBiliPaiBackGestureDecision(
     val owner = when (systemBackAction) {
         AppSystemBackAction.RETURN_TO_HOME_TAB -> BiliPaiBackGestureOwner.APP_ACTION
         AppSystemBackAction.NAVIGATE_UP -> {
-            if (predictiveBackAnimationEnabled) {
+            if (predictiveBackAnimationStyle.usesPredictiveBack) {
                 BiliPaiBackGestureOwner.NAV_DISPLAY_PREDICTIVE
             } else {
                 BiliPaiBackGestureOwner.APP_CLASSIC
             }
         }
         AppSystemBackAction.FINISH_ACTIVITY -> {
-            if (predictiveBackAnimationEnabled) {
+            if (predictiveBackAnimationStyle.usesPredictiveBack) {
                 BiliPaiBackGestureOwner.NAV_DISPLAY_PREDICTIVE
             } else {
                 BiliPaiBackGestureOwner.APP_CLASSIC

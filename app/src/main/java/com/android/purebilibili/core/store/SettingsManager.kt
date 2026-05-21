@@ -345,6 +345,43 @@ enum class HomeFeedCardWidthPreset(
     }
 }
 
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2025-2026 InstallerX Revived contributors
+// Adapted for BiliPai Navigation3 predictive back settings.
+enum class PredictiveBackAnimationStyle(val value: String, val displayName: String) {
+    NONE("none", "无"),
+    AOSP("aosp", "AOSP"),
+    MIUIX("miuix", "Miuix"),
+    SCALE("scale", "缩放"),
+    CLASSIC("ksu_classic", "经典");
+
+    val usesPredictiveBack: Boolean
+        get() = this != NONE
+
+    companion object {
+        val Default: PredictiveBackAnimationStyle = AOSP
+
+        fun fromValueOrDefault(value: String?): PredictiveBackAnimationStyle {
+            return entries.find { it.value == value } ?: Default
+        }
+
+        fun fromLegacyEnabled(enabled: Boolean): PredictiveBackAnimationStyle {
+            return if (enabled) AOSP else NONE
+        }
+    }
+}
+
+internal fun resolvePredictiveBackAnimationStylePreference(
+    value: String?,
+    legacyEnabled: Boolean?
+): PredictiveBackAnimationStyle {
+    return when {
+        value != null -> PredictiveBackAnimationStyle.fromValueOrDefault(value)
+        legacyEnabled != null -> PredictiveBackAnimationStyle.fromLegacyEnabled(legacyEnabled)
+        else -> PredictiveBackAnimationStyle.Default
+    }
+}
+
 data class HomeSettings(
     val displayMode: Int = 0,              // 展示模式 (0=网格, 1=故事卡片)
     val isBottomBarFloating: Boolean = true,
@@ -372,7 +409,8 @@ data class HomeSettings(
     val cardAnimationEnabled: Boolean = false,    //  卡片进场动画（默认关闭）
     val cardTransitionEnabled: Boolean = true,    //  卡片过渡动画（默认开启）
     val videoTransitionRealtimeBlurEnabled: Boolean = true, // 视频转场实时模糊（默认开启）
-    val predictiveBackAnimationEnabled: Boolean = true, // 预测性返回预览支持（默认开启）
+    val predictiveBackAnimationStyle: PredictiveBackAnimationStyle =
+        PredictiveBackAnimationStyle.Default, // 预测性返回动画样式
     val smartVisualGuardEnabled: Boolean = false, // [Retired] 智能流畅优先已下线，固定关闭
     val compactVideoStatsOnCover: Boolean = true, //  播放量/评论数显示在封面底部（默认开启）
     val lowQualityHomeCoverInDataSaver: Boolean = false, // 省流量时首页封面使用低清晰度
@@ -389,6 +427,9 @@ data class HomeSettings(
 ) {
     val isLiquidGlassEnabled: Boolean
         get() = isBottomBarLiquidGlassEnabled
+
+    val predictiveBackAnimationEnabled: Boolean
+        get() = predictiveBackAnimationStyle.usesPredictiveBack
 }
 
 enum class BottomBarSearchAutoExpandMode(val value: Int, val label: String) {
@@ -875,6 +916,8 @@ object SettingsManager {
         booleanPreferencesKey("video_transition_realtime_blur_enabled")
     // 预测性返回预览开关；系统 opt-in 不能运行时可靠关闭，因此只控制应用内返回动效所有权。
     private val KEY_PREDICTIVE_BACK_ANIMATION_ENABLED = booleanPreferencesKey("predictive_back_animation_enabled")
+    private val KEY_PREDICTIVE_BACK_ANIMATION_STYLE =
+        stringPreferencesKey("predictive_back_animation_style")
     // [New] 运行时视觉降级守卫开关
     private val KEY_SMART_VISUAL_GUARD_ENABLED = booleanPreferencesKey("smart_visual_guard_enabled")
     //  [新增] 视频卡片统计信息贴封面开关
@@ -971,7 +1014,10 @@ object SettingsManager {
             cardTransitionEnabled = preferences[KEY_CARD_TRANSITION_ENABLED] ?: true,
             videoTransitionRealtimeBlurEnabled =
                 preferences[KEY_VIDEO_TRANSITION_REALTIME_BLUR_ENABLED] ?: true,
-            predictiveBackAnimationEnabled = preferences[KEY_PREDICTIVE_BACK_ANIMATION_ENABLED] ?: true,
+            predictiveBackAnimationStyle = resolvePredictiveBackAnimationStylePreference(
+                value = preferences[KEY_PREDICTIVE_BACK_ANIMATION_STYLE],
+                legacyEnabled = preferences[KEY_PREDICTIVE_BACK_ANIMATION_ENABLED]
+            ),
             smartVisualGuardEnabled = false,
             compactVideoStatsOnCover = preferences[KEY_COMPACT_VIDEO_STATS_ON_COVER] ?: true,
             lowQualityHomeCoverInDataSaver =
@@ -1666,11 +1712,36 @@ object SettingsManager {
     }
 
     fun getPredictiveBackAnimationEnabled(context: Context): Flow<Boolean> = context.settingsDataStore.data
-        .map { preferences -> preferences[KEY_PREDICTIVE_BACK_ANIMATION_ENABLED] ?: true }
+        .map { preferences ->
+            resolvePredictiveBackAnimationStylePreference(
+                value = preferences[KEY_PREDICTIVE_BACK_ANIMATION_STYLE],
+                legacyEnabled = preferences[KEY_PREDICTIVE_BACK_ANIMATION_ENABLED]
+            ).usesPredictiveBack
+        }
+
+    fun getPredictiveBackAnimationStyle(context: Context): Flow<PredictiveBackAnimationStyle> =
+        context.settingsDataStore.data
+            .map { preferences ->
+                resolvePredictiveBackAnimationStylePreference(
+                    value = preferences[KEY_PREDICTIVE_BACK_ANIMATION_STYLE],
+                    legacyEnabled = preferences[KEY_PREDICTIVE_BACK_ANIMATION_ENABLED]
+                )
+            }
 
     suspend fun setPredictiveBackAnimationEnabled(context: Context, value: Boolean) {
+        setPredictiveBackAnimationStyle(
+            context = context,
+            style = PredictiveBackAnimationStyle.fromLegacyEnabled(value)
+        )
+    }
+
+    suspend fun setPredictiveBackAnimationStyle(
+        context: Context,
+        style: PredictiveBackAnimationStyle
+    ) {
         context.settingsDataStore.edit { preferences ->
-            preferences[KEY_PREDICTIVE_BACK_ANIMATION_ENABLED] = value
+            preferences[KEY_PREDICTIVE_BACK_ANIMATION_STYLE] = style.value
+            preferences[KEY_PREDICTIVE_BACK_ANIMATION_ENABLED] = style.usesPredictiveBack
         }
     }
 
@@ -4930,6 +5001,7 @@ object SettingsManager {
                 SettingsShareSection.APPEARANCE
             ),
             BooleanShareablePreferenceDefinition(KEY_PREDICTIVE_BACK_ANIMATION_ENABLED, SettingsShareSection.APPEARANCE),
+            StringShareablePreferenceDefinition(KEY_PREDICTIVE_BACK_ANIMATION_STYLE, SettingsShareSection.APPEARANCE),
             BooleanShareablePreferenceDefinition(KEY_COMPACT_VIDEO_STATS_ON_COVER, SettingsShareSection.APPEARANCE),
             StringShareablePreferenceDefinition(KEY_HOME_WALLPAPER_URI, SettingsShareSection.APPEARANCE),
             IntShareablePreferenceDefinition(KEY_HOME_WALLPAPER_EFFECT_MODE, SettingsShareSection.APPEARANCE),
