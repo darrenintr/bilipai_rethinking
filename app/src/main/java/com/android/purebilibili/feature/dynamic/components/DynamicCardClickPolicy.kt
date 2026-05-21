@@ -9,6 +9,7 @@ import com.android.purebilibili.data.model.response.DrawItem
 import com.android.purebilibili.data.model.response.DynamicItem
 import com.android.purebilibili.data.model.response.LiveRcmdMajor
 import com.android.purebilibili.data.model.response.OpusContentBlock
+import com.android.purebilibili.data.model.response.OpusLinkCard
 import com.android.purebilibili.data.model.response.OpusMajor
 import com.android.purebilibili.data.model.response.UgcSeasonMajor
 import com.android.purebilibili.feature.dynamic.model.LiveContentInfo
@@ -33,6 +34,17 @@ internal sealed interface DynamicCardMediaAction {
     data class OpenDynamicDetail(val dynamicId: String) : DynamicCardMediaAction
 
     data object None : DynamicCardMediaAction
+}
+
+internal sealed interface DynamicOpusLinkCardAction {
+    data class OpenVideo(val videoId: String) : DynamicOpusLinkCardAction
+    data class OpenDynamicDetail(val dynamicId: String) : DynamicOpusLinkCardAction
+    data class OpenArticle(val articleId: Long, val title: String) : DynamicOpusLinkCardAction
+    data class OpenLive(val roomId: Long) : DynamicOpusLinkCardAction
+    data class OpenUser(val mid: Long) : DynamicOpusLinkCardAction
+    data class OpenBangumi(val seasonId: Long, val epId: Long) : DynamicOpusLinkCardAction
+    data class OpenExternalUrl(val url: String) : DynamicOpusLinkCardAction
+    data object None : DynamicOpusLinkCardAction
 }
 
 internal fun resolveBvidFromRawVideoTarget(rawValue: String?): String? {
@@ -137,6 +149,32 @@ internal fun resolveDynamicOpusPresentationBlocks(
 
 internal fun resolveDynamicOpusPreviewImageLimit(isDetail: Boolean): Int? {
     return if (isDetail) null else 9
+}
+
+internal fun resolveDynamicOpusLinkCardAction(card: OpusLinkCard): DynamicOpusLinkCardAction {
+    val url = card.jumpUrl.trim()
+    if (url.isBlank()) return DynamicOpusLinkCardAction.None
+    return when (val target = BilibiliNavigationTargetParser.parse(url)) {
+        is BilibiliNavigationTarget.Video -> DynamicOpusLinkCardAction.OpenVideo(target.videoId)
+        is BilibiliNavigationTarget.Dynamic -> DynamicOpusLinkCardAction.OpenDynamicDetail(target.dynamicId)
+        is BilibiliNavigationTarget.Article -> DynamicOpusLinkCardAction.OpenArticle(
+            articleId = target.articleId,
+            title = card.title
+        )
+        is BilibiliNavigationTarget.Live -> DynamicOpusLinkCardAction.OpenLive(target.roomId)
+        is BilibiliNavigationTarget.Space -> DynamicOpusLinkCardAction.OpenUser(target.mid)
+        is BilibiliNavigationTarget.BangumiSeason -> DynamicOpusLinkCardAction.OpenBangumi(
+            seasonId = target.seasonId,
+            epId = 0L
+        )
+        is BilibiliNavigationTarget.BangumiEpisode -> DynamicOpusLinkCardAction.OpenBangumi(
+            seasonId = 0L,
+            epId = target.epId
+        )
+        is BilibiliNavigationTarget.Music,
+        is BilibiliNavigationTarget.Search,
+        null -> DynamicOpusLinkCardAction.OpenExternalUrl(url)
+    }
 }
 
 internal fun resolveDynamicCardPrimaryAction(item: DynamicItem): DynamicCardPrimaryAction {

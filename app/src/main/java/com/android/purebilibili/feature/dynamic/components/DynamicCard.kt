@@ -78,6 +78,7 @@ fun DynamicCardV2(
     val content = item.modules.module_dynamic
     val stat = item.modules.module_stat
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val dynamicPreviewTextVisible by SettingsManager.getDynamicImagePreviewTextVisible(context)
         .collectAsState(initial = true)
     val contentHasImages = content?.major?.draw?.items?.isNotEmpty() == true ||
@@ -424,6 +425,30 @@ fun DynamicCardV2(
                                 contentScale = ContentScale.FillWidth
                             )
                             Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        is OpusContentBlock.LinkCard -> {
+                            DynamicOpusLinkCard(
+                                card = block.card,
+                                modifier = Modifier.padding(bottom = 12.dp),
+                                onClick = {
+                                    when (val action = resolveDynamicOpusLinkCardAction(block.card)) {
+                                        is DynamicOpusLinkCardAction.OpenVideo -> onVideoClick(action.videoId)
+                                        is DynamicOpusLinkCardAction.OpenDynamicDetail -> onDynamicDetailClick?.invoke(action.dynamicId)
+                                        is DynamicOpusLinkCardAction.OpenArticle -> onArticleClick?.invoke(action.articleId, action.title)
+                                        is DynamicOpusLinkCardAction.OpenLive -> onLiveClick(
+                                            action.roomId,
+                                            block.card.title.ifBlank { "直播间" },
+                                            author?.name.orEmpty()
+                                        )
+                                        is DynamicOpusLinkCardAction.OpenUser -> onUserClick(action.mid)
+                                        is DynamicOpusLinkCardAction.OpenBangumi -> onBangumiClick(action.seasonId, action.epId)
+                                        is DynamicOpusLinkCardAction.OpenExternalUrl -> runCatching {
+                                            uriHandler.openUri(action.url)
+                                        }
+                                        DynamicOpusLinkCardAction.None -> Unit
+                                    }
+                                }
+                            )
                         }
                     }
                 }

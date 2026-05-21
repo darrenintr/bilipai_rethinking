@@ -132,7 +132,8 @@ data class TopicDynamicCardItem(
 @Serializable
 data class DynamicItem(
     val id_str: String = "",
-    val type: String = "", // DYNAMIC_TYPE_AV, DYNAMIC_TYPE_DRAW, DYNAMIC_TYPE_WORD, DYNAMIC_TYPE_FORWARD
+    @Serializable(with = FlexibleStringSerializer::class)
+    val type: String = "", // DYNAMIC_TYPE_AV, DYNAMIC_TYPE_DRAW, DYNAMIC_TYPE_WORD, DYNAMIC_TYPE_FORWARD；opus/detail 可能返回数字
     val visible: Boolean = true,
     @Serializable(with = DynamicModulesFlexibleSerializer::class)
     val modules: DynamicModules = DynamicModules(),
@@ -193,6 +194,7 @@ object DynamicModulesFlexibleSerializer : KSerializer<DynamicModules> {
         extractParagraphPics(paragraph).forEach { pic ->
             blocks += OpusContentBlock.Image(pic)
         }
+        extractParagraphLinkCard(paragraph)?.let { blocks += OpusContentBlock.LinkCard(it) }
         return blocks
     }
 
@@ -224,17 +226,202 @@ object DynamicModulesFlexibleSerializer : KSerializer<DynamicModules> {
     }
 
     private fun extractParagraphPics(paragraph: JsonObject): List<OpusPic> {
-        val pics = paragraph["pic"]?.jsonObject?.get("pics") as? JsonArray ?: return emptyList()
-        return pics.mapNotNull { picNode ->
-            val pic = picNode as? JsonObject ?: return@mapNotNull null
-            val url = pic["url"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-            if (url.isEmpty()) return@mapNotNull null
-            OpusPic(
-                url = normalizeOpusImageUrl(url),
-                width = pic["width"]?.jsonPrimitive?.intOrNull ?: 0,
-                height = pic["height"]?.jsonPrimitive?.intOrNull ?: 0,
-                size = pic["size"]?.jsonPrimitive?.doubleOrNull ?: 0.0
-            )
+        val results = mutableListOf<OpusPic>()
+        val picObject = paragraph["pic"]?.let { runCatching { it.jsonObject }.getOrNull() }
+        val pics = picObject?.get("pics") as? JsonArray
+        pics?.mapNotNullTo(results) { picNode ->
+            val pic = picNode as? JsonObject ?: return@mapNotNullTo null
+            parseOpusPic(pic)
+        }
+        if (results.isEmpty()) {
+            parseOpusPic(picObject)?.let(results::add)
+        }
+        paragraph["line"]
+            ?.let { runCatching { it.jsonObject }.getOrNull() }
+            ?.get("pic")
+            ?.let { runCatching { it.jsonObject }.getOrNull() }
+            ?.let(::parseOpusPic)
+            ?.let(results::add)
+        return results
+    }
+
+    private fun parseOpusPic(pic: JsonObject?): OpusPic? {
+        if (pic == null) return null
+        val url = pic["url"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (url.isEmpty()) return null
+        return OpusPic(
+            url = normalizeOpusImageUrl(url),
+            width = pic["width"]?.jsonPrimitive?.intOrNull ?: 0,
+            height = pic["height"]?.jsonPrimitive?.intOrNull ?: 0,
+            size = pic["size"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+        )
+    }
+
+    private fun extractParagraphLinkCard(paragraph: JsonObject): OpusLinkCard? {
+        val card = paragraph["link_card"]
+            ?.let { runCatching { it.jsonObject }.getOrNull() }
+            ?.get("card")
+            ?.let { runCatching { it.jsonObject }.getOrNull() }
+            ?: return null
+        val type = card.stringValue("type")
+        if (type.isBlank()) return null
+        return when (type) {
+            "LINK_CARD_TYPE_UGC" -> parseUgcLinkCard(card, type)
+            "LINK_CARD_TYPE_COMMON" -> parseCommonLinkCard(card, type)
+            "LINK_CARD_TYPE_LIVE" -> parseLiveLinkCard(card, type)
+            "LINK_CARD_TYPE_OPUS" -> parseOpusLinkCard(card, type)
+            "LINK_CARD_TYPE_MUSIC" -> parseMusicLinkCard(card, type)
+            "LINK_CARD_TYPE_GOODS" -> parseGoodsLinkCard(card, type)
+            "LINK_CARD_TYPE_VOTE" -> parseVoteLinkCard(card, type)
+            "LINK_CARD_TYPE_ITEM_NULL" -> parseItemNullLinkCard(card, type)
+            else -> parseGenericLinkCard(card, type)
+        }.takeIf { it.title.isNotBlank() || it.cover.isNotBlank() || it.jumpUrl.isNotBlank() }
+    }
+
+    private fun parseUgcLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        val ugc = card.objectValue("ugc")
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid").ifBlank { ugc.stringValue("id_str") },
+            title = ugc.stringValue("title"),
+            description = ugc.stringValue("desc_second"),
+            label = ugc.stringValue("head_text"),
+            cover = normalizeOptionalOpusImageUrl(ugc.stringValue("cover")),
+            jumpUrl = ugc.stringValue("jump_url")
+        )
+    }
+
+    private fun parseCommonLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        val common = card.objectValue("common")
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid").ifBlank { common.stringValue("id_str") },
+            title = common.stringValue("title"),
+            description = listOf(
+                common.stringValue("desc"),
+                common.stringValue("desc1"),
+                common.stringValue("desc2")
+            ).filter { it.isNotBlank() }.joinToString("\n"),
+            label = common.stringValue("head_text"),
+            cover = normalizeOptionalOpusImageUrl(common.stringValue("cover")),
+            jumpUrl = common.stringValue("jump_url")
+        )
+    }
+
+    private fun parseLiveLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        val live = card.objectValue("live")
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid").ifBlank { live.stringValue("id") },
+            title = live.stringValue("title"),
+            description = listOf(
+                live.stringValue("desc_first"),
+                live.stringValue("desc_second")
+            ).filter { it.isNotBlank() }.joinToString("\n"),
+            label = live.stringValue("badge_text"),
+            cover = normalizeOptionalOpusImageUrl(live.stringValue("cover")),
+            jumpUrl = live.stringValue("jump_url")
+        )
+    }
+
+    private fun parseOpusLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        val opus = card.objectValue("opus")
+        val authorName = opus.objectValue("author").stringValue("name")
+        val statView = opus.objectValue("stat").stringValue("view")
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid"),
+            title = opus.stringValue("title"),
+            description = listOf(
+                authorName,
+                statView.takeIf { it.isNotBlank() }?.let { "${it}阅读" }.orEmpty()
+            ).filter { it.isNotBlank() }.joinToString(" · "),
+            cover = normalizeOptionalOpusImageUrl(opus.stringValue("cover")),
+            jumpUrl = opus.stringValue("jump_url")
+        )
+    }
+
+    private fun parseMusicLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        val music = card.objectValue("music")
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid").ifBlank { music.stringValue("id") },
+            title = music.stringValue("title"),
+            description = music.stringValue("label"),
+            cover = normalizeOptionalOpusImageUrl(music.stringValue("cover")),
+            jumpUrl = music.stringValue("jump_url")
+        )
+    }
+
+    private fun parseGoodsLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        val goods = card.objectValue("goods")
+        val firstItem = goods?.get("items")
+            ?.let { runCatching { it.jsonArray }.getOrNull() }
+            ?.firstOrNull()
+            ?.let { runCatching { it.jsonObject }.getOrNull() }
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid").ifBlank { firstItem.stringValue("id") },
+            title = firstItem.stringValue("name").ifBlank { goods.stringValue("head_text") },
+            description = firstItem.stringValue("price").ifBlank { firstItem.stringValue("brief") },
+            label = goods.stringValue("head_text"),
+            badgeText = firstItem.stringValue("jump_desc"),
+            cover = normalizeOptionalOpusImageUrl(firstItem.stringValue("cover")),
+            jumpUrl = firstItem.stringValue("jump_url").ifBlank { goods.stringValue("jump_url") }
+        )
+    }
+
+    private fun parseVoteLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        val vote = card.objectValue("vote")
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid").ifBlank { vote.stringValue("vote_id") },
+            title = vote.stringValue("title").ifBlank { vote.stringValue("desc") }.ifBlank { "投票" },
+            description = vote.stringValue("desc"),
+            jumpUrl = vote.stringValue("jump_url")
+        )
+    }
+
+    private fun parseItemNullLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        val itemNull = card.objectValue("item_null")
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid"),
+            title = itemNull.stringValue("text").ifBlank { "内容已失效" },
+            cover = normalizeOptionalOpusImageUrl(itemNull.stringValue("icon"))
+        )
+    }
+
+    private fun parseGenericLinkCard(card: JsonObject, type: String): OpusLinkCard {
+        return OpusLinkCard(
+            type = type,
+            oid = card.stringValue("oid"),
+            title = card.stringValue("title"),
+            description = card.stringValue("desc"),
+            cover = normalizeOptionalOpusImageUrl(card.stringValue("cover")),
+            jumpUrl = card.stringValue("jump_url")
+        )
+    }
+
+    private fun JsonObject?.stringValue(key: String): String {
+        if (this == null) return ""
+        return get(key)?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+    }
+
+    private fun JsonObject?.objectValue(key: String): JsonObject? {
+        if (this == null) return null
+        return get(key)?.let { runCatching { it.jsonObject }.getOrNull() }
+    }
+
+    private fun normalizeOptionalOpusImageUrl(rawUrl: String): String {
+        return rawUrl.takeIf { it.isNotBlank() }?.let(::normalizeOpusImageUrl).orEmpty()
+    }
+
+    private fun normalizeOpusImageUrl(rawUrl: String): String {
+        return when {
+            rawUrl.startsWith("//") -> "https:$rawUrl"
+            rawUrl.startsWith("http://") -> rawUrl.replaceFirst("http://", "https://")
+            else -> rawUrl
         }
     }
 
@@ -309,13 +496,6 @@ object DynamicModulesFlexibleSerializer : KSerializer<DynamicModules> {
         )
     }
 
-    private fun normalizeOpusImageUrl(rawUrl: String): String {
-        return when {
-            rawUrl.startsWith("//") -> "https:$rawUrl"
-            rawUrl.startsWith("http://") -> rawUrl.replaceFirst("http://", "https://")
-            else -> rawUrl
-        }
-    }
 }
 
 //  [新增] 动态基础信息 - 包含评论区参数
@@ -422,7 +602,20 @@ data class OpusMajor(
 sealed interface OpusContentBlock {
     data class Text(val text: String) : OpusContentBlock
     data class Image(val pic: OpusPic) : OpusContentBlock
+    data class LinkCard(val card: OpusLinkCard) : OpusContentBlock
 }
+
+@Serializable
+data class OpusLinkCard(
+    val type: String = "",
+    val oid: String = "",
+    val title: String = "",
+    val description: String = "",
+    val label: String = "",
+    val cover: String = "",
+    val jumpUrl: String = "",
+    val badgeText: String = ""
+)
 
 @Serializable
 data class OpusPic(

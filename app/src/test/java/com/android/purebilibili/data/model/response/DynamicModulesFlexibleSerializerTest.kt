@@ -486,4 +486,204 @@ class DynamicModulesFlexibleSerializerTest {
             opus?.contentBlocks
         )
     }
+
+    @Test
+    fun dynamicDetailResponse_parsesNumericTypeAndOrderedOpusLinkCards() {
+        val payload = """
+            {
+              "code": 0,
+              "data": {
+                "item": {
+                  "id_str": "1201902028962398230",
+                  "type": 1,
+                  "modules": [
+                    {
+                      "module_type": "MODULE_TYPE_CONTENT",
+                      "module_content": {
+                        "paragraphs": [
+                          {
+                            "para_type": 1,
+                            "text": {
+                              "nodes": [
+                                { "word": { "words": "正文开头" } }
+                              ]
+                            }
+                          },
+                          {
+                            "para_type": 2,
+                            "pic": {
+                              "url": "http://i0.hdslb.com/single.jpg",
+                              "width": 640,
+                              "height": 360
+                            }
+                          },
+                          {
+                            "para_type": 3,
+                            "line": {
+                              "pic": {
+                                "url": "//i0.hdslb.com/line.jpg",
+                                "width": 1000,
+                                "height": 20
+                              }
+                            }
+                          },
+                          {
+                            "para_type": 6,
+                            "link_card": {
+                              "card": {
+                                "type": "LINK_CARD_TYPE_GOODS",
+                                "oid": "118140798",
+                                "goods": {
+                                  "head_text": "UP主的推荐",
+                                  "items": [
+                                    {
+                                      "cover": "https://i0.hdslb.com/goods.jpg",
+                                      "name": "绯乐影Phantom有线HiFi耳机",
+                                      "price": "¥1480",
+                                      "jump_desc": "去看看",
+                                      "jump_url": "https://uland.taobao.com/item"
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "para_type": 6,
+                            "link_card": {
+                              "card": {
+                                "type": "LINK_CARD_TYPE_UGC",
+                                "ugc": {
+                                  "cover": "https://i0.hdslb.com/video.jpg",
+                                  "title": "视频标题",
+                                  "desc_second": "12:34",
+                                  "jump_url": "https://www.bilibili.com/video/BV1xx411c7mD"
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "para_type": 6,
+                            "link_card": {
+                              "card": {
+                                "type": "LINK_CARD_TYPE_COMMON",
+                                "common": {
+                                  "cover": "https://i0.hdslb.com/common.jpg",
+                                  "title": "普通链接",
+                                  "desc1": "第一行描述",
+                                  "desc2": "第二行描述",
+                                  "jump_url": "https://www.bilibili.com/read/cv123456"
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "para_type": 6,
+                            "link_card": {
+                              "card": {
+                                "type": "LINK_CARD_TYPE_LIVE",
+                                "live": {
+                                  "cover": "https://i0.hdslb.com/live.jpg",
+                                  "title": "直播标题",
+                                  "desc_first": "正在直播",
+                                  "desc_second": "主播名",
+                                  "jump_url": "https://live.bilibili.com/6"
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "para_type": 6,
+                            "link_card": {
+                              "card": {
+                                "type": "LINK_CARD_TYPE_OPUS",
+                                "opus": {
+                                  "cover": "https://i0.hdslb.com/opus.jpg",
+                                  "title": "图文标题",
+                                  "jump_url": "https://www.bilibili.com/opus/1201902028962398230",
+                                  "author": {
+                                    "mid": 42,
+                                    "name": "作者"
+                                  },
+                                  "stat": {
+                                    "view": 1000
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "para_type": 6,
+                            "link_card": {
+                              "card": {
+                                "type": "LINK_CARD_TYPE_ITEM_NULL",
+                                "item_null": {
+                                  "text": "内容已失效"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+        """.trimIndent()
+
+        val response = json.decodeFromString<DynamicDetailResponse>(payload)
+        val opus = response.data?.item?.modules?.module_dynamic?.major?.opus
+
+        assertEquals("1", response.data?.item?.type)
+        assertEquals(
+            listOf(
+                "https://i0.hdslb.com/single.jpg",
+                "https://i0.hdslb.com/line.jpg"
+            ),
+            opus?.pics?.map { it.url }
+        )
+        assertEquals(9, opus?.contentBlocks?.size)
+        assertEquals(OpusContentBlock.Text("正文开头"), opus?.contentBlocks?.get(0))
+        assertEquals(
+            OpusContentBlock.Image(OpusPic(url = "https://i0.hdslb.com/single.jpg", width = 640, height = 360)),
+            opus?.contentBlocks?.get(1)
+        )
+        assertEquals(
+            OpusContentBlock.Image(OpusPic(url = "https://i0.hdslb.com/line.jpg", width = 1000, height = 20)),
+            opus?.contentBlocks?.get(2)
+        )
+
+        val goods = (opus?.contentBlocks?.get(3) as? OpusContentBlock.LinkCard)?.card
+        assertEquals("LINK_CARD_TYPE_GOODS", goods?.type)
+        assertEquals("UP主的推荐", goods?.label)
+        assertEquals("绯乐影Phantom有线HiFi耳机", goods?.title)
+        assertEquals("¥1480", goods?.description)
+        assertEquals("去看看", goods?.badgeText)
+        assertEquals("https://i0.hdslb.com/goods.jpg", goods?.cover)
+        assertEquals("https://uland.taobao.com/item", goods?.jumpUrl)
+
+        val ugc = (opus?.contentBlocks?.get(4) as? OpusContentBlock.LinkCard)?.card
+        assertEquals("LINK_CARD_TYPE_UGC", ugc?.type)
+        assertEquals("视频标题", ugc?.title)
+        assertEquals("12:34", ugc?.description)
+
+        val common = (opus?.contentBlocks?.get(5) as? OpusContentBlock.LinkCard)?.card
+        assertEquals("LINK_CARD_TYPE_COMMON", common?.type)
+        assertEquals("普通链接", common?.title)
+        assertEquals("第一行描述\n第二行描述", common?.description)
+
+        val live = (opus?.contentBlocks?.get(6) as? OpusContentBlock.LinkCard)?.card
+        assertEquals("LINK_CARD_TYPE_LIVE", live?.type)
+        assertEquals("直播标题", live?.title)
+        assertEquals("正在直播\n主播名", live?.description)
+
+        val opusCard = (opus?.contentBlocks?.get(7) as? OpusContentBlock.LinkCard)?.card
+        assertEquals("LINK_CARD_TYPE_OPUS", opusCard?.type)
+        assertEquals("图文标题", opusCard?.title)
+
+        val invalid = (opus?.contentBlocks?.get(8) as? OpusContentBlock.LinkCard)?.card
+        assertEquals("LINK_CARD_TYPE_ITEM_NULL", invalid?.type)
+        assertEquals("内容已失效", invalid?.title)
+    }
 }

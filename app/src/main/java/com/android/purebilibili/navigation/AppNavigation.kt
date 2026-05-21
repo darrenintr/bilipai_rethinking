@@ -2038,6 +2038,11 @@ fun AppNavigation(
                                         )
                                     },
                                     onUserClick = { mid -> pushNavigation3Key(BiliPaiNavKey.Space(mid)) },
+                                    onArticleClick = { articleId, title ->
+                                        pushNavigation3Key(
+                                            BiliPaiNavKey.ArticleDetail(articleId = articleId, title = title)
+                                        )
+                                    },
                                     onLiveClick = { roomId, title, uname ->
                                         pushNavigation3Key(
                                             BiliPaiNavKey.Live(roomId = roomId, title = title, uname = uname)

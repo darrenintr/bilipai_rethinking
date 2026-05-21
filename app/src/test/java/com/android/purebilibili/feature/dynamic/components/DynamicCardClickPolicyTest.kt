@@ -7,6 +7,7 @@ import com.android.purebilibili.data.model.response.DynamicItem
 import com.android.purebilibili.data.model.response.DynamicMajor
 import com.android.purebilibili.data.model.response.DynamicModules
 import com.android.purebilibili.data.model.response.OpusContentBlock
+import com.android.purebilibili.data.model.response.OpusLinkCard
 import com.android.purebilibili.data.model.response.OpusMajor
 import com.android.purebilibili.data.model.response.OpusPic
 import com.android.purebilibili.data.model.response.UgcSeasonMajor
@@ -304,5 +305,72 @@ class DynamicCardClickPolicyTest {
     fun resolveDynamicOpusPreviewImageLimit_removesNineImageLimitOnDetailPage() {
         assertEquals(null, resolveDynamicOpusPreviewImageLimit(isDetail = true))
         assertEquals(9, resolveDynamicOpusPreviewImageLimit(isDetail = false))
+    }
+
+    @Test
+    fun resolveDynamicOpusLinkCardAction_routesBilibiliTargetsInApp() {
+        assertEquals(
+            DynamicOpusLinkCardAction.OpenVideo("BV1xx411c7mD"),
+            resolveDynamicOpusLinkCardAction(
+                OpusLinkCard(
+                    type = "LINK_CARD_TYPE_UGC",
+                    title = "视频",
+                    jumpUrl = "https://www.bilibili.com/video/BV1xx411c7mD"
+                )
+            )
+        )
+        assertEquals(
+            DynamicOpusLinkCardAction.OpenDynamicDetail("1201902028962398230"),
+            resolveDynamicOpusLinkCardAction(
+                OpusLinkCard(
+                    type = "LINK_CARD_TYPE_OPUS",
+                    title = "图文",
+                    jumpUrl = "https://www.bilibili.com/opus/1201902028962398230"
+                )
+            )
+        )
+        assertEquals(
+            DynamicOpusLinkCardAction.OpenArticle(123456L, "专栏"),
+            resolveDynamicOpusLinkCardAction(
+                OpusLinkCard(
+                    type = "LINK_CARD_TYPE_COMMON",
+                    title = "专栏",
+                    jumpUrl = "https://www.bilibili.com/read/cv123456"
+                )
+            )
+        )
+        assertEquals(
+            DynamicOpusLinkCardAction.OpenLive(6L),
+            resolveDynamicOpusLinkCardAction(
+                OpusLinkCard(
+                    type = "LINK_CARD_TYPE_LIVE",
+                    title = "直播",
+                    jumpUrl = "https://live.bilibili.com/6"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun resolveDynamicOpusLinkCardAction_routesExternalUrlAndIgnoresMissingUrl() {
+        assertEquals(
+            DynamicOpusLinkCardAction.OpenExternalUrl("https://uland.taobao.com/item"),
+            resolveDynamicOpusLinkCardAction(
+                OpusLinkCard(
+                    type = "LINK_CARD_TYPE_GOODS",
+                    title = "商品",
+                    jumpUrl = " https://uland.taobao.com/item "
+                )
+            )
+        )
+        assertEquals(
+            DynamicOpusLinkCardAction.None,
+            resolveDynamicOpusLinkCardAction(
+                OpusLinkCard(
+                    type = "LINK_CARD_TYPE_ITEM_NULL",
+                    title = "内容已失效"
+                )
+            )
+        )
     }
 }
