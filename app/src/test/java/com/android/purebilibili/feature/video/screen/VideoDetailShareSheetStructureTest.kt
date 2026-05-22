@@ -32,8 +32,16 @@ class VideoDetailVideoShareSheetStructureTest {
             "Detail action row share should open VideoShareSheet with unified payload"
         )
         assertTrue(
+            detailActionShare.contains("coverUrl = success.info.pic"),
+            "Detail action row share should include the current video cover"
+        )
+        assertTrue(
             bottomInputShare.contains("pendingVideoShare = buildVideoSharePayload"),
             "Bottom input bar share should open VideoShareSheet with unified payload"
+        )
+        assertTrue(
+            bottomInputShare.contains("coverUrl = success.info.pic"),
+            "Bottom input bar share should include the current video cover"
         )
         assertFalse(
             detailActionShare.contains("ShareUtils.shareVideo("),

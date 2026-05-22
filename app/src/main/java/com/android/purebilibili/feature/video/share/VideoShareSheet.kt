@@ -31,6 +31,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.purebilibili.core.ui.IOSModalBottomSheet
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,6 +60,8 @@ internal fun VideoShareSheet(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val shareScope = rememberCoroutineScope()
+    var sharingTarget by remember { mutableStateOf<VideoShareTarget?>(null) }
     val neutralIconBackground = MaterialTheme.colorScheme.surfaceContainerHighest
     val neutralIconContent = MaterialTheme.colorScheme.onSurface
     val items = listOf(
@@ -124,12 +132,27 @@ internal fun VideoShareSheet(
                                 VideoShareTarget.WECHAT,
                                 VideoShareTarget.QQ -> {
                                     val packageName = item.target.packageName ?: return@VideoShareSheetItemView
-                                    context.startTargetedVideoShare(
-                                        payload = payload,
-                                        packageName = packageName,
-                                        appName = item.label,
-                                        onSuccess = onDismiss
-                                    )
+                                    if (sharingTarget != null) return@VideoShareSheetItemView
+                                    sharingTarget = item.target
+                                    Toast.makeText(context, "正在准备视频封面", Toast.LENGTH_SHORT).show()
+                                    shareScope.launch {
+                                        val coverFile = prepareVideoShareCoverFile(context, payload)
+                                        if (coverFile == null && payload.coverUrl.isNotBlank()) {
+                                            Toast.makeText(
+                                                context,
+                                                "封面加载失败，已改用链接分享",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        context.startTargetedVideoShare(
+                                            payload = payload,
+                                            packageName = packageName,
+                                            appName = item.label,
+                                            coverFile = coverFile,
+                                            onSuccess = onDismiss
+                                        )
+                                        sharingTarget = null
+                                    }
                                 }
                                 VideoShareTarget.COPY_LINK -> {
                                     clipboardManager.setText(AnnotatedString(payload.url))
@@ -226,10 +249,22 @@ private fun Context.startTargetedVideoShare(
     payload: VideoSharePayload,
     packageName: String,
     appName: String,
+    coverFile: VideoShareCoverFile?,
     onSuccess: () -> Unit
 ) {
     try {
-        startActivityWithTaskFlag(buildTargetedShareIntent(payload, packageName))
+        val intent = if (coverFile != null) {
+            buildVideoCoverShareIntent(
+                payload = payload,
+                coverUri = coverFile.uri,
+                mimeType = coverFile.mimeType,
+                packageName = packageName,
+                contentResolver = contentResolver
+            )
+        } else {
+            buildTargetedShareIntent(payload, packageName)
+        }
+        startActivityWithTaskFlag(intent)
         onSuccess()
     } catch (_: ActivityNotFoundException) {
         Toast.makeText(this, "未安装$appName", Toast.LENGTH_SHORT).show()

@@ -3343,7 +3343,8 @@ fun VideoDetailScreen(
                                                         onShareClick = {
                                                             pendingVideoShare = buildVideoSharePayload(
                                                                 title = success.info.title,
-                                                                bvid = success.info.bvid
+                                                                bvid = success.info.bvid,
+                                                                coverUrl = success.info.pic
                                                             )
                                                         },
                                                         //  [新增] 时间戳点击跳转
@@ -3427,7 +3428,8 @@ fun VideoDetailScreen(
                                                             onShareClick = {
                                                                 pendingVideoShare = buildVideoSharePayload(
                                                                     title = success.info.title,
-                                                                    bvid = success.info.bvid
+                                                                    bvid = success.info.bvid,
+                                                                    coverUrl = success.info.pic
                                                                 )
                                                             },
                                                             onCommentClick = {

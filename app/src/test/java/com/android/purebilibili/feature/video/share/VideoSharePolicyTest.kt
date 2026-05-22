@@ -12,11 +12,13 @@ class VideoSharePolicyTest {
     fun buildVideoSharePayload_outputsTitleUrlAndText() {
         val payload = buildVideoSharePayload(
             title = " Uzi回应送老婆贵价项链 ",
-            bvid = " BV1aRG46aEnz "
+            bvid = " BV1aRG46aEnz ",
+            coverUrl = " https://i0.hdslb.com/bfs/archive/test.jpg "
         )
 
         assertEquals("Uzi回应送老婆贵价项链", payload.title)
         assertEquals("BV1aRG46aEnz", payload.bvid)
+        assertEquals("https://i0.hdslb.com/bfs/archive/test.jpg", payload.coverUrl)
         assertEquals("https://www.bilibili.com/video/BV1aRG46aEnz", payload.url)
         assertEquals(
             "【Uzi回应送老婆贵价项链】\nhttps://www.bilibili.com/video/BV1aRG46aEnz",
@@ -51,6 +53,32 @@ class VideoSharePolicyTest {
         assertTrue(
             source.contains("putExtra(Intent.EXTRA_TEXT, payload.text)"),
             "Video share intents should include unified share text"
+        )
+    }
+
+    @Test
+    fun buildVideoCoverShareIntent_attachesCoverImageWithoutBilibiliBrandText() {
+        val source = loadVideoSharePolicySource()
+
+        assertTrue(
+            source.contains("buildVideoCoverShareIntent"),
+            "Video sharing should support a cover image stream"
+        )
+        assertTrue(
+            source.contains("putExtra(Intent.EXTRA_STREAM, coverUri)"),
+            "Cover sharing should attach the downloaded video cover uri"
+        )
+        assertTrue(
+            source.contains("clipData = ClipData.newUri"),
+            "Cover sharing should grant the receiving app read access to the cover uri"
+        )
+        assertTrue(
+            source.contains("addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)"),
+            "Cover sharing should grant temporary read permission"
+        )
+        assertTrue(
+            !source.contains("哔哩哔哩"),
+            "Generated cover share intent should not inject a bottom-left Bilibili brand label"
         )
     }
 
