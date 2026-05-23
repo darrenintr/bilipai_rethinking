@@ -348,6 +348,8 @@ enum class HomeFeedCardWidthPreset(
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2025-2026 InstallerX Revived contributors
 // Adapted for BiliPai Navigation3 predictive back settings.
+internal const val PREDICTIVE_BACK_ANIMATION_RUNTIME_ENABLED = false
+
 enum class PredictiveBackAnimationStyle(val value: String, val displayName: String) {
     NONE("none", "无"),
     AOSP("aosp", "AOSP"),
@@ -356,7 +358,10 @@ enum class PredictiveBackAnimationStyle(val value: String, val displayName: Stri
     CLASSIC("ksu_classic", "经典");
 
     val usesPredictiveBack: Boolean
-        get() = this != NONE
+        get() = PREDICTIVE_BACK_ANIMATION_RUNTIME_ENABLED && this != NONE
+
+    val runtimeStyle: PredictiveBackAnimationStyle
+        get() = if (PREDICTIVE_BACK_ANIMATION_RUNTIME_ENABLED) this else NONE
 
     companion object {
         val Default: PredictiveBackAnimationStyle = AOSP

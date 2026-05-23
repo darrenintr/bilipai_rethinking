@@ -34,12 +34,12 @@ class AppNavigationAppearancePolicyTest {
     }
 
     @Test
-    fun keepsDefaultsWhenHomeSettingsUseDefaults() {
+    fun keepsDefaultsButPausesPredictiveBackAtRuntime() {
         val appearance = resolveAppNavigationAppearance(HomeSettings())
 
         assertTrue(appearance.cardTransitionEnabled)
         assertTrue(appearance.videoTransitionRealtimeBlurEnabled)
-        assertEquals(PredictiveBackAnimationStyle.AOSP, appearance.predictiveBackAnimationStyle)
+        assertEquals(PredictiveBackAnimationStyle.NONE, appearance.predictiveBackAnimationStyle)
         assertTrue(appearance.bottomBarBlurEnabled)
         assertEquals(0, appearance.bottomBarLabelMode)
         assertTrue(appearance.bottomBarFloating)

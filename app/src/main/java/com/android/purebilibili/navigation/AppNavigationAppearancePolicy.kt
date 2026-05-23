@@ -22,7 +22,7 @@ internal fun resolveAppNavigationAppearance(
     return AppNavigationAppearance(
         cardTransitionEnabled = homeSettings.cardTransitionEnabled,
         videoTransitionRealtimeBlurEnabled = homeSettings.videoTransitionRealtimeBlurEnabled,
-        predictiveBackAnimationStyle = homeSettings.predictiveBackAnimationStyle,
+        predictiveBackAnimationStyle = homeSettings.predictiveBackAnimationStyle.runtimeStyle,
         bottomBarBlurEnabled = homeSettings.isBottomBarBlurEnabled,
         bottomBarLabelMode = homeSettings.bottomBarLabelMode,
         bottomBarFloating = homeSettings.isBottomBarFloating

@@ -12,14 +12,56 @@ import kotlin.test.assertTrue
 class BiliPaiNavMotionPolicyTest {
 
     @Test
-    fun predictiveEnabledWithCards_usesNavDisplayPredictiveMode() {
+    fun predictiveStylesWithCards_useClassicCardModeWhileFeaturePaused() {
         assertEquals(
-            BiliPaiNavMotionMode.PREDICTIVE_NAV_DISPLAY,
-            resolveBiliPaiNavMotionMode(
-                predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP,
-                cardTransitionEnabled = true
+            setOf(BiliPaiNavMotionMode.CLASSIC_CARD),
+            PredictiveBackAnimationStyle.entries
+                .filterNot { it == PredictiveBackAnimationStyle.NONE }
+                .map {
+                    resolveBiliPaiNavMotionMode(
+                        predictiveBackAnimationStyle = it,
+                        cardTransitionEnabled = true
+                    )
+                }
+                .toSet()
+        )
+    }
+
+    @Test
+    fun predictiveStylesWithoutCards_useCardDisabledModeWhileFeaturePaused() {
+        assertEquals(
+            setOf(BiliPaiNavMotionMode.CARD_DISABLED),
+            PredictiveBackAnimationStyle.entries
+                .filterNot { it == PredictiveBackAnimationStyle.NONE }
+                .map {
+                    resolveBiliPaiNavMotionMode(
+                        predictiveBackAnimationStyle = it,
+                        cardTransitionEnabled = false
+                    )
+                }
+                .toSet()
+        )
+    }
+
+    @Test
+    fun predictiveStyles_doNotExposeNavDisplayOwnerWhileFeaturePaused() {
+        val decision = resolveBiliPaiBackGestureDecision(
+            predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP,
+            cardTransitionEnabled = true,
+            systemBackAction = AppSystemBackAction.NAVIGATE_UP,
+            currentKey = BiliPaiNavKey.VideoDetail("BV2", sourceRoute = "home"),
+            previousKey = BiliPaiNavKey.Home,
+            sourceMetadata = BiliPaiNavSourceMetadata(
+                sourceKey = "home:BV1",
+                sourceRoute = "home",
+                clickedBoundsRecorded = true,
+                cardFullyVisible = true
             )
         )
+
+        assertEquals(BiliPaiBackGestureOwner.APP_CLASSIC, decision.owner)
+        assertEquals(BiliPaiNavRouteTransition.CLASSIC_CARD, decision.routeTransition)
+        assertTrue(decision.interceptSystemBack)
     }
 
     @Test
@@ -34,7 +76,7 @@ class BiliPaiNavMotionPolicyTest {
     }
 
     @Test
-    fun installerXStylesWithCards_useNavDisplayPredictiveMode() {
+    fun installerXStylesWithCards_useClassicCardModeWhileFeaturePaused() {
         listOf(
             PredictiveBackAnimationStyle.AOSP,
             PredictiveBackAnimationStyle.MIUIX,
@@ -42,7 +84,7 @@ class BiliPaiNavMotionPolicyTest {
             PredictiveBackAnimationStyle.CLASSIC
         ).forEach { style ->
             assertEquals(
-                BiliPaiNavMotionMode.PREDICTIVE_NAV_DISPLAY,
+                BiliPaiNavMotionMode.CLASSIC_CARD,
                 resolveBiliPaiNavMotionMode(
                     predictiveBackAnimationStyle = style,
                     cardTransitionEnabled = true
@@ -52,7 +94,7 @@ class BiliPaiNavMotionPolicyTest {
     }
 
     @Test
-    fun installerXPredictiveStyles_doNotDependOnCardTransitionSwitch() {
+    fun installerXPredictiveStyles_followCardTransitionSwitchWhileFeaturePaused() {
         listOf(
             PredictiveBackAnimationStyle.AOSP,
             PredictiveBackAnimationStyle.MIUIX,
@@ -60,7 +102,7 @@ class BiliPaiNavMotionPolicyTest {
             PredictiveBackAnimationStyle.CLASSIC
         ).forEach { style ->
             assertEquals(
-                BiliPaiNavMotionMode.PREDICTIVE_NAV_DISPLAY,
+                BiliPaiNavMotionMode.CARD_DISABLED,
                 resolveBiliPaiNavMotionMode(
                     predictiveBackAnimationStyle = style,
                     cardTransitionEnabled = false
@@ -80,7 +122,7 @@ class BiliPaiNavMotionPolicyTest {
         )
 
         assertEquals(BiliPaiNavRouteTransition.NO_OP_SHARED_ELEMENT, decision.routeTransition)
-        assertFalse(decision.interceptSystemBack)
+        assertTrue(decision.interceptSystemBack)
     }
 
     @Test
@@ -120,7 +162,7 @@ class BiliPaiNavMotionPolicyTest {
     }
 
     @Test
-    fun predictiveEnabledStaleVideoReturnUsesNavDisplayDefaultPredictivePop() {
+    fun predictiveEnabledStaleVideoReturnUsesClassicAppBackWhileFeaturePaused() {
         val decision = resolveBiliPaiBackGestureDecision(
             predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP,
             cardTransitionEnabled = true,
@@ -135,9 +177,9 @@ class BiliPaiNavMotionPolicyTest {
             )
         )
 
-        assertEquals(BiliPaiBackGestureOwner.NAV_DISPLAY_PREDICTIVE, decision.owner)
-        assertEquals(BiliPaiNavRouteTransition.NAV_DISPLAY_DEFAULT_PREDICTIVE, decision.routeTransition)
-        assertFalse(decision.interceptSystemBack)
+        assertEquals(BiliPaiBackGestureOwner.APP_CLASSIC, decision.owner)
+        assertEquals(BiliPaiNavRouteTransition.CLASSIC_CARD, decision.routeTransition)
+        assertTrue(decision.interceptSystemBack)
     }
 
     @Test
@@ -411,16 +453,16 @@ class BiliPaiNavMotionPolicyTest {
     }
 
     @Test
-    fun appBackActionInterception_winsEvenWhenPredictiveBackIsEnabled() {
+    fun appBackActionInterception_winsEvenWhenPredictiveBackModeIsRequested() {
         assertTrue(
             shouldInterceptSystemBackForNavigation3(
-                mode = BiliPaiNavMotionMode.PREDICTIVE_NAV_DISPLAY,
+                mode = BiliPaiNavMotionMode.CLASSIC_CARD,
                 appBackActionRequiresInterception = true
             )
         )
-        assertFalse(
+        assertTrue(
             shouldInterceptSystemBackForNavigation3(
-                mode = BiliPaiNavMotionMode.PREDICTIVE_NAV_DISPLAY,
+                mode = BiliPaiNavMotionMode.CLASSIC_CARD,
                 appBackActionRequiresInterception = false
             )
         )

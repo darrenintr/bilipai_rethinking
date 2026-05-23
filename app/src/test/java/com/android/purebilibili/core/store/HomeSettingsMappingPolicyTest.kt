@@ -42,7 +42,7 @@ class HomeSettingsMappingPolicyTest {
         assertFalse(result.cardAnimationEnabled)
         assertTrue(result.cardTransitionEnabled)
         assertTrue(result.videoTransitionRealtimeBlurEnabled)
-        assertTrue(result.predictiveBackAnimationEnabled)
+        assertFalse(result.predictiveBackAnimationEnabled)
         assertEquals(PredictiveBackAnimationStyle.AOSP, result.predictiveBackAnimationStyle)
         assertFalse(result.smartVisualGuardEnabled)
         assertTrue(result.compactVideoStatsOnCover)
@@ -150,7 +150,7 @@ class HomeSettingsMappingPolicyTest {
 
         val result = mapHomeSettingsFromPreferences(prefs)
 
-        assertTrue(result.predictiveBackAnimationEnabled)
+        assertFalse(result.predictiveBackAnimationEnabled)
         assertEquals(PredictiveBackAnimationStyle.SCALE, result.predictiveBackAnimationStyle)
     }
 
@@ -162,7 +162,7 @@ class HomeSettingsMappingPolicyTest {
 
         val result = mapHomeSettingsFromPreferences(prefs)
 
-        assertTrue(result.predictiveBackAnimationEnabled)
+        assertFalse(result.predictiveBackAnimationEnabled)
         assertEquals(PredictiveBackAnimationStyle.AOSP, result.predictiveBackAnimationStyle)
     }
 

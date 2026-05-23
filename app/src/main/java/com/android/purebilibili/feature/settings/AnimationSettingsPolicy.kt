@@ -1,6 +1,7 @@
 package com.android.purebilibili.feature.settings
 
 import com.android.purebilibili.core.store.LiquidGlassMode
+import com.android.purebilibili.core.store.PREDICTIVE_BACK_ANIMATION_RUNTIME_ENABLED
 import com.android.purebilibili.core.store.PredictiveBackAnimationStyle
 import com.android.purebilibili.core.store.normalizeLiquidGlassProgress
 import com.android.purebilibili.core.store.normalizeLiquidGlassStrength
@@ -8,6 +9,7 @@ import com.android.purebilibili.core.store.resolveLegacyLiquidGlassProgress
 
 internal const val PREDICTIVE_BACK_ANIMATION_TITLE = "预测性返回动画"
 internal const val PREDICTIVE_BACK_ANIMATION_SUBTITLE_PREFIX = "当前："
+internal const val PREDICTIVE_BACK_ANIMATION_PAUSED_SUBTITLE = "暂时关闭：功能不完善，已避免和现有返回动画冲突"
 
 internal data class PredictiveBackToggleUiState(
     val title: String,
@@ -26,11 +28,16 @@ internal data class LiquidGlassPreviewUiState(
 internal fun resolvePredictiveBackToggleUiState(
     predictiveBackAnimationStyle: PredictiveBackAnimationStyle
 ): PredictiveBackToggleUiState {
+    val selectedStyle = predictiveBackAnimationStyle.runtimeStyle
     return PredictiveBackToggleUiState(
         title = PREDICTIVE_BACK_ANIMATION_TITLE,
-        enabled = true,
-        selectedStyle = predictiveBackAnimationStyle,
-        subtitle = "$PREDICTIVE_BACK_ANIMATION_SUBTITLE_PREFIX${predictiveBackAnimationStyle.displayName}"
+        enabled = PREDICTIVE_BACK_ANIMATION_RUNTIME_ENABLED,
+        selectedStyle = selectedStyle,
+        subtitle = if (PREDICTIVE_BACK_ANIMATION_RUNTIME_ENABLED) {
+            "$PREDICTIVE_BACK_ANIMATION_SUBTITLE_PREFIX${selectedStyle.displayName}"
+        } else {
+            PREDICTIVE_BACK_ANIMATION_PAUSED_SUBTITLE
+        }
     )
 }
 

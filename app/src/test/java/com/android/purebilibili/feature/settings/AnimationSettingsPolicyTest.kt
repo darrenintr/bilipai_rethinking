@@ -11,43 +11,44 @@ import kotlin.test.assertTrue
 class AnimationSettingsPolicyTest {
 
     @Test
-    fun predictiveBackEntry_usesSelectedStyleState() {
+    fun predictiveBackEntry_isDisabledWhileFeaturePaused() {
         val aosp = resolvePredictiveBackToggleUiState(
             predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP
         )
-        assertTrue(aosp.enabled)
-        assertEquals(PredictiveBackAnimationStyle.AOSP, aosp.selectedStyle)
+        assertFalse(aosp.enabled)
+        assertEquals(PredictiveBackAnimationStyle.NONE, aosp.selectedStyle)
         assertEquals(PREDICTIVE_BACK_ANIMATION_TITLE, aosp.title)
         assertEquals("预测性返回动画", aosp.title)
-        assertEquals("当前：AOSP", aosp.subtitle)
+        assertEquals("暂时关闭：功能不完善，已避免和现有返回动画冲突", aosp.subtitle)
 
         val none = resolvePredictiveBackToggleUiState(
             predictiveBackAnimationStyle = PredictiveBackAnimationStyle.NONE
         )
-        assertTrue(none.enabled)
+        assertFalse(none.enabled)
         assertEquals(PredictiveBackAnimationStyle.NONE, none.selectedStyle)
-        assertEquals("当前：无", none.subtitle)
+        assertEquals("暂时关闭：功能不完善，已避免和现有返回动画冲突", none.subtitle)
     }
 
     @Test
-    fun predictiveBackEntry_ignoresCardTransitionState() {
+    fun predictiveBackEntry_ignoresPersistedStyleWhileFeaturePaused() {
         val state = resolvePredictiveBackToggleUiState(
             predictiveBackAnimationStyle = PredictiveBackAnimationStyle.AOSP
         )
 
-        assertTrue(state.enabled)
-        assertEquals(PredictiveBackAnimationStyle.AOSP, state.selectedStyle)
+        assertFalse(state.enabled)
+        assertEquals(PredictiveBackAnimationStyle.NONE, state.selectedStyle)
         assertEquals(PREDICTIVE_BACK_ANIMATION_TITLE, state.title)
-        assertEquals("当前：AOSP", state.subtitle)
+        assertEquals("暂时关闭：功能不完善，已避免和现有返回动画冲突", state.subtitle)
     }
 
     @Test
-    fun predictiveBackStyles_matchInstallerXDialogOrder() {
+    fun predictiveBackStyles_keepPersistedValuesForFutureRollback() {
         assertEquals(
             listOf("无", "AOSP", "Miuix", "缩放", "经典"),
             PredictiveBackAnimationStyle.entries.map { it.displayName }
         )
         assertEquals(PredictiveBackAnimationStyle.AOSP, PredictiveBackAnimationStyle.Default)
+        assertFalse(PredictiveBackAnimationStyle.AOSP.usesPredictiveBack)
     }
 
     @Test
