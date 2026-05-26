@@ -6,12 +6,14 @@ import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.dash.DashMediaSource
 import com.android.purebilibili.core.cooldown.CooldownStatus
 import com.android.purebilibili.core.cooldown.PlaybackCooldownManager
 import com.android.purebilibili.core.network.NetworkModule
+import com.android.purebilibili.core.player.PlaybackMediaCache
 import com.android.purebilibili.core.util.Logger
 import com.android.purebilibili.data.model.VideoLoadError
 import com.android.purebilibili.data.model.response.*
@@ -243,6 +245,12 @@ internal fun seekPlayerFromUserAction(
         "VideoPlaybackUseCase",
         "USER_DBG seekPlayerFromUserAction: target=$positionMs, shouldResume=$shouldResume, " +
             "beforeState=${player.playbackState}, beforePlaying=${player.isPlaying}, beforePwr=${player.playWhenReady}"
+    )
+    PlaybackMediaCache.logSeek(
+        targetPositionMs = positionMs,
+        currentPositionMs = player.currentPosition,
+        bufferedPositionMs = player.bufferedPosition,
+        durationMs = player.duration.coerceAtLeast(0L)
     )
     if (shouldResume) {
         player.playWhenReady = true
@@ -947,6 +955,12 @@ class VideoPlaybackUseCase(
                 shouldResumePlaybackOverride = true
             )
         } else {
+            PlaybackMediaCache.logSeek(
+                targetPositionMs = position,
+                currentPositionMs = player.currentPosition,
+                bufferedPositionMs = player.bufferedPosition,
+                durationMs = player.duration.coerceAtLeast(0L)
+            )
             player.seekTo(position)
         }
     }
@@ -1057,9 +1071,10 @@ class VideoPlaybackUseCase(
             "Referer" to "https://www.bilibili.com",
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
-        val dataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+        val upstreamFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
             NetworkModule.playbackOkHttpClient
         ).setDefaultRequestProperties(headers)
+        val dataSourceFactory = buildCachedPlaybackDataSourceFactory(upstreamFactory)
 
         val mediaSourceFactory = androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(dataSourceFactory)
         val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(videoUrl))
@@ -1086,12 +1101,22 @@ class VideoPlaybackUseCase(
         val upstreamFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
             NetworkModule.playbackOkHttpClient
         ).setDefaultRequestProperties(headers)
-        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, upstreamFactory)
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+            context,
+            PlaybackMediaCache.buildCachedDataSourceFactory(context, upstreamFactory)
+        )
         val mediaItem = MediaItem.Builder()
             .setUri(manifestUri)
             .setMimeType(MimeTypes.APPLICATION_MPD)
             .build()
         return DashMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+    }
+
+    private fun buildCachedPlaybackDataSourceFactory(
+        upstreamFactory: DataSource.Factory
+    ): DataSource.Factory {
+        val context = appContext ?: NetworkModule.appContext ?: return upstreamFactory
+        return PlaybackMediaCache.buildCachedDataSourceFactory(context, upstreamFactory)
     }
 
     private fun writeAdaptiveDashManifest(context: Context, manifest: String): Uri? {
