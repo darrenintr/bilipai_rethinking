@@ -1269,60 +1269,65 @@ fun ElegantVideoCard(
 
     }
         
-        //  [新增] 长按操作菜单
-        DropdownMenu(
-            expanded = showDismissMenu,
-            onDismissRequest = { showDismissMenu = false },
-            offset = menuOffset
+        // 菜单需要挂在一个本地小锚点上，避免 DropdownMenu 在整张卡片根节点右侧 fallback 时反向偏移。
+        Box(
+            modifier = Modifier
+                .offset(x = menuOffset.x, y = menuOffset.y)
+                .size(1.dp)
         ) {
-            // 稍后再看
-            if (onWatchLater != null) {
-                DropdownMenuItem(
-                    text = { 
-                        Text(
-                            "🕐 稍后再看",
-                            color = MaterialTheme.colorScheme.onSurface
-                        ) 
-                    },
-                    onClick = {
-                        showDismissMenu = false
-                        onWatchLater.invoke()
-                    }
-                )
-            }
-            
-            
-            // 取消收藏 (仅在收藏页显示)
-            if (onUnfavorite != null) {
-                 DropdownMenuItem(
-                    text = { 
-                        Text(
-                            "💔 取消收藏",
-                            color = MaterialTheme.colorScheme.error  // 使用错误色强调删除操作
-                        ) 
-                    },
-                    onClick = {
-                        showDismissMenu = false
-                        // onUnfavorite.invoke() -> 改为弹窗确认
-                        showUnfavoriteDialog = true
-                    }
-                )
-            }
-            
-            // 不感兴趣 (放第一位，方便操作) -> 改回下方
-            if (onDismiss != null) {
-                DropdownMenuItem(
-                    text = { 
-                        Text(
-                            dismissMenuText,
-                            color = MaterialTheme.colorScheme.onSurface
-                        ) 
-                    },
-                    onClick = {
-                        showDismissMenu = false
-                        onDismiss.invoke()
-                    }
-                )
+            DropdownMenu(
+                expanded = showDismissMenu,
+                onDismissRequest = { showDismissMenu = false },
+                offset = DpOffset.Zero
+            ) {
+                // 稍后再看
+                if (onWatchLater != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "🕐 稍后再看",
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        onClick = {
+                            showDismissMenu = false
+                            onWatchLater.invoke()
+                        }
+                    )
+                }
+
+                // 取消收藏 (仅在收藏页显示)
+                if (onUnfavorite != null) {
+                     DropdownMenuItem(
+                        text = {
+                            Text(
+                                "💔 取消收藏",
+                                color = MaterialTheme.colorScheme.error  // 使用错误色强调删除操作
+                            )
+                        },
+                        onClick = {
+                            showDismissMenu = false
+                            // onUnfavorite.invoke() -> 改为弹窗确认
+                            showUnfavoriteDialog = true
+                        }
+                    )
+                }
+
+                // 不感兴趣 (放第一位，方便操作) -> 改回下方
+                if (onDismiss != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                dismissMenuText,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        onClick = {
+                            showDismissMenu = false
+                            onDismiss.invoke()
+                        }
+                    )
+                }
             }
         }
     }
