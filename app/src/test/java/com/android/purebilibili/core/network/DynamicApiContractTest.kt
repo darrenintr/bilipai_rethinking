@@ -105,4 +105,12 @@ class DynamicApiContractTest {
         val firstParamAnnotations = method.parameterAnnotations[0].toList()
         assertTrue(firstParamAnnotations.any { it is QueryMap })
     }
+
+    @Test
+    fun getPbpData_usesBilivideoPbpEndpoint() {
+        val method = BilibiliApi::class.java.methods.first { it.name == "getPbpData" }
+        val get = method.getAnnotation(GET::class.java)
+
+        assertEquals("https://bvc.bilivideo.com/pbp/data", get?.value)
+    }
 }

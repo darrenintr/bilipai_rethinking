@@ -574,7 +574,7 @@ interface BilibiliApi {
         @Query("index") index: Int = 1  // 是否返回时间索引，1=是
     ): VideoshotResponse
 
-    @GET("https://api.bilibili.com/pbp/data")
+    @GET("https://bvc.bilivideo.com/pbp/data")
     suspend fun getPbpData(
         @Query("cid") cid: Long,
         @Query("bvid") bvid: String? = null,

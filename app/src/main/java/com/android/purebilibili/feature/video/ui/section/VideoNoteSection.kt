@@ -83,6 +83,11 @@ fun VideoNoteCard(
         defaultCollapsed = defaultCollapsed,
         userExpanded = userExpanded
     )
+    val primaryActionEnabled = (isLoggedIn || hasUnsavedDraft) &&
+        !noteState.forbidNoteEntrance &&
+        !noteState.saving
+    val showSecondaryActions = noteState.privateNoteDocument != null ||
+        noteState.status == VideoNoteLoadStatus.ERROR
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -99,13 +104,27 @@ fun VideoNoteCard(
                         text = "视频笔记",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
                     )
-                    Text(
-                        text = resolveNoteSubtitle(noteState, isLoggedIn),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = resolveNoteSubtitle(noteState, isLoggedIn),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (showBody) {
+                            VideoNotePrimaryActionButton(
+                                label = primaryActionLabel,
+                                enabled = primaryActionEnabled,
+                                onClick = onCreateOrEditClick
+                            )
+                        }
+                    }
                 }
                 if (noteState.status == VideoNoteLoadStatus.LOADING) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -135,46 +154,34 @@ fun VideoNoteCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = onCreateOrEditClick,
-                        enabled = (isLoggedIn || hasUnsavedDraft) &&
-                            !noteState.forbidNoteEntrance &&
-                            !noteState.saving
+                if (showSecondaryActions) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = if (primaryActionLabel == "新建") Icons.Outlined.Add else Icons.Outlined.Edit,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(primaryActionLabel)
-                    }
-                    noteState.privateNoteDocument?.let { privateDocument ->
-                        OutlinedButton(
-                            onClick = { onShareClick(privateDocument) }
-                        ) {
-                            Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("分享")
+                        noteState.privateNoteDocument?.let { privateDocument ->
+                            OutlinedButton(
+                                onClick = { onShareClick(privateDocument) }
+                            ) {
+                                Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("分享")
+                            }
+                            OutlinedButton(
+                                onClick = onDeleteClick,
+                                enabled = !noteState.deleting
+                            ) {
+                                Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("删除")
+                            }
                         }
-                        OutlinedButton(
-                            onClick = onDeleteClick,
-                            enabled = !noteState.deleting
-                        ) {
-                            Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("删除")
-                        }
-                    }
-                    if (noteState.status == VideoNoteLoadStatus.ERROR) {
-                        TextButton(onClick = onRetryClick) {
-                            Text("重试")
+                        if (noteState.status == VideoNoteLoadStatus.ERROR) {
+                            TextButton(onClick = onRetryClick) {
+                                Text("重试")
+                            }
                         }
                     }
                 }
@@ -204,6 +211,26 @@ fun VideoNoteCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun VideoNotePrimaryActionButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled
+    ) {
+        Icon(
+            imageVector = if (label == "新建") Icons.Outlined.Add else Icons.Outlined.Edit,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(label)
     }
 }
 
