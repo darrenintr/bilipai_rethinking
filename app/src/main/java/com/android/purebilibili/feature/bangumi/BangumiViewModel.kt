@@ -403,39 +403,21 @@ class BangumiViewModel : ViewModel() {
                         }
                     }
                     
-                    //  [修复] 确定追番状态的优先级：
-                    // 1. 本地缓存（用户在本次会话中点击追番/取消追番）
-                    // 2. 预加载的追番列表（从"我的追番"API 获取）
-                    // 3. API 返回的 userStatus.follow
-                    val isFollowed = when {
-                        followStatusValueCache.containsKey(realSeasonId) -> {
-                            followStatusValueCache[realSeasonId]!! > 0
-                        }
-                        followStatusCache.containsKey(realSeasonId) -> {
-                            android.util.Log.d("BangumiVM", "📌 使用本地缓存状态: ${followStatusCache[realSeasonId]}")
-                            followStatusCache[realSeasonId]!!
-                        }
-                        followedSeasonIds.contains(realSeasonId) -> {
-                            android.util.Log.d("BangumiVM", "📌 从追番列表确认已追番: seasonId=$realSeasonId")
-                            true
-                        }
-                        else -> {
-                            isBangumiFollowed(detail.userStatus)
-                        }
-                    }
+                    val mergedFollowStatus = resolveBangumiMergedFollowStatus(
+                        seasonId = realSeasonId,
+                        apiUserStatus = detail.userStatus,
+                        cachedFollow = followStatusCache,
+                        cachedStatus = followStatusValueCache,
+                        followedSeasonIds = followedSeasonIds
+                    )
                     
                     val correctedDetail = detail.copy(
                         userStatus = detail.userStatus?.copy(
-                            follow = if (isFollowed) 1 else 0,
-                            followStatus = if (isFollowed) {
-                                followStatusValueCache[realSeasonId]
-                                    ?: maxOf(detail.userStatus?.followStatus ?: 0, BANGUMI_FOLLOW_STATUS_WANT)
-                            } else {
-                                0
-                            }
+                            follow = if (mergedFollowStatus.isFollowing) 1 else 0,
+                            followStatus = mergedFollowStatus.followStatus
                         ) ?: com.android.purebilibili.data.model.response.UserStatus(
-                            follow = if (isFollowed) 1 else 0,
-                            followStatus = if (isFollowed) 1 else 0
+                            follow = if (mergedFollowStatus.isFollowing) 1 else 0,
+                            followStatus = mergedFollowStatus.followStatus
                         )
                     )
                     _detailState.value = BangumiDetailState.Success(correctedDetail)
@@ -544,6 +526,7 @@ class BangumiViewModel : ViewModel() {
             
             BangumiRepository.searchBangumi(
                 keyword = keyword,
+                seasonType = _selectedType.value,
                 page = searchPage
             ).fold(
                 onSuccess = { data ->
@@ -573,6 +556,7 @@ class BangumiViewModel : ViewModel() {
         viewModelScope.launch {
             BangumiRepository.searchBangumi(
                 keyword = currentState.keyword,
+                seasonType = _selectedType.value,
                 page = searchPage
             ).fold(
                 onSuccess = { data ->

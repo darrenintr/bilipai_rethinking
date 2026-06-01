@@ -8,6 +8,9 @@ import com.android.purebilibili.data.model.response.ArticleMajor
 import com.android.purebilibili.data.model.response.DrawItem
 import com.android.purebilibili.data.model.response.DynamicItem
 import com.android.purebilibili.data.model.response.LiveRcmdMajor
+import com.android.purebilibili.data.model.response.OpusContentBlock
+import com.android.purebilibili.data.model.response.OpusLinkCard
+import com.android.purebilibili.data.model.response.OpusMajor
 import com.android.purebilibili.data.model.response.UgcSeasonMajor
 import com.android.purebilibili.feature.dynamic.model.LiveContentInfo
 import kotlinx.serialization.json.Json
@@ -15,6 +18,7 @@ import kotlinx.serialization.json.Json
 internal sealed interface DynamicCardPrimaryAction {
     data class OpenVideo(val bvid: String) : DynamicCardPrimaryAction
     data class OpenBangumi(val seasonId: Long, val epId: Long) : DynamicCardPrimaryAction
+    data class OpenArticle(val articleId: Long, val title: String) : DynamicCardPrimaryAction
     data class OpenDynamicDetail(val dynamicId: String) : DynamicCardPrimaryAction
     data class OpenLive(val roomId: Long, val title: String, val uname: String) : DynamicCardPrimaryAction
     data class OpenUser(val mid: Long) : DynamicCardPrimaryAction
@@ -27,7 +31,20 @@ internal sealed interface DynamicCardMediaAction {
         val initialIndex: Int
     ) : DynamicCardMediaAction
 
+    data class OpenDynamicDetail(val dynamicId: String) : DynamicCardMediaAction
+
     data object None : DynamicCardMediaAction
+}
+
+internal sealed interface DynamicOpusLinkCardAction {
+    data class OpenVideo(val videoId: String) : DynamicOpusLinkCardAction
+    data class OpenDynamicDetail(val dynamicId: String) : DynamicOpusLinkCardAction
+    data class OpenArticle(val articleId: Long, val title: String) : DynamicOpusLinkCardAction
+    data class OpenLive(val roomId: Long) : DynamicOpusLinkCardAction
+    data class OpenUser(val mid: Long) : DynamicOpusLinkCardAction
+    data class OpenBangumi(val seasonId: Long, val epId: Long) : DynamicOpusLinkCardAction
+    data class OpenExternalUrl(val url: String) : DynamicOpusLinkCardAction
+    data object None : DynamicOpusLinkCardAction
 }
 
 internal fun resolveBvidFromRawVideoTarget(rawValue: String?): String? {
@@ -123,6 +140,43 @@ internal fun resolveArticleCoverDrawItems(article: ArticleMajor): List<DrawItem>
     }
 }
 
+internal fun resolveDynamicOpusPresentationBlocks(
+    opus: OpusMajor,
+    isDetail: Boolean
+): List<OpusContentBlock> {
+    return if (isDetail) opus.contentBlocks else emptyList()
+}
+
+internal fun resolveDynamicOpusPreviewImageLimit(isDetail: Boolean): Int? {
+    return if (isDetail) null else 9
+}
+
+internal fun resolveDynamicOpusLinkCardAction(card: OpusLinkCard): DynamicOpusLinkCardAction {
+    val url = card.jumpUrl.trim()
+    if (url.isBlank()) return DynamicOpusLinkCardAction.None
+    return when (val target = BilibiliNavigationTargetParser.parse(url)) {
+        is BilibiliNavigationTarget.Video -> DynamicOpusLinkCardAction.OpenVideo(target.videoId)
+        is BilibiliNavigationTarget.Dynamic -> DynamicOpusLinkCardAction.OpenDynamicDetail(target.dynamicId)
+        is BilibiliNavigationTarget.Article -> DynamicOpusLinkCardAction.OpenArticle(
+            articleId = target.articleId,
+            title = card.title
+        )
+        is BilibiliNavigationTarget.Live -> DynamicOpusLinkCardAction.OpenLive(target.roomId)
+        is BilibiliNavigationTarget.Space -> DynamicOpusLinkCardAction.OpenUser(target.mid)
+        is BilibiliNavigationTarget.BangumiSeason -> DynamicOpusLinkCardAction.OpenBangumi(
+            seasonId = target.seasonId,
+            epId = 0L
+        )
+        is BilibiliNavigationTarget.BangumiEpisode -> DynamicOpusLinkCardAction.OpenBangumi(
+            seasonId = 0L,
+            epId = target.epId
+        )
+        is BilibiliNavigationTarget.Music,
+        is BilibiliNavigationTarget.Search,
+        null -> DynamicOpusLinkCardAction.OpenExternalUrl(url)
+    }
+}
+
 internal fun resolveDynamicCardPrimaryAction(item: DynamicItem): DynamicCardPrimaryAction {
     val target = item.orig ?: item
     val authorMid = target.modules.module_author?.mid ?: 0L
@@ -133,6 +187,27 @@ internal fun resolveDynamicCardPrimaryAction(item: DynamicItem): DynamicCardPrim
     if (bvid != null) {
         return DynamicCardPrimaryAction.OpenVideo(bvid)
     }
+
+    major?.article
+        ?.takeIf { it.id > 0L }
+        ?.let { article ->
+            when (val target = BilibiliNavigationTargetParser.parse(article.jump_url)) {
+                is BilibiliNavigationTarget.Dynamic -> {
+                    return DynamicCardPrimaryAction.OpenDynamicDetail(target.dynamicId)
+                }
+                is BilibiliNavigationTarget.Article -> {
+                    return DynamicCardPrimaryAction.OpenArticle(
+                        articleId = target.articleId,
+                        title = article.title.ifBlank { article.desc }
+                    )
+                }
+                else -> Unit
+            }
+            return DynamicCardPrimaryAction.OpenArticle(
+                articleId = article.id,
+                title = article.title.ifBlank { article.desc }
+            )
+        }
 
     major?.live_rcmd?.let { live ->
         resolveLivePrimaryAction(
@@ -155,11 +230,20 @@ internal fun resolveDynamicCardPrimaryAction(item: DynamicItem): DynamicCardPrim
 
 internal fun resolveDynamicCardMediaAction(
     item: DynamicItem,
-    clickedIndex: Int
+    clickedIndex: Int,
+    isDetail: Boolean = true
 ): DynamicCardMediaAction {
     val target = item.orig ?: item
     val major = target.modules.module_dynamic?.major
     if (major == null) return DynamicCardMediaAction.None
+    if (!isDetail && major.opus != null) {
+        val dynamicId = target.id_str.trim()
+        return if (dynamicId.isNotEmpty()) {
+            DynamicCardMediaAction.OpenDynamicDetail(dynamicId)
+        } else {
+            DynamicCardMediaAction.None
+        }
+    }
     val images = when {
         major.draw != null && major.draw.items.isNotEmpty() -> major.draw.items.map { it.src }
         major.opus != null && major.opus.pics.isNotEmpty() -> major.opus.pics.map { it.url }
@@ -177,6 +261,7 @@ internal fun dispatchDynamicCardPrimaryAction(
     action: DynamicCardPrimaryAction,
     onVideoClick: (String) -> Unit,
     onBangumiClick: (Long, Long) -> Unit,
+    onArticleClick: ((Long, String) -> Unit)? = null,
     onDynamicDetailClick: ((String) -> Unit)?,
     onUserClick: (Long) -> Unit,
     onLiveClick: (Long, String, String) -> Unit
@@ -184,11 +269,53 @@ internal fun dispatchDynamicCardPrimaryAction(
     when (action) {
         is DynamicCardPrimaryAction.OpenVideo -> onVideoClick(action.bvid)
         is DynamicCardPrimaryAction.OpenBangumi -> onBangumiClick(action.seasonId, action.epId)
+        is DynamicCardPrimaryAction.OpenArticle -> onArticleClick?.invoke(action.articleId, action.title)
         is DynamicCardPrimaryAction.OpenDynamicDetail -> onDynamicDetailClick?.invoke(action.dynamicId)
         is DynamicCardPrimaryAction.OpenLive -> onLiveClick(action.roomId, action.title, action.uname)
         is DynamicCardPrimaryAction.OpenUser -> onUserClick(action.mid)
         DynamicCardPrimaryAction.None -> Unit
     }
+}
+
+internal fun shouldEnableDynamicCardPrimaryClick(
+    action: DynamicCardPrimaryAction,
+    hasArticleClick: Boolean,
+    hasDynamicDetailClick: Boolean,
+    hasPrimaryClickOverride: Boolean
+): Boolean {
+    if (hasPrimaryClickOverride) return true
+    return when (action) {
+        is DynamicCardPrimaryAction.OpenArticle -> hasArticleClick
+        is DynamicCardPrimaryAction.OpenDynamicDetail -> hasDynamicDetailClick
+        DynamicCardPrimaryAction.None -> false
+        else -> true
+    }
+}
+
+internal fun dispatchDynamicCardPrimaryClick(
+    item: DynamicItem,
+    action: DynamicCardPrimaryAction,
+    onPrimaryClickOverride: ((DynamicItem) -> Unit)?,
+    onVideoClick: (String) -> Unit,
+    onBangumiClick: (Long, Long) -> Unit,
+    onArticleClick: ((Long, String) -> Unit)? = null,
+    onDynamicDetailClick: ((String) -> Unit)?,
+    onUserClick: (Long) -> Unit,
+    onLiveClick: (Long, String, String) -> Unit
+) {
+    if (onPrimaryClickOverride != null) {
+        onPrimaryClickOverride(item)
+        return
+    }
+    dispatchDynamicCardPrimaryAction(
+        action = action,
+        onVideoClick = onVideoClick,
+        onBangumiClick = onBangumiClick,
+        onArticleClick = onArticleClick,
+        onDynamicDetailClick = onDynamicDetailClick,
+        onUserClick = onUserClick,
+        onLiveClick = onLiveClick
+    )
 }
 
 private val dynamicLiveJson = Json { ignoreUnknownKeys = true }

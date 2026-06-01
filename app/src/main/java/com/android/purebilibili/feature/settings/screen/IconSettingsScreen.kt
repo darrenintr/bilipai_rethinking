@@ -43,7 +43,6 @@ import com.android.purebilibili.core.ui.rememberAppBackIcon
 import io.github.alexzhirkevich.cupertino.icons.CupertinoIcons
 import io.github.alexzhirkevich.cupertino.icons.outlined.Info
 import io.github.alexzhirkevich.cupertino.icons.filled.CheckmarkCircle
-import com.android.purebilibili.core.ui.animation.staggeredEntrance
 
 /**
  *  应用图标设置二级页面

@@ -100,6 +100,22 @@ internal fun resolveTopTabIndicatorRenderPosition(
     )
 }
 
+internal fun resolveTopTabSelectedContentPosition(
+    selectedIndex: Int,
+    pagerCurrentPage: Int?,
+    pagerTargetPage: Int?,
+    pagerCurrentPageOffsetFraction: Float?,
+    pagerIsScrolling: Boolean
+): Float {
+    return resolveTopTabPagerPosition(
+        selectedIndex = selectedIndex,
+        pagerCurrentPage = pagerCurrentPage,
+        pagerTargetPage = pagerTargetPage,
+        pagerCurrentPageOffsetFraction = pagerCurrentPageOffsetFraction,
+        pagerIsScrolling = pagerIsScrolling
+    )
+}
+
 internal fun resolveTopTabFollowScrollTarget(
     indicatorPosition: Float,
     itemWidthPx: Float,
@@ -173,4 +189,59 @@ internal fun resolveMd3TopTabIndicatorTranslationPx(
     if (itemWidthPx <= 0f || indicatorWidthPx <= 0f) return contentPaddingPx
     val indicatorCenterPx = contentPaddingPx + (absolutePagerPosition * itemWidthPx) + (itemWidthPx / 2f)
     return indicatorCenterPx - rowScrollOffsetPx - (indicatorWidthPx / 2f)
+}
+
+internal fun resolveIosTopTabCapsuleTranslationPx(
+    absolutePagerPosition: Float,
+    itemWidthPx: Float,
+    rowScrollOffsetPx: Float,
+    contentPaddingPx: Float = 0f
+): Float {
+    if (itemWidthPx <= 0f) return contentPaddingPx
+    return contentPaddingPx + absolutePagerPosition.coerceAtLeast(0f) * itemWidthPx - rowScrollOffsetPx
+}
+
+internal fun resolveIosTopTabCapsuleTargetTranslationPx(
+    measuredSelectedItemLeftPx: Float?,
+    absolutePagerPosition: Float,
+    itemWidthPx: Float,
+    rowScrollOffsetPx: Float,
+    contentPaddingPx: Float = 0f,
+    followPagerPosition: Boolean = false
+): Float {
+    val measuredLeft = measuredSelectedItemLeftPx
+    if (!followPagerPosition && measuredLeft != null && !measuredLeft.isNaN()) {
+        return measuredLeft
+    }
+    return resolveIosTopTabCapsuleTranslationPx(
+        absolutePagerPosition = absolutePagerPosition,
+        itemWidthPx = itemWidthPx,
+        rowScrollOffsetPx = rowScrollOffsetPx,
+        contentPaddingPx = contentPaddingPx
+    )
+}
+
+internal fun shouldAnimateIosTopTabCapsule(
+    pagerIsDragging: Boolean,
+    pagerIsScrolling: Boolean
+): Boolean {
+    return !pagerIsDragging && !pagerIsScrolling
+}
+
+internal fun shouldDrawLightweightTopTabItemContainer(
+    renderer: HomeTopTabRenderer,
+    skinPlainStyle: Boolean,
+    hasSkinStickerIcon: Boolean
+): Boolean {
+    return renderer != HomeTopTabRenderer.IOS || skinPlainStyle || hasSkinStickerIcon
+}
+
+internal fun shouldUseLightweightTopTabItemClickIndication(
+    renderer: HomeTopTabRenderer,
+    skinPlainStyle: Boolean,
+    usesCapsuleIndicator: Boolean
+): Boolean {
+    if (skinPlainStyle) return true
+    if (usesCapsuleIndicator) return false
+    return renderer == HomeTopTabRenderer.MD3
 }

@@ -44,6 +44,17 @@ class VideoDetailScreenPolicyTest {
     }
 
     @Test
+    fun initialVerticalRouteHint_startsPortraitFullscreenBeforeApiDimensionArrives() {
+        assertTrue(
+            shouldStartInPortraitFullscreenFromRouteHint(
+                autoEnterPortraitFromRoute = true,
+                startAudioFromRoute = false,
+                initialVerticalFromRoute = true
+            )
+        )
+    }
+
+    @Test
     fun secondaryNavigationCallbacks_markNavigationLeaveBeforeRouting() {
         val source = File("src/main/java/com/android/purebilibili/feature/video/screen/VideoDetailScreen.kt")
             .readText()

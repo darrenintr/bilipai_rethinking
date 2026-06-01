@@ -3,6 +3,8 @@ package com.android.purebilibili.feature.settings
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.store.BottomBarSearchAutoExpandMode
@@ -40,6 +42,8 @@ data class SettingsUiState(
     val darkThemeStyle: DarkThemeStyle = DarkThemeStyle.DEFAULT,
     val appLanguage: AppLanguage = AppLanguage.FOLLOW_SYSTEM,
     val dynamicColor: Boolean = true,
+    val md3ColorSource: Md3ColorSource = Md3ColorSource.FOLLOW_WALLPAPER,
+    val md3CustomColorHex: String = "#007AFF",
     val colorStyle: PaletteStyle = PaletteStyle.TonalSpot,
     val colorSpec: ColorSpec.SpecVersion = ColorSpec.SpecVersion.SPEC_2021,
     val appFontSizePreset: AppFontSizePreset = AppFontSizePreset.DEFAULT,
@@ -60,7 +64,6 @@ data class SettingsUiState(
     val cardAnimationEnabled: Boolean = false,     //  卡片进场动画（默认关闭）
     val cardTransitionEnabled: Boolean = false,    //  卡片过渡动画（默认关闭）
     val videoTransitionRealtimeBlurEnabled: Boolean = true,
-    val predictiveBackAnimationEnabled: Boolean = true, // 预测性返回手势支持
     val smartVisualGuardEnabled: Boolean = false, // [Retired] 智能流畅优先已下线
     val cacheSize: String = "计算中...",
     val cacheBreakdown: CacheUtils.CacheBreakdown? = null,  //  详细缓存统计
@@ -86,7 +89,7 @@ data class SettingsUiState(
     val liquidGlassProgress: Float = 0.5f,
     // [New] 平板导航模式
     val tabletUseSidebar: Boolean = false,
-    val isHeaderCollapseEnabled: Boolean = true, // [New]
+    val isHeaderCollapseEnabled: Boolean = true,
     val gridColumnCount: Int = 0, // [New]
     val homeFeedCardWidthPreset: HomeFeedCardWidthPreset = HomeFeedCardWidthPreset.AUTO
 ) {
@@ -103,6 +106,8 @@ private data class CoreSettings(
     val darkThemeStyle: DarkThemeStyle,
     val appLanguage: AppLanguage,
     val dynamicColor: Boolean,
+    val md3ColorSource: Md3ColorSource,
+    val md3CustomColorHex: String,
     val colorStyle: PaletteStyle,
     val colorSpec: ColorSpec.SpecVersion,
     val bgPlay: Boolean
@@ -126,7 +131,6 @@ data class ExtraSettings(
     val cardAnimationEnabled: Boolean,
     val cardTransitionEnabled: Boolean,
     val videoTransitionRealtimeBlurEnabled: Boolean,
-    val predictiveBackAnimationEnabled: Boolean,
     val smartVisualGuardEnabled: Boolean,
     val hapticFeedbackEnabled: Boolean, // [Restored]
     val bottomBarLiquidGlassEnabled: Boolean = true,
@@ -139,7 +143,7 @@ data class ExtraSettings(
     val liquidGlassStrength: Float, // [New]
     val liquidGlassProgress: Float, // [New]
     val tabletUseSidebar: Boolean, // [New]
-    val isHeaderCollapseEnabled: Boolean, // [New]
+    val isHeaderCollapseEnabled: Boolean,
     val gridColumnCount: Int, // [New]
     val homeFeedCardWidthPreset: HomeFeedCardWidthPreset
 )
@@ -164,6 +168,8 @@ private data class BaseSettings(
     val darkThemeStyle: DarkThemeStyle,
     val appLanguage: AppLanguage,
     val dynamicColor: Boolean,
+    val md3ColorSource: Md3ColorSource,
+    val md3CustomColorHex: String,
     val colorStyle: PaletteStyle,
     val colorSpec: ColorSpec.SpecVersion,
     val appFontSizePreset: AppFontSizePreset,
@@ -184,7 +190,6 @@ private data class BaseSettings(
     val cardAnimationEnabled: Boolean, //  卡片进场动画
     val cardTransitionEnabled: Boolean, //  卡片过渡动画
     val videoTransitionRealtimeBlurEnabled: Boolean,
-    val predictiveBackAnimationEnabled: Boolean, // [New]
     val smartVisualGuardEnabled: Boolean, // [New]
     val hapticFeedbackEnabled: Boolean, // [新增]
     val bottomBarLiquidGlassEnabled: Boolean,
@@ -196,7 +201,7 @@ private data class BaseSettings(
     val liquidGlassStrength: Float, // [New]
     val liquidGlassProgress: Float, // [New]
     val tabletUseSidebar: Boolean, // [New]
-    val isHeaderCollapseEnabled: Boolean, // [New]
+    val isHeaderCollapseEnabled: Boolean,
     val gridColumnCount: Int, // [New]
     val homeFeedCardWidthPreset: HomeFeedCardWidthPreset
 )
@@ -232,6 +237,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         SettingsManager.getDarkThemeStyle(context).asAnyFlow(),
         SettingsManager.getAppLanguage(context).asAnyFlow(),
         SettingsManager.getDynamicColor(context).asAnyFlow(),
+        SettingsManager.getMd3ColorSource(context).asAnyFlow(),
+        SettingsManager.getMd3CustomColorHex(context).asAnyFlow(),
         SettingsManager.getThemeColorStyle(context).asAnyFlow(),
         SettingsManager.getThemeColorSpec(context).asAnyFlow(),
         SettingsManager.getBgPlay(context).asAnyFlow()
@@ -244,9 +251,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             darkThemeStyle = values[4] as DarkThemeStyle,
             appLanguage = values[5] as AppLanguage,
             dynamicColor = values[6] as Boolean,
-            colorStyle = values[7] as PaletteStyle,
-            colorSpec = values[8] as ColorSpec.SpecVersion,
-            bgPlay = values[9] as Boolean
+            md3ColorSource = values[7] as Md3ColorSource,
+            md3CustomColorHex = values[8] as String,
+            colorStyle = values[9] as PaletteStyle,
+            colorSpec = values[10] as ColorSpec.SpecVersion,
+            bgPlay = values[11] as Boolean
         )
     }
     
@@ -280,7 +289,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         SettingsManager.getCardAnimationEnabled(context).asAnyFlow(), // [Restored]
         SettingsManager.getCardTransitionEnabled(context).asAnyFlow(),
         SettingsManager.getVideoTransitionRealtimeBlurEnabled(context).asAnyFlow(),
-        SettingsManager.getPredictiveBackAnimationEnabled(context).asAnyFlow(), // [New]
         SettingsManager.getSmartVisualGuardEnabled(context).asAnyFlow(), // [New]
         SettingsManager.getHapticFeedbackEnabled(context).asAnyFlow(), // [新增]
         SettingsManager.getBottomBarLiquidGlassEnabled(context).asAnyFlow(),
@@ -292,7 +300,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         SettingsManager.getLiquidGlassStrength(context).asAnyFlow(), // [New]
         SettingsManager.getLiquidGlassProgress(context).asAnyFlow(), // [New]
         SettingsManager.getTabletUseSidebar(context).asAnyFlow(), // [New]
-        SettingsManager.getHeaderCollapseEnabled(context).asAnyFlow(), // [New]
+        SettingsManager.getHeaderCollapseEnabled(context).asAnyFlow(),
         SettingsManager.getGridColumnCount(context).asAnyFlow(), // [New]
         SettingsManager.getHomeFeedCardWidthPreset(context).asAnyFlow()
     ) { values ->
@@ -302,21 +310,20 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val cardAnimation = values[3] as Boolean
         val cardTransition = values[4] as Boolean
         val videoTransitionRealtimeBlur = values[5] as Boolean
-        val predictiveBackAnimation = values[6] as Boolean
-        val smartVisualGuard = values[7] as Boolean
-        val hapticFeedback = values[8] as Boolean
-        val bottomBarLiquidGlass = values[9] as Boolean
-        val bottomBarSearch = values[10] as Boolean
-        val bottomBarSearchAutoExpandMode = values[11] as BottomBarSearchAutoExpandMode
-        val androidNativeLiquidGlass = values[12] as Boolean
-        val liquidGlassStyle = values[13] as com.android.purebilibili.core.store.LiquidGlassStyle
-        val liquidGlassMode = values[14] as LiquidGlassMode
-        val liquidGlassStrength = values[15] as Float
-        val liquidGlassProgress = values[16] as Float
-        val tabletUseSidebar = values[17] as Boolean
-        val headerCollapse = values[18] as Boolean
-        val gridColumnCount = values[19] as Int
-        val homeFeedCardWidthPreset = values[20] as HomeFeedCardWidthPreset
+        val smartVisualGuard = values[6] as Boolean
+        val hapticFeedback = values[7] as Boolean
+        val bottomBarLiquidGlass = values[8] as Boolean
+        val bottomBarSearch = values[9] as Boolean
+        val bottomBarSearchAutoExpandMode = values[10] as BottomBarSearchAutoExpandMode
+        val androidNativeLiquidGlass = values[11] as Boolean
+        val liquidGlassStyle = values[12] as com.android.purebilibili.core.store.LiquidGlassStyle
+        val liquidGlassMode = values[13] as LiquidGlassMode
+        val liquidGlassStrength = values[14] as Float
+        val liquidGlassProgress = values[15] as Float
+        val tabletUseSidebar = values[16] as Boolean
+        val headerCollapse = values[17] as Boolean
+        val gridColumnCount = values[18] as Int
+        val homeFeedCardWidthPreset = values[19] as HomeFeedCardWidthPreset
         
         data class Ui2(
             val f: Boolean,
@@ -325,7 +332,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val ca: Boolean,
             val ct: Boolean,
             val vtrb: Boolean,
-            val pba: Boolean,
             val svg: Boolean,
             val h: Boolean,
             val blg: Boolean,
@@ -348,7 +354,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             cardAnimation,
             cardTransition,
             videoTransitionRealtimeBlur,
-            predictiveBackAnimation,
             smartVisualGuard,
             hapticFeedback,
             bottomBarLiquidGlass,
@@ -384,7 +389,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             cardAnimationEnabled = ui2.ca,
             cardTransitionEnabled = ui2.ct,
             videoTransitionRealtimeBlurEnabled = ui2.vtrb,
-            predictiveBackAnimationEnabled = ui2.pba,
             smartVisualGuardEnabled = ui2.svg,
             hapticFeedbackEnabled = ui2.h, // [新增]
             bottomBarLiquidGlassEnabled = ui2.blg,
@@ -396,7 +400,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             liquidGlassStrength = ui2.lgt, // [New]
             liquidGlassProgress = ui2.lgp, // [New]
             tabletUseSidebar = ui2.tus, // [New]
-            isHeaderCollapseEnabled = ui2.hc, // [New]
+            isHeaderCollapseEnabled = ui2.hc,
             gridColumnCount = ui2.gcc, // [New]
             homeFeedCardWidthPreset = ui2.hfcwp,
             headerBlurEnabled = false, // 暂存，将在下一步合并
@@ -452,6 +456,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             darkThemeStyle = core.darkThemeStyle,
             appLanguage = core.appLanguage,
             dynamicColor = core.dynamicColor,
+            md3ColorSource = core.md3ColorSource,
+            md3CustomColorHex = core.md3CustomColorHex,
             colorStyle = core.colorStyle,
             colorSpec = core.colorSpec,
             appFontSizePreset = extra.appFontSizePreset,
@@ -472,7 +478,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             cardAnimationEnabled = extra.cardAnimationEnabled,
             cardTransitionEnabled = extra.cardTransitionEnabled,
             videoTransitionRealtimeBlurEnabled = extra.videoTransitionRealtimeBlurEnabled,
-            predictiveBackAnimationEnabled = extra.predictiveBackAnimationEnabled,
             smartVisualGuardEnabled = extra.smartVisualGuardEnabled,
             hapticFeedbackEnabled = extra.hapticFeedbackEnabled, // [新增]
             bottomBarLiquidGlassEnabled = extra.bottomBarLiquidGlassEnabled,
@@ -484,7 +489,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             liquidGlassStrength = extra.liquidGlassStrength, // [New]
             liquidGlassProgress = extra.liquidGlassProgress, // [New]
             tabletUseSidebar = extra.tabletUseSidebar, // [New]
-            isHeaderCollapseEnabled = extra.isHeaderCollapseEnabled, // [New]
+            isHeaderCollapseEnabled = extra.isHeaderCollapseEnabled,
             gridColumnCount = extra.gridColumnCount, // [New]
             homeFeedCardWidthPreset = extra.homeFeedCardWidthPreset
         )
@@ -509,6 +514,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             darkThemeStyle = settings.darkThemeStyle,
             appLanguage = settings.appLanguage,
             dynamicColor = settings.dynamicColor,
+            md3ColorSource = settings.md3ColorSource,
+            md3CustomColorHex = settings.md3CustomColorHex,
             colorStyle = settings.colorStyle,
             colorSpec = settings.colorSpec,
             appFontSizePreset = settings.appFontSizePreset,
@@ -529,7 +536,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             cardAnimationEnabled = settings.cardAnimationEnabled,
             cardTransitionEnabled = settings.cardTransitionEnabled,
             videoTransitionRealtimeBlurEnabled = settings.videoTransitionRealtimeBlurEnabled,
-            predictiveBackAnimationEnabled = settings.predictiveBackAnimationEnabled,
             smartVisualGuardEnabled = settings.smartVisualGuardEnabled,
             hapticFeedbackEnabled = settings.hapticFeedbackEnabled, // [新增]
             bottomBarLiquidGlassEnabled = settings.bottomBarLiquidGlassEnabled,
@@ -541,7 +547,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             liquidGlassStrength = settings.liquidGlassStrength, // [New]
             liquidGlassProgress = settings.liquidGlassProgress, // [New]
             tabletUseSidebar = settings.tabletUseSidebar, // [New]
-            isHeaderCollapseEnabled = settings.isHeaderCollapseEnabled, // [New]
+            isHeaderCollapseEnabled = settings.isHeaderCollapseEnabled,
             gridColumnCount = settings.gridColumnCount, // [New]
             homeFeedCardWidthPreset = settings.homeFeedCardWidthPreset,
 
@@ -616,6 +622,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
     fun toggleDynamicColor(value: Boolean) { viewModelScope.launch { SettingsManager.setDynamicColor(context, value) } }
+    fun setMd3ColorSource(source: Md3ColorSource) {
+        viewModelScope.launch { SettingsManager.setMd3ColorSource(context, source) }
+    }
+    fun setMd3CustomColorHex(hex: String) {
+        viewModelScope.launch { SettingsManager.setMd3CustomColorHex(context, hex) }
+    }
     fun setThemeColorStyle(style: PaletteStyle) {
         viewModelScope.launch { SettingsManager.setThemeColorStyle(context, style) }
     }
@@ -643,10 +655,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setThemeColorIndex(index: Int) { 
         viewModelScope.launch { 
             SettingsManager.setThemeColorIndex(context, index)
-            //  选择自定义主题色时，自动关闭动态取色
-            if (index != 0) {
-                SettingsManager.setDynamicColor(context, false)
-            }
         }
     }
 
@@ -746,13 +754,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun toggleVideoTransitionRealtimeBlur(value: Boolean) {
         viewModelScope.launch {
             SettingsManager.setVideoTransitionRealtimeBlurEnabled(context, value)
-        }
-    }
-
-    // 预测性返回手势支持开关
-    fun togglePredictiveBackAnimation(value: Boolean) {
-        viewModelScope.launch {
-            SettingsManager.setPredictiveBackAnimationEnabled(context, value)
         }
     }
 
@@ -902,6 +903,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
     
 
+}
+
+internal class SettingsViewModelFactory(
+    private val application: Application
+) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(SettingsViewModel::class.java)) {
+            return SettingsViewModel(application) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+    }
 }
 
 // Move DisplayMode enum here to be accessible

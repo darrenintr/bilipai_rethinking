@@ -245,7 +245,18 @@ private fun BangumiIndexFilterRow(
         items(
             items = options,
             key = { option ->
-                "${option.label}:${option.order}:${option.styleId}:${option.producerId}:${option.year}:${option.seasonStatus}"
+                listOf(
+                    option.label,
+                    option.order,
+                    option.styleId,
+                    option.producerId,
+                    option.year,
+                    option.seasonStatus,
+                    option.seasonVersion,
+                    option.spokenLanguageType,
+                    option.copyright,
+                    option.seasonMonth
+                ).joinToString(":")
             }
         ) { option ->
             val selected = option == selectedOption

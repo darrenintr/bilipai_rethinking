@@ -23,6 +23,7 @@ class RelationTagFollowingsResponseParsingTest {
                   "uname": "支付宝Alipay",
                   "face": "https://i2.hdslb.com/bfs/face/a.jpg",
                   "sign": "关注点赞转发投币四连走起！",
+                  "mtime": 1704067200,
                   "official_verify": {
                     "type": 1,
                     "desc": "支付宝官方账号"
@@ -45,5 +46,8 @@ class RelationTagFollowingsResponseParsingTest {
         assertEquals("支付宝Alipay", user.uname)
         assertEquals("https://i2.hdslb.com/bfs/face/a.jpg", user.face)
         assertEquals("关注点赞转发投币四连走起！", user.sign)
+        assertEquals(1704067200L, user.mtime)
+        assertEquals(1, user.officialVerify.type)
+        assertEquals("支付宝官方账号", user.officialVerify.desc)
     }
 }

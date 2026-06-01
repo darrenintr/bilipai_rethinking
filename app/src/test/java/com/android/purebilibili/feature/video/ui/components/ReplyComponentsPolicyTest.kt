@@ -316,6 +316,42 @@ class ReplyComponentsPolicyTest {
     }
 
     @Test
+    fun `reply action sheet policy includes share and block actions when supported`() {
+        assertContentEquals(
+            listOf(
+                ReplyActionSheetAction.COPY_ALL,
+                ReplyActionSheetAction.FREE_COPY,
+                ReplyActionSheetAction.SAVE,
+                ReplyActionSheetAction.SHARE,
+                ReplyActionSheetAction.REPLY,
+                ReplyActionSheetAction.BLOCK_USER,
+                ReplyActionSheetAction.REPORT,
+                ReplyActionSheetAction.TOGGLE_TOP,
+                ReplyActionSheetAction.DELETE
+            ),
+            buildReplyActionSheetActions(
+                canDelete = true,
+                canReport = true,
+                canShare = true,
+                canBlockUser = true,
+                topActionLabel = "置顶"
+            )
+        )
+    }
+
+    @Test
+    fun `reply action sheet policy hides share when api disables support share`() {
+        assertFalse(
+            buildReplyActionSheetActions(
+                canDelete = false,
+                canReport = false,
+                canShare = false,
+                canBlockUser = false
+            ).contains(ReplyActionSheetAction.SHARE)
+        )
+    }
+
+    @Test
     fun `buildReplyCommentImageSpec carries author message and qr url`() {
         val spec = buildReplyCommentImageSpec(
             ReplyItem(
@@ -970,6 +1006,12 @@ class ReplyComponentsPolicyTest {
     }
 
     @Test
+    fun `sub reply preview expands by default when replies are already returned`() {
+        assertTrue(resolveInitialSubReplyPreviewExpanded(previewReplyCount = 2))
+        assertFalse(resolveInitialSubReplyPreviewExpanded(previewReplyCount = 0))
+    }
+
+    @Test
     fun `inline sub reply toggle only appears when preview count exceeds collapsed limit`() {
         assertFalse(shouldShowInlineSubReplyToggle(previewReplyCount = 3))
         assertTrue(shouldShowInlineSubReplyToggle(previewReplyCount = 4))
@@ -982,6 +1024,26 @@ class ReplyComponentsPolicyTest {
         assertEquals(1, normalizeCollapsedSubReplyPreviewLimit(0))
         assertEquals(3, normalizeCollapsedSubReplyPreviewLimit(3))
         assertEquals(10, normalizeCollapsedSubReplyPreviewLimit(99))
+    }
+
+    @Test
+    fun `sub reply prefix includes compact official verify token`() {
+        assertContentEquals(
+            listOf("测试用户", " ", "[VERIFY_PERSONAL]", " ", "[UP]", ": "),
+            buildSubReplyPreviewPrefix(
+                userName = "测试用户",
+                isUpComment = true,
+                officialVerifyTone = com.android.purebilibili.core.ui.OfficialVerifyBadgeTone.PERSONAL
+            )
+        )
+        assertContentEquals(
+            listOf("机构号", " ", "[VERIFY_ORGANIZATION]", ": "),
+            buildSubReplyPreviewPrefix(
+                userName = "机构号",
+                isUpComment = false,
+                officialVerifyTone = com.android.purebilibili.core.ui.OfficialVerifyBadgeTone.ORGANIZATION
+            )
+        )
     }
 
     @Test

@@ -31,6 +31,12 @@ internal fun shouldAllowHomeChromeLiquidGlass(
     return sdkInt >= Build.VERSION_CODES.TIRAMISU
 }
 
+internal fun shouldAllowRuntimeShaderBackedHazeEffect(
+    sdkInt: Int
+): Boolean {
+    return sdkInt >= Build.VERSION_CODES.TIRAMISU
+}
+
 internal fun shouldAllowDirectHazeLiquidGlassFallback(
     sdkInt: Int
 ): Boolean {

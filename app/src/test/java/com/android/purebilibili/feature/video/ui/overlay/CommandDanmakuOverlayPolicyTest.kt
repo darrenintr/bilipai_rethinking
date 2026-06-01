@@ -16,6 +16,30 @@ class CommandDanmakuOverlayPolicyTest {
     }
 
     @Test
+    fun `follow and triple command does not unfollow existing followers`() {
+        val action = resolveAttentionCommandClickAction(attentionType = 2, isFollowing = true)
+
+        assertEquals(false, action.shouldFollow)
+        assertEquals(true, action.shouldTriple)
+    }
+
+    @Test
+    fun `follow and triple command follows first when not following`() {
+        val action = resolveAttentionCommandClickAction(attentionType = 2, isFollowing = false)
+
+        assertEquals(true, action.shouldFollow)
+        assertEquals(true, action.shouldTriple)
+    }
+
+    @Test
+    fun `follow only command ignores already followed author`() {
+        val action = resolveAttentionCommandClickAction(attentionType = 0, isFollowing = true)
+
+        assertEquals(false, action.shouldFollow)
+        assertEquals(false, action.shouldTriple)
+    }
+
+    @Test
     fun `follow and triple attention card has enough width for portrait details`() {
         assertTrue(resolveAttentionCommandCardWidthDp(2) > resolveAttentionCommandCardWidthDp(1))
         assertTrue(resolveAttentionCommandCardWidthDp(2) >= 188)

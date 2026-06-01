@@ -20,6 +20,7 @@ class HomeNotInterestedPolicyTest {
 
         assertEquals("BV1", action.bvid)
         assertTrue(action.shouldBlockCreator)
+        assertTrue(action.shouldSyncCreatorToBilibiliBlockedList)
         assertEquals(42L, action.creatorMid)
         assertEquals("UP-X", action.creatorName)
         assertEquals("face.jpg", action.creatorFace)
@@ -35,6 +36,7 @@ class HomeNotInterestedPolicyTest {
         )
 
         assertFalse(action.shouldBlockCreator)
+        assertFalse(action.shouldSyncCreatorToBilibiliBlockedList)
         assertEquals(0L, action.creatorMid)
     }
 
@@ -100,5 +102,16 @@ class HomeNotInterestedPolicyTest {
 
         assertTrue(transition.shouldStartDissolve)
         assertFalse(transition.shouldRemoveImmediately)
+    }
+
+    @Test
+    fun `disabled card animation removes not interested card immediately`() {
+        val transition = resolveHomeDismissVisualTransition(
+            isFeedbackRecorded = true,
+            cardAnimationEnabled = false
+        )
+
+        assertFalse(transition.shouldStartDissolve)
+        assertTrue(transition.shouldRemoveImmediately)
     }
 }

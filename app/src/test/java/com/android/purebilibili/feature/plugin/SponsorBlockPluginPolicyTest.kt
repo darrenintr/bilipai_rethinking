@@ -229,6 +229,62 @@ class SponsorBlockPluginPolicyTest {
         assertEquals("今日空降助手已帮你节省 2 次，累计 1 分 05 秒", notification?.body)
     }
 
+    @Test
+    fun buildSponsorBlockTestNotification_doesNotRequireRealRecords() {
+        val notification = buildSponsorBlockTestNotification(
+            config = SponsorBlockConfig(dailySummaryNotificationPrefix = "今日空降助手已帮你节省")
+        )
+
+        assertEquals("空降助手测试通知", notification.title)
+        assertEquals("今日空降助手已帮你节省 1 次，累计 30 秒", notification.body)
+    }
+
+    @Test
+    fun sponsorBlockInsightSummary_buildsPeriodStatsAndFavorites() {
+        val dayStart = 100_000L
+        val oneDay = 24L * 60L * 60L * 1000L
+        val records = listOf(
+            skipRecord(
+                videoTitle = "视频A",
+                bvid = "BVA",
+                upMid = 100L,
+                upName = "阿婆主A",
+                savedMs = 20_000L,
+                timestampMs = dayStart - 1_000L
+            ),
+            skipRecord(
+                videoTitle = "视频A",
+                bvid = "BVA",
+                upMid = 100L,
+                upName = "阿婆主A",
+                savedMs = 30_000L,
+                timestampMs = dayStart + 1_000L
+            ),
+            skipRecord(
+                videoTitle = "视频B",
+                bvid = "BVB",
+                upMid = 100L,
+                upName = "阿婆主A",
+                savedMs = 40_000L,
+                timestampMs = dayStart - 8L * oneDay
+            )
+        )
+
+        val summary = resolveSponsorBlockInsightSummary(
+            records = records,
+            dayStartMs = dayStart,
+            nowMs = dayStart + oneDay
+        )
+
+        assertEquals(1, summary.periodStats.first { it.label == "昨天" }.skipCount)
+        assertEquals(2, summary.periodStats.first { it.label == "近一月" }.uniqueVideoCount)
+        assertEquals("视频A", summary.topVideo?.title)
+        assertEquals(2, summary.topVideo?.skipCount)
+        assertEquals("阿婆主A", summary.topUp?.name)
+        assertEquals(3, summary.topUp?.skipCount)
+        assertTrue(buildSponsorBlockInsightShareText(summary).contains("近一周"))
+    }
+
     private fun sponsorSegment(
         uuid: String,
         startSeconds: Float,
@@ -248,6 +304,8 @@ class SponsorBlockPluginPolicyTest {
     }
 
     private fun skipRecord(
+        videoTitle: String = "视频",
+        bvid: String = "BV1",
         upMid: Long = 1L,
         upName: String = "UP",
         savedMs: Long,
@@ -255,8 +313,8 @@ class SponsorBlockPluginPolicyTest {
     ): SponsorBlockSkipRecord {
         return SponsorBlockSkipRecord(
             segmentId = "segment-$timestampMs",
-            videoTitle = "视频",
-            bvid = "BV1",
+            videoTitle = videoTitle,
+            bvid = bvid,
             cid = 1L,
             videoCoverUrl = "cover",
             upName = upName,

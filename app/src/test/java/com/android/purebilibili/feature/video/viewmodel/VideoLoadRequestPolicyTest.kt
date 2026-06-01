@@ -83,6 +83,42 @@ class VideoLoadRequestPolicyTest {
     }
 
     @Test
+    fun `page switch start position restarts when saved progress is already at end`() {
+        assertEquals(
+            0L,
+            resolvePageSwitchStartPositionMs(
+                cachedPositionMs = 116_000L,
+                pageDurationSeconds = 120L,
+                ignoreSavedProgress = false
+            )
+        )
+    }
+
+    @Test
+    fun `page switch start position keeps normal saved progress`() {
+        assertEquals(
+            36_000L,
+            resolvePageSwitchStartPositionMs(
+                cachedPositionMs = 36_000L,
+                pageDurationSeconds = 120L,
+                ignoreSavedProgress = false
+            )
+        )
+    }
+
+    @Test
+    fun `page switch start position ignores saved progress when requested`() {
+        assertEquals(
+            0L,
+            resolvePageSwitchStartPositionMs(
+                cachedPositionMs = 36_000L,
+                pageDurationSeconds = 120L,
+                ignoreSavedProgress = true
+            )
+        )
+    }
+
+    @Test
     fun `initial playback quality mode defaults to auto`() {
         assertEquals(
             PlaybackQualityMode.AUTO,

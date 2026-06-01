@@ -52,6 +52,8 @@ class DanmakuSettingsMappingPolicyTest {
         assertEquals(1.6f, propertyValue<Float>(result, "lineHeight"))
         assertEquals(7.0f, propertyValue<Float>(result, "scrollDurationSeconds"))
         assertEquals(4.0f, propertyValue<Float>(result, "staticDurationSeconds"))
+        assertEquals(500, propertyValue<Int>(result, "duplicateMergeWindowMs"))
+        assertEquals(2, propertyValue<Int>(result, "duplicateMergeCountThreshold"))
         assertFalse(propertyValue<Boolean>(result, "scrollFixedVelocity"))
         assertFalse(propertyValue<Boolean>(result, "staticDanmakuToScroll"))
         assertFalse(propertyValue<Boolean>(result, "massiveMode"))
@@ -74,6 +76,8 @@ class DanmakuSettingsMappingPolicyTest {
             booleanPreferencesKey("danmaku_static_to_scroll") to true,
             booleanPreferencesKey("danmaku_massive_mode") to true,
             booleanPreferencesKey("danmaku_merge_duplicates") to false,
+            intPreferencesKey("danmaku_duplicate_merge_window_ms") to 1200,
+            intPreferencesKey("danmaku_duplicate_merge_count_threshold") to 4,
             booleanPreferencesKey("danmaku_allow_scroll") to false,
             booleanPreferencesKey("danmaku_allow_top") to false,
             booleanPreferencesKey("danmaku_allow_bottom") to false,
@@ -109,6 +113,8 @@ class DanmakuSettingsMappingPolicyTest {
         assertEquals(2.1f, propertyValue<Float>(result, "lineHeight"))
         assertEquals(12.5f, propertyValue<Float>(result, "scrollDurationSeconds"))
         assertEquals(9.5f, propertyValue<Float>(result, "staticDurationSeconds"))
+        assertEquals(1200, propertyValue<Int>(result, "duplicateMergeWindowMs"))
+        assertEquals(4, propertyValue<Int>(result, "duplicateMergeCountThreshold"))
         assertTrue(propertyValue<Boolean>(result, "scrollFixedVelocity"))
         assertTrue(propertyValue<Boolean>(result, "staticDanmakuToScroll"))
         assertTrue(propertyValue<Boolean>(result, "massiveMode"))

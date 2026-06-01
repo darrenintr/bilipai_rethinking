@@ -814,10 +814,25 @@ class VideoPlayerSectionPolicyTest {
     }
 
     @Test
-    fun playbackReadyAutoFullscreen_disabledForTabletsEvenWhenUsingCompactLayout() {
-        assertFalse(
+    fun playbackReadyAutoFullscreen_allowsTabletsBecauseSettingIsExplicit() {
+        assertTrue(
             shouldAllowPlaybackStateAutoFullscreen(
                 smallestScreenWidthDp = 600
+            )
+        )
+    }
+
+    @Test
+    fun playbackStateAutoFullscreen_triggersWhenAttachedAfterPlaybackAlreadyStarted() {
+        assertTrue(
+            shouldToggleAutoFullscreenForCurrentPlaybackSnapshot(
+                autoEnterFullscreenEnabled = true,
+                autoExitFullscreenEnabled = true,
+                allowPlaybackStateAutoFullscreen = true,
+                playbackState = Player.STATE_READY,
+                playWhenReady = true,
+                hasAutoEnteredFullscreen = false,
+                isFullscreen = false
             )
         )
     }
@@ -955,6 +970,7 @@ class VideoPlayerSectionPolicyTest {
     fun longPressSpeedLock_triggersOnlyInTopOrBottomTargetZone() {
         assertTrue(
             shouldLockLongPressSpeedInTargetZone(
+                longPressSpeedLockEnabled = true,
                 isLongPressing = true,
                 alreadyLocked = false,
                 currentPointerY = 72f,
@@ -964,9 +980,20 @@ class VideoPlayerSectionPolicyTest {
         )
         assertTrue(
             shouldLockLongPressSpeedInTargetZone(
+                longPressSpeedLockEnabled = true,
                 isLongPressing = true,
                 alreadyLocked = false,
                 currentPointerY = 928f,
+                containerHeightPx = 1_000f,
+                lockZoneHeightPx = 120f
+            )
+        )
+        assertFalse(
+            shouldLockLongPressSpeedInTargetZone(
+                longPressSpeedLockEnabled = false,
+                isLongPressing = true,
+                alreadyLocked = false,
+                currentPointerY = 72f,
                 containerHeightPx = 1_000f,
                 lockZoneHeightPx = 120f
             )
@@ -1055,6 +1082,49 @@ class VideoPlayerSectionPolicyTest {
         assertTrue(visual.edgeGradientAlpha > 0f)
         assertTrue(visual.centerMarkerAlpha > visual.edgeGradientAlpha)
         assertTrue(visual.centerMarkerWidthFraction < 0.5f)
+    }
+
+    @Test
+    fun longPressSpeedFeedback_usesLightweightTextAndNoDefaultLockInstruction() {
+        val source = loadVideoPlayerSectionSource()
+
+        assertTrue(source.contains("\"倍速播放中 ${'$'}{effectiveLongPressSpeed}x\""))
+        assertFalse(source.contains("拖至上下区域锁定"))
+        assertFalse(source.contains("rememberInfiniteTransition(label = \"fast_forward\")"))
+    }
+
+    @Test
+    fun longPressSpeedLockHint_usesNonModalPromptActions() {
+        val source = loadVideoPlayerSectionSource()
+
+        assertTrue(source.contains("需要长按锁定倍速吗？"))
+        assertTrue(source.contains("开启锁定"))
+        assertTrue(source.contains("不再提示"))
+        assertFalse(source.contains("AlertDialog"))
+    }
+
+    @Test
+    fun longPressSpeedLockHint_dismissActionEndsCurrentLongPressSpeed() {
+        val source = loadVideoPlayerSectionSource()
+        val dismissAction = source
+            .substringAfter("TextButton(\n                            onClick = {\n                                showLongPressSpeedLockHint = false")
+            .substringBefore("Text(\"不再提示\")")
+
+        assertTrue(dismissAction.contains("finishLongPressSpeedGesture(gestureEnded = true)"))
+    }
+
+    @Test
+    fun longPressSpeedLockHint_promptActionsMarkLocalHintAsShownImmediately() {
+        val source = loadVideoPlayerSectionSource()
+        val hintPrompt = source
+            .substringAfter("text = \"需要长按锁定倍速吗？\"")
+            .substringBefore("Text(\"不再提示\")")
+        val dismissAction = source
+            .substringAfter("TextButton(\n                            onClick = {\n                                showLongPressSpeedLockHint = false")
+            .substringBefore("Text(\"不再提示\")")
+
+        assertTrue(hintPrompt.contains("hasShownLongPressSpeedLockHintLocally = true"))
+        assertTrue(dismissAction.contains("hasShownLongPressSpeedLockHintLocally = true"))
     }
 
     @Test

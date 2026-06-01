@@ -25,11 +25,17 @@ internal fun resolveColorStyleOptions(): List<PlaybackSegmentOption<PaletteStyle
 internal fun resolveColorSpecOptions(): List<PlaybackSegmentOption<ColorSpec.SpecVersion>> {
     return listOf(
         ColorSpec.SpecVersion.SPEC_2021,
-        ColorSpec.SpecVersion.SPEC_2025,
-        ColorSpec.SpecVersion.Default
+        ColorSpec.SpecVersion.SPEC_2025
     ).map { spec ->
         PlaybackSegmentOption(spec, spec.name)
     }
+}
+
+internal fun resolveMd3ColorSourceOptions(): List<PlaybackSegmentOption<Md3ColorSource>> {
+    return listOf(
+        PlaybackSegmentOption(Md3ColorSource.FOLLOW_WALLPAPER, Md3ColorSource.FOLLOW_WALLPAPER.label),
+        PlaybackSegmentOption(Md3ColorSource.CUSTOM, Md3ColorSource.CUSTOM.label)
+    )
 }
 
 internal fun resolveDarkThemeStyleSegmentOptions(

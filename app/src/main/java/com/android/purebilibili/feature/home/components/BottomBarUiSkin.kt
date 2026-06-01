@@ -303,16 +303,30 @@ private fun resolveBottomBarSkinIconPaths(
                 )
             }
         }
-        activeSkin.assetFilePath(activeSkin.manifest.assets.homeChannelIcon)?.let { unselectedPath ->
-            put(
-                BottomNavItem.SETTINGS,
-                BottomBarSkinIconPaths(
-                    unselected = unselectedPath,
-                    selected = activeSkin.assetFilePath(activeSkin.manifest.assets.homeChannelSelectedIcon)
-                )
-            )
+        val settingsIcon = resolveBottomBarSettingsSkinIconPaths(activeSkin, manifestIcons)
+        if (settingsIcon != null) {
+            put(BottomNavItem.SETTINGS, settingsIcon)
         }
     }
+}
+
+private fun resolveBottomBarSettingsSkinIconPaths(
+    activeSkin: com.android.purebilibili.core.plugin.skin.InstalledUiSkinPackage,
+    manifestIcons: Map<String, String>
+): BottomBarSkinIconPaths? {
+    val unselectedAsset = activeSkin.manifest.assets.homeChannelIcon
+        ?: manifestIcons["profile"]
+        ?: manifestIcons["member"]
+        ?: manifestIcons["home"]
+    val selectedAsset = activeSkin.manifest.assets.homeChannelSelectedIcon
+        ?: manifestIcons["profile_selected"]
+        ?: manifestIcons["member_selected"]
+        ?: manifestIcons["home_selected"]
+    val unselectedPath = activeSkin.assetFilePath(unselectedAsset) ?: return null
+    return BottomBarSkinIconPaths(
+        unselected = unselectedPath,
+        selected = activeSkin.assetFilePath(selectedAsset)
+    )
 }
 
 private fun resolveTopTabSkinIconPaths(

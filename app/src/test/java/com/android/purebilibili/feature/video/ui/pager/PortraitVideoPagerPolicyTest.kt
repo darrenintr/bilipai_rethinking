@@ -7,6 +7,7 @@ import com.android.purebilibili.data.model.response.ViewInfo
 import androidx.media3.common.Player
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.android.purebilibili.feature.video.viewmodel.PlayerUiState
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -223,6 +224,38 @@ class PortraitVideoPagerPolicyTest {
     }
 
     @Test
+    fun portraitDanmakuLoad_waitsForSettingsBeforeLoading() {
+        assertFalse(
+            shouldLoadPortraitDanmaku(
+                settingsLoaded = false,
+                cid = 123L,
+                danmakuEnabled = true
+            )
+        )
+        assertTrue(
+            shouldLoadPortraitDanmaku(
+                settingsLoaded = true,
+                cid = 123L,
+                danmakuEnabled = true
+            )
+        )
+        assertFalse(
+            shouldLoadPortraitDanmaku(
+                settingsLoaded = true,
+                cid = 0L,
+                danmakuEnabled = true
+            )
+        )
+        assertFalse(
+            shouldLoadPortraitDanmaku(
+                settingsLoaded = true,
+                cid = 123L,
+                danmakuEnabled = false
+            )
+        )
+    }
+
+    @Test
     fun pageDanmakuSurface_isInsetFromStatusBar() {
         assertTrue(
             shouldInsetPortraitDanmakuFromStatusBar(PortraitDanmakuSurfaceMode.Page)
@@ -330,6 +363,25 @@ class PortraitVideoPagerPolicyTest {
     }
 
     @Test
+    fun portraitTripleActionOverride_updatesLocalLikeAndFavoriteCounts() {
+        val resolved = resolvePortraitTripleActionOverride(
+            currentState = PortraitVideoInteractionUiState(
+                isLiked = false,
+                isFavorited = false,
+                likeCount = 8,
+                favoriteCount = 3
+            ),
+            likeSuccess = true,
+            favoriteSuccess = true
+        )
+
+        assertTrue(resolved.isLiked == true)
+        assertTrue(resolved.isFavorited == true)
+        assertEquals(9, resolved.likeCount)
+        assertEquals(4, resolved.favoriteCount)
+    }
+
+    @Test
     fun portraitRecommendationSnapshot_extractsStableBvidSetFromMixedPageItems() {
         assertEquals(
             setOf("BV_INFO", "BV_RELATED"),
@@ -341,5 +393,22 @@ class PortraitVideoPagerPolicyTest {
                 )
             )
         )
+    }
+
+    @Test
+    fun portraitCommentExpansion_usesSharedProgressInsteadOfSecondaryScaleTween() {
+        val source = File("src/main/java/com/android/purebilibili/feature/video/ui/pager/PortraitVideoPager.kt").readText()
+
+        assertFalse(source.contains("portrait_comment_player_scale"))
+        assertFalse(source.contains("commentExpandedPlayerScale by animateFloatAsState"))
+        assertTrue(source.contains("resolvePortraitCommentPlayerTransform("))
+        assertTrue(source.contains("commentExpansionTransform.scale"))
+    }
+
+    @Test
+    fun portraitOverlay_receivesCommentExpansionProgress() {
+        val source = File("src/main/java/com/android/purebilibili/feature/video/ui/pager/PortraitVideoPager.kt").readText()
+
+        assertTrue(source.contains("commentExpansionProgress = commentSheetVisibilityProgress"))
     }
 }

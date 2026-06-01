@@ -2,12 +2,14 @@
 package com.android.purebilibili.feature.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable // [Fix] Missing import
-import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -41,7 +42,9 @@ import com.android.purebilibili.feature.home.components.resolveLiquidGlassTuning
 import io.github.alexzhirkevich.cupertino.icons.CupertinoIcons
 import io.github.alexzhirkevich.cupertino.icons.outlined.*
 import com.android.purebilibili.core.ui.components.*
-import com.android.purebilibili.core.ui.animation.staggeredEntrance
+import com.android.purebilibili.core.ui.animation.EntranceGroup
+import com.android.purebilibili.core.ui.animation.entrance
+import com.android.purebilibili.core.ui.animation.rememberEffectiveEntranceMotionSpec
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.os.Build
@@ -118,9 +121,6 @@ fun AnimationSettingsContent(
             widthSizeClass = windowSizeClass.widthSizeClass
         )
     }
-    val settingsEntranceMotionTier = remember(deviceUiProfile.motionTier) {
-        resolveSettingsEntranceMotionTier(deviceUiProfile.motionTier)
-    }
     val cardMotionTier = resolveAnimationSettingsCardMotionTier(
         baseTier = deviceUiProfile.motionTier,
         cardAnimationEnabled = state.cardAnimationEnabled
@@ -139,20 +139,15 @@ fun AnimationSettingsContent(
             MotionTier.Enhanced -> "更明显的层级与动势，适合大屏展示"
         }
     }
-    val predictiveBackToggleState = remember(
-        state.cardTransitionEnabled,
-        state.predictiveBackAnimationEnabled
-    ) {
-        resolvePredictiveBackToggleUiState(
-            cardTransitionEnabled = state.cardTransitionEnabled,
-            predictiveBackAnimationEnabled = state.predictiveBackAnimationEnabled
-        )
-    }
     val isLiquidGlassAvailable = shouldAllowHomeChromeLiquidGlass(Build.VERSION.SDK_INT)
     val bottomBarLiquidGlassEnabled = state.bottomBarLiquidGlassEnabled
     val bottomBarLiquidGlassPreset by SettingsManager.getBottomBarLiquidGlassPreset(context)
         .collectAsState(initial = BottomBarLiquidGlassPreset.BILIPAI_TUNED)
-    var isVisible by remember { mutableStateOf(false) }
+    val uiEntranceAnimationEnabled by SettingsManager.getUiEntranceAnimationEnabled(context)
+        .collectAsState(initial = true)
+    val effectiveEntranceSpec = rememberEffectiveEntranceMotionSpec()
+    // 开关开着、但有效参数被降级为不动画 → 系统减弱动效在生效。
+    val entranceDowngradedBySystem = uiEntranceAnimationEnabled && !effectiveEntranceSpec.animate
     LaunchedEffect(focusRequest?.token) {
         val request = focusRequest ?: return@LaunchedEffect
         if (request.target != SettingsSearchTarget.ANIMATION) return@LaunchedEffect
@@ -160,26 +155,64 @@ fun AnimationSettingsContent(
         listState.animateScrollToItem(index)
         SettingsSearchFocusController.clear(request.token)
     }
-    LaunchedEffect(Unit) { isVisible = true }
 
+    EntranceGroup {
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = WindowInsets.navigationBars.asPaddingValues()
     ) {
-            
-            //  卡片动画
+
+            //  界面动效（全 App 入场）
+            item {
+                Box(modifier = Modifier.entrance()) {
+                    IOSSectionTitle("界面动效")
+                }
+            }
+            item {
+                Box(modifier = Modifier.entrance()) {
+                    IOSGroup {
+                        IOSSwitchItem(
+                            icon = rememberSettingsSemanticIcon(SettingsIconRole.CARD_ENTRANCE_ANIMATION),
+                            title = "界面入场动画",
+                            subtitle = "进入页面时内容逐条淡入浮现",
+                            checked = uiEntranceAnimationEnabled,
+                            onCheckedChange = { value ->
+                                scope.launch {
+                                    SettingsManager.setUiEntranceAnimationEnabled(context, value)
+                                }
+                            },
+                            iconTint = iOSGreen
+                        )
+                        if (entranceDowngradedBySystem) {
+                            IOSDivider()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = "系统已开启「减弱动效」，入场动画已自动关闭。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             //  卡片动画
             item {
-                Box(modifier = Modifier.staggeredEntrance(0, isVisible, motionTier = settingsEntranceMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSSectionTitle("卡片动画")
                 }
             }
             item {
-                Box(modifier = Modifier.staggeredEntrance(1, isVisible, motionTier = settingsEntranceMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSGroup {
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.WandAndStars,
+	                        IOSSwitchItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.CARD_ENTRANCE_ANIMATION),
                             title = "进场动画",
                             subtitle = "首页视频卡片的入场动画效果",
                             checked = state.cardAnimationEnabled,
@@ -187,27 +220,13 @@ fun AnimationSettingsContent(
                             iconTint = iOSPink
                         )
                         IOSDivider()
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.ArrowLeftArrowRight,
+	                        IOSSwitchItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.CARD_TRANSITION_ANIMATION),
                             title = "过渡动画",
                             subtitle = "点击卡片时的共享元素过渡效果",
                             checked = state.cardTransitionEnabled,
                             onCheckedChange = { viewModel.toggleCardTransition(it) },
                             iconTint = iOSTeal
-                        )
-                        IOSDivider()
-                        IOSSwitchItem(
-                            icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                            title = predictiveBackToggleState.title,
-                            subtitle = predictiveBackToggleState.subtitle,
-                            checked = predictiveBackToggleState.checked,
-                            onCheckedChange = {
-                                if (predictiveBackToggleState.enabled) {
-                                    viewModel.togglePredictiveBackAnimation(it)
-                                }
-                            },
-                            enabled = predictiveBackToggleState.enabled,
-                            iconTint = if (predictiveBackToggleState.enabled) iOSBlue else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         IOSDivider()
                         Column(
@@ -246,16 +265,16 @@ fun AnimationSettingsContent(
             
             // ✨ 视觉效果
             item {
-                Box(modifier = Modifier.staggeredEntrance(2, isVisible, motionTier = settingsEntranceMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSSectionTitle("视觉效果")
                 }
             }
             item {
-                Box(modifier = Modifier.staggeredEntrance(3, isVisible, motionTier = settingsEntranceMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSGroup {
                         if (isLiquidGlassAvailable) {
-                            IOSSwitchItem(
-                                icon = CupertinoIcons.Default.Drop,
+	                            IOSSwitchItem(
+	                                icon = rememberSettingsSemanticIcon(SettingsIconRole.BOTTOM_BAR_GLASS),
                                 title = "底栏液态玻璃",
                                 subtitle = "底部导航栏的液态玻璃折射效果",
                                 checked = bottomBarLiquidGlassEnabled,
@@ -266,7 +285,7 @@ fun AnimationSettingsContent(
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        CupertinoIcons.Default.Drop,
+	                                        rememberSettingsSemanticIcon(SettingsIconRole.BOTTOM_BAR_GLASS_PREVIEW),
                                         contentDescription = null,
                                         tint = iOSBlue,
                                         modifier = Modifier.size(24.dp)
@@ -286,9 +305,11 @@ fun AnimationSettingsContent(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    listOf(BottomBarLiquidGlassPreset.BILIPAI_TUNED).forEach { preset ->
+                                    listOf(
+                                        BottomBarLiquidGlassPreset.BILIPAI_TUNED,
+                                        BottomBarLiquidGlassPreset.IOS26_REFINED
+                                    ).forEach { preset ->
                                         val isSelected = bottomBarLiquidGlassPreset == preset
                                         Row(
                                             modifier = Modifier
@@ -355,10 +376,9 @@ fun AnimationSettingsContent(
                             }
                             IOSDivider()
                         }
-
                         // 磨砂效果 (始终显示)
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.SquareStack3dUp,
+	                        IOSSwitchItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.TOP_BAR_BLUR),
                             title = "顶部栏磨砂",
                             subtitle = "顶部导航栏的毛玻璃模糊效果",
                             checked = state.headerBlurEnabled,
@@ -366,8 +386,8 @@ fun AnimationSettingsContent(
                             iconTint = iOSBlue
                         )
                         IOSDivider()
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.Sparkles,
+	                        IOSSwitchItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.BOTTOM_BAR_BLUR),
                             title = "底栏磨砂",
                             subtitle = "底部导航栏的毛玻璃模糊效果",
                             checked = state.bottomBarBlurEnabled,
@@ -388,17 +408,16 @@ fun AnimationSettingsContent(
             }
             
             // 📐 底栏样式
-            // 📐 底栏样式
             item {
-                Box(modifier = Modifier.staggeredEntrance(4, isVisible, motionTier = settingsEntranceMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSSectionTitle("底栏样式")
                 }
             }
             item {
-                Box(modifier = Modifier.staggeredEntrance(5, isVisible, motionTier = settingsEntranceMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSGroup {
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.RectangleStack,
+	                        IOSSwitchItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.FLOATING_BOTTOM_BAR),
                             title = "悬浮底栏",
                             subtitle = "关闭后底栏将沉浸式贴底显示",
                             checked = state.isBottomBarFloating,
@@ -410,9 +429,8 @@ fun AnimationSettingsContent(
             }
             
             //  提示
-            //  提示
             item {
-                Box(modifier = Modifier.staggeredEntrance(6, isVisible, motionTier = settingsEntranceMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -443,4 +461,5 @@ fun AnimationSettingsContent(
             
             item { Spacer(modifier = Modifier.height(32.dp)) }
         }
+    }
     }

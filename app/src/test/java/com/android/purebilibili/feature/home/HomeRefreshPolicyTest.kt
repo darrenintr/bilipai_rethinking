@@ -45,11 +45,93 @@ class HomeRefreshPolicyTest {
     }
 
     @Test
+    fun resolveRecommendFeedRequestIndex_advancesForManualRefreshAndLoadMore() {
+        assertEquals(
+            0,
+            resolveRecommendFeedRequestIndex(
+                isLoadMore = false,
+                isManualRefresh = false,
+                currentRefreshIndex = 0
+            )
+        )
+        assertEquals(
+            4,
+            resolveRecommendFeedRequestIndex(
+                isLoadMore = false,
+                isManualRefresh = true,
+                currentRefreshIndex = 3
+            )
+        )
+        assertEquals(
+            4,
+            resolveRecommendFeedRequestIndex(
+                isLoadMore = true,
+                isManualRefresh = false,
+                currentRefreshIndex = 3
+            )
+        )
+    }
+
+    @Test
+    fun shouldAdvanceRecommendFeedRequestIndex_whenRecommendRequestReturnedAnyValidVideo() {
+        assertTrue(
+            shouldAdvanceRecommendFeedRequestIndex(
+                category = HomeCategory.RECOMMEND,
+                isLoadMore = false,
+                isManualRefresh = true,
+                validVideoCount = 8
+            )
+        )
+        assertTrue(
+            shouldAdvanceRecommendFeedRequestIndex(
+                category = HomeCategory.RECOMMEND,
+                isLoadMore = true,
+                isManualRefresh = false,
+                validVideoCount = 8
+            )
+        )
+        assertFalse(
+            shouldAdvanceRecommendFeedRequestIndex(
+                category = HomeCategory.RECOMMEND,
+                isLoadMore = false,
+                isManualRefresh = true,
+                validVideoCount = 0
+            )
+        )
+        assertFalse(
+            shouldAdvanceRecommendFeedRequestIndex(
+                category = HomeCategory.POPULAR,
+                isLoadMore = false,
+                isManualRefresh = true,
+                validVideoCount = 8
+            )
+        )
+    }
+
+    @Test
     fun shouldHandleRefreshNewItemsEvent_requiresPositiveAndGreaterKey() {
         assertFalse(shouldHandleRefreshNewItemsEvent(refreshKey = 0L, handledKey = 0L))
         assertFalse(shouldHandleRefreshNewItemsEvent(refreshKey = 10L, handledKey = 10L))
         assertFalse(shouldHandleRefreshNewItemsEvent(refreshKey = 9L, handledKey = 10L))
         assertTrue(shouldHandleRefreshNewItemsEvent(refreshKey = 11L, handledKey = 10L))
+    }
+
+    @Test
+    fun homeScreen_waitsForNewItemsBeforeRefreshScrollsToTop() {
+        val source = listOf(
+            java.io.File("app/src/main/java/com/android/purebilibili/feature/home/HomeScreen.kt"),
+            java.io.File("src/main/java/com/android/purebilibili/feature/home/HomeScreen.kt")
+        ).first { it.exists() }.readText()
+
+        assertFalse(
+            source.contains("LaunchedEffect(isRefreshing, state.currentCategory, state.popularSubCategory)"),
+            "松手进入刷新时旧卡片应留在当前位置，不能在 isRefreshing 变 true 时立即回顶"
+        )
+        assertTrue(
+            source.contains("LaunchedEffect(state.refreshNewItemsKey, isRefreshing, state.currentCategory)"),
+            "新卡片到达后再处理回顶和新增提示"
+        )
+        assertTrue(source.indexOf("shouldResetToTopAfterIncrementalRefresh(") > source.indexOf("state.refreshNewItemsKey"))
     }
 
     @Test

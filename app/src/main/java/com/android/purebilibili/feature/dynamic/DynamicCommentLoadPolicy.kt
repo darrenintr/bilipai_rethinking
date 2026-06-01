@@ -45,7 +45,8 @@ internal fun resolveDynamicCommentPayload(
 }
 
 internal fun selectPreferredDynamicCommentAttempt(
-    attempts: List<DynamicCommentLoadAttempt>
+    attempts: List<DynamicCommentLoadAttempt>,
+    expectedCount: Int = 0
 ): DynamicCommentLoadAttempt? {
     return attempts.minWithOrNull(
         compareBy<DynamicCommentLoadAttempt> {
@@ -53,6 +54,12 @@ internal fun selectPreferredDynamicCommentAttempt(
                 it.replies.isNotEmpty() -> 0
                 it.totalCount > 0 -> 1
                 else -> 2
+            }
+        }.thenBy {
+            if (expectedCount > 0 && it.totalCount > 0) {
+                kotlin.math.abs(it.totalCount - expectedCount)
+            } else {
+                0
             }
         }.thenBy { it.candidateIndex }
             .thenByDescending { it.totalCount }

@@ -6,6 +6,7 @@ import com.android.purebilibili.core.theme.AndroidNativeVariant
 import com.android.purebilibili.core.theme.UiPreset
 import com.android.purebilibili.core.theme.resolveAndroidNativeChromeTokens
 import com.android.purebilibili.core.ui.motion.AppMotionTokens
+import com.android.purebilibili.core.ui.motion.pullRefreshReleaseSpring
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -81,6 +82,19 @@ class AppMotionTokensTest {
     }
 
     @Test
+    fun spatialSpec_keepsSharedElementSpringParameters() {
+        val spec = AppMotionTokens.resolveSpatialSpec<androidx.compose.ui.geometry.Rect>(
+            uiPreset = UiPreset.IOS,
+            androidNativeVariant = AndroidNativeVariant.MATERIAL3
+        )
+        val spring = spec as? SpringSpec<androidx.compose.ui.geometry.Rect>
+            ?: error("expected SpringSpec, got ${spec::class.simpleName}")
+
+        assertEquals(0.82f, spring.dampingRatio, "spatial damping")
+        assertEquals(380f, spring.stiffness, "spatial stiffness")
+    }
+
+    @Test
     fun chromeTokens_exposeMotionMillis() {
         val ios = resolveAndroidNativeChromeTokens(UiPreset.IOS, AndroidNativeVariant.MATERIAL3)
         val md3 = resolveAndroidNativeChromeTokens(UiPreset.MD3, AndroidNativeVariant.MATERIAL3)
@@ -92,5 +106,13 @@ class AppMotionTokensTest {
         assertEquals(240, miuix.motionEmphasizedMillis)
         assertTrue(ios.motionStandardMillis > 0, "iOS motionStandardMillis should be a nominal positive value")
         assertTrue(ios.motionEmphasizedMillis > ios.motionStandardMillis, "iOS emphasized > standard")
+    }
+
+    @Test
+    fun pullRefreshReleaseSpring_usesTightDampingForSmallRebound() {
+        val spring = pullRefreshReleaseSpring()
+
+        assertTrue(spring.dampingRatio >= 0.86f, "pull refresh release should not visibly bounce")
+        assertTrue(spring.stiffness >= 500f, "pull refresh release should settle quickly")
     }
 }

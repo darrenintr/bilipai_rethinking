@@ -151,6 +151,49 @@ class BottomBarUiSkinDecorationTest {
     }
 
     @Test
+    fun bottomSettingsSkinIconFallsBackWhenChannelAssetMissing() {
+        val installed = InstalledUiSkinPackage(
+            manifest = UiSkinManifest(
+                formatVersion = 1,
+                skinId = "dev.example.tail-icons",
+                displayName = "底栏图标",
+                version = "1.0.0",
+                apiVersion = 1,
+                surfaces = setOf(UiSkinSurface.HOME_BOTTOM_BAR),
+                assets = UiSkinAssets(
+                    bottomBarIcons = mapOf(
+                        "home" to "assets/tail_icon_main.png",
+                        "following" to "assets/tail_icon_dynamic.png",
+                        "member" to "assets/tail_icon_shop.png",
+                        "profile" to "assets/tail_icon_myself.png",
+                        "profile_selected" to "assets/tail_icon_selected_myself.png"
+                    )
+                )
+            ),
+            packageSha256 = "sha",
+            packagePath = "/tmp/tail-icons.bpskin",
+            installedAtMillis = 42L,
+            assetFiles = mapOf(
+                "assets/tail_icon_main.png" to "/tmp/tail_icon_main.png",
+                "assets/tail_icon_dynamic.png" to "/tmp/tail_icon_dynamic.png",
+                "assets/tail_icon_shop.png" to "/tmp/tail_icon_shop.png",
+                "assets/tail_icon_myself.png" to "/tmp/tail_icon_myself.png",
+                "assets/tail_icon_selected_myself.png" to "/tmp/tail_icon_selected_myself.png"
+            )
+        )
+
+        val decoration = resolveBottomBarUiSkinDecoration(
+            UiSkinState(enabled = true, activeSkin = installed)
+        )
+
+        assertEquals("/tmp/tail_icon_myself.png", decoration?.iconPathFor(BottomNavItem.SETTINGS))
+        assertEquals(
+            "/tmp/tail_icon_selected_myself.png",
+            decoration?.iconPathFor(BottomNavItem.SETTINGS, selected = true)
+        )
+    }
+
+    @Test
     fun selectedBottomSkinIconFallsBackToUnselectedAssetWhenSelectedAssetMissing() {
         val installed = InstalledUiSkinPackage(
             manifest = UiSkinManifest(

@@ -5,6 +5,11 @@ internal enum class SettingsRootCategory(
     val subtitle: String,
     val searchTarget: SettingsSearchTarget
 ) {
+    SOCIAL_SUPPORT(
+        title = "关注与支持",
+        subtitle = "Telegram 频道、Twitter / X 与打赏作者",
+        searchTarget = SettingsSearchTarget.TELEGRAM
+    ),
     INTERFACE_THEME(
         title = "界面与主题",
         subtitle = "UI 预设、主题、字体、DPI、动态图标与开屏",
@@ -58,16 +63,17 @@ internal enum class SettingsRootCategory(
 }
 
 internal fun resolveSettingsRootCategoryOrder(): List<SettingsRootCategory> = listOf(
-    SettingsRootCategory.ABOUT_SUPPORT,
+    SettingsRootCategory.SOCIAL_SUPPORT,
+    SettingsRootCategory.PLAYBACK_QUALITY,
     SettingsRootCategory.INTERFACE_THEME,
     SettingsRootCategory.HOME_FEED,
     SettingsRootCategory.NAVIGATION_LABELS,
-    SettingsRootCategory.PLAYBACK_QUALITY,
     SettingsRootCategory.FULLSCREEN_GESTURE,
     SettingsRootCategory.INTERACTION_COMMENT,
     SettingsRootCategory.DATA_BACKUP,
     SettingsRootCategory.PRIVACY_PERMISSION,
-    SettingsRootCategory.DIAGNOSTICS_DEVELOPER
+    SettingsRootCategory.DIAGNOSTICS_DEVELOPER,
+    SettingsRootCategory.ABOUT_SUPPORT
 )
 
 internal fun resolveTabletSettingsRootCategoryOrder(): List<SettingsRootCategory> =
@@ -76,6 +82,10 @@ internal fun resolveTabletSettingsRootCategoryOrder(): List<SettingsRootCategory
 internal fun resolveSettingsRootCategoryForSearchTarget(
     target: SettingsSearchTarget
 ): SettingsRootCategory? = when (target) {
+    SettingsSearchTarget.TELEGRAM,
+    SettingsSearchTarget.TWITTER,
+    SettingsSearchTarget.DONATE -> SettingsRootCategory.SOCIAL_SUPPORT
+
     SettingsSearchTarget.INTERFACE_THEME,
     SettingsSearchTarget.APPEARANCE,
     SettingsSearchTarget.ANIMATION -> SettingsRootCategory.INTERFACE_THEME
@@ -96,6 +106,7 @@ internal fun resolveSettingsRootCategoryForSearchTarget(
     SettingsSearchTarget.SETTINGS_SHARE,
     SettingsSearchTarget.WEBDAV_BACKUP,
     SettingsSearchTarget.DOWNLOAD_PATH,
+    SettingsSearchTarget.IMAGE_SAVE_PATH,
     SettingsSearchTarget.CLEAR_CACHE -> SettingsRootCategory.DATA_BACKUP
 
     SettingsSearchTarget.PRIVACY_PERMISSION,
@@ -114,13 +125,13 @@ internal fun resolveSettingsRootCategoryForSearchTarget(
     SettingsSearchTarget.REPLAY_ONBOARDING,
     SettingsSearchTarget.TIPS,
     SettingsSearchTarget.OPEN_LINKS,
-    SettingsSearchTarget.DONATE,
-    SettingsSearchTarget.TELEGRAM,
-    SettingsSearchTarget.TWITTER,
     SettingsSearchTarget.DISCLAIMER -> SettingsRootCategory.ABOUT_SUPPORT
 }
 
 internal fun isSceneSettingsSearchTarget(target: SettingsSearchTarget): Boolean = target in setOf(
+    SettingsSearchTarget.TELEGRAM,
+    SettingsSearchTarget.TWITTER,
+    SettingsSearchTarget.DONATE,
     SettingsSearchTarget.INTERFACE_THEME,
     SettingsSearchTarget.HOME_FEED,
     SettingsSearchTarget.NAVIGATION,

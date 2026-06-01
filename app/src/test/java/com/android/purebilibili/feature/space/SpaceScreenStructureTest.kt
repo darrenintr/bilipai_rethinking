@@ -15,21 +15,38 @@ class SpaceScreenStructureTest {
         assertTrue(source.contains("resolveSpaceContentGridColumnCount("))
         assertTrue(source.contains("SpaceContributionVideoLayoutMode.GRID"))
         assertTrue(source.contains("SpaceHomeVideoCard("))
-        assertTrue(source.contains("key = { \"space_video_${'$'}{it.bvid}_${'$'}{it.aid}\" }"))
+        assertTrue(source.contains("resolveSpaceContributionVideoItemKey("))
         assertFalse(source.contains("SpaceVideoListItemRow("))
     }
 
     @Test
-    fun `contribution videos expose single column toggle with animated card transition`() {
+    fun `contribution videos switch layout without dual placing lazy grid content`() {
         val source = loadSource("app/src/main/java/com/android/purebilibili/feature/space/SpaceScreen.kt")
+        val contributionVideoItems = source
+            .substringAfter("items(\n                            items = state.videos")
+            .substringBefore("if (state.isLoadingMore)")
 
         assertTrue(source.contains("onLayoutModeClick"))
         assertTrue(source.contains("toggleSpaceContributionVideoLayoutMode"))
-        assertTrue(source.contains("AnimatedContent("))
-        assertTrue(source.contains("SizeTransform(clip = false)"))
         assertTrue(source.contains("resolveSpaceContributionVideoGridSpan("))
+        assertTrue(source.contains("resolveSpaceContributionVideoItemKey("))
         assertTrue(source.contains("SpaceContributionVideoLayoutMode.SINGLE_COLUMN"))
         assertTrue(source.contains("SpaceArchiveListItemRow("))
+        assertFalse(contributionVideoItems.contains("Modifier.animateItem()"))
+        assertFalse(contributionVideoItems.contains("AnimatedContent("))
+        assertFalse(contributionVideoItems.contains("SizeTransform("))
+    }
+
+    @Test
+    fun `space high frequency video cards join shared element transition`() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/feature/space/SpaceScreen.kt")
+
+        assertTrue(source.contains("sharedTransitionKey = resolveSpaceArchiveSharedTransitionKey(video.bvid)"))
+        assertTrue(source.contains("sharedTransitionKey = resolveSpaceArchiveSharedTransitionKey(topVideo.bvid)"))
+        assertTrue(source.contains("sharedTransitionKey = resolveSpaceArchiveSharedTransitionKey(item.bvid)"))
+        assertTrue(source.contains("CardPositionManager.recordVideoCardPosition("))
+        assertTrue(source.contains("videoCardShellSharedElementKey("))
+        assertTrue(source.contains("clipInOverlayDuringTransition = OverlayClip(coverShape)"))
     }
 
     @Test
@@ -77,6 +94,17 @@ class SpaceScreenStructureTest {
                 """.trimIndent()
             )
         )
+    }
+
+    @Test
+    fun `space search action scrolls to focused search bar and dynamic body opens comments`() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/feature/space/SpaceScreen.kt")
+
+        assertTrue(source.contains("resolveSpaceSearchBarGridItemIndex("))
+        assertTrue(source.contains("gridState.animateScrollToItem(searchBarIndex)"))
+        assertTrue(source.contains("val searchFocusRequester = remember { FocusRequester() }"))
+        assertTrue(source.contains(".focusRequester(searchFocusRequester)"))
+        assertTrue(source.contains("onPrimaryClickOverride = { onSpaceDynamicCommentClick(dynamic) }"))
     }
 
     private fun loadSource(path: String): String {

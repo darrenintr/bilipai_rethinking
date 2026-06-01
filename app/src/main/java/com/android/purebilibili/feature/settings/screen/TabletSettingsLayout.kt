@@ -64,6 +64,7 @@ fun TabletSettingsLayout(
     onSettingsShareClick: () -> Unit,
     onWebDavBackupClick: () -> Unit,
     onDownloadPathClick: () -> Unit,
+    onImageSavePathClick: () -> Unit,
     onClearCacheClick: () -> Unit,
     onDonateClick: () -> Unit,
     onTipsClick: () -> Unit, // [Feature]
@@ -76,6 +77,7 @@ fun TabletSettingsLayout(
     
     // Logic Callbacks
     onPrivacyModeChange: (Boolean) -> Unit,
+    onPrivacyContentAuthenticationChange: (Boolean) -> Unit,
     onCrashTrackingChange: (Boolean) -> Unit,
     onAnalyticsChange: (Boolean) -> Unit,
     onEasterEggChange: (Boolean) -> Unit,
@@ -83,7 +85,9 @@ fun TabletSettingsLayout(
     
     // State
     privacyModeEnabled: Boolean,
+    privacyContentAuthenticationEnabled: Boolean,
     customDownloadPath: String?,
+    customImageSavePath: String?,
     cacheSize: String,
     crashTrackingEnabled: Boolean,
     analyticsEnabled: Boolean,
@@ -156,6 +160,7 @@ fun TabletSettingsLayout(
         onSettingsShareClick = onSettingsShareClick,
         onWebDavBackupClick = onWebDavBackupClick,
         onDownloadPathClick = onDownloadPathClick,
+        onImageSavePathClick = onImageSavePathClick,
         onClearCacheClick = onClearCacheClick,
         onGithubClick = onGithubClick,
         onTelegramClick = onTelegramClick,
@@ -173,6 +178,7 @@ fun TabletSettingsLayout(
         onTipsClick = onTipsClick,
         onOpenLinksClick = onOpenLinksClick,
         onPrivacyModeChange = onPrivacyModeChange,
+        onPrivacyContentAuthenticationChange = onPrivacyContentAuthenticationChange,
         onCrashTrackingChange = onCrashTrackingChange,
         onAnalyticsChange = onAnalyticsChange,
         onEasterEggChange = onEasterEggChange,
@@ -185,10 +191,12 @@ fun TabletSettingsLayout(
     )
     val rootCategoryState = SettingsRootCategoryState(
         privacyModeEnabled = privacyModeEnabled,
+        privacyContentAuthenticationEnabled = privacyContentAuthenticationEnabled,
         crashTrackingEnabled = crashTrackingEnabled,
         analyticsEnabled = analyticsEnabled,
         pluginCount = pluginCount,
         customDownloadPath = customDownloadPath,
+        customImageSavePath = customImageSavePath,
         cacheSize = cacheSize,
         versionName = versionName,
         easterEggEnabled = easterEggEnabled,

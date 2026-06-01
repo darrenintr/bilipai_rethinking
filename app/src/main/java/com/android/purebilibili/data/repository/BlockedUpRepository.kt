@@ -16,7 +16,8 @@ import kotlinx.coroutines.withContext
 
 private const val BILIBILI_RELATION_ACT_BLOCK = 5
 private const val BILIBILI_RELATION_ACT_UNBLOCK = 6
-private const val BILIBILI_RELATION_BLOCK_RE_SRC = 11
+private const val BILIBILI_RELATION_PROFILE_BLOCK_RE_SRC = 11
+private const val BILIBILI_RELATION_COMMENT_BLOCK_RE_SRC = 15
 private const val BLOCKED_UP_PROFILE_REFRESH_DELAY_MS = 120L
 private const val BLOCKED_UP_SHARE_MARKER = "BILIPAI_BLOCKED_UPS_V1"
 
@@ -46,6 +47,11 @@ enum class BilibiliBlockedListRemoteStatus {
     FAILED
 }
 
+enum class BlockedUpRelationSource {
+    PROFILE,
+    COMMENT
+}
+
 data class BlockedUpWriteResult(
     val localChanged: Boolean,
     val remoteStatus: BilibiliBlockedListRemoteStatus,
@@ -58,6 +64,13 @@ data class BlockedUpMetadataRefreshResult(
     val failedCount: Int,
     val message: String
 )
+
+internal fun resolveBlockedUpRelationReSrc(source: BlockedUpRelationSource): Int {
+    return when (source) {
+        BlockedUpRelationSource.PROFILE -> BILIBILI_RELATION_PROFILE_BLOCK_RE_SRC
+        BlockedUpRelationSource.COMMENT -> BILIBILI_RELATION_COMMENT_BLOCK_RE_SRC
+    }
+}
 
 @Serializable
 private data class BlockedUpSharePayload(
@@ -280,9 +293,18 @@ class BlockedUpRepository(
         blockedUpDao.insert(entity)
     }
 
-    suspend fun blockUpWithBilibiliSync(mid: Long, name: String, face: String): BlockedUpWriteResult {
+    suspend fun blockUpWithBilibiliSync(
+        mid: Long,
+        name: String,
+        face: String,
+        relationSource: BlockedUpRelationSource = BlockedUpRelationSource.PROFILE
+    ): BlockedUpWriteResult {
         blockUp(mid = mid, name = name, face = face)
-        val remoteResult = modifyBilibiliBlockedList(mid = mid, blocked = true)
+        val remoteResult = modifyBilibiliBlockedList(
+            mid = mid,
+            blocked = true,
+            relationSource = relationSource
+        )
         return BlockedUpWriteResult(
             localChanged = true,
             remoteStatus = remoteResult.first,
@@ -335,9 +357,16 @@ class BlockedUpRepository(
         blockedUpDao.delete(mid)
     }
 
-    suspend fun unblockUpWithBilibiliSync(mid: Long): BlockedUpWriteResult {
+    suspend fun unblockUpWithBilibiliSync(
+        mid: Long,
+        relationSource: BlockedUpRelationSource = BlockedUpRelationSource.PROFILE
+    ): BlockedUpWriteResult {
         unblockUp(mid)
-        val remoteResult = modifyBilibiliBlockedList(mid = mid, blocked = false)
+        val remoteResult = modifyBilibiliBlockedList(
+            mid = mid,
+            blocked = false,
+            relationSource = relationSource
+        )
         return BlockedUpWriteResult(
             localChanged = true,
             remoteStatus = remoteResult.first,
@@ -405,7 +434,8 @@ class BlockedUpRepository(
 
     private suspend fun modifyBilibiliBlockedList(
         mid: Long,
-        blocked: Boolean
+        blocked: Boolean,
+        relationSource: BlockedUpRelationSource
     ): Pair<BilibiliBlockedListRemoteStatus, String?> {
         val csrf = TokenManager.csrfCache.orEmpty()
         if (csrf.isBlank()) return BilibiliBlockedListRemoteStatus.SKIPPED_NOT_LOGGED_IN to null
@@ -415,7 +445,7 @@ class BlockedUpRepository(
                 fid = mid,
                 act = if (blocked) BILIBILI_RELATION_ACT_BLOCK else BILIBILI_RELATION_ACT_UNBLOCK,
                 csrf = csrf,
-                reSrc = BILIBILI_RELATION_BLOCK_RE_SRC
+                reSrc = resolveBlockedUpRelationReSrc(relationSource)
             )
         }.fold(
             onSuccess = { response ->

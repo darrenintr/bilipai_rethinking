@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -88,6 +89,7 @@ fun PortraitFullscreenOverlay(
     isCoined: Boolean,
     isFavorited: Boolean,
     onLikeClick: () -> Unit,
+    onLikeLongClick: () -> Unit = {},
     onCoinClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onCommentClick: () -> Unit = {},
@@ -111,6 +113,7 @@ fun PortraitFullscreenOverlay(
     
     // 显示状态
     showControls: Boolean = true,
+    commentExpansionProgress: Float = 0f,
     videoshotData: VideoshotData? = null,
     isPlaybackRecovering: Boolean = false,
     
@@ -154,6 +157,10 @@ fun PortraitFullscreenOverlay(
             durationMs = progress.duration
         )
     }
+    val commentProgress = commentExpansionProgress.coerceIn(0f, 1f)
+    val commentOverlayAlpha = (1f - commentProgress).coerceIn(0f, 1f)
+    val density = LocalDensity.current
+    val commentOverlayOffsetPx = with(density) { 24.dp.toPx() } * commentProgress
 
     Box(
         modifier = modifier.fillMaxSize()
@@ -161,13 +168,22 @@ fun PortraitFullscreenOverlay(
         
         // 控件层动画
         AnimatedVisibility(
-            visible = showControls,
+            visible = showControls && commentOverlayAlpha > 0.001f,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                PortraitReadableTextScrims(layoutPolicy = layoutPolicy)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            alpha = commentOverlayAlpha
+                            translationY = -commentOverlayOffsetPx
+                        }
+                ) {
+                    PortraitReadableTextScrims(layoutPolicy = layoutPolicy)
+                }
                 
                 // 1. 顶部栏 (返回 + 观看人数)
                 PortraitTopControlBar(
@@ -180,7 +196,11 @@ fun PortraitFullscreenOverlay(
                     isStatusBarHidden = isStatusBarHidden,
                     onToggleStatusBar = onToggleStatusBar,
                     onSearchClick = onSearchClick,
-                    onMoreClick = onMoreClick
+                    onMoreClick = onMoreClick,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = commentOverlayAlpha
+                        translationY = -commentOverlayOffsetPx
+                    }
                 )
 
                 // 2. 右侧互动栏 (不再包含头像)
@@ -192,15 +212,27 @@ fun PortraitFullscreenOverlay(
                     commentCount = statReply.takeIf { it > 0 } ?: statDanmaku, // 优先用评论数，没有则用弹幕数代替展示
                     shareCount = statShare,
                     onLikeClick = onLikeClick,
+                    onLikeLongClick = onLikeLongClick,
                     onFavoriteClick = onFavoriteClick,
                     onCommentClick = onCommentClick,
                     onShareClick = onShareClick,
-                    modifier = Modifier.align(Alignment.BottomEnd)
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .graphicsLayer {
+                            alpha = commentOverlayAlpha
+                            translationX = commentOverlayOffsetPx
+                        }
                 )
                 
                 // 3. 底部区域 (信息 + 进度条 + 输入栏占位)
                 Column(
-                    modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            alpha = commentOverlayAlpha
+                            translationY = commentOverlayOffsetPx
+                        }
                 ) {
                     // 视频信息 (Video Info)
                     PortraitVideoInfo(
@@ -272,6 +304,10 @@ fun PortraitFullscreenOverlay(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = layoutPolicy.bottomInputLiftDp.dp)
+                        .graphicsLayer {
+                            alpha = commentOverlayAlpha
+                            translationY = commentOverlayOffsetPx
+                        }
                 )
 
                 AnimatedVisibility(
@@ -407,10 +443,11 @@ private fun PortraitTopControlBar(
     isStatusBarHidden: Boolean,
     onToggleStatusBar: () -> Unit,
     onSearchClick: () -> Unit,
-    onMoreClick: () -> Unit
+    onMoreClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .padding(

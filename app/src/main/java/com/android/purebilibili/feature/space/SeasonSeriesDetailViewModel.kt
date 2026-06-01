@@ -22,7 +22,8 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
     private var pageTitle: String = ""
 
     val isFavoriteDetail: Boolean
-        get() = type == SpaceCollectionDetailType.FAVORITE.raw
+        get() = type == SpaceCollectionDetailType.FAVORITE.raw ||
+            type == SpaceCollectionDetailType.FAVORITE_SEASON.raw
 
     // Pagination
     private var currentPage = 1
@@ -85,6 +86,8 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
             return fetchSeriesArchives()
         } else if (type == "favorite") {
             return fetchFavoriteResources()
+        } else if (type == "favorite_season") {
+            return fetchFavoriteSeasonResources()
         }
         return emptyList()
     }
@@ -157,6 +160,33 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
             emptyList()
         }
     }
+
+    private suspend fun fetchFavoriteSeasonResources(): List<VideoItem> {
+        currentPage = 1
+        return try {
+            val response = FavoriteRepository.getFavoriteSeasonList(seasonId = id, pn = currentPage).getOrNull()
+            hasMore = response?.has_more == true
+            _hasMoreState.value = hasMore
+            val mediaItems = response?.medias.orEmpty()
+            _favoriteDetailProgressState.value = FavoriteDetailProgressState(
+                loadedCount = mediaItems.size,
+                expectedCount = response?.info?.media_count ?: 0,
+                currentPage = currentPage,
+                lastAddedCount = mediaItems.size,
+                invalidCount = mediaItems.count { it.attr != 0 },
+                hasMore = hasMore
+            )
+            mediaItems.map {
+                it.toVideoItem(
+                    ownerFallbackMid = mid,
+                    ownerFallbackName = ownerName
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
     
     // Supports loading more pages
     fun loadMore() {
@@ -183,6 +213,28 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
                      }
                 } else if (type == "favorite") {
                     val response = FavoriteRepository.getFavoriteList(mediaId = id, pn = currentPage).getOrNull()
+                    hasMore = response?.has_more == true
+                    _hasMoreState.value = hasMore
+                    val mediaItems = response?.medias.orEmpty()
+                    newItems = mediaItems.map {
+                        it.toVideoItem(
+                            ownerFallbackMid = mid,
+                            ownerFallbackName = ownerName
+                        )
+                    }
+                    val currentLoadedCount = _uiState.value.items.size + newItems.size
+                    _favoriteDetailProgressState.value = _favoriteDetailProgressState.value.copy(
+                        loadedCount = currentLoadedCount,
+                        expectedCount = response?.info?.media_count
+                            ?: _favoriteDetailProgressState.value.expectedCount,
+                        currentPage = currentPage,
+                        lastAddedCount = mediaItems.size,
+                        invalidCount = _favoriteDetailProgressState.value.invalidCount +
+                            mediaItems.count { it.attr != 0 },
+                        hasMore = hasMore
+                    )
+                } else if (type == "favorite_season") {
+                    val response = FavoriteRepository.getFavoriteSeasonList(seasonId = id, pn = currentPage).getOrNull()
                     hasMore = response?.has_more == true
                     _hasMoreState.value = hasMore
                     val mediaItems = response?.medias.orEmpty()

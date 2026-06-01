@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.ByteArrayInputStream
@@ -188,7 +189,10 @@ object UiSkinImportPackageResolver {
         val properties = themeObject?.objectOrNull("properties")
             ?: dataObject?.objectOrNull("properties")
             ?: root.objectOrNull("properties")
+            ?: dataObject
+                ?.takeIf { it.looksLikeThemeProperties() }
             ?: themeObject
+                ?.takeIf { it.looksLikeThemeProperties() }
             ?: dataObject
             ?: JsonObject(emptyMap())
         val id = themeObject?.stringOrNull("item_id")
@@ -229,10 +233,13 @@ object UiSkinImportPackageResolver {
         val themeObject = root.resolveThemeObject()
         return themeObject?.stringOrNull("package_url")
             ?: themeObject?.stringOrNull("packageUrl")
+            ?: themeObject?.objectOrNull("properties")?.stringOrNull("package_url")
+            ?: themeObject?.objectOrNull("properties")?.stringOrNull("packageUrl")
             ?: dataObject?.stringOrNull("package_url")
             ?: dataObject?.stringOrNull("packageUrl")
             ?: root.stringOrNull("package_url")
             ?: root.stringOrNull("packageUrl")
+            ?: root.findStringDeep("package_url", "packageUrl")
     }
 
     private fun buildAssetBytes(packageEntries: Map<String, ByteArray>): Map<String, ByteArray> {
@@ -446,9 +453,63 @@ object UiSkinImportPackageResolver {
 
     private fun JsonObject.resolveThemeObject(): JsonObject? {
         val dataObject = objectOrNull("data")
-        return dataObject?.objectOrNull("user_equip")
-            ?: objectOrNull("user_equip")
-            ?: dataObject
+        val knownCandidates = listOfNotNull(
+            dataObject?.objectOrNull("user_equip"),
+            objectOrNull("user_equip"),
+            dataObject?.objectOrNull("skin_suit")?.objectOrNull("item"),
+            objectOrNull("skin_suit")?.objectOrNull("item"),
+            dataObject?.objectOrNull("item"),
+            objectOrNull("item"),
+            dataObject?.objectOrNull("skin_suit"),
+            objectOrNull("skin_suit"),
+            dataObject
+        )
+        return knownCandidates.firstOrNull { it.looksLikeThemeObject() }
+            ?: findObjectDeep { it.looksLikeThemeObject() }
+    }
+
+    private fun JsonObject.looksLikeThemeObject(): Boolean {
+        return stringOrNull("item_id") != null ||
+            stringOrNull("id") != null ||
+            stringOrNull("name") != null ||
+            objectOrNull("properties") != null
+    }
+
+    private fun JsonObject.looksLikeThemeProperties(): Boolean {
+        return stringOrNull("color") != null ||
+            stringOrNull("color_second_page") != null ||
+            stringOrNull("tail_color") != null ||
+            stringOrNull("ver") != null ||
+            stringOrNull("package_url") != null ||
+            stringOrNull("packageUrl") != null
+    }
+
+    private fun JsonObject.findStringDeep(vararg keys: String): String? {
+        keys.forEach { key ->
+            stringOrNull(key)?.let { return it }
+        }
+        values.forEach { value ->
+            when (value) {
+                is JsonObject -> value.findStringDeep(*keys)?.let { return it }
+                else -> runCatching { value.jsonArray }.getOrNull()?.forEach { item ->
+                    (item as? JsonObject)?.findStringDeep(*keys)?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun JsonObject.findObjectDeep(predicate: (JsonObject) -> Boolean): JsonObject? {
+        if (predicate(this)) return this
+        values.forEach { value ->
+            when (value) {
+                is JsonObject -> value.findObjectDeep(predicate)?.let { return it }
+                else -> runCatching { value.jsonArray }.getOrNull()?.forEach { item ->
+                    (item as? JsonObject)?.findObjectDeep(predicate)?.let { return it }
+                }
+            }
+        }
+        return null
     }
 
     private fun String.parentName(): String {

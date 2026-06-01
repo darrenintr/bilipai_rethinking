@@ -55,9 +55,9 @@ internal fun resolveFavoriteFolderMediaId(folder: FavFolder): Long {
 
 internal fun resolveSubscribedFavoriteCollectionRoute(folder: FavFolder): FavoriteCollectionRoute? {
     if (folder.source != FavFolderSource.SUBSCRIBED || folder.type != 21) return null
-    if (folder.id <= 0L || folder.mid <= 0L || folder.title.isBlank()) return null
+    if (folder.id <= 0L || folder.title.isBlank()) return null
     return FavoriteCollectionRoute(
-        type = "season",
+        type = "favorite_season",
         id = folder.id,
         mid = folder.mid,
         title = folder.title,

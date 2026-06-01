@@ -41,6 +41,7 @@ import io.github.alexzhirkevich.cupertino.icons.filled.TextBubble
 import io.github.alexzhirkevich.cupertino.icons.filled.BubbleLeft
 import android.app.Activity
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Info
@@ -119,6 +120,7 @@ fun LivePlayerControls(
     onToggleBackgroundPlayback: () -> Unit = {},
     onOpenShutdownTimer: () -> Unit = {},
     onOpenPlayerInfo: () -> Unit = {},
+    onOpenSend: () -> Unit = {},
     videoFitDesc: String = "",
     onVideoFitClick: () -> Unit = {},
     currentQualityDesc: String = "",
@@ -391,6 +393,13 @@ fun LivePlayerControls(
                     onClick = onRefresh
                 )
                 
+                Spacer(Modifier.width(12.dp))
+
+                PlayerIconBtn(
+                    icon = Icons.AutoMirrored.Outlined.Send,
+                    onClick = onOpenSend
+                )
+
                 Spacer(Modifier.width(12.dp))
                 
                 Row(

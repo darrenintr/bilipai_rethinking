@@ -13,7 +13,8 @@ data class SpaceExternalPlaylist(
 enum class SpaceCollectionDetailType(val raw: String) {
     SEASON("season"),
     SERIES("series"),
-    FAVORITE("favorite");
+    FAVORITE("favorite"),
+    FAVORITE_SEASON("favorite_season");
 
     companion object {
         fun fromRaw(raw: String): SpaceCollectionDetailType? {
@@ -101,7 +102,11 @@ fun resolveSpaceCollectionDetailRequest(
 ): SpaceCollectionDetailRequest? {
     val detailType = SpaceCollectionDetailType.fromRaw(type) ?: return null
     if (id <= 0L) return null
-    if (detailType != SpaceCollectionDetailType.FAVORITE && mid <= 0L) return null
+    if (
+        detailType != SpaceCollectionDetailType.FAVORITE &&
+        detailType != SpaceCollectionDetailType.FAVORITE_SEASON &&
+        mid <= 0L
+    ) return null
     return SpaceCollectionDetailRequest(
         type = detailType,
         id = id,

@@ -3,6 +3,7 @@ package com.android.purebilibili.core.plugin.json
 
 import android.content.Context
 import android.net.Uri
+import com.android.purebilibili.core.network.NetworkModule
 import com.android.purebilibili.core.plugin.DanmakuItem
 import com.android.purebilibili.core.plugin.DanmakuStyle
 import com.android.purebilibili.core.plugin.PluginManager
@@ -34,6 +35,7 @@ object JsonPluginManager {
     private val json = Json { ignoreUnknownKeys = true }
     private val httpClient by lazy {
         OkHttpClient.Builder()
+            .protocols(NetworkModule.resolveSharedNetworkProtocols())
             .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .build()

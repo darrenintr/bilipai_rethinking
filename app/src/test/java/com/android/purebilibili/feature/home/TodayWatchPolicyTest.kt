@@ -35,6 +35,30 @@ class TodayWatchPolicyTest {
     }
 
     @Test
+    fun `partial watch history does not outweigh completed watch history`() {
+        val history = listOf(
+            VideoItem(bvid = "half_watch", owner = Owner(mid = 1, name = "UP-Half"), duration = 1_200, progress = 600, view_at = 1_700_002_000),
+            VideoItem(bvid = "complete_watch", owner = Owner(mid = 2, name = "UP-Done"), duration = 1_200, progress = 1_140, view_at = 1_699_400_000)
+        )
+        val candidates = listOf(
+            VideoItem(bvid = "half_candidate", owner = Owner(mid = 1, name = "UP-Half"), duration = 600, stat = Stat(view = 5_000, danmaku = 40), title = "半播来源候选"),
+            VideoItem(bvid = "complete_candidate", owner = Owner(mid = 2, name = "UP-Done"), duration = 600, stat = Stat(view = 5_000, danmaku = 40), title = "完播来源候选")
+        )
+
+        val plan = buildTodayWatchPlan(
+            historyVideos = history,
+            candidateVideos = candidates,
+            mode = TodayWatchMode.RELAX,
+            eyeCareNightActive = false,
+            nowEpochSec = 1_700_010_000,
+            queueLimit = 1
+        )
+
+        assertEquals("complete_candidate", plan.videoQueue.firstOrNull()?.bvid)
+        assertEquals(2L, plan.upRanks.firstOrNull()?.mid)
+    }
+
+    @Test
     fun `up rank click only enables valid creator mid`() {
         assertTrue(
             shouldEnableTodayWatchUpRankClick(

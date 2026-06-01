@@ -1,7 +1,10 @@
 package com.android.purebilibili.feature.plugin
 
 import android.annotation.SuppressLint
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
@@ -9,6 +12,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.android.purebilibili.MainActivity
 import com.android.purebilibili.R
 import com.android.purebilibili.app.SPONSOR_BLOCK_NOTIFICATION_CHANNEL_ID
 import com.android.purebilibili.core.plugin.PluginStore
@@ -50,25 +54,62 @@ class SponsorBlockDailySummaryWorker(
 
     @SuppressLint("MissingPermission")
     private fun postNotification(content: SponsorBlockDailySummaryNotification) {
-        val manager = NotificationManagerCompat.from(applicationContext)
-        if (!manager.areNotificationsEnabled()) return
-        val notification = NotificationCompat.Builder(
-            applicationContext,
-            SPONSOR_BLOCK_NOTIFICATION_CHANNEL_ID
+        postSponsorBlockSummaryNotification(
+            context = applicationContext,
+            content = content,
+            notificationId = SPONSOR_BLOCK_DAILY_SUMMARY_NOTIFICATION_ID
         )
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(content.title)
-            .setContentText(content.body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(content.body))
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setAutoCancel(true)
-            .build()
-        runCatching {
-            manager.notify(SPONSOR_BLOCK_DAILY_SUMMARY_NOTIFICATION_ID, notification)
-        }.onFailure { error ->
-            Logger.w(TAG, "发送空降助手汇总通知失败: ${error.message}")
-        }
     }
+}
+
+fun postSponsorBlockTestNotification(
+    context: Context,
+    config: SponsorBlockConfig
+): Boolean {
+    return postSponsorBlockSummaryNotification(
+        context = context.applicationContext,
+        content = buildSponsorBlockTestNotification(config),
+        notificationId = SPONSOR_BLOCK_DAILY_SUMMARY_NOTIFICATION_ID
+    )
+}
+
+@SuppressLint("MissingPermission")
+private fun postSponsorBlockSummaryNotification(
+    context: Context,
+    content: SponsorBlockDailySummaryNotification,
+    notificationId: Int
+): Boolean {
+    val manager = NotificationManagerCompat.from(context)
+    if (!manager.areNotificationsEnabled()) return false
+    val notification = NotificationCompat.Builder(
+        context,
+        SPONSOR_BLOCK_NOTIFICATION_CHANNEL_ID
+    )
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(content.title)
+        .setContentText(content.body)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(content.body))
+        .setPriority(NotificationCompat.PRIORITY_LOW)
+        .setContentIntent(buildSponsorBlockPendingIntent(context))
+        .setAutoCancel(true)
+        .build()
+    return runCatching {
+        manager.notify(notificationId, notification)
+        true
+    }.onFailure { error ->
+        Logger.w(TAG, "发送空降助手汇总通知失败: ${error.message}")
+    }.getOrDefault(false)
+}
+
+private fun buildSponsorBlockPendingIntent(context: Context): PendingIntent {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("bilipai://plugins"), context, MainActivity::class.java)
+        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    return PendingIntent.getActivity(
+        context,
+        SPONSOR_BLOCK_DAILY_SUMMARY_NOTIFICATION_ID,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 }
 
 internal fun scheduleSponsorBlockDailySummary(

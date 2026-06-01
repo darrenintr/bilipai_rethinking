@@ -37,7 +37,7 @@ internal fun resolveSearchVideoCardAppearance(
     glassEnabled = liquidGlassEnabled,
     blurEnabled = blurEnabled,
     showCoverGlassBadges = false,
-    showInfoGlassBadges = showHomeInfoGlassBadges,
+    showInfoGlassBadges = false,
     coverShadowEnabled = false
 )
 

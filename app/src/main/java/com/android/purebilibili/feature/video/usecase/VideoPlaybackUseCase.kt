@@ -6,12 +6,14 @@ import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.dash.DashMediaSource
 import com.android.purebilibili.core.cooldown.CooldownStatus
 import com.android.purebilibili.core.cooldown.PlaybackCooldownManager
 import com.android.purebilibili.core.network.NetworkModule
+import com.android.purebilibili.core.player.PlaybackMediaCache
 import com.android.purebilibili.core.util.Logger
 import com.android.purebilibili.data.model.VideoLoadError
 import com.android.purebilibili.data.model.response.*
@@ -129,6 +131,21 @@ internal fun resolvePlaybackBootstrapMode(
     }
 }
 
+internal fun shouldFetchRelatedVideosAfterVideoDetail(bvid: String): Boolean {
+    val normalized = bvid.trim()
+    return normalized.isBlank() || normalized.startsWith("av", ignoreCase = true)
+}
+
+internal fun resolveRelatedVideosRequestBvid(
+    requestBvid: String,
+    canonicalBvid: String
+): String {
+    val normalizedRequest = requestBvid.trim()
+    val normalizedCanonical = canonicalBvid.trim()
+    if (normalizedRequest.startsWith("BV", ignoreCase = true)) return normalizedRequest
+    return normalizedCanonical.takeIf { it.startsWith("BV", ignoreCase = true) }.orEmpty()
+}
+
 internal fun applyPlaybackIntentAfterSourceChange(
     player: Player,
     playWhenReady: Boolean
@@ -243,6 +260,12 @@ internal fun seekPlayerFromUserAction(
         "VideoPlaybackUseCase",
         "USER_DBG seekPlayerFromUserAction: target=$positionMs, shouldResume=$shouldResume, " +
             "beforeState=${player.playbackState}, beforePlaying=${player.isPlaying}, beforePwr=${player.playWhenReady}"
+    )
+    PlaybackMediaCache.logSeek(
+        targetPositionMs = positionMs,
+        currentPositionMs = player.currentPosition,
+        bufferedPositionMs = player.bufferedPosition,
+        durationMs = player.duration.coerceAtLeast(0L)
     )
     if (shouldResume) {
         player.playWhenReady = true
@@ -397,8 +420,21 @@ class VideoPlaybackUseCase(
                     bvid = bvid,
                     cid = cid
                 )
-                val relatedDeferred = async { 
-                    if (bvid.isNotEmpty()) VideoRepository.getRelatedVideos(bvid) else emptyList() 
+                val fetchRelatedAfterDetail = shouldFetchRelatedVideosAfterVideoDetail(bvid)
+                val relatedDeferred: kotlinx.coroutines.Deferred<List<RelatedVideo>>? = if (fetchRelatedAfterDetail) {
+                    null
+                } else {
+                    async {
+                        val relatedBvid = resolveRelatedVideosRequestBvid(
+                            requestBvid = bvid,
+                            canonicalBvid = ""
+                        )
+                        if (relatedBvid.isNotEmpty()) {
+                            VideoRepository.getRelatedVideos(relatedBvid)
+                        } else {
+                            emptyList()
+                        }
+                    }
                 }
                 val emoteMap = if (com.android.purebilibili.data.repository.shouldFetchCommentEmoteMapOnVideoLoad()) {
                     com.android.purebilibili.data.repository.CommentRepository.getEmoteMap()
@@ -450,7 +486,22 @@ class VideoPlaybackUseCase(
                     }
                 }
 
-                Triple(mergedDetailResult, relatedDeferred.await(), emoteMap)
+                val relatedVideos = relatedDeferred?.await() ?: mergedDetailResult.fold(
+                    onSuccess = { (info, _) ->
+                        val relatedBvid = resolveRelatedVideosRequestBvid(
+                            requestBvid = bvid,
+                            canonicalBvid = info.bvid
+                        )
+                        if (relatedBvid.isNotEmpty()) {
+                            VideoRepository.getRelatedVideos(relatedBvid)
+                        } else {
+                            emptyList()
+                        }
+                    },
+                    onFailure = { emptyList() }
+                )
+
+                Triple(mergedDetailResult, relatedVideos, emoteMap)
             }
             
             return detailResult.fold(
@@ -947,6 +998,12 @@ class VideoPlaybackUseCase(
                 shouldResumePlaybackOverride = true
             )
         } else {
+            PlaybackMediaCache.logSeek(
+                targetPositionMs = position,
+                currentPositionMs = player.currentPosition,
+                bufferedPositionMs = player.bufferedPosition,
+                durationMs = player.duration.coerceAtLeast(0L)
+            )
             player.seekTo(position)
         }
     }
@@ -1057,9 +1114,10 @@ class VideoPlaybackUseCase(
             "Referer" to "https://www.bilibili.com",
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
-        val dataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+        val upstreamFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
             NetworkModule.playbackOkHttpClient
         ).setDefaultRequestProperties(headers)
+        val dataSourceFactory = buildCachedPlaybackDataSourceFactory(upstreamFactory)
 
         val mediaSourceFactory = androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(dataSourceFactory)
         val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(videoUrl))
@@ -1086,12 +1144,22 @@ class VideoPlaybackUseCase(
         val upstreamFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
             NetworkModule.playbackOkHttpClient
         ).setDefaultRequestProperties(headers)
-        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, upstreamFactory)
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+            context,
+            PlaybackMediaCache.buildCachedDataSourceFactory(context, upstreamFactory)
+        )
         val mediaItem = MediaItem.Builder()
             .setUri(manifestUri)
             .setMimeType(MimeTypes.APPLICATION_MPD)
             .build()
         return DashMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+    }
+
+    private fun buildCachedPlaybackDataSourceFactory(
+        upstreamFactory: DataSource.Factory
+    ): DataSource.Factory {
+        val context = appContext ?: NetworkModule.appContext ?: return upstreamFactory
+        return PlaybackMediaCache.buildCachedDataSourceFactory(context, upstreamFactory)
     }
 
     private fun writeAdaptiveDashManifest(context: Context, manifest: String): Uri? {

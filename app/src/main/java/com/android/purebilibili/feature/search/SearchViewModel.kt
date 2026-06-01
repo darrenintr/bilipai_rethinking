@@ -23,6 +23,7 @@ import com.android.purebilibili.data.repository.SearchOrderSort
 import com.android.purebilibili.data.repository.SearchUpOrder
 import com.android.purebilibili.data.repository.SearchUserType
 import com.android.purebilibili.data.repository.shouldApplySearchResult
+import com.android.purebilibili.data.repository.toggleSearchDurationSelection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -65,7 +66,7 @@ data class SearchUiState(
     val error: String? = null,
     //  搜索过滤条件
     val searchOrder: SearchOrder = SearchOrder.TOTALRANK,
-    val searchDuration: SearchDuration = SearchDuration.ALL,
+    val searchDurations: Set<SearchDuration> = emptySet(),
     val videoTid: Int = 0,
     val upOrder: SearchUpOrder = SearchUpOrder.DEFAULT,
     val upOrderSort: SearchOrderSort = SearchOrderSort.DESC,
@@ -232,9 +233,11 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
     
-    //  设置时长筛选
-    fun setSearchDuration(duration: SearchDuration) {
-        _uiState.update { it.copy(searchDuration = duration) }
+    //  设置时长筛选；空集合表示“全部时长”，多个值会在仓库层分别请求后合并去重。
+    fun toggleSearchDuration(duration: SearchDuration) {
+        _uiState.update {
+            it.copy(searchDurations = toggleSearchDurationSelection(it.searchDurations, duration))
+        }
         if (_uiState.value.query.isNotBlank() && _uiState.value.showResults) {
             search(_uiState.value.query)
         }
@@ -313,9 +316,15 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             when (searchType) {
                 SearchType.VIDEO -> {
                     val order = _uiState.value.searchOrder
-                    val duration = _uiState.value.searchDuration
+                    val durations = _uiState.value.searchDurations
                     val videoTid = _uiState.value.videoTid
-                    val result = SearchRepository.search(normalizedKeyword, order, duration, tids = videoTid, page = 1)
+                    val result = SearchRepository.searchWithDurations(
+                        keyword = normalizedKeyword,
+                        order = order,
+                        durations = durations,
+                        tids = videoTid,
+                        page = 1
+                    )
                     result.onSuccess { (videos, pageInfo) ->
                         if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.query, searchType, _uiState.value.searchType)) return@onSuccess
                         val nativeFiltered = videos.filter { it.owner.mid !in blockedMids }
@@ -669,10 +678,10 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         activeLoadMoreJob = viewModelScope.launch {
             when (state.searchType) {
                 SearchType.VIDEO -> {
-                    val result = SearchRepository.search(
+                    val result = SearchRepository.searchWithDurations(
                         keyword = state.query,
                         order = state.searchOrder,
-                        duration = state.searchDuration,
+                        durations = state.searchDurations,
                         tids = state.videoTid,
                         page = nextPage
                     )

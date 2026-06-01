@@ -48,8 +48,31 @@ class UiSkinInstallStoreTest {
         val bottomTrimPath = assertNotNull(installed.assetFiles["assets/bottom_trim.png"])
         assertTrue(File(bottomTrimPath).exists())
         assertEquals(pngBytes().toList(), File(bottomTrimPath).readBytes().toList())
-        assertTrue(installedPackages.any { it.skinId == BuiltInUiSkins.winterCloud.skinId })
         assertTrue(installedPackages.any { it.skinId == manifest.skinId && !it.enabled })
+    }
+
+    @Test
+    fun previewAssetFiles_extractsDeclaredAssetsForVisualPreviewWithoutInstalling() {
+        val rootDir = createTempDirectory("ui-skin-store").toFile()
+        val store = UiSkinInstallStore(rootDir = rootDir)
+        val bytes = skinPackage(
+            "skin-manifest.json" to Json.encodeToString(
+                manifest(
+                    displayName = "预览皮肤",
+                    version = "1.0.0",
+                    bottomBarTrim = "assets/bottom_trim.png"
+                )
+            ).toByteArray(),
+            "assets/bottom_trim.png" to pngBytes()
+        )
+        val preview = store.previewPackage(bytes).getOrThrow()
+
+        val previewFiles = store.extractPreviewAssetFiles(preview, bytes).getOrThrow()
+
+        val previewPath = assertNotNull(previewFiles["assets/bottom_trim.png"])
+        assertTrue(File(previewPath).exists())
+        assertEquals(pngBytes().toList(), File(previewPath).readBytes().toList())
+        assertTrue(previewPath.contains("preview_assets"))
     }
 
     @Test
@@ -131,6 +154,46 @@ class UiSkinInstallStoreTest {
         assertEquals(1, installedPackages.size)
         assertEquals("洛天依拜年纪个性主题", installedPackages.single().displayName)
         assertEquals(200L, installedPackages.single().installedAtMillis)
+    }
+
+    @Test
+    fun deleteInstalledPackage_removesRecordPackageAndExtractedAssets() {
+        val rootDir = createTempDirectory("ui-skin-store").toFile()
+        val store = UiSkinInstallStore(
+            rootDir = rootDir,
+            clock = { 42L }
+        )
+        val bytes = skinPackage(
+            "skin-manifest.json" to Json.encodeToString(
+                manifest(
+                    displayName = "可删除皮肤",
+                    version = "1.0.0",
+                    bottomBarTrim = "assets/bottom_trim.png"
+                )
+            ).toByteArray(),
+            "assets/bottom_trim.png" to pngBytes()
+        )
+        val preview = store.previewPackage(bytes).getOrThrow()
+        val installed = store.installPreview(preview, bytes).getOrThrow()
+        val packageFile = File(installed.packagePath)
+        val assetFile = File(checkNotNull(installed.assetFiles["assets/bottom_trim.png"]))
+
+        val deleted = store.deleteInstalledPackage(installed.installId).getOrThrow()
+
+        assertTrue(deleted)
+        assertFalse(packageFile.exists())
+        assertFalse(assetFile.exists())
+        assertTrue(store.listInstalledPackages().none { it.installId == installed.installId })
+    }
+
+    @Test
+    fun deleteInstalledPackage_returnsFalseWhenRecordIsMissing() {
+        val rootDir = createTempDirectory("ui-skin-store").toFile()
+        val store = UiSkinInstallStore(rootDir = rootDir)
+
+        val deleted = store.deleteInstalledPackage("missing-install-id").getOrThrow()
+
+        assertFalse(deleted)
     }
 
     private fun manifest(

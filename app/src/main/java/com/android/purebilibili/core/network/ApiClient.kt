@@ -3,7 +3,9 @@ package com.android.purebilibili.core.network
 
 import android.content.Context
 import com.android.purebilibili.BuildConfig
+import com.android.purebilibili.core.network.policy.HomeFeedAnonymizerRuntime
 import com.android.purebilibili.core.network.policy.resolveHardcodedDnsFallback
+import com.android.purebilibili.core.network.policy.resolveHomeFeedCookieAnonymizerDecision
 import com.android.purebilibili.core.network.policy.shouldEnableTrustAllCertificates
 import com.android.purebilibili.core.store.TokenManager
 import com.android.purebilibili.data.model.response.*
@@ -29,6 +31,7 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
 internal const val BANGUMI_PLAY_URL_PATH = "pgc/player/web/v2/playurl"
+internal const val BANGUMI_PLAY_URL_LEGACY_PATH = "pgc/player/web/playurl"
 
 private class AppSessionCookieJar : okhttp3.CookieJar {
     private val cookieLock = Any()
@@ -47,6 +50,19 @@ private class AppSessionCookieJar : okhttp3.CookieJar {
     }
 
     override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+        if (resolveHomeFeedCookieAnonymizerDecision(
+                pluginEnabled = HomeFeedAnonymizerRuntime.enabled,
+                host = url.host,
+                encodedPath = url.encodedPath
+            )
+        ) {
+            com.android.purebilibili.core.util.Logger.d(
+                "CookieJar",
+                " 初见推荐匿名化首页推荐请求: ${url.encodedPath}, clearCookieHeader=true"
+            )
+            return emptyList()
+        }
+
         val cookies = mutableListOf<okhttp3.Cookie>()
 
         synchronized(cookieLock) {
@@ -133,6 +149,16 @@ interface BilibiliApi {
     @GET("x/web-interface/nav/stat")
     suspend fun getNavStat(): NavStatResponse
 
+    @GET("x/member/web/account")
+    suspend fun getMemberAccount(): MemberAccountResponse
+
+    @retrofit2.http.FormUrlEncoded
+    @POST("x/member/web/sign/update")
+    suspend fun updateMemberSign(
+        @retrofit2.http.Field("user_sign") userSign: String,
+        @retrofit2.http.Field("csrf") csrf: String
+    ): SimpleApiResponse
+
     //  [New] 获取用户卡片信息 (轻量级用户信息)
     @GET("x/web-interface/card")
     suspend fun getUserCard(
@@ -145,6 +171,52 @@ interface BilibiliApi {
         @Query("mid") mid: Long,
         @Query("photo") photo: Boolean = true
     ): okhttp3.ResponseBody
+
+    @GET("x/note/list/archive")
+    suspend fun getPrivateVideoNoteIds(
+        @Query("oid") oid: Long,
+        @Query("oid_type") oidType: Int = 0,
+        @Query("csrf") csrf: String? = null
+    ): VideoNoteArchiveListResponse
+
+    @GET("x/note/info")
+    suspend fun getPrivateVideoNoteInfo(
+        @Query("oid") oid: Long,
+        @Query("oid_type") oidType: Int = 0,
+        @Query("note_id") noteId: String
+    ): VideoNoteInfoResponse
+
+    @GET("x/note/is_forbid")
+    suspend fun getVideoNoteForbidState(
+        @Query("aid") aid: Long
+    ): VideoNoteForbidResponse
+
+    @retrofit2.http.FormUrlEncoded
+    @POST("x/note/add")
+    suspend fun saveVideoNote(
+        @retrofit2.http.FieldMap fields: Map<String, String>
+    ): VideoNoteSaveResponse
+
+    @retrofit2.http.FormUrlEncoded
+    @POST("x/note/del")
+    suspend fun deleteVideoNote(
+        @retrofit2.http.Field("oid") oid: Long,
+        @retrofit2.http.Field("note_id") noteId: String,
+        @retrofit2.http.Field("csrf") csrf: String
+    ): SimpleApiResponse
+
+    @GET("x/note/publish/list/archive")
+    suspend fun getPublicVideoNoteList(
+        @Query("oid") oid: Long,
+        @Query("oid_type") oidType: Int = 0,
+        @Query("ps") pageSize: Int = 10,
+        @Query("pn") pageNumber: Int = 1
+    ): PublicVideoNoteListResponse
+
+    @GET("x/note/publish/info")
+    suspend fun getPublicVideoNoteInfo(
+        @Query("cvid") cvid: Long
+    ): PublicVideoNoteInfoResponse
 
     @GET("x/web-interface/history/cursor")
     suspend fun getHistoryList(
@@ -213,6 +285,13 @@ interface BilibiliApi {
         @Query("platform") platform: String = "web"
     ): FavoriteResourceResponse
 
+    @GET("x/space/fav/season/list")
+    suspend fun getFavoriteSeasonList(
+        @Query("season_id") seasonId: Long,
+        @Query("pn") pn: Int = 1,
+        @Query("ps") ps: Int = 20
+    ): FavoriteResourceResponse
+
     // [新增] 批量删除收藏资源 (取消收藏)
     @retrofit2.http.FormUrlEncoded
     @retrofit2.http.POST("x/v3/fav/resource/batch-del")
@@ -279,6 +358,12 @@ interface BilibiliApi {
         @Query("page_size") pageSize: Int = 30,
         @Query("sort_type") sortType: String = "online"  // 按人气排序
     ): LiveResponse
+
+    @GET("https://api.live.bilibili.com/xlive/web-interface/v1/webMain/getMoreRecList")
+    suspend fun getLiveRecommendList(
+        @Query("platform") platform: String = "web",
+        @Query("web_location") webLocation: String = "333.1007"
+    ): LiveRecommendResponse
     
     //  [新增] 获取关注的直播 - 需要登录
     @GET("https://api.live.bilibili.com/xlive/web-ucenter/user/following")
@@ -324,6 +409,17 @@ interface BilibiliApi {
     suspend fun getLiveDanmakuHistory(
         @Query("roomid") roomId: Long
     ): ResponseBody
+
+    @GET("https://api.live.bilibili.com/xlive/web-room/v1/dM/GetDMConfigByGroup")
+    suspend fun getLiveDanmakuConfig(
+        @Query("room_id") roomId: Long,
+        @Query("web_location") webLocation: String = "444.8"
+    ): ResponseBody
+
+    @GET("https://live-trace.bilibili.com/xlive/rdata-interface/v1/heartbeat/webHeartBeat")
+    suspend fun reportLiveHeartbeat(
+        @QueryMap params: Map<String, String>
+    ): ResponseBody
     
     //  [新增] 获取直播弹幕 WebSocket 信息
     @GET("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo")
@@ -350,11 +446,15 @@ interface BilibiliApi {
         @Query("room_id") roomId: Long,
         @Query("protocol") protocol: String = "0,1",  // 0=http_stream, 1=http_hls
         @Query("format") format: String = "0,1,2",    // 0=flv, 1=ts, 2=fmp4
-        @Query("codec") codec: String = "0,1",        // 0=avc, 1=hevc
+        @Query("codec") codec: String = "0,1,2",      // 0=avc, 1=hevc, 2=av1
         @Query("qn") quality: Int = 150,              // 150=高清
         @Query("platform") platform: String = "web",
         @Query("ptype") ptype: Int = 8,
-        @Query("only_audio") onlyAudio: Int? = null
+        @Query("dolby") dolby: Int = 5,
+        @Query("panorama") panorama: Int = 1,
+        @Query("web_location") webLocation: String = "444.8",
+        @Query("only_audio") onlyAudio: Int? = null,
+        @QueryMap signedParams: Map<String, String> = emptyMap()
     ): LivePlayUrlResponse
     
     //  [新增] 旧版直播流 API - 可靠返回 quality_description 画质列表
@@ -369,11 +469,23 @@ interface BilibiliApi {
     @retrofit2.http.FormUrlEncoded
     @retrofit2.http.POST("https://api.live.bilibili.com/msg/send")
     suspend fun sendLiveDanmaku(
+        @retrofit2.http.QueryMap signedParams: Map<String, String> = emptyMap(),
         @retrofit2.http.Field("roomid") roomId: Long,
         @retrofit2.http.Field("msg") msg: String,
         @retrofit2.http.Field("color") color: Int = 16777215,
         @retrofit2.http.Field("fontsize") fontsize: Int = 25,
         @retrofit2.http.Field("mode") mode: Int = 1,
+        @retrofit2.http.Field("bubble") bubble: Int = 0,
+        @retrofit2.http.Field("room_type") roomType: Int = 0,
+        @retrofit2.http.Field("jumpfrom") jumpFrom: Int = 0,
+        @retrofit2.http.Field("reply_mid") replyMid: Long = 0,
+        @retrofit2.http.Field("reply_attr") replyAttr: Int = 0,
+        @retrofit2.http.Field("reply_uname") replyUname: String = "",
+        @retrofit2.http.Field("replay_dmid") replayDmid: String = "",
+        @retrofit2.http.Field("statistics") statistics: String = "{\"appId\":100,\"platform\":5}",
+        @retrofit2.http.Field("reply_type") replyType: Int = 0,
+        @retrofit2.http.Field("dm_type") dmType: Int? = null,
+        @retrofit2.http.Field("emoticonOptions") emoticonOptions: String? = null,
         @retrofit2.http.Field("rnd") rnd: Long = System.currentTimeMillis() / 1000,
         @retrofit2.http.Field("csrf") csrf: String,
         @retrofit2.http.Field("csrf_token") csrfToken: String
@@ -407,6 +519,73 @@ interface BilibiliApi {
         @retrofit2.http.Field("type") type: Int,
         @retrofit2.http.Field("csrf") csrf: String,
         @retrofit2.http.Field("csrf_token") csrfToken: String
+    ): SimpleApiResponse
+
+    @GET("https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser")
+    suspend fun getLiveInfoByUser(
+        @QueryMap params: Map<String, String>
+    ): ResponseBody
+
+    @retrofit2.http.FormUrlEncoded
+    @retrofit2.http.POST("https://api.live.bilibili.com/liveact/user_silent")
+    suspend fun setLiveSilentRule(
+        @retrofit2.http.Field("type") type: String,
+        @retrofit2.http.Field("level") level: Int,
+        @retrofit2.http.Field("csrf") csrf: String,
+        @retrofit2.http.Field("csrf_token") csrfToken: String
+    ): SimpleApiResponse
+
+    @retrofit2.http.FormUrlEncoded
+    @retrofit2.http.POST("https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/AddShieldKeyword")
+    suspend fun addLiveShieldKeyword(
+        @retrofit2.http.Field("keyword") keyword: String,
+        @retrofit2.http.Field("csrf") csrf: String,
+        @retrofit2.http.Field("csrf_token") csrfToken: String
+    ): SimpleApiResponse
+
+    @retrofit2.http.FormUrlEncoded
+    @retrofit2.http.POST("https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/DelShieldKeyword")
+    suspend fun deleteLiveShieldKeyword(
+        @retrofit2.http.Field("keyword") keyword: String,
+        @retrofit2.http.Field("csrf") csrf: String,
+        @retrofit2.http.Field("csrf_token") csrfToken: String
+    ): SimpleApiResponse
+
+    @retrofit2.http.FormUrlEncoded
+    @retrofit2.http.POST("https://api.live.bilibili.com/xlive/web-ucenter/v1/dMReport/Report")
+    suspend fun reportLiveDanmaku(
+        @retrofit2.http.Field("id") id: Long = 0,
+        @retrofit2.http.Field("roomid") roomId: Long,
+        @retrofit2.http.Field("tuid") targetUid: Long,
+        @retrofit2.http.Field("msg") message: String,
+        @retrofit2.http.Field("reason") reason: String,
+        @retrofit2.http.Field("ts") ts: Long,
+        @retrofit2.http.Field("sign") sign: String,
+        @retrofit2.http.Field("reason_id") reasonId: Int,
+        @retrofit2.http.Field("token") token: String = "",
+        @retrofit2.http.Field("dm_type") dmType: Int = 0,
+        @retrofit2.http.Field("id_str") idStr: String,
+        @retrofit2.http.Field("csrf") csrf: String,
+        @retrofit2.http.Field("csrf_token") csrfToken: String,
+        @retrofit2.http.Field("visit_id") visitId: String = ""
+    ): SimpleApiResponse
+
+    @retrofit2.http.FormUrlEncoded
+    @retrofit2.http.POST("https://api.live.bilibili.com/av/v1/SuperChat/report")
+    suspend fun reportLiveSuperChat(
+        @retrofit2.http.Field("id") id: Long,
+        @retrofit2.http.Field("roomid") roomId: Long,
+        @retrofit2.http.Field("uid") uid: Long,
+        @retrofit2.http.Field("msg") message: String,
+        @retrofit2.http.Field("reason") reason: String,
+        @retrofit2.http.Field("ts") ts: Long,
+        @retrofit2.http.Field("sign") sign: String = "",
+        @retrofit2.http.Field("reason_id") reasonId: String,
+        @retrofit2.http.Field("token") token: String = "",
+        @retrofit2.http.Field("id_str") idStr: String,
+        @retrofit2.http.Field("csrf") csrf: String,
+        @retrofit2.http.Field("csrf_token") csrfToken: String,
+        @retrofit2.http.Field("visit_id") visitId: String = ""
     ): SimpleApiResponse
 
     @GET("https://api.live.bilibili.com/av/v1/SuperChat/getMessageList")
@@ -496,7 +675,7 @@ interface BilibiliApi {
         @Query("index") index: Int = 1  // 是否返回时间索引，1=是
     ): VideoshotResponse
 
-    @GET("https://api.bilibili.com/pbp/data")
+    @GET("https://bvc.bilivideo.com/pbp/data")
     suspend fun getPbpData(
         @Query("cid") cid: Long,
         @Query("bvid") bvid: String? = null,
@@ -686,6 +865,11 @@ interface BilibiliApi {
         @Query("oid") oid: Long,
         @Query("type") type: Int
     ): ReplyCountResponse
+
+    @GET("x/polymer/web-dynamic/v1/mention/search")
+    suspend fun searchMentionUsers(
+        @Query("keyword") keyword: String? = null
+    ): MentionSearchResponse
 
     // [新增] 发送评论
     @retrofit2.http.FormUrlEncoded
@@ -1136,10 +1320,75 @@ data class DynamicThumbRequest(
     val from_spmid: String = "333.999.0.0"
 )
 
+@kotlinx.serialization.Serializable
+data class DynamicRepostRequest(
+    val dyn_req: DynamicRepostDynReq,
+    val web_repost_src: DynamicWebRepostSource
+)
+
+@kotlinx.serialization.Serializable
+data class DynamicRepostDynReq(
+    val content: DynamicRepostContent,
+    val scene: Int,
+    val attach_card: kotlinx.serialization.json.JsonObject?
+)
+
+@kotlinx.serialization.Serializable
+data class DynamicRepostContent(
+    val contents: List<DynamicRepostContentItem>
+)
+
+@kotlinx.serialization.Serializable
+data class DynamicRepostContentItem(
+    val raw_text: String,
+    val type: Int,
+    val biz_id: String
+)
+
+@kotlinx.serialization.Serializable
+data class DynamicWebRepostSource(
+    val dyn_id_str: String
+)
+
+@kotlinx.serialization.Serializable
+data class DynamicDeleteRequest(
+    val dyn_id_str: String,
+    val dyn_type: Int? = null,
+    val rid_str: String? = null
+)
+
+internal fun buildDynamicRepostRequest(
+    dynamicId: String,
+    content: String
+): DynamicRepostRequest {
+    val contents = if (content.isBlank()) {
+        emptyList()
+    } else {
+        listOf(
+            DynamicRepostContentItem(
+                raw_text = content,
+                type = 1,
+                biz_id = ""
+            )
+        )
+    }
+    return DynamicRepostRequest(
+        dyn_req = DynamicRepostDynReq(
+            content = DynamicRepostContent(contents = contents),
+            scene = 4,
+            attach_card = null
+        ),
+        web_repost_src = DynamicWebRepostSource(dyn_id_str = dynamicId)
+    )
+}
+
 private const val DYNAMIC_FEED_FEATURES =
     "itemOpusStyle,listOnlyfans"
 
-private const val DYNAMIC_DETAIL_FEATURES =
+internal const val DYNAMIC_DETAIL_FEATURES =
+    "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,endFooterHidden,decorationCard,onlyfansAssetsV2,ugcDelete,onlyfansQaCard,commentsNewVersion,forwardListHidden,htmlNewStyle"
+
+internal const val SPACE_DYNAMIC_FEATURES =
     "itemOpusStyle,listOnlyfans,opusBigCover,commentsNewVersion,onlyfansVote,onlyfansAssetsV2,decorationCard,forwardListHidden,ugcDelete"
 
 interface DynamicApi {
@@ -1150,7 +1399,10 @@ interface DynamicApi {
         @Query("offset") offset: String = "",
         @Query("update_baseline") updateBaseline: String = "",
         @Query("page") page: Int = 1,
-        @Query("features") features: String = DYNAMIC_FEED_FEATURES
+        @Query("features") features: String = DYNAMIC_FEED_FEATURES,
+        @Query("timezone_offset") timezoneOffset: Int = -480,
+        @Query("platform") platform: String = "web",
+        @Query("web_location") webLocation: String = "333.1365"
     ): DynamicFeedResponse
     
     //  [新增] 获取指定用户的动态列表
@@ -1170,6 +1422,13 @@ interface DynamicApi {
     //  [降级] 旧版详情接口，某些动态类型在 desktop 接口会返回不支持
     @GET("x/polymer/web-dynamic/v1/detail")
     suspend fun getDynamicDetailFallback(
+        @Query("id") id: String,
+        @Query("features") features: String = DYNAMIC_DETAIL_FEATURES
+    ): DynamicDetailResponse
+
+    // 长图文/专栏 opus 详情接口，htmlNewStyle 用于兼容旧专栏正文结构。
+    @GET("x/polymer/web-dynamic/v1/opus/detail")
+    suspend fun getOpusDetail(
         @Query("id") id: String,
         @Query("features") features: String = DYNAMIC_DETAIL_FEATURES
     ): DynamicDetailResponse
@@ -1219,14 +1478,21 @@ interface DynamicApi {
         @retrofit2.http.Body body: DynamicThumbRequest
     ): SimpleApiResponse
     
-    //  [新增] 转发动态
-    @retrofit2.http.FormUrlEncoded
+    //  转发动态。接口按 Web 端 JSON dyn_req 协议提交，表单字段会导致请求失败后弹窗卡住。
     @retrofit2.http.POST("x/dynamic/feed/create/dyn")
     suspend fun repostDynamic(
-        @retrofit2.http.Field("dyn_id_str") dynIdStr: String,
-        @retrofit2.http.Field("dyn_type") dynType: Int = 1,
-        @retrofit2.http.Field("content") content: String = "",
-        @retrofit2.http.Field("csrf") csrf: String
+        @Query("csrf") csrf: String,
+        @Query("platform") platform: String = "web",
+        @Query("x-bili-device-req-json") deviceRequestJson: String = "{\"platform\":\"web\",\"device\":\"pc\"}",
+        @Query("x-bili-web-req-json") webRequestJson: String = "{\"spm_id\":\"333.1330\"}",
+        @retrofit2.http.Body body: DynamicRepostRequest
+    ): SimpleApiResponse
+
+    @retrofit2.http.POST("x/dynamic/feed/operate/remove")
+    suspend fun deleteDynamic(
+        @Query("csrf") csrf: String,
+        @Query("platform") platform: String = "web",
+        @retrofit2.http.Body body: DynamicDeleteRequest
     ): SimpleApiResponse
 }
 
@@ -1308,7 +1574,8 @@ interface SpaceApi {
     suspend fun getSpaceDynamic(
         @Query("host_mid") hostMid: Long,
         @Query("offset") offset: String = "",
-        @Query("timezone_offset") timezoneOffset: Int = -480
+        @Query("timezone_offset") timezoneOffset: Int = -480,
+        @Query("features") features: String = SPACE_DYNAMIC_FEATURES
     ): com.android.purebilibili.data.model.response.SpaceDynamicResponse
     
     //  [New] Get User Audio List
@@ -1321,8 +1588,8 @@ interface SpaceApi {
         @Query("jsonp") jsonp: String = "jsonp"
     ): com.android.purebilibili.data.model.response.SpaceAudioResponse
 
-    //  [New] Get User Article List
-    @GET("x/space/wbi/article")
+    // 空间图文列表。API 文档为 /opus/feed/space，返回 opus_id/content/cover/jump_url。
+    @GET("x/polymer/web-dynamic/v1/opus/feed/space")
     suspend fun getSpaceArticleList(
         @QueryMap params: Map<String, String>
     ): com.android.purebilibili.data.model.response.SpaceArticleResponse
@@ -1350,7 +1617,7 @@ interface BangumiApi {
         @Query("spoken_language_type") spokenLanguageType: Int = -1,  // -1=全部
         @Query("area") area: Int = -1,           // -1=全部地区
         @Query("is_finish") isFinish: Int = -1,  // -1=全部
-        @Query("copyright") copyright: Int = -1, // -1=全部
+        @Query("copyright") copyright: String = "-1", // -1=全部
         @Query("season_status") seasonStatus: String = "-1",  // -1=全部，1=免费，4,6=大会员
         @Query("season_month") seasonMonth: Int = -1,    // -1=全部
         @Query("year") year: String = "-1",      // -1=全部
@@ -1371,6 +1638,11 @@ interface BangumiApi {
     // 番剧播放地址 - PiliPlus parity path
     @GET(BANGUMI_PLAY_URL_PATH)
     suspend fun getBangumiPlayUrl(
+        @QueryMap params: Map<String, String>
+    ): ResponseBody
+
+    @GET(BANGUMI_PLAY_URL_LEGACY_PATH)
+    suspend fun getBangumiPlayUrlLegacy(
         @QueryMap params: Map<String, String>
     ): ResponseBody
     
@@ -1914,6 +2186,10 @@ object NetworkModule {
                 val request = builder.build()
                 try {
                     val response = chain.proceed(request)
+                    com.android.purebilibili.core.util.Logger.d(
+                        "ApiClient",
+                        " Network protocol: ${response.protocol} ${request.url.host}${request.url.encodedPath}"
+                    )
                     if (response.code >= 500 || response.code == 429 || response.code == 412) {
                         com.android.purebilibili.core.util.CrashReporter.reportApiError(
                             endpoint = "${request.method} ${request.url.encodedPath}",
@@ -2000,6 +2276,10 @@ object NetworkModule {
                 val request = builder.build()
                 try {
                     val response = chain.proceed(request)
+                    com.android.purebilibili.core.util.Logger.d(
+                        "ApiClient",
+                        " Guest network protocol: ${response.protocol} ${request.url.host}${request.url.encodedPath}"
+                    )
                     if (response.code >= 500 || response.code == 429 || response.code == 412) {
                         com.android.purebilibili.core.util.CrashReporter.reportApiError(
                             endpoint = "guest ${request.method} ${request.url.encodedPath}",

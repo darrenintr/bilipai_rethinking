@@ -15,7 +15,7 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Version-8.3.3-007AFF?style=flat-square&labelColor=ffffff" alt="Version 8.3.3" />
+  <img src="https://img.shields.io/badge/Version-9.0.0-007AFF?style=flat-square&labelColor=ffffff" alt="Version 9.0.0" />
   <img src="https://img.shields.io/badge/Android-8.0%2B-34C759?style=flat-square&logo=android&logoColor=white" alt="Android 8.0+" />
   <img src="https://img.shields.io/badge/Kotlin-100%25-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin" />
   <img src="https://img.shields.io/badge/License-GPL--3.0-FF3B30?style=flat-square" alt="GPL-3.0" />
@@ -37,7 +37,7 @@
   </a>
 </p>
 
-<sub>README 更新：2026-05-19 · 当前构建版本以 app/build.gradle.kts 为准 · 发布记录以 <a href="CHANGELOG.md">CHANGELOG.md</a> 为准</sub>
+<sub>README 更新：2026-06-01 · 当前构建版本以 app/build.gradle.kts 为准 · 发布记录以 <a href="CHANGELOG.md">CHANGELOG.md</a> 为准</sub>
 
 </div>
 
@@ -88,6 +88,7 @@ BiliPai 是一个用 Kotlin 与 Jetpack Compose 构建的 Android 客户端，�
 | 模块 | 能力 |
 | --- | --- |
 | 视频播放 | DASH 自适应码率、4K / 1080P60 / HDR、弹幕、手势、倍速、后台播放、画中画、播放记忆 |
+| 视频笔记 | 私有笔记、新建/编辑/删除、AI 总结生成草稿、富文本编辑、时间点、Markdown 中间格式、系统分享 |
 | 听视频 | 沉浸式 / 黑胶唱片模式、歌词、播放列表、定时关闭、系统媒体中心联动 |
 | 番剧影视 | 选集面板、季度/版本切换、横屏顶部操作、追番与播放进度 |
 | 直播 | 分区浏览、HLS 播放、实时弹幕、动态卡片跳转直播间 |
@@ -111,13 +112,15 @@ BiliPai 的界面围绕“内容优先、控制轻量、动效克制”调整。
 
 | 形态 | 当前状态 | 文档 |
 | --- | --- | --- |
-| 内置插件 | 随主应用稳定分发，覆盖空降助手、去广告、弹幕增强、夜间护眼、今日推荐单、CDN 属地优选 | 应用内插件中心 |
+| 内置插件 | 随主应用稳定分发，覆盖空降助手、去广告、弹幕增强、夜间护眼、今日推荐单、CDN 属地优选、初见推荐 | 应用内插件中心 |
 | JSON / `.bp` 规则插件 | 支持 URL 导入，适合推荐流过滤、弹幕过滤与高亮 | [JSON 插件开发](docs/PLUGIN_DEVELOPMENT.md) |
 | 外部 `.bpplugin` 包 | SDK、包格式、manifest、签名校验已就绪；外部 Dex 执行仍处于预览阶段 | [Plugin SDK](plugins/sdk/README.md) |
 | 源码级原生插件 | 适合复杂播放器、推荐、弹幕能力，需要重新编译 APK | [原生插件开发](docs/NATIVE_PLUGIN_DEVELOPMENT.md) |
 
 > [!CAUTION]
 > 导入第三方插件前请审阅规则和能力声明，尤其是 `NETWORK`、`LOCAL_HISTORY_READ`、`LOCAL_FEEDBACK_READ`、`PLAYER_CONTROL` 等敏感能力。
+
+> 初见推荐致谢原作者 wangdaodao 的 [TabulaBili](https://github.com/wangdaodaodao/TabulaBili) 与 tjsky 的 [TabulaBili-Plus](https://github.com/tjsky/TabulaBili)，BiliPai 仅实现 Android 端内置插件形态。
 
 ## 技术栈
 
@@ -179,13 +182,18 @@ cd BiliPai
 
 ## 最近更新
 
-当前仓库版本号已更新到 `8.3.3 / versionCode 197`。公开发布说明请以 [CHANGELOG.md](CHANGELOG.md) 为准；最新完整记录为 `v8.3.3`：
+当前仓库版本号已更新到 `9.0.0 / versionCode 213`。公开发布说明请以 [CHANGELOG.md](CHANGELOG.md) 为准；最新完整记录为 `v9.0.0`：
 
-- 播放链路补充音频/CDN 异常回退诊断，空间页补齐已看进度、续播、发布时间和播放量展示，今日推荐 UP 榜可直接进入 UP 空间。
-- 评论楼中楼首屏加载更多二级回复，补齐文本展开、逐级展开动画和可选模糊开关。
-- 设置顶部集中放置 Telegram 频道、Twitter / X 和打赏作者入口，并整理发布渠道声明，减少重复 UI。
-- UP 空间投稿工具栏改为紧凑 dock，长按当前标签后展开可横向滑动的“视频 / 图文 / 合集 / 系列”标签栏，指示器按文案自适应。
-- 修复皮肤贴纸、首页顶部、底栏液态玻璃实验回退、番剧历史记录“未知UP主”和番剧黑屏误提示等近期反馈。
+- 补齐直播互动与横屏发送能力，直播观看中的输入、发送和横屏操作更完整。
+- 评论输入支持 `@` 好友，动态评论楼层可自动展开，并修复小站评论跳转。
+- 新增和扩展首页顶部布局、折叠与六标签分页策略，顶部显示更可调。
+- 打磨顶部标签、分区侧栏和底栏指示器复用，修复液态玻璃折射、指示器漂移、拖动和返回状态问题。
+- 修复首页视频返回时顶栏复位、底栏重复隐藏、底栏收尾和延迟恢复问题。
+- 增强离线下载与断点续传稳定性，修复离线播放器弹幕与进度条体验。
+- 完善番剧影视 API 功能，并修复追更合集入口与详情链路。
+- 修复 MD3 下拉刷新被视频卡片遮挡和上提不跟手的问题。
+- 修复顶部胶囊标签点按切换时出现矩形点击态的问题。
+- 六一儿童节快乐，也提前祝高考学子高考顺利。
 
 ## 路线图
 

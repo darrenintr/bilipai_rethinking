@@ -45,6 +45,12 @@ internal fun interactiveSnapSpring(): SpringSpec<Float> =
         stiffness = 420f
     )
 
+internal fun pullRefreshReleaseSpring(): SpringSpec<Float> =
+    spring(
+        dampingRatio = 0.9f,
+        stiffness = 620f
+    )
+
 internal fun expressiveSnapSpring(): SpringSpec<Float> =
     spring(
         dampingRatio = 0.72f,
@@ -80,6 +86,8 @@ object AppMotionTokens {
 
     private const val IOS_STANDARD_DAMPING = 0.86f
     private const val IOS_STANDARD_STIFFNESS = 380f
+    private const val SPATIAL_DAMPING = 0.82f
+    private const val SPATIAL_STIFFNESS = 380f
     private const val IOS_EMPHASIZED_STIFFNESS = 280f
     private const val IOS_EXPRESSIVE_DAMPING = 0.72f
     private const val IOS_EXPRESSIVE_STIFFNESS = 520f
@@ -138,6 +146,15 @@ object AppMotionTokens {
         )
     }
 
+    fun <T> resolveSpatialSpec(
+        uiPreset: UiPreset,
+        androidNativeVariant: AndroidNativeVariant
+    ): FiniteAnimationSpec<T> = spring(
+        // 共享元素空间变换先保持旧空间弹簧参数，避免 token 收敛改变返回手感。
+        dampingRatio = SPATIAL_DAMPING,
+        stiffness = SPATIAL_STIFFNESS
+    )
+
     @Composable
     fun <T> standardSpec(): FiniteAnimationSpec<T> = resolveStandardSpec(
         uiPreset = LocalUiPreset.current,
@@ -154,5 +171,10 @@ object AppMotionTokens {
     fun <T> expressiveSpec(): FiniteAnimationSpec<T> = resolveExpressiveSpec(
         uiPreset = LocalUiPreset.current,
         androidNativeVariant = LocalAndroidNativeVariant.current
+    )
+
+    fun <T> spatialSpec(): FiniteAnimationSpec<T> = resolveSpatialSpec(
+        uiPreset = UiPreset.IOS,
+        androidNativeVariant = AndroidNativeVariant.MATERIAL3
     )
 }

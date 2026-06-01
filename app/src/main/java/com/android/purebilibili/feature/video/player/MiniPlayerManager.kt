@@ -28,6 +28,7 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -41,6 +42,7 @@ import coil.size.Scale
 import coil.transform.RoundedCornersTransformation
 import com.android.purebilibili.R
 import com.android.purebilibili.core.network.NetworkModule
+import com.android.purebilibili.core.player.PlaybackMediaCache
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.store.TokenManager
 import com.android.purebilibili.core.store.normalizeAppIconKey
@@ -1322,8 +1324,10 @@ class MiniPlayerManager private constructor(private val context: Context) :
                 "Referer" to "https://www.bilibili.com",
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             )
-            val dataSourceFactory = OkHttpDataSource.Factory(NetworkModule.playbackOkHttpClient)
+            val upstreamFactory = OkHttpDataSource.Factory(NetworkModule.playbackOkHttpClient)
                 .setDefaultRequestProperties(headers)
+            val dataSourceFactory: DataSource.Factory =
+                PlaybackMediaCache.buildCachedDataSourceFactory(context, upstreamFactory)
 
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -1410,8 +1414,10 @@ class MiniPlayerManager private constructor(private val context: Context) :
             "Referer" to "https://www.bilibili.com",
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
-        val dataSourceFactory = OkHttpDataSource.Factory(NetworkModule.playbackOkHttpClient)
+        val upstreamFactory = OkHttpDataSource.Factory(NetworkModule.playbackOkHttpClient)
             .setDefaultRequestProperties(headers)
+        val dataSourceFactory: DataSource.Factory =
+            PlaybackMediaCache.buildCachedDataSourceFactory(context, upstreamFactory)
 
         val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
             .createMediaSource(MediaItem.fromUri(videoUrl))

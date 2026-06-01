@@ -7,23 +7,25 @@ import kotlin.test.assertTrue
 class BangumiPlayerCommentPolicyTest {
 
     @Test
-    fun `bangumi player content exposes episode comment entry`() {
+    fun `bangumi player content exposes intro and comment as first level tabs`() {
         val source = loadSource(
             "app/src/main/java/com/android/purebilibili/feature/bangumi/ui/player/BangumiPlayerContent.kt"
         )
 
-        assertTrue(source.contains("onCommentClick: () -> Unit"))
-        assertTrue(source.contains("Text(\"评论\")"))
+        assertTrue(source.contains("tabs = listOf(\"简介\""))
+        assertTrue(source.contains("HorizontalPager("))
+        assertTrue(source.contains("VideoCommentMainList("))
     }
 
     @Test
-    fun `bangumi player screen hosts video comment sheet for current episode aid`() {
+    fun `bangumi player screen initializes comments for current episode aid`() {
         val source = loadSource(
             "app/src/main/java/com/android/purebilibili/feature/bangumi/BangumiPlayerScreen.kt"
         )
 
-        assertTrue(source.contains("VideoCommentSheetHost("))
+        assertTrue(source.contains("commentViewModel.init("))
         assertTrue(source.contains("aid = currentAid"))
+        assertTrue(source.contains("expectedReplyCount = successState?.seasonDetail?.stat?.reply?.toInt() ?: 0"))
     }
 
     private fun loadSource(path: String): String {

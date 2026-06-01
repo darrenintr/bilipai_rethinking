@@ -2,6 +2,7 @@
 package com.android.purebilibili.feature.home.components.cards
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +39,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 //  共享元素过渡
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 
 import com.android.purebilibili.core.ui.LocalSharedTransitionScope
 import com.android.purebilibili.core.ui.LocalAnimatedVisibilityScope
@@ -49,9 +51,12 @@ import com.android.purebilibili.core.theme.iOSCornerRadius
 import com.android.purebilibili.core.ui.adaptive.MotionTier
 import com.android.purebilibili.core.ui.components.UpBadgeName
 import com.android.purebilibili.core.ui.components.resolveUpStatsText
+import com.android.purebilibili.core.ui.transition.LocalVideoCardSharedElementSourceRoute
 import com.android.purebilibili.core.ui.transition.VIDEO_SHARED_COVER_ASPECT_RATIO
+import com.android.purebilibili.core.ui.transition.resolveVideoCardSharedTransitionMotionSpec
 import com.android.purebilibili.core.ui.transition.shouldEnableVideoCoverSharedTransition
 import com.android.purebilibili.core.ui.transition.shouldEnableVideoMetadataSharedTransition
+import com.android.purebilibili.core.ui.transition.videoCoverSharedElementKey
 import com.android.purebilibili.feature.home.resolveHomeCardEnterAnimationEnabledAtMount
 import com.android.purebilibili.feature.video.ui.section.resolvePublishTimeRowText
 import com.android.purebilibili.feature.video.ui.section.shouldEmphasizePrecisePublishTime
@@ -75,6 +80,9 @@ fun StoryVideoCard(
     animationEnabled: Boolean = true,  //  卡片动画开关
     motionTier: MotionTier = MotionTier.Normal,
     transitionEnabled: Boolean = false, //  卡片过渡动画开关
+    sharedElementSourceRoute: String? = null,
+    isReturningFromVideoDetail: Boolean = false,
+    isQuickReturningFromVideoDetail: Boolean = false,
     scrollLiteModeEnabled: Boolean = false,
     isDataSaverActive: Boolean = false,
     preferLowQualityCover: Boolean = false,
@@ -87,6 +95,7 @@ fun StoryVideoCard(
     upFollowerCount: Int? = null,
     upVideoCount: Int? = null,
     onDismiss: (() -> Unit)? = null,    //  [新增] 删除/过滤回调（长按触发）
+    onUpClick: ((Long) -> Unit)? = null,
     onLongClick: ((VideoItem) -> Unit)? = null, // [修复] 长按预览回调
     onClick: (String, Long) -> Unit
 ) {
@@ -155,15 +164,21 @@ fun StoryVideoCard(
     val density = LocalDensity.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+    val localSharedElementSourceRoute = LocalVideoCardSharedElementSourceRoute.current
+    val effectiveSharedElementSourceRoute = remember(sharedElementSourceRoute, localSharedElementSourceRoute) {
+        sharedElementSourceRoute ?: localSharedElementSourceRoute
+    }
     
     //  记录卡片位置
     var cardBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     val triggerCardClick = {
         cardBounds?.let { bounds ->
-            CardPositionManager.recordCardPosition(
-                bounds,
-                screenWidthPx,
-                screenHeightPx,
+            CardPositionManager.recordVideoCardPosition(
+                bvid = video.bvid,
+                sourceRoute = effectiveSharedElementSourceRoute,
+                bounds = bounds,
+                screenWidth = screenWidthPx,
+                screenHeight = screenHeightPx,
                 isSingleColumn = !transitionEnabled
             )
         }
@@ -178,18 +193,39 @@ fun StoryVideoCard(
         hasSharedTransitionScope = sharedTransitionScope != null,
         hasAnimatedVisibilityScope = animatedVisibilityScope != null
     )
+    val isQuickReturnLimited = isReturningFromVideoDetail && isQuickReturningFromVideoDetail
     val metadataSharedEnabled = shouldEnableVideoMetadataSharedTransition(
         coverSharedEnabled = coverSharedEnabled,
-        isQuickReturnLimited = CardPositionManager.shouldLimitSharedElementsForQuickReturn()
+        isQuickReturnLimited = isQuickReturnLimited
     )
+    val cardSharedTransitionMotionSpec = remember(effectiveSharedElementSourceRoute, transitionEnabled) {
+        resolveVideoCardSharedTransitionMotionSpec(
+            sourceRoute = effectiveSharedElementSourceRoute,
+            transitionEnabled = transitionEnabled
+        )
+    }
     
     val cardModifier = if (coverSharedEnabled) {
         with(requireNotNull(sharedTransitionScope)) {
             Modifier
                 .sharedBounds(
-                    sharedContentState = rememberSharedContentState(key = "video_cover_${video.bvid}"),
+                    sharedContentState = rememberSharedContentState(
+                        key = videoCoverSharedElementKey(
+                            video.bvid,
+                            sourceRoute = effectiveSharedElementSourceRoute
+                        )
+                    ),
                     animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
-                    boundsTransform = { _, _ -> com.android.purebilibili.core.theme.AnimationSpecs.BiliPaiSpringSpec },
+                    boundsTransform = { _, _ ->
+                        if (cardSharedTransitionMotionSpec.enabled) {
+                            tween(
+                                durationMillis = cardSharedTransitionMotionSpec.durationMillis,
+                                easing = cardSharedTransitionMotionSpec.easing
+                            )
+                        } else {
+                            com.android.purebilibili.core.ui.motion.AppMotionTokens.spatialSpec()
+                        }
+                    },
                     clipInOverlayDuringTransition = OverlayClip(
                         RoundedCornerShape(cardCornerRadius)
                     )
@@ -201,7 +237,7 @@ fun StoryVideoCard(
     val enterAnimationEnabledAtMount = remember(video.bvid) {
         resolveHomeCardEnterAnimationEnabledAtMount(
             baseAnimationEnabled = animationEnabled,
-            isReturningFromDetail = CardPositionManager.isReturningFromDetail,
+            isReturningFromDetail = isReturningFromVideoDetail,
             isSwitchingCategory = CardPositionManager.isSwitchingCategory
         )
     }
@@ -360,7 +396,7 @@ fun StoryVideoCard(
         if (metadataSharedEnabled) {
             with(requireNotNull(sharedTransitionScope)) {
                 titleModifier = titleModifier.sharedBounds(
-                    sharedContentState = rememberSharedContentState(key = "video_title_${video.bvid}"),
+                    sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoTitleSharedElementKey(video.bvid)),
                     animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                     boundsTransform = { _, _ ->
                         spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -421,13 +457,17 @@ fun StoryVideoCard(
             if (metadataSharedEnabled) {
                 with(requireNotNull(sharedTransitionScope)) {
                     upNameModifier = upNameModifier.sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = "video_up_${video.bvid}"),
+                        sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoUpNameSharedElementKey(video.bvid)),
                         animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                         boundsTransform = { _, _ ->
                             spring(dampingRatio = 0.8f, stiffness = 200f)
                         }
                     )
                 }
+            }
+            val upClickMid = video.owner.mid.takeIf { it > 0L && onUpClick != null }
+            if (upClickMid != null) {
+                upNameModifier = upNameModifier.clickable { onUpClick?.invoke(upClickMid) }
             }
             
             UpBadgeName(
@@ -445,7 +485,7 @@ fun StoryVideoCard(
                         if (metadataSharedEnabled) {
                             with(requireNotNull(sharedTransitionScope)) {
                                 avatarModifier = avatarModifier.sharedBounds(
-                                    sharedContentState = rememberSharedContentState(key = "video_avatar_${video.bvid}"),
+                                    sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoAvatarSharedElementKey(video.bvid)),
                                     animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                                     boundsTransform = { _, _ ->
                                         spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -493,7 +533,7 @@ fun StoryVideoCard(
                         if (metadataSharedEnabled) {
                             with(requireNotNull(sharedTransitionScope)) {
                                 viewsModifier = viewsModifier.sharedBounds(
-                                    sharedContentState = rememberSharedContentState(key = "video_views_${video.bvid}"),
+                                    sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoViewsSharedElementKey(video.bvid)),
                                     animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                                     boundsTransform = { _, _ ->
                                         spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -530,7 +570,7 @@ fun StoryVideoCard(
                          if (metadataSharedEnabled) {
                              with(requireNotNull(sharedTransitionScope)) {
                                  danmakuModifier = danmakuModifier.sharedBounds(
-                                     sharedContentState = rememberSharedContentState(key = "video_danmaku_${video.bvid}"),
+                                     sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoDanmakuSharedElementKey(video.bvid)),
                                      animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                                      boundsTransform = { _, _ ->
                                          spring(dampingRatio = 0.8f, stiffness = 200f)

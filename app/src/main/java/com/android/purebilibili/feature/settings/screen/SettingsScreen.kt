@@ -72,7 +72,8 @@ import io.github.alexzhirkevich.cupertino.icons.outlined.*
 import kotlinx.coroutines.launch
 
 import com.android.purebilibili.core.ui.components.IOSSectionTitle
-import com.android.purebilibili.core.ui.animation.staggeredEntrance
+import com.android.purebilibili.core.ui.animation.EntranceGroup
+import com.android.purebilibili.core.ui.animation.entrance
 import com.android.purebilibili.feature.dynamic.defaultDynamicTabVisibleIds
 import com.android.purebilibili.feature.dynamic.resolveDynamicVisibleTabIdsAfterToggle
 
@@ -106,6 +107,9 @@ fun SettingsScreen(
     // State Collection
     val state by viewModel.state.collectAsState()
     val privacyModeEnabled by SettingsManager.getPrivacyModeEnabled(context).collectAsState(initial = false)
+    val privacyContentAuthenticationEnabled by SettingsManager
+        .getPrivacyContentAuthenticationEnabled(context)
+        .collectAsState(initial = false)
     val crashTrackingEnabled by SettingsManager.getCrashTrackingEnabled(context)
         .collectAsState(initial = DEFAULT_CRASH_TRACKING_ENABLED)
     val analyticsEnabled by SettingsManager.getAnalyticsEnabled(context)
@@ -113,6 +117,7 @@ fun SettingsScreen(
     val easterEggEnabled by SettingsManager.getEasterEggEnabled(context).collectAsState(initial = true)
     val customDownloadPath by SettingsManager.getDownloadPath(context).collectAsState(initial = null)
     val downloadExportTreeUri by SettingsManager.getDownloadExportTreeUri(context).collectAsState(initial = null)
+    val imageSaveTreeUri by SettingsManager.getImageSaveTreeUri(context).collectAsState(initial = null)
     val feedApiType by SettingsManager.getFeedApiType(context).collectAsState(
         initial = SettingsManager.FeedApiType.WEB
     )
@@ -147,6 +152,7 @@ fun SettingsScreen(
     var versionClickCount by remember { mutableIntStateOf(0) }
     var showEasterEggDialog by remember { mutableStateOf(false) }
     var showPathDialog by remember { mutableStateOf(false) }
+    var showImageSavePathDialog by remember { mutableStateOf(false) }
     // [新增] 打赏对话框
     var showDonateDialog by remember { mutableStateOf(false) }
     var showReleaseDisclaimerDialog by remember { mutableStateOf(false) }
@@ -243,6 +249,21 @@ fun SettingsScreen(
         }
         Toast.makeText(context, "已设置导出目录", Toast.LENGTH_SHORT).show()
     }
+    val imageSaveFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+
+        val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+        }
+
+        scope.launch {
+            SettingsManager.setImageSaveTreeUri(context, uri.toString())
+        }
+        Toast.makeText(context, "已设置图片保存目录", Toast.LENGTH_SHORT).show()
+    }
 
     // Callbacks
     val onClearCacheAction = {
@@ -250,10 +271,14 @@ fun SettingsScreen(
         showCacheDialog = true
     }
     val onDownloadPathAction = { showPathDialog = true }
+    val onImageSavePathAction = { showImageSavePathDialog = true }
     
     // Logic Callbacks
     val onPrivacyModeChange: (Boolean) -> Unit = { enabled ->
         scope.launch { SettingsManager.setPrivacyModeEnabled(context, enabled) }
+    }
+    val onPrivacyContentAuthenticationChange: (Boolean) -> Unit = { enabled ->
+        scope.launch { SettingsManager.setPrivacyContentAuthenticationEnabled(context, enabled) }
     }
     val onCrashTrackingChange: (Boolean) -> Unit = { enabled ->
         scope.launch {
@@ -508,6 +533,50 @@ fun SettingsScreen(
                     showPathDialog = false
                     Toast.makeText(context, "已恢复仅应用内存储", Toast.LENGTH_SHORT).show()
                 }) { Text("仅使用默认") } 
+            }
+        )
+    }
+    if (showImageSavePathDialog) {
+        com.android.purebilibili.core.ui.IOSAlertDialog(
+            onDismissRequest = { showImageSavePathDialog = false },
+            title = { Text("图片保存位置", color = MaterialTheme.colorScheme.onSurface) },
+            text = {
+                Column {
+                    Text(
+                        "默认保存到系统相册的 BiliPai 文件夹。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "可通过系统文件夹授权选择动态图片、头像和评论图片的保存目录。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = com.android.purebilibili.core.theme.iOSOrange
+                    )
+                    if (!imageSaveTreeUri.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "当前图片目录：已选择",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                com.android.purebilibili.core.ui.IOSDialogAction(onClick = {
+                    showImageSavePathDialog = false
+                    imageSaveFolderPicker.launch(null)
+                }) { Text("选择图片目录") }
+            },
+            dismissButton = {
+                com.android.purebilibili.core.ui.IOSDialogAction(onClick = {
+                    scope.launch {
+                        SettingsManager.setImageSaveTreeUri(context, null)
+                    }
+                    showImageSavePathDialog = false
+                    Toast.makeText(context, "已恢复默认图片保存位置", Toast.LENGTH_SHORT).show()
+                }) { Text("恢复默认") }
             }
         )
     }
@@ -850,6 +919,7 @@ fun SettingsScreen(
             SettingsSearchTarget.SETTINGS_SHARE -> onSettingsShareClick()
             SettingsSearchTarget.WEBDAV_BACKUP -> onWebDavBackupClick()
             SettingsSearchTarget.DOWNLOAD_PATH -> onDownloadPathAction()
+            SettingsSearchTarget.IMAGE_SAVE_PATH -> onImageSavePathAction()
             SettingsSearchTarget.CLEAR_CACHE -> onClearCacheAction()
             SettingsSearchTarget.PLUGINS -> onPluginsClick()
             SettingsSearchTarget.EXPORT_LOGS -> onExportLogsAction()
@@ -903,14 +973,17 @@ fun SettingsScreen(
                     onSettingsShareClick = onSettingsShareClick,
                     onWebDavBackupClick = onWebDavBackupClick,
                     onDownloadPathClick = onDownloadPathAction,
+                    onImageSavePathClick = onImageSavePathAction,
                     onClearCacheClick = onClearCacheAction,
                     onPrivacyModeChange = onPrivacyModeChange,
+                    onPrivacyContentAuthenticationChange = onPrivacyContentAuthenticationChange,
                     onCrashTrackingChange = onCrashTrackingChange,
                     onAnalyticsChange = onAnalyticsChange,
                     onEasterEggChange = onEasterEggChange,
                     onAutoCheckUpdateChange = onAutoCheckUpdateChange,
                     privacyModeEnabled = privacyModeEnabled,
                     customDownloadPath = downloadExportTreeUri ?: customDownloadPath,
+                    customImageSavePath = imageSaveTreeUri,
                     cacheSize = state.cacheSize,
                     crashTrackingEnabled = crashTrackingEnabled,
                     analyticsEnabled = analyticsEnabled,
@@ -922,6 +995,7 @@ fun SettingsScreen(
                     updateStatusText = updateStatusText,
                     isCheckingUpdate = isCheckingUpdate,
                     autoCheckUpdateEnabled = autoCheckUpdateEnabled,
+                    privacyContentAuthenticationEnabled = privacyContentAuthenticationEnabled,
                     verificationLabel = buildVerificationLabel,
                     verificationSubtitle = buildVerificationState.summary,
                     buildSourceValue = buildSourceValue,
@@ -1001,14 +1075,17 @@ fun SettingsScreen(
                     onSettingsShareClick = onSettingsShareClick,
                     onWebDavBackupClick = onWebDavBackupClick,
                     onDownloadPathClick = onDownloadPathAction,
+                    onImageSavePathClick = onImageSavePathAction,
                     onClearCacheClick = onClearCacheAction,
                     onPrivacyModeChange = onPrivacyModeChange,
+                    onPrivacyContentAuthenticationChange = onPrivacyContentAuthenticationChange,
                     onCrashTrackingChange = onCrashTrackingChange,
                     onAnalyticsChange = onAnalyticsChange,
                     onEasterEggChange = onEasterEggChange,
                     onAutoCheckUpdateChange = onAutoCheckUpdateChange,
                     privacyModeEnabled = privacyModeEnabled,
                     customDownloadPath = downloadExportTreeUri ?: customDownloadPath,
+                    customImageSavePath = imageSaveTreeUri,
                     cacheSize = state.cacheSize,
                     crashTrackingEnabled = crashTrackingEnabled,
                     analyticsEnabled = analyticsEnabled,
@@ -1020,6 +1097,7 @@ fun SettingsScreen(
                     updateStatusText = updateStatusText,
                     isCheckingUpdate = isCheckingUpdate,
                     autoCheckUpdateEnabled = autoCheckUpdateEnabled,
+                    privacyContentAuthenticationEnabled = privacyContentAuthenticationEnabled,
                     verificationLabel = buildVerificationLabel,
                     verificationSubtitle = buildVerificationState.summary,
                     buildSourceValue = buildSourceValue,
@@ -1130,6 +1208,7 @@ private fun MobileSettingsLayout(
     onSettingsShareClick: () -> Unit,
     onWebDavBackupClick: () -> Unit,
     onDownloadPathClick: () -> Unit,
+    onImageSavePathClick: () -> Unit,
     onClearCacheClick: () -> Unit,
     onDonateClick: () -> Unit,
     onOpenLinksClick: () -> Unit, // [New]
@@ -1141,6 +1220,7 @@ private fun MobileSettingsLayout(
     
     // Logic Callbacks
     onPrivacyModeChange: (Boolean) -> Unit,
+    onPrivacyContentAuthenticationChange: (Boolean) -> Unit,
     onCrashTrackingChange: (Boolean) -> Unit,
     onAnalyticsChange: (Boolean) -> Unit,
     onEasterEggChange: (Boolean) -> Unit,
@@ -1148,7 +1228,9 @@ private fun MobileSettingsLayout(
     
     // State
     privacyModeEnabled: Boolean,
+    privacyContentAuthenticationEnabled: Boolean,
     customDownloadPath: String?,
+    customImageSavePath: String?,
     cacheSize: String,
     crashTrackingEnabled: Boolean,
     analyticsEnabled: Boolean,
@@ -1181,16 +1263,12 @@ private fun MobileSettingsLayout(
     homeRefreshCount: Int,
     onHomeRefreshCountChange: (Int) -> Unit
 ) {
-    var isVisible by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val windowSizeClass = LocalWindowSizeClass.current
     val deviceUiProfile = remember(windowSizeClass.widthSizeClass) {
         resolveDeviceUiProfile(
             widthSizeClass = windowSizeClass.widthSizeClass
         )
-    }
-    val effectiveMotionTier = remember(deviceUiProfile.motionTier) {
-        resolveSettingsEntranceMotionTier(deviceUiProfile.motionTier)
     }
     val sectionOrder = remember { resolveSettingsRootCategoryOrder() }
     val focusRequest by SettingsSearchFocusController.request.collectAsState()
@@ -1216,6 +1294,7 @@ private fun MobileSettingsLayout(
         onSettingsShareClick = onSettingsShareClick,
         onWebDavBackupClick = onWebDavBackupClick,
         onDownloadPathClick = onDownloadPathClick,
+        onImageSavePathClick = onImageSavePathClick,
         onClearCacheClick = onClearCacheClick,
         onGithubClick = onGithubClick,
         onTelegramClick = onTelegramClick,
@@ -1233,6 +1312,7 @@ private fun MobileSettingsLayout(
         onTipsClick = onTipsClick,
         onOpenLinksClick = onOpenLinksClick,
         onPrivacyModeChange = onPrivacyModeChange,
+        onPrivacyContentAuthenticationChange = onPrivacyContentAuthenticationChange,
         onCrashTrackingChange = onCrashTrackingChange,
         onAnalyticsChange = onAnalyticsChange,
         onEasterEggChange = onEasterEggChange,
@@ -1245,10 +1325,12 @@ private fun MobileSettingsLayout(
     )
     val rootCategoryState = SettingsRootCategoryState(
         privacyModeEnabled = privacyModeEnabled,
+        privacyContentAuthenticationEnabled = privacyContentAuthenticationEnabled,
         crashTrackingEnabled = crashTrackingEnabled,
         analyticsEnabled = analyticsEnabled,
         pluginCount = pluginCount,
         customDownloadPath = customDownloadPath,
+        customImageSavePath = customImageSavePath,
         cacheSize = cacheSize,
         versionName = versionName,
         easterEggEnabled = easterEggEnabled,
@@ -1271,7 +1353,6 @@ private fun MobileSettingsLayout(
         homeRefreshCount = homeRefreshCount
     )
 
-    LaunchedEffect(Unit) { isVisible = true }
     LaunchedEffect(focusRequest, searchQuery) {
         val request = focusRequest ?: return@LaunchedEffect
         if (!isSceneSettingsSearchTarget(request.target) || searchQuery.isNotBlank()) {
@@ -1307,6 +1388,7 @@ private fun MobileSettingsLayout(
         containerColor = AppSurfaceTokens.groupedListContainer(),
         contentWindowInsets = WindowInsets(0.dp)
     ) { padding ->
+        EntranceGroup {
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -1335,7 +1417,7 @@ private fun MobileSettingsLayout(
                         Box(
                             modifier = Modifier
                                 .padding(top = if (index == 0) 8.dp else 16.dp)
-                                .staggeredEntrance(index, isVisible, motionTier = effectiveMotionTier)
+                                .entrance()
                         ) {
                             SettingsRootCategoryContent(
                                 category = section,
@@ -1348,6 +1430,7 @@ private fun MobileSettingsLayout(
 
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
+        }
         }
     }
 }

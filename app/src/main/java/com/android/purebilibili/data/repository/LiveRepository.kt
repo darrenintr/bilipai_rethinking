@@ -13,6 +13,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONObject
+import java.util.Base64
 
 data class LiveRoomH5Snapshot(
     val roomId: Long = 0,
@@ -44,7 +45,9 @@ data class LiveSuperChatSeed(
     val uname: String = "",
     val message: String = "",
     val price: String = "",
-    val backgroundColor: Int = 0
+    val backgroundColor: Int = 0,
+    val token: String = "",
+    val reportTs: Long = 0
 )
 
 data class LiveRedPocketInfo(
@@ -63,6 +66,33 @@ data class LiveAreaRoomsPage(
     val hasMore: Boolean,
     val totalCount: Int = 0
 )
+
+data class LiveHeartbeatSession(
+    val roomId: Long,
+    val nextIntervalSec: Int = DEFAULT_LIVE_HEARTBEAT_INTERVAL_SEC
+)
+
+data class LiveDanmakuColorOption(
+    val name: String,
+    val color: Int,
+    val colorHex: String
+)
+
+data class LiveDanmakuModeOption(
+    val name: String,
+    val mode: Int
+)
+
+data class LiveDanmakuPermission(
+    val canSend: Boolean = true,
+    val statusText: String = "可发送弹幕",
+    val maxLength: Int = DEFAULT_LIVE_DANMAKU_MAX_LENGTH,
+    val availableColors: List<LiveDanmakuColorOption> = emptyList(),
+    val availableModes: List<LiveDanmakuModeOption> = emptyList()
+)
+
+private const val DEFAULT_LIVE_HEARTBEAT_INTERVAL_SEC = 60
+private const val DEFAULT_LIVE_DANMAKU_MAX_LENGTH = 40
 
 internal fun parseLiveDanmakuHistoryItems(rawJson: String): Result<List<LivePrefetchDanmaku>> {
     val root = liveRepositoryJson.parseToJsonElement(rawJson).jsonObject
@@ -95,6 +125,167 @@ internal fun parseLiveDanmakuHistoryItems(rawJson: String): Result<List<LivePref
         }
     }
     return Result.success(items)
+}
+
+internal fun buildLiveHeartbeatQuery(
+    roomId: Long,
+    lastIntervalSec: Int = DEFAULT_LIVE_HEARTBEAT_INTERVAL_SEC
+): Map<String, String> {
+    val payload = "${lastIntervalSec.coerceAtLeast(1)}|${roomId.coerceAtLeast(0L)}|1|0"
+    return mapOf(
+        "hb" to Base64.getEncoder().encodeToString(payload.toByteArray(Charsets.UTF_8)),
+        "pf" to "web"
+    )
+}
+
+internal fun parseLiveHeartbeatNextInterval(rawJson: String): Int {
+    val root = runCatching {
+        liveRepositoryJson.parseToJsonElement(rawJson).jsonObject
+    }.getOrNull() ?: return DEFAULT_LIVE_HEARTBEAT_INTERVAL_SEC
+    if (root.int("code", -1) != 0) return DEFAULT_LIVE_HEARTBEAT_INTERVAL_SEC
+    return root.obj("data")
+        ?.int("next_interval")
+        ?.takeIf { it > 0 }
+        ?: DEFAULT_LIVE_HEARTBEAT_INTERVAL_SEC
+}
+
+internal fun parseLiveDanmakuPermission(rawJson: String): LiveDanmakuPermission {
+    val root = runCatching {
+        liveRepositoryJson.parseToJsonElement(rawJson).jsonObject
+    }.getOrNull() ?: return LiveDanmakuPermission(
+        canSend = false,
+        statusText = "弹幕配置解析失败",
+        maxLength = 0
+    )
+    if (root.int("code", -1) != 0) {
+        val message = root.string("message").ifBlank { root.string("msg") }.ifBlank { "弹幕配置获取失败" }
+        return LiveDanmakuPermission(canSend = false, statusText = message, maxLength = 0)
+    }
+    val data = root.obj("data")
+    val colors = data
+        ?.array("group")
+        ?.flatMap { group ->
+            (group as? JsonObject)
+                ?.array("color")
+                ?.mapNotNull { it as? JsonObject }
+                .orEmpty()
+        }
+        ?.filter { it.int("status") == 1 }
+        ?.map { color ->
+            LiveDanmakuColorOption(
+                name = color.string("name"),
+                color = color.string("color").toIntOrNull() ?: 16777215,
+                colorHex = color.string("color_hex")
+            )
+        }
+        .orEmpty()
+    val modes = data
+        ?.array("mode")
+        ?.mapNotNull { it as? JsonObject }
+        ?.filter { it.int("status") == 1 }
+        ?.map { mode ->
+            LiveDanmakuModeOption(
+                name = mode.string("name"),
+                mode = mode.int("mode")
+            )
+        }
+        .orEmpty()
+    val canSend = colors.isNotEmpty() && modes.isNotEmpty()
+    return LiveDanmakuPermission(
+        canSend = canSend,
+        statusText = if (canSend) "可发送弹幕" else "当前账号暂无可用弹幕样式",
+        maxLength = if (canSend) DEFAULT_LIVE_DANMAKU_MAX_LENGTH else 0,
+        availableColors = colors,
+        availableModes = modes
+    )
+}
+
+internal fun parseLiveShieldInfo(rawJson: String): Result<LiveShieldInfo> {
+    return runCatching {
+        val root = JSONObject(rawJson)
+        if (root.optInt("code", -1) != 0) {
+            return Result.failure(Exception(root.optString("message", "获取直播屏蔽设置失败")))
+        }
+        val data = root.optJSONObject("data") ?: JSONObject()
+        val shieldInfo = data.optJSONObject("shield_info")
+            ?: data.optJSONObject("silent_info")
+            ?: data
+        val rules = shieldInfo.optJSONObject("shield_rule")
+            ?: shieldInfo.optJSONObject("shield_rules")
+            ?: shieldInfo
+        LiveShieldInfo(
+            level = firstPositiveInt(rules, "level", "rank"),
+            medal = firstPositiveInt(rules, "medal", "medal_level"),
+            verify = firstPositiveInt(rules, "verify", "verify_level", "shield_verify"),
+            keywords = parseLiveShieldKeywords(
+                shieldInfo.optJSONArray("keyword_list")
+                    ?: shieldInfo.optJSONArray("keywords")
+                    ?: data.optJSONArray("keyword_list")
+            ),
+            users = parseLiveShieldUsers(
+                shieldInfo.optJSONArray("user_list")
+                    ?: shieldInfo.optJSONArray("shield_user_list")
+                    ?: data.optJSONArray("user_list")
+            )
+        )
+    }
+}
+
+private fun parseLiveShieldKeywords(array: org.json.JSONArray?): List<LiveShieldKeyword> {
+    if (array == null) return emptyList()
+    return buildList {
+        for (index in 0 until array.length()) {
+            val raw = array.opt(index)
+            when (raw) {
+                is String -> add(LiveShieldKeyword(keyword = raw))
+                is JSONObject -> {
+                    val keyword = raw.optString("keyword")
+                        .ifBlank { raw.optString("content") }
+                        .ifBlank { raw.optString("msg") }
+                    if (keyword.isNotBlank()) {
+                        add(
+                            LiveShieldKeyword(
+                                id = raw.optLong("id", 0L),
+                                keyword = keyword
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun parseLiveShieldUsers(array: org.json.JSONArray?): List<LiveShieldUser> {
+    if (array == null) return emptyList()
+    return buildList {
+        for (index in 0 until array.length()) {
+            val raw = array.optJSONObject(index) ?: continue
+            val uid = firstPositiveLong(raw, "uid", "mid", "tuid")
+            if (uid > 0L) {
+                add(
+                    LiveShieldUser(
+                        uid = uid,
+                        uname = raw.optString("uname").ifBlank { raw.optString("name") },
+                        face = raw.optString("face"),
+                        id = raw.optLong("id", 0L)
+                    )
+                )
+            }
+        }
+    }
+}
+
+private fun firstPositiveInt(json: JSONObject, vararg names: String): Int {
+    return names.firstNotNullOfOrNull { name ->
+        json.optInt(name, 0).takeIf { it > 0 }
+    } ?: 0
+}
+
+private fun firstPositiveLong(json: JSONObject, vararg names: String): Long {
+    return names.firstNotNullOfOrNull { name ->
+        json.optLong(name, 0L).takeIf { it > 0L }
+    } ?: 0L
 }
 
 enum class LiveContributionRankType(
@@ -211,6 +402,27 @@ object LiveRepository {
         }
     }
 
+    suspend fun getRecommendedLiveRooms(): Result<List<LiveRoom>> = withContext(Dispatchers.IO) {
+        try {
+            val recommendResp = api.getLiveRecommendList()
+            val recommendRooms = if (recommendResp.code == 0) {
+                recommendResp.data?.recommendRoomList
+                    ?.filterNot { it.isAd }
+                    ?.map { it.toLiveRoom() }
+                    .orEmpty()
+            } else {
+                emptyList()
+            }
+            if (recommendRooms.isNotEmpty()) {
+                Result.success(recommendRooms)
+            } else {
+                getLiveRooms(page = 1)
+            }
+        } catch (e: Exception) {
+            getLiveRooms(page = 1)
+        }
+    }
+
     suspend fun getLiveAreaIndex(): Result<List<LiveAreaParent>> = withContext(Dispatchers.IO) {
         try {
             val resp = api.getLiveAreaList()
@@ -314,18 +526,34 @@ object LiveRepository {
     /**
      * 获取关注的直播间（需要登录）
      */
-    suspend fun getFollowedLive(page: Int = 1): Result<List<LiveRoom>> = withContext(Dispatchers.IO) {
+    suspend fun getFollowedLive(page: Int = 1): Result<List<LiveRoom>> = getFollowedLivePage(page).map { it.items }
+
+    suspend fun getFollowedLivePage(
+        page: Int = 1,
+        pageSize: Int = 50
+    ): Result<LivePagedResult<LiveRoom>> = withContext(Dispatchers.IO) {
         try {
-            val resp = api.getFollowedLive(page = page, pageSize = 50)
-            
-            // 过滤只返回正在直播的（liveStatus == 1）
+            val resp = api.getFollowedLive(page = page, pageSize = pageSize)
             val followedRooms = resp.data?.list
                 ?.filter { it.liveStatus == 1 }
                 ?: emptyList()
 
             val liveRooms = followedRooms.map { it.toLiveRoom() }
-            
-            Result.success(liveRooms)
+            val pageInfo = resp.data?.pageinfo
+            val hasMore = when {
+                pageInfo != null && pageInfo.total_page > 0 -> page < pageInfo.total_page
+                followedRooms.size >= pageSize -> true
+                else -> false
+            }
+
+            Result.success(
+                LivePagedResult(
+                    items = liveRooms.distinctBy { it.roomid },
+                    hasMore = hasMore,
+                    nextPage = page + 1,
+                    totalCount = resp.data?.livingNum ?: liveRooms.size
+                )
+            )
         } catch (e: Exception) {
             e.printStackTrace()
             Result.failure(e)
@@ -386,6 +614,33 @@ object LiveRepository {
         }
     }
 
+    suspend fun getLiveDanmakuPermission(roomId: Long): Result<LiveDanmakuPermission> = withContext(Dispatchers.IO) {
+        try {
+            val realRoomId = resolveRealRoomId(roomId)
+            Result.success(parseLiveDanmakuPermission(api.getLiveDanmakuConfig(realRoomId).string()))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun reportLiveHeartbeat(
+        roomId: Long,
+        lastIntervalSec: Int = DEFAULT_LIVE_HEARTBEAT_INTERVAL_SEC
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val realRoomId = resolveRealRoomId(roomId)
+            val raw = api.reportLiveHeartbeat(
+                buildLiveHeartbeatQuery(
+                    roomId = realRoomId,
+                    lastIntervalSec = lastIntervalSec
+                )
+            ).string()
+            Result.success(parseLiveHeartbeatNextInterval(raw))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun getLiveSuperChatMessages(roomId: Long): Result<List<LiveSuperChatSeed>> = withContext(Dispatchers.IO) {
         try {
             val realRoomId = resolveRealRoomId(roomId)
@@ -410,7 +665,9 @@ object LiveRepository {
                                     obj.optString("background_bottom_color").ifBlank {
                                         obj.optString("background_color")
                                     }
-                                )
+                                ),
+                                token = obj.optString("token"),
+                                reportTs = obj.optLong("ts", obj.optLong("start_time", 0L))
                             )
                         )
                     }
@@ -466,7 +723,80 @@ object LiveRepository {
         roomId: Long,
         uid: Long,
         type: Int = 1
+    ): Result<Boolean> = setLiveShieldUser(roomId, uid, type).map { true }
+
+    suspend fun getLiveShieldInfo(roomId: Long): Result<LiveShieldInfo> = withContext(Dispatchers.IO) {
+        try {
+            val realRoomId = resolveRealRoomId(roomId)
+            val params = signWithWbi(
+                mapOf(
+                    "room_id" to realRoomId.toString(),
+                    "from" to "0",
+                    "web_location" to "444.8"
+                )
+            )
+            parseLiveShieldInfo(api.getLiveInfoByUser(params).string())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setLiveSilentRule(
+        type: String,
+        level: Int
     ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache ?: ""
+            if (csrf.isBlank()) return@withContext Result.failure(Exception("请先登录"))
+            val resp = api.setLiveSilentRule(
+                type = type,
+                level = level,
+                csrf = csrf,
+                csrfToken = csrf
+            )
+            if (resp.code == 0) Result.success(true) else Result.failure(Exception(resp.message.ifBlank { "屏蔽规则设置失败" }))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun addLiveShieldKeyword(keyword: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache ?: ""
+            if (csrf.isBlank()) return@withContext Result.failure(Exception("请先登录"))
+            val trimmed = keyword.trim()
+            if (trimmed.isBlank()) return@withContext Result.failure(Exception("请输入屏蔽词"))
+            val resp = api.addLiveShieldKeyword(
+                keyword = trimmed,
+                csrf = csrf,
+                csrfToken = csrf
+            )
+            if (resp.code == 0) Result.success(true) else Result.failure(Exception(resp.message.ifBlank { "添加屏蔽词失败" }))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteLiveShieldKeyword(keyword: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache ?: ""
+            if (csrf.isBlank()) return@withContext Result.failure(Exception("请先登录"))
+            val resp = api.deleteLiveShieldKeyword(
+                keyword = keyword,
+                csrf = csrf,
+                csrfToken = csrf
+            )
+            if (resp.code == 0) Result.success(true) else Result.failure(Exception(resp.message.ifBlank { "删除屏蔽词失败" }))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setLiveShieldUser(
+        roomId: Long,
+        uid: Long,
+        type: Int = 1
+    ): Result<LiveShieldUser> = withContext(Dispatchers.IO) {
         try {
             val realRoomId = resolveRealRoomId(roomId)
             val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache ?: ""
@@ -478,7 +808,58 @@ object LiveRepository {
                 csrf = csrf,
                 csrfToken = csrf
             )
-            if (resp.code == 0) Result.success(true) else Result.failure(Exception(resp.message.ifBlank { "直播间屏蔽失败" }))
+            if (resp.code == 0) {
+                Result.success(LiveShieldUser(uid = uid))
+            } else {
+                Result.failure(Exception(resp.message.ifBlank { if (type == 1) "直播间屏蔽失败" else "解除屏蔽失败" }))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun reportLiveDanmaku(request: LiveDanmakuReportRequest): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache ?: ""
+            if (csrf.isBlank()) return@withContext Result.failure(Exception("请先登录"))
+            val realRoomId = resolveRealRoomId(request.roomId)
+            val resp = api.reportLiveDanmaku(
+                roomId = realRoomId,
+                targetUid = request.uid,
+                message = request.message,
+                reason = request.reason.apiReason,
+                ts = request.reportTime,
+                sign = request.sign,
+                reasonId = request.reason.id,
+                idStr = request.dmid,
+                csrf = csrf,
+                csrfToken = csrf
+            )
+            if (resp.code == 0) Result.success(true) else Result.failure(Exception(resp.message.ifBlank { "举报失败" }))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun reportSuperChat(request: LiveSuperChatReportRequest): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache ?: ""
+            if (csrf.isBlank()) return@withContext Result.failure(Exception("请先登录"))
+            val realRoomId = resolveRealRoomId(request.roomId)
+            val resp = api.reportLiveSuperChat(
+                id = request.messageId,
+                roomId = realRoomId,
+                uid = request.uid,
+                message = request.message,
+                reason = request.reason.apiReason,
+                ts = request.reportTime,
+                reasonId = request.reason.id.toString(),
+                token = request.token,
+                idStr = request.messageId.toString(),
+                csrf = csrf,
+                csrfToken = csrf
+            )
+            if (resp.code == 0) Result.success(true) else Result.failure(Exception(resp.message.ifBlank { "举报醒目留言失败" }))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -543,41 +924,49 @@ object LiveRepository {
         try {
             val realRoomId = resolveRealRoomId(roomId)
             com.android.purebilibili.core.util.Logger.d("LiveRepo", "🔴 Fetching live URL with quality for roomId=$roomId(real=$realRoomId), qn=$qn, onlyAudio=$onlyAudio")
-            
-            // 使用旧版 API 补充可读画质描述，但不再把 legacy durl 当作主播放来源
-            val legacyResp = try {
-                api.getLivePlayUrlLegacy(cid = realRoomId, qn = qn)
-            } catch (e: Exception) {
-                android.util.Log.w("LiveRepo", "Legacy API failed: ${e.message}")
-                null
-            }
-            
-            val qualityList = legacyResp?.data?.quality_description ?: emptyList()
-            val currentQuality = legacyResp?.data?.current_quality ?: 0
-            val legacyHasUrl = legacyResp?.data?.durl?.firstOrNull()?.url != null
-            com.android.purebilibili.core.util.Logger.d("LiveRepo", " Legacy API: qualityList=${qualityList.map { it.desc }}, current=$currentQuality, hasUrl=$legacyHasUrl")
-            
-            // 新版 xlive API 作为主播放来源
+
             com.android.purebilibili.core.util.Logger.d("LiveRepo", "🔴 Using xlive API as primary stream source...")
             val resp = api.getLivePlayUrl(
                 roomId = realRoomId,
                 quality = qn,
-                onlyAudio = if (onlyAudio) 1 else null
+                onlyAudio = if (onlyAudio) 1 else null,
+                signedParams = signWithWbi(emptyMap())
             )
-            
+
             if (resp.code == 0 && resp.data != null) {
-                // 合并旧版画质列表到新版响应数据
-                val mergedData = resp.data.copy(
-                    quality_description = qualityList.takeIf { it.isNotEmpty() } ?: resp.data.quality_description,
-                    current_quality = if (currentQuality > 0) currentQuality else resp.data.current_quality
-                )
+                val xliveQualities = resp.data.playurl_info?.playurl?.gQnDesc.orEmpty()
+                if (xliveQualities.isNotEmpty() || !resp.data.quality_description.isNullOrEmpty()) {
+                    return@withContext Result.success(resp.data)
+                }
+                val legacyResp = try {
+                    api.getLivePlayUrlLegacy(cid = realRoomId, qn = qn)
+                } catch (e: Exception) {
+                    android.util.Log.w("LiveRepo", "Legacy API failed: ${e.message}")
+                    null
+                }
+                val mergedData = if (legacyResp?.code == 0 && legacyResp.data != null) {
+                    resp.data.copy(
+                        quality_description = legacyResp.data.quality_description,
+                        current_quality = legacyResp.data.current_quality.takeIf { it > 0 } ?: resp.data.current_quality
+                    )
+                } else {
+                    resp.data
+                }
                 com.android.purebilibili.core.util.Logger.d("LiveRepo", " Merged data: qualityList=${mergedData.quality_description?.map { it.desc }}")
                 Result.success(mergedData)
-            } else if (legacyResp?.code == 0 && legacyResp.data != null) {
-                com.android.purebilibili.core.util.Logger.w("LiveRepo", "🔴 xlive API unavailable, falling back to legacy durl response")
-                Result.success(legacyResp.data)
             } else {
-                Result.failure(Exception("获取直播流失败: ${resp.message}"))
+                val legacyResp = try {
+                    api.getLivePlayUrlLegacy(cid = realRoomId, qn = qn)
+                } catch (e: Exception) {
+                    android.util.Log.w("LiveRepo", "Legacy API failed: ${e.message}")
+                    null
+                }
+                if (legacyResp?.code == 0 && legacyResp.data != null) {
+                    com.android.purebilibili.core.util.Logger.w("LiveRepo", "🔴 xlive API unavailable, falling back to legacy durl response")
+                    Result.success(legacyResp.data)
+                } else {
+                    Result.failure(Exception("获取直播流失败: ${resp.message}"))
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e("LiveRepo", " getLivePlayUrlWithQuality failed: ${e.message}")
@@ -588,19 +977,51 @@ object LiveRepository {
     /**
      * 发送直播弹幕
      */
-    suspend fun sendDanmaku(roomId: Long, msg: String): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun sendDanmaku(roomId: Long, msg: String): Result<Boolean> {
+        return sendDanmaku(LiveDanmakuSendRequest(roomId = roomId, message = msg))
+    }
+
+    suspend fun sendDanmaku(request: LiveDanmakuSendRequest): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val realRoomId = resolveRealRoomId(roomId)
+            val realRoomId = resolveRealRoomId(request.roomId)
             val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache ?: ""
             if (csrf.isEmpty()) return@withContext Result.failure(Exception("请先登录"))
-            
-            val resp = api.sendLiveDanmaku(
-                roomId = realRoomId,
-                msg = msg,
-                csrf = csrf,
-                csrfToken = csrf
-            )
-            
+
+            val signedParams = signWithWbi(mapOf("web_location" to "444.8"))
+            val resp = try {
+                api.sendLiveDanmaku(
+                    signedParams = signedParams,
+                    roomId = realRoomId,
+                    msg = request.message,
+                    color = request.color,
+                    fontsize = request.fontSize,
+                    mode = request.mode,
+                    bubble = request.bubble,
+                    roomType = request.roomType,
+                    jumpFrom = request.jumpFrom,
+                    replyMid = request.replyMid,
+                    replyAttr = request.replyAttr,
+                    replyUname = request.replyUname,
+                    replayDmid = request.replayDmid,
+                    statistics = request.statistics,
+                    dmType = request.dmType,
+                    emoticonOptions = request.emoticonOptions,
+                    csrf = csrf,
+                    csrfToken = csrf
+                )
+            } catch (e: Exception) {
+                if (signedParams.isEmpty()) throw e
+                api.sendLiveDanmaku(
+                    roomId = realRoomId,
+                    msg = request.message,
+                    color = request.color,
+                    fontsize = request.fontSize,
+                    mode = request.mode,
+                    csrf = csrf,
+                    csrfToken = csrf
+                )
+            }
+
             if (resp.code == 0) {
                 Result.success(true)
             } else {
@@ -650,29 +1071,65 @@ object LiveRepository {
      * 获取直播弹幕表情
      * 返回: Map<关键词, 图片URL>
      */
-    suspend fun getEmoticons(roomId: Long): Result<Map<String, String>> = withContext(Dispatchers.IO) {
+    suspend fun getEmoticons(roomId: Long): Result<Map<String, String>> {
+        return getLiveEmoticonPackages(roomId).map { packages ->
+            packages
+                .flatMap { it.items }
+                .filter { it.emoji.isNotBlank() && it.url.isNotBlank() }
+                .associate { it.emoji to it.url }
+        }
+    }
+
+    suspend fun getLiveEmoticonPackages(roomId: Long): Result<List<LiveEmoticonPackage>> = withContext(Dispatchers.IO) {
         try {
             val realRoomId = resolveRealRoomId(roomId)
             val resp = api.getLiveEmoticons(roomId = realRoomId)
             if (resp.code == 0 && resp.data?.data != null) {
-                val emojiMap = mutableMapOf<String, String>()
-                resp.data.data.forEach { pkg ->
-                    pkg.emoticons?.forEach { emotion ->
-                        if (emotion.emoji.isNotEmpty() && emotion.url.isNotEmpty()) {
-                            emojiMap[emotion.emoji] = emotion.url
-                        }
-                    }
-                }
-                com.android.purebilibili.core.util.Logger.d("LiveRepo", " Fetched ${emojiMap.size} emoticons for room $roomId(real=$realRoomId)")
-                Result.success(emojiMap)
+                val packages = resp.data.data.map { pkg ->
+                    LiveEmoticonPackage(
+                        id = pkg.pkg_id,
+                        name = pkg.pkg_name.ifBlank { "表情" },
+                        items = pkg.emoticons
+                            ?.mapNotNull { emotion ->
+                                if (emotion.emoji.isBlank() || emotion.url.isBlank()) return@mapNotNull null
+                                LiveEmoticonItem(
+                                    emoji = emotion.emoji,
+                                    url = emotion.url,
+                                    description = emotion.des,
+                                    emoticonOptions = buildLiveEmoticonOptions(
+                                        emoji = emotion.emoji,
+                                        url = emotion.url
+                                    )
+                                )
+                            }
+                            .orEmpty()
+                    )
+                }.filter { it.items.isNotEmpty() }
+                com.android.purebilibili.core.util.Logger.d("LiveRepo", " Fetched ${packages.sumOf { it.items.size }} emoticons for room $roomId(real=$realRoomId)")
+                Result.success(packages)
             } else {
                 Result.failure(Exception(resp.msg))
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            // 失败不影响主要流程
             Result.failure(e)
         }
+    }
+
+    private fun buildLiveEmoticonOptions(
+        emoji: String,
+        url: String
+    ): String {
+        return JSONObject()
+            .put("emoticon_unique", emoji)
+            .put("bulge_display", 0)
+            .put(
+                "emoticon_player",
+                JSONObject()
+                    .put("emoji", emoji)
+                    .put("url", url)
+            )
+            .toString()
     }
 
     private fun parseLiveColorInt(raw: String): Int {

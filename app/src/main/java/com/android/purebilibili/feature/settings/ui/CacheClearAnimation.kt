@@ -1,6 +1,7 @@
 // 文件路径: feature/settings/CacheClearAnimation.kt
 package com.android.purebilibili.feature.settings
 
+import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
@@ -30,6 +31,7 @@ import com.android.purebilibili.core.theme.iOSOrange
 import com.android.purebilibili.core.theme.iOSPurple
 import com.android.purebilibili.core.theme.iOSSystemGray
 import com.android.purebilibili.core.theme.iOSTeal
+import com.android.purebilibili.core.ui.blur.shouldAllowRuntimeShaderBackedHazeEffect
 import kotlin.math.*
 import kotlin.random.Random
 import dev.chrisbanes.haze.HazeState
@@ -730,6 +732,7 @@ fun CacheClearAnimationDialog(
     onDismiss: () -> Unit
 ) {
     val hazeState = com.android.purebilibili.core.ui.blur.rememberRecoverableHazeState()
+    val useHazeEffect = shouldAllowRuntimeShaderBackedHazeEffect(Build.VERSION.SDK_INT)
     
     val progressValue = if (progress.total > 0) {
         (progress.current.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f)
@@ -778,9 +781,15 @@ fun CacheClearAnimationDialog(
                             )
                         )
                     )
-                    .hazeChild(
-                        state = hazeState, 
-                        style = HazeMaterials.thin(MaterialTheme.colorScheme.surface)
+                    .then(
+                        if (useHazeEffect) {
+                            Modifier.hazeChild(
+                                state = hazeState,
+                                style = HazeMaterials.thin(MaterialTheme.colorScheme.surface)
+                            )
+                        } else {
+                            Modifier
+                        }
                     )
                     .padding(36.dp),
                 contentAlignment = Alignment.Center

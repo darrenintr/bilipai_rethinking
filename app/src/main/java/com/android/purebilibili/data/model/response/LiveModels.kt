@@ -30,6 +30,54 @@ data class LiveData(
 }
 
 @Serializable
+data class LiveRecommendResponse(
+    val code: Int = 0,
+    val message: String = "",
+    val data: LiveRecommendData? = null
+)
+
+@Serializable
+data class LiveRecommendData(
+    @SerialName("recommend_room_list") val recommendRoomList: List<LiveRecommendRoom>? = null,
+    @SerialName("top_room_id") val topRoomId: Long = 0
+)
+
+@Serializable
+data class LiveRecommendRoom(
+    @SerialName("roomid") val roomId: Long = 0,
+    val uid: Long = 0,
+    val title: String = "",
+    val uname: String = "",
+    val face: String = "",
+    val cover: String = "",
+    val keyframe: String = "",
+    val online: Int = 0,
+    @SerialName("area_v2_name") val areaName: String = "",
+    @SerialName("area_v2_parent_name") val parentName: String = "",
+    @SerialName("watched_show") val watchedShow: WatchedShow? = null,
+    @SerialName("is_ad") val isAd: Boolean = false,
+    @SerialName("show_callback") val showCallback: String = "",
+    @SerialName("click_callback") val clickCallback: String = "",
+    @SerialName("session_id") val sessionId: String = ""
+) {
+    fun toLiveRoom(): LiveRoom {
+        return LiveRoom(
+            roomid = roomId,
+            uid = uid,
+            title = title,
+            uname = uname,
+            face = face,
+            cover = cover,
+            online = online,
+            watchedShow = watchedShow,
+            areaName = areaName,
+            parentName = parentName,
+            keyframe = keyframe
+        )
+    }
+}
+
+@Serializable
 @OptIn(ExperimentalSerializationApi::class)
 data class LiveRoom(
     @JsonNames("roomid", "room_id")

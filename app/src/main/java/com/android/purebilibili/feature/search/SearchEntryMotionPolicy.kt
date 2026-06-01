@@ -30,11 +30,11 @@ internal fun resolveSearchEntryMotionSpec(
         )
     } else {
         SearchEntryMotionSpec(
-            durationMillis = 260,
-            initialAlpha = 0.72f,
-            initialScale = 0.92f,
-            initialTranslationYDp = 26f,
-            transformOriginPivotX = 0.88f,
+            durationMillis = 320,
+            initialAlpha = 0.58f,
+            initialScale = 0.88f,
+            initialTranslationYDp = 360f,
+            transformOriginPivotX = 0.5f,
             transformOriginPivotY = 1f
         )
     }

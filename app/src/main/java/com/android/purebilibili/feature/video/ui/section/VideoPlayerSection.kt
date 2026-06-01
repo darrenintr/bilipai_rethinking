@@ -9,12 +9,14 @@ import com.android.purebilibili.feature.video.danmaku.resolveDanmakuCloudSyncSta
 import com.android.purebilibili.feature.video.danmaku.resolveDanmakuCloudSyncStateAfterStarted
 import com.android.purebilibili.feature.video.danmaku.shouldRunDanmakuManualCloudSync
 import com.android.purebilibili.feature.video.danmaku.filterVisibleCommandDanmakuItems
+import com.android.purebilibili.feature.video.danmaku.configureAsPassiveDanmakuOverlay
 import com.android.purebilibili.feature.video.state.VideoPlayerState
 import com.android.purebilibili.feature.video.viewmodel.PlayerUiState
 import com.android.purebilibili.feature.video.ui.overlay.FullscreenDoubleTapAction
 import com.android.purebilibili.feature.video.ui.overlay.VideoPlayerOverlay
 import com.android.purebilibili.feature.video.ui.overlay.SubtitleControlCallbacks
 import com.android.purebilibili.feature.video.ui.overlay.SubtitleControlUiState
+import com.android.purebilibili.feature.video.ui.overlay.nextFullscreenSeekFeedbackEvent
 import com.android.purebilibili.feature.video.ui.overlay.resolveFullscreenDoubleTapAction
 import com.android.purebilibili.feature.video.ui.overlay.resolveBottomControlBarLayoutPolicy
 import com.android.purebilibili.feature.video.ui.overlay.resolveVideoProgressBarLayoutPolicy
@@ -67,15 +69,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.keyframes
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.ui.graphics.Path
 import androidx.activity.compose.BackHandler
 //  Cupertino Icons - iOS SF Symbols 风格图标
 import io.github.alexzhirkevich.cupertino.icons.CupertinoIcons
@@ -129,7 +124,6 @@ import com.android.purebilibili.core.ui.performance.TrackJankStateValue
 import com.android.purebilibili.core.ui.blur.unifiedBlur
 import com.android.purebilibili.core.ui.transition.VIDEO_SHARED_COVER_ASPECT_RATIO
 import com.android.purebilibili.core.util.FormatUtils
-import com.android.purebilibili.core.util.CardPositionManager
 import com.android.purebilibili.core.util.HapticType
 import com.android.purebilibili.core.util.Logger
 import com.android.purebilibili.core.util.rememberHapticFeedback
@@ -357,8 +351,11 @@ fun VideoPlayerSection(
     //  [新增] CDN 线路切换
     currentCdnIndex: Int = 0,
     cdnCount: Int = 1,
+    cdnLineDiagnostics: List<com.android.purebilibili.feature.plugin.CdnLineDiagnostic> = emptyList(),
+    isCdnProbing: Boolean = false,
     onSwitchCdn: () -> Unit = {},
     onSwitchCdnTo: (Int) -> Unit = {},
+    onProbeCdnCandidates: () -> Unit = {},
     
     //  [新增] 音频模式
     isAudioOnly: Boolean = false,
@@ -421,6 +418,7 @@ fun VideoPlayerSection(
     onPageSelect: (Int) -> Unit = {},
     forceCoverOnly: Boolean = false,
     allowLivePlayerSharedElement: Boolean = true,
+    sourceRouteForSharedElement: String? = null,
     suppressSubtitleOverlay: Boolean = false,
     subtitleDisplayModePreferenceOverride: SubtitleDisplayMode? = null,
     onSubtitleDisplayModePreferenceOverrideChange: (SubtitleDisplayMode) -> Unit = {},
@@ -479,6 +477,10 @@ fun VideoPlayerSection(
         .getPlayerInteractionSettings(context)
         .collectAsStateWithLifecycle(
             initialValue = com.android.purebilibili.core.store.PlayerInteractionSettings(
+                longPressSpeedLockEnabled = com.android.purebilibili.core.store.SettingsManager
+                    .getLongPressSpeedLockEnabledSync(context),
+                longPressSpeedLockHintShown = com.android.purebilibili.core.store.SettingsManager
+                    .getLongPressSpeedLockHintShownSync(context),
                 hiResLongPressCompatHintShown = com.android.purebilibili.core.store.SettingsManager
                     .getHiResLongPressCompatHintShownSync(context)
             ),
@@ -514,9 +516,11 @@ fun VideoPlayerSection(
     //  [新增] 双击跳转视觉反馈状态
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
     var seekFeedbackVisible by remember { mutableStateOf(false) }
+    var seekFeedbackGeneration by remember { mutableLongStateOf(0L) }
     
     //  [新增] 长按倍速设置和状态
     val longPressSpeed = playerInteractionSettings.longPressSpeed
+    val longPressSpeedLockEnabled = playerInteractionSettings.longPressSpeedLockEnabled
     val twoFingerVerticalSpeedEnabled = playerInteractionSettings.twoFingerVerticalSpeedEnabled
     val twoFingerHorizontalSpeedEnabled = playerInteractionSettings.twoFingerHorizontalSpeedEnabled
     val twoFingerSpeedMode = remember(
@@ -553,6 +557,17 @@ fun VideoPlayerSection(
         )
     }
     val hasShownHiResCompatHint = hiResCompatHintShownPersisted || hasShownHiResCompatHintLocally
+    val longPressSpeedLockHintShownPersisted = playerInteractionSettings.longPressSpeedLockHintShown
+    var hasShownLongPressSpeedLockHintLocally by remember {
+        mutableStateOf(
+            com.android.purebilibili.core.store.SettingsManager
+                .getLongPressSpeedLockHintShownSync(context)
+        )
+    }
+    val hasShownLongPressSpeedLockHint =
+        longPressSpeedLockHintShownPersisted || hasShownLongPressSpeedLockHintLocally
+    var showLongPressSpeedLockHint by remember { mutableStateOf(false) }
+    var longPressSpeedLockHintGeneration by remember { mutableIntStateOf(0) }
     var hasAutoEnteredFullscreen by remember(bvid) { mutableStateOf(false) }
     var previousPlayWhenReady by remember(playerState.player, bvid) {
         mutableStateOf(playerState.player.playWhenReady)
@@ -683,6 +698,32 @@ fun VideoPlayerSection(
 
     val latestIsFullscreen by rememberUpdatedState(isFullscreen)
     val latestOnToggleFullscreen by rememberUpdatedState(onToggleFullscreen)
+    LaunchedEffect(
+        playerState.player,
+        autoEnterFullscreenEnabled,
+        autoExitFullscreenEnabled,
+        allowPlaybackStateAutoFullscreen,
+        bvid,
+        isFullscreen
+    ) {
+        val playbackState = playerState.player.playbackState
+        val playWhenReady = playerState.player.playWhenReady
+        if (shouldToggleAutoFullscreenForCurrentPlaybackSnapshot(
+                autoEnterFullscreenEnabled = autoEnterFullscreenEnabled,
+                autoExitFullscreenEnabled = autoExitFullscreenEnabled,
+                allowPlaybackStateAutoFullscreen = allowPlaybackStateAutoFullscreen,
+                playbackState = playbackState,
+                playWhenReady = playWhenReady,
+                hasAutoEnteredFullscreen = hasAutoEnteredFullscreen,
+                isFullscreen = latestIsFullscreen
+            )
+        ) {
+            if (playbackState == Player.STATE_READY && playWhenReady && !latestIsFullscreen) {
+                hasAutoEnteredFullscreen = true
+            }
+            latestOnToggleFullscreen()
+        }
+    }
     DisposableEffect(
         playerState.player,
         autoEnterFullscreenEnabled,
@@ -920,6 +961,13 @@ fun VideoPlayerSection(
         }
     }
 
+    LaunchedEffect(showLongPressSpeedLockHint, longPressSpeedLockHintGeneration) {
+        if (showLongPressSpeedLockHint) {
+            delay(5_000L)
+            showLongPressSpeedLockHint = false
+        }
+    }
+
     // [新增] 共享元素过渡支持
     val sharedTransitionScope = com.android.purebilibili.core.ui.LocalSharedTransitionScope.current
     val animatedVisibilityScope = com.android.purebilibili.core.ui.LocalAnimatedVisibilityScope.current
@@ -968,6 +1016,15 @@ fun VideoPlayerSection(
         }
         effectiveLongPressSpeed = startDecision.targetPlaybackParameters.speed
         player.playbackParameters = startDecision.targetPlaybackParameters
+        if (!longPressSpeedLockEnabled && !hasShownLongPressSpeedLockHint) {
+            hasShownLongPressSpeedLockHintLocally = true
+            showLongPressSpeedLockHint = true
+            longPressSpeedLockHintGeneration += 1
+            settingsScope.launch {
+                com.android.purebilibili.core.store.SettingsManager
+                    .setLongPressSpeedLockHintShown(context, true)
+            }
+        }
         if (
             shouldShowHiResLongPressCompatHint(
                 requestedSpeed = longPressSpeed,
@@ -1084,10 +1141,10 @@ fun VideoPlayerSection(
     if (bvid.isNotEmpty() && livePlayerSharedElementEnabled) {
          with(requireNotNull(sharedTransitionScope)) {
              rootModifier = rootModifier.sharedElement(
-                 sharedContentState = rememberSharedContentState(key = "video-$bvid"),
+                 sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoPlayerSharedElementKey(bvid)),
                  animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                  boundsTransform = { _, _ ->
-                     com.android.purebilibili.core.theme.AnimationSpecs.BiliPaiSpringSpec
+                     com.android.purebilibili.core.ui.motion.AppMotionTokens.spatialSpec()
                  }
              )
          }
@@ -1374,6 +1431,7 @@ fun VideoPlayerSection(
                                 val minLockDragDistancePx = longPressSpeedLockSensitivity.minDragDistanceDp.dp.toPx()
                                 if (
                                     shouldLockLongPressSpeedInTargetZone(
+                                        longPressSpeedLockEnabled = longPressSpeedLockEnabled,
                                         isLongPressing = isLongPressing,
                                         alreadyLocked = longPressSpeedLocked,
                                         currentPointerY = change.position.y,
@@ -1557,7 +1615,8 @@ fun VideoPlayerSection(
                 hasShownHiResCompatHint,
                 scale,
                 isMultiTouchActive,
-                isFullscreen
+                isFullscreen,
+                longPressSpeedLockEnabled
             ) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { startOffset ->
@@ -1582,6 +1641,10 @@ fun VideoPlayerSection(
                         }
                         totalDragDistanceY += dragAmount.y
                         totalDragDistanceX += dragAmount.x
+                        if (!longPressSpeedLockEnabled) {
+                            change.consume()
+                            return@detectDragGesturesAfterLongPress
+                        }
                         val lockZoneHeightPx = longPressSpeedLockSensitivity.lockZoneHeightDp.dp.toPx()
                         val minLockDragDistancePx = longPressSpeedLockSensitivity.minDragDistanceDp.dp.toPx()
                         val holdDurationMs = (
@@ -1609,6 +1672,7 @@ fun VideoPlayerSection(
                         }
                         if (
                             shouldLockLongPressSpeedInTargetZone(
+                                longPressSpeedLockEnabled = longPressSpeedLockEnabled,
                                 isLongPressing = isLongPressing,
                                 alreadyLocked = longPressSpeedLocked,
                                 currentPointerY = change.position.y,
@@ -1683,7 +1747,12 @@ fun VideoPlayerSection(
                                     durationMs = player.duration
                                 )
                                 commitExplicitSeek(newPos)
-                                seekFeedbackText = "+${seekForwardSeconds}s"
+                                val feedback = nextFullscreenSeekFeedbackEvent(
+                                    previousGeneration = seekFeedbackGeneration,
+                                    deltaSeconds = seekForwardSeconds
+                                )
+                                seekFeedbackGeneration = feedback.generation
+                                seekFeedbackText = feedback.text
                                 seekFeedbackVisible = true
                                 com.android.purebilibili.core.util.Logger.d("VideoPlayerSection") {
                                     "⏩ DoubleTap right: +${seekForwardSeconds}s"
@@ -1697,7 +1766,12 @@ fun VideoPlayerSection(
                                     durationMs = player.duration
                                 )
                                 commitExplicitSeek(newPos)
-                                seekFeedbackText = "-${seekBackwardSeconds}s"
+                                val feedback = nextFullscreenSeekFeedbackEvent(
+                                    previousGeneration = seekFeedbackGeneration,
+                                    deltaSeconds = -seekBackwardSeconds
+                                )
+                                seekFeedbackGeneration = feedback.generation
+                                seekFeedbackText = feedback.text
                                 seekFeedbackVisible = true
                                 com.android.purebilibili.core.util.Logger.d("VideoPlayerSection") {
                                     "⏪ DoubleTap left: -${seekBackwardSeconds}s"
@@ -1739,6 +1813,8 @@ fun VideoPlayerSection(
         val danmakuStaticToScroll = danmakuSettings.staticDanmakuToScroll
         val danmakuMassiveMode = danmakuSettings.massiveMode
         val danmakuMergeDuplicates = danmakuSettings.mergeDuplicates
+        val danmakuDuplicateMergeWindowMs = danmakuSettings.duplicateMergeWindowMs
+        val danmakuDuplicateMergeCountThreshold = danmakuSettings.duplicateMergeCountThreshold
         val danmakuAllowScroll = danmakuSettings.allowScroll
         val danmakuAllowTop = danmakuSettings.allowTop
         val danmakuAllowBottom = danmakuSettings.allowBottom
@@ -1995,6 +2071,8 @@ fun VideoPlayerSection(
             danmakuStaticToScroll,
             danmakuMassiveMode,
             danmakuMergeDuplicates,
+            danmakuDuplicateMergeWindowMs,
+            danmakuDuplicateMergeCountThreshold,
             danmakuAllowScroll,
             danmakuAllowTop,
             danmakuAllowBottom,
@@ -2017,6 +2095,8 @@ fun VideoPlayerSection(
                 staticDanmakuToScroll = danmakuStaticToScroll,
                 massiveMode = danmakuMassiveMode,
                 mergeDuplicates = danmakuMergeDuplicates,
+                duplicateMergeWindowMs = danmakuDuplicateMergeWindowMs,
+                duplicateMergeCountThreshold = danmakuDuplicateMergeCountThreshold,
                 allowScroll = danmakuAllowScroll,
                 allowTop = danmakuAllowTop,
                 allowBottom = danmakuAllowBottom,
@@ -2488,7 +2568,10 @@ fun VideoPlayerSection(
         transitionEnabled = transitionEnabled,
         hasSharedTransitionScope = sharedTransitionScope != null,
         hasAnimatedVisibilityScope = animatedVisibilityScope != null,
-        sourceRoute = CardPositionManager.lastVideoSourceRoute
+        sourceRoute = sourceRouteForSharedElement
+    )
+    val forcedReturnCoverSharedElementSourceRoute = resolveForcedReturnCoverSharedElementSourceRoute(
+        sourceRouteForSharedElement
     )
     
     // [Debug] Logging
@@ -2518,9 +2601,14 @@ fun VideoPlayerSection(
         val forcedReturnCoverModifier = if (forceReturnCoverSharedBoundsEnabled) {
             with(requireNotNull(sharedTransitionScope)) {
                 Modifier.sharedBounds(
-                    sharedContentState = rememberSharedContentState(key = "video_cover_$bvid"),
+                    sharedContentState = rememberSharedContentState(
+                        key = com.android.purebilibili.core.ui.transition.videoCoverSharedElementKey(
+                            bvid,
+                            sourceRoute = forcedReturnCoverSharedElementSourceRoute
+                        )
+                    ),
                     animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
-                    boundsTransform = { _, _ -> com.android.purebilibili.core.theme.AnimationSpecs.BiliPaiSpringSpec },
+                    boundsTransform = { _, _ -> com.android.purebilibili.core.ui.motion.AppMotionTokens.spatialSpec() },
                     clipInOverlayDuringTransition = OverlayClip(coverCardShape)
                 )
             }
@@ -2647,9 +2735,11 @@ fun VideoPlayerSection(
         pipNoDanmakuEnabled = pipNoDanmakuEnabled,
         hostLifecycleStarted = hostLifecycleStarted
     )
-    android.util.Log.d("VideoPlayerSection", "🔍 DanmakuView check: isInPipMode=$isInPipMode, danmakuEnabled=$danmakuEnabled, pipNoDanmakuEnabled=$pipNoDanmakuEnabled")
+    Logger.d("VideoPlayerSection") {
+        "DanmakuView check: isInPipMode=$isInPipMode, danmakuEnabled=$danmakuEnabled, pipNoDanmakuEnabled=$pipNoDanmakuEnabled"
+    }
         if (shouldShowDanmakuLayer) {
-            android.util.Log.d("VideoPlayerSection", " Conditions met, creating DanmakuView...")
+            Logger.d("VideoPlayerSection") { "Conditions met, creating DanmakuView" }
             //  计算状态栏高度
             val statusBarHeightPx = remember(context) {
                 val resourceId = context.resources.getIdentifier(
@@ -2698,13 +2788,18 @@ fun VideoPlayerSection(
                     factory = { ctx ->
                         DanmakuView(ctx).apply {
                             setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            configureAsPassiveDanmakuOverlay()
                             danmakuManager.attachView(this)
-                            android.util.Log.d("VideoPlayerSection", " DanmakuView (RenderEngine) created, isFullscreen=$isFullscreen")
+                            Logger.d("VideoPlayerSection") {
+                                "DanmakuView (RenderEngine) created, isFullscreen=$isFullscreen"
+                            }
                         }
                     },
                     update = { view ->
                         //  [关键] 横竖屏切换后视图尺寸变化时，重新 attachView 确保弹幕正确显示
-                        android.util.Log.d("VideoPlayerSection", " DanmakuView update: size=${view.width}x${view.height}, isFullscreen=$isFullscreen")
+                        Logger.d("VideoPlayerSection") {
+                            "DanmakuView update: size=${view.width}x${view.height}, isFullscreen=$isFullscreen"
+                        }
                         // 只有当视图有有效尺寸时才 re-attach
                         if (view.width > 0 && view.height > 0) {
                             val sizeTag = "${view.width}x${view.height}"
@@ -2759,6 +2854,7 @@ fun VideoPlayerSection(
                     player = playerState.player,
                     onFollowClick = onToggleFollow,
                     onTripleClick = onTriple,
+                    isFollowing = isFollowed,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -3279,8 +3375,8 @@ fun VideoPlayerSection(
         }
         
         //  [新增] 双击跳转视觉反馈 (±Ns 提示)
-        LaunchedEffect(seekFeedbackVisible) {
-            if (seekFeedbackVisible) {
+        LaunchedEffect(seekFeedbackGeneration) {
+            if (seekFeedbackGeneration > 0L) {
                 kotlinx.coroutines.delay(800)
                 seekFeedbackVisible = false
             }
@@ -3355,7 +3451,7 @@ fun VideoPlayerSection(
         }
         
         AnimatedVisibility(
-            visible = isLongPressing && !longPressSpeedLocked && !isInPipMode,
+            visible = longPressSpeedLockEnabled && isLongPressing && !longPressSpeedLocked && !isInPipMode,
             modifier = Modifier.matchParentSize(),
             enter = fadeIn(animationSpec = tween(gestureMotionSpec.longPressHintDurationMillis)),
             exit = fadeOut(animationSpec = tween(gestureMotionSpec.longPressHintDurationMillis))
@@ -3417,7 +3513,7 @@ fun VideoPlayerSection(
             }
         }
 
-        //  长按倍速提示（透明背景 + 快进箭头动画，整个长按期间持续显示）
+        // 长按倍速提示保持轻量，避免遮挡视频主体内容。
         AnimatedVisibility(
             visible = isLongPressing && !isInPipMode,
             modifier = Modifier
@@ -3428,96 +3524,81 @@ fun VideoPlayerSection(
             exit = fadeOut(animationSpec = tween(gestureMotionSpec.longPressHintDurationMillis)) +
                 slideOutVertically(targetOffsetY = { -it })
         ) {
-            val infiniteTransition = rememberInfiniteTransition(label = "fast_forward")
-            val arrowCycleDuration = gestureMotionSpec.longPressArrowCycleDurationMillis
-            val arrowPhase = gestureMotionSpec.longPressArrowPhaseStepDurationMillis
-            // 三个箭头循环亮度动画，依次偏移相位
-            val arrow1Alpha by infiniteTransition.animateFloat(
-                initialValue = 0.3f,
-                targetValue = 1.0f,
-                animationSpec = infiniteRepeatable(
-                    animation = keyframes {
-                        durationMillis = arrowCycleDuration
-                        0.3f at 0
-                        1.0f at arrowPhase
-                        0.3f at arrowPhase * 2
-                        0.3f at arrowCycleDuration
-                    },
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "arrow1"
-            )
-            val arrow2Alpha by infiniteTransition.animateFloat(
-                initialValue = 0.3f,
-                targetValue = 1.0f,
-                animationSpec = infiniteRepeatable(
-                    animation = keyframes {
-                        durationMillis = arrowCycleDuration
-                        0.3f at 0
-                        0.3f at arrowPhase
-                        1.0f at arrowPhase * 2
-                        0.3f at arrowCycleDuration
-                    },
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "arrow2"
-            )
-            val arrow3Alpha by infiniteTransition.animateFloat(
-                initialValue = 0.3f,
-                targetValue = 1.0f,
-                animationSpec = infiniteRepeatable(
-                    animation = keyframes {
-                        durationMillis = arrowCycleDuration
-                        0.3f at 0
-                        0.3f at arrowPhase * 2
-                        1.0f at arrowCycleDuration
-                    },
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "arrow3"
-            )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = Color.Black.copy(alpha = 0.56f),
+                contentColor = Color.White,
+                tonalElevation = 0.dp
             ) {
-                // 三个三角形快进箭头
-                val arrowAlphas = listOf(arrow1Alpha, arrow2Alpha, arrow3Alpha)
-                arrowAlphas.forEach { alpha ->
-                    Canvas(
-                        modifier = Modifier.size(14.dp)
-                    ) {
-                        val path = Path().apply {
-                            moveTo(0f, 0f)
-                            lineTo(size.width, size.height / 2f)
-                            lineTo(0f, size.height)
-                            close()
-                        }
-                        drawPath(
-                            path = path,
-                            color = Color.White.copy(alpha = alpha)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                // 倍速文字
                 Text(
                     text = if (longPressSpeedLocked) {
                         "已锁定 ${effectiveLongPressSpeed}x"
                     } else {
-                        "${effectiveLongPressSpeed}x 拖至上下区域锁定"
+                        "倍速播放中 ${effectiveLongPressSpeed}x"
                     },
-                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        shadow = Shadow(
-                            color = Color.Black.copy(alpha = 0.6f),
-                            offset = Offset(1f, 1f),
-                            blurRadius = 4f
-                        )
+                        fontWeight = FontWeight.Bold
                     )
                 )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showLongPressSpeedLockHint && !isInPipMode,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 62.dp, start = 16.dp, end = 16.dp),
+            enter = fadeIn(animationSpec = tween(gestureMotionSpec.longPressHintDurationMillis)) +
+                slideInVertically(initialOffsetY = { -it / 2 }),
+            exit = fadeOut(animationSpec = tween(gestureMotionSpec.longPressHintDurationMillis))
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.62f),
+                contentColor = Color.White,
+                tonalElevation = 0.dp
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "需要长按锁定倍速吗？",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                showLongPressSpeedLockHint = false
+                                hasShownLongPressSpeedLockHintLocally = true
+                                settingsScope.launch {
+                                    com.android.purebilibili.core.store.SettingsManager
+                                        .setLongPressSpeedLockEnabled(context, true)
+                                    com.android.purebilibili.core.store.SettingsManager
+                                        .setLongPressSpeedLockHintShown(context, true)
+                                }
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+                        ) {
+                            Text("开启锁定")
+                        }
+                        TextButton(
+                            onClick = {
+                                showLongPressSpeedLockHint = false
+                                hasShownLongPressSpeedLockHintLocally = true
+                                finishLongPressSpeedGesture(gestureEnded = true)
+                                settingsScope.launch {
+                                    com.android.purebilibili.core.store.SettingsManager
+                                        .setLongPressSpeedLockHintShown(context, true)
+                                }
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+                        ) {
+                            Text("不再提示")
+                        }
+                    }
+                }
             }
         }
 
@@ -3596,6 +3677,8 @@ fun VideoPlayerSection(
                 danmakuStaticToScroll = danmakuStaticToScroll,
                 danmakuMassiveMode = danmakuMassiveMode,
                 danmakuMergeDuplicates = danmakuMergeDuplicates,
+                danmakuDuplicateMergeWindowMs = danmakuDuplicateMergeWindowMs,
+                danmakuDuplicateMergeCountThreshold = danmakuDuplicateMergeCountThreshold,
                 danmakuAllowScroll = danmakuAllowScroll,
                 danmakuAllowTop = danmakuAllowTop,
                 danmakuAllowBottom = danmakuAllowBottom,
@@ -3740,6 +3823,24 @@ fun VideoPlayerSection(
                         )
                     }
                 },
+                onDanmakuDuplicateMergeWindowMsChange = { value ->
+                    scope.launch {
+                        com.android.purebilibili.core.store.SettingsManager.setDanmakuDuplicateMergeWindowMs(
+                            context,
+                            value,
+                            activeDanmakuScope
+                        )
+                    }
+                },
+                onDanmakuDuplicateMergeCountThresholdChange = { value ->
+                    scope.launch {
+                        com.android.purebilibili.core.store.SettingsManager.setDanmakuDuplicateMergeCountThreshold(
+                            context,
+                            value,
+                            activeDanmakuScope
+                        )
+                    }
+                },
                 onDanmakuAllowScrollChange = { value ->
                     scope.launch {
                         com.android.purebilibili.core.store.SettingsManager.setDanmakuAllowScroll(
@@ -3857,8 +3958,11 @@ fun VideoPlayerSection(
                 //  [新增] CDN 线路切换
                 currentCdnIndex = currentCdnIndex,
                 cdnCount = cdnCount,
+                cdnLineDiagnostics = cdnLineDiagnostics,
+                isCdnProbing = isCdnProbing,
                 onSwitchCdn = onSwitchCdn,
                 onSwitchCdnTo = onSwitchCdnTo,
+                onProbeCdnCandidates = onProbeCdnCandidates,
                 
                 //  [新增] 音频模式
                 isAudioOnly = isAudioOnly,

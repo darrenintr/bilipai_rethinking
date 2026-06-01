@@ -219,6 +219,7 @@ fun BangumiSearchCard(
 fun BangumiSearchCardGrid(
     item: BangumiSearchItem,
     onClick: () -> Unit,
+    onEpisodeClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -297,6 +298,23 @@ fun BangumiSearchCardGrid(
             fontSize = 12.sp,
             lineHeight = 16.sp
         )
+        val hitEpisode = item.episodes?.firstOrNull { it.id > 0L }
+        if (hitEpisode != null && onEpisodeClick != null) {
+            TextButton(
+                onClick = onEpisodeClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 36.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = item.buttonText.ifBlank { "播匹配分集" },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 11.sp
+                )
+            }
+        }
     }
 }
 

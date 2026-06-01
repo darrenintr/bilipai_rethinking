@@ -349,7 +349,11 @@ class DanmakuManager private constructor(
         rawDanmakuList = projectedStandardList
 
         if (config.mergeDuplicates) {
-            val (mergedStandard, mergedAdvanced) = DanmakuMerger.merge(projectedStandardList)
+            val (mergedStandard, mergedAdvanced) = DanmakuMerger.merge(
+                list = projectedStandardList,
+                intervalMs = config.duplicateMergeWindowMs.toLong(),
+                countThreshold = config.duplicateMergeCountThreshold
+            )
             cachedDanmakuList = mergedStandard
             val settings = currentTypeFilterSettings()
             val visibleMergedAdvanced = mergedAdvanced.filter { merged ->
@@ -790,6 +794,8 @@ class DanmakuManager private constructor(
         staticDanmakuToScroll: Boolean = this.staticDanmakuToScroll,
         massiveMode: Boolean = this.massiveMode,
         mergeDuplicates: Boolean = config.mergeDuplicates,
+        duplicateMergeWindowMs: Int = config.duplicateMergeWindowMs,
+        duplicateMergeCountThreshold: Int = config.duplicateMergeCountThreshold,
         allowScroll: Boolean = config.allowScroll,
         allowTop: Boolean = config.allowTop,
         allowBottom: Boolean = config.allowBottom,
@@ -798,7 +804,9 @@ class DanmakuManager private constructor(
         blockedRules: List<String> = config.blockedRules,
         smartOcclusion: Boolean = config.smartOcclusionEnabled
     ) {
-        val mergeChanged = config.mergeDuplicates != mergeDuplicates
+        val mergeChanged = config.mergeDuplicates != mergeDuplicates ||
+            config.duplicateMergeWindowMs != duplicateMergeWindowMs ||
+            config.duplicateMergeCountThreshold != duplicateMergeCountThreshold
         val blockedRulesChanged = config.blockedRules != blockedRules
         val filterChanged =
             config.allowScroll != allowScroll ||
@@ -822,6 +830,8 @@ class DanmakuManager private constructor(
         config.staticDanmakuToScroll = staticDanmakuToScroll
         config.massiveMode = massiveMode
         config.mergeDuplicates = mergeDuplicates
+        config.duplicateMergeWindowMs = duplicateMergeWindowMs
+        config.duplicateMergeCountThreshold = duplicateMergeCountThreshold
         config.allowScroll = allowScroll
         config.allowTop = allowTop
         config.allowBottom = allowBottom
@@ -1520,6 +1530,64 @@ class DanmakuManager private constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, " Failed to load danmaku for cid=$cid: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    /**
+     * 加载离线缓存弹幕。该路径只读取本地文件，不做网络补拉。
+     */
+    fun loadLocalDanmaku(cid: Long, segments: List<ByteArray>) {
+        Log.w(TAG, "========== loadLocalDanmaku CALLED cid=$cid, segments=${segments.size} ==========")
+        loadJob?.cancel()
+        isLoading = true
+        cachedCid = cid
+        clearExplicitSeekResyncMarker()
+        cachedDanmakuList = null
+        sourceDanmakuList = null
+        sourceAdvancedDanmakuList = null
+        sourceCommandDanmakuList = emptyList()
+        _advancedDanmakuFlow.value = emptyList()
+        _commandDanmakuFlow.value = emptyList()
+        controller?.stop()
+
+        loadJob = scope.launch {
+            try {
+                val parsedResult = withContext(Dispatchers.Default) {
+                    if (segments.isNotEmpty()) {
+                        DanmakuParser.parseProtobuf(segments)
+                    } else {
+                        ParsedDanmaku(emptyList(), emptyList())
+                    }
+                }
+                sourceDanmakuList = parsedResult.standardList
+                sourceAdvancedDanmakuList = parsedResult.advancedList
+
+                val rebuilt = withContext(Dispatchers.Default) {
+                    rebuildDanmakuCacheFromSource("offline_load")
+                }
+
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    if (!rebuilt) {
+                        controller?.clear()
+                        isPlaying = false
+                        return@withContext
+                    }
+                    val currentPlayTime = player?.currentPosition ?: 0L
+                    resyncDanmakuTimeline(
+                        list = cachedDanmakuList ?: emptyList(),
+                        positionMs = currentPlayTime,
+                        shouldPlay = player?.isPlaying == true,
+                        invalidateView = true,
+                        reason = "offline_load"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, " Failed to load local danmaku for cid=$cid: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     isLoading = false
                 }

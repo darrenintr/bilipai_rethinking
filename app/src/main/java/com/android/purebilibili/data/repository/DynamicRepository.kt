@@ -193,9 +193,14 @@ object DynamicRepository {
             if (desktopResponse.code == 0) {
                 val item = desktopResponse.data?.item
                     ?: return@withContext Result.failure(Exception("动态详情为空"))
+                if (shouldFetchOpusDetailForDynamicDetail(item)) {
+                    fetchOpusDetailItem(cleanedId)?.let { return@withContext Result.success(it) }
+                }
                 if (!shouldFallbackForDynamicDetail(item)) {
                     return@withContext Result.success(item)
                 }
+
+                fetchOpusDetailItem(cleanedId)?.let { return@withContext Result.success(it) }
 
                 val fallbackResponse = NetworkModule.dynamicApi.getDynamicDetailFallback(id = cleanedId)
                 if (fallbackResponse.code == 0) {
@@ -208,7 +213,9 @@ object DynamicRepository {
                 return@withContext Result.success(item)
             }
 
-            // desktop 接口失败时降级到 web 详情接口（兼容更多动态类型）
+            // desktop 接口失败时先走图文专用接口，再降级到 web 详情接口。
+            fetchOpusDetailItem(cleanedId)?.let { return@withContext Result.success(it) }
+
             val fallbackResponse = NetworkModule.dynamicApi.getDynamicDetailFallback(id = cleanedId)
             if (fallbackResponse.code == 0) {
                 val item = fallbackResponse.data?.item
@@ -226,6 +233,13 @@ object DynamicRepository {
             e.printStackTrace()
             Result.failure(e)
         }
+    }
+
+    private suspend fun fetchOpusDetailItem(dynamicId: String): DynamicItem? {
+        return runCatching {
+            val response = NetworkModule.dynamicApi.getOpusDetail(id = dynamicId)
+            response.data?.item?.takeIf { response.code == 0 }
+        }.getOrNull()
     }
     
     /**

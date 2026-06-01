@@ -40,7 +40,15 @@ class RecommendationPluginSdkTest {
         val request = RecommendationRequest(
             candidateVideos = listOf(
                 PluginVideoCandidate(bvid = "BV1", title = "short", durationSeconds = 30),
-                PluginVideoCandidate(bvid = "BV2", title = "long", durationSeconds = 300)
+                PluginVideoCandidate(
+                    bvid = "BV2",
+                    title = "long",
+                    durationSeconds = 300,
+                    partitionId = 36,
+                    partitionName = "知识",
+                    replyCount = 42,
+                    tags = listOf("Kotlin")
+                )
             ),
             historyVideos = emptyList(),
             mode = RecommendationMode.RELAX,
@@ -52,6 +60,10 @@ class RecommendationPluginSdkTest {
 
         assertEquals("dev.example.rank", result.sourcePluginId)
         assertEquals(listOf("BV2"), result.items.map { it.video.bvid })
+        assertEquals(36, result.items.single().video.partitionId)
+        assertEquals("知识", result.items.single().video.partitionName)
+        assertEquals(42, result.items.single().video.replyCount)
+        assertEquals(listOf("Kotlin"), result.items.single().video.tags)
         assertTrue(result.items.single().explanation.isNotBlank())
     }
 }

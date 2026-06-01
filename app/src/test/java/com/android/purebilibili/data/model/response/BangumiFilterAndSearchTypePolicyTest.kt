@@ -24,6 +24,16 @@ class BangumiFilterAndSearchTypePolicyTest {
     }
 
     @Test
+    fun `bangumi page search type should follow selected season type`() {
+        assertEquals(SearchType.BANGUMI, resolveBangumiSearchTypeForSeasonType(BangumiType.ANIME.value))
+        assertEquals(SearchType.BANGUMI, resolveBangumiSearchTypeForSeasonType(BangumiType.GUOCHUANG.value))
+        assertEquals(SearchType.MEDIA_FT, resolveBangumiSearchTypeForSeasonType(BangumiType.MOVIE.value))
+        assertEquals(SearchType.MEDIA_FT, resolveBangumiSearchTypeForSeasonType(BangumiType.DOCUMENTARY.value))
+        assertEquals(SearchType.MEDIA_FT, resolveBangumiSearchTypeForSeasonType(BangumiType.TV_SHOW.value))
+        assertEquals(SearchType.MEDIA_FT, resolveBangumiSearchTypeForSeasonType(BangumiType.VARIETY.value))
+    }
+
+    @Test
     fun `year filter should be passed to year for anime and guochuang`() {
         val filter = BangumiFilter(year = "[2025,2026)")
         assertEquals("[2025,2026)", filter.toApiYear(BangumiType.ANIME.value))
@@ -47,7 +57,11 @@ class BangumiFilterAndSearchTypePolicyTest {
             producerId = 4,
             seasonStatus = "4,6",
             order = 4,
-            sortDirection = 0
+            sortDirection = 0,
+            seasonVersion = 1,
+            spokenLanguageType = 2,
+            copyright = "3",
+            seasonMonth = 10
         )
 
         val requestFilter = buildBangumiIndexRequestFilter(
@@ -59,6 +73,10 @@ class BangumiFilterAndSearchTypePolicyTest {
         assertEquals("4,6", requestFilter.seasonStatus)
         assertEquals(4, requestFilter.order)
         assertEquals(0, requestFilter.sortDirection)
+        assertEquals(1, requestFilter.seasonVersion)
+        assertEquals(2, requestFilter.spokenLanguageType)
+        assertEquals("3", requestFilter.copyright)
+        assertEquals(10, requestFilter.seasonMonth)
     }
 
     @Test
@@ -72,6 +90,10 @@ class BangumiFilterAndSearchTypePolicyTest {
         assertEquals(
             "[2026-01-01 00:00:00,2027-01-01 00:00:00)",
             buildBangumiIndexRequestFilter(filter, BangumiType.TV_SHOW.value).releaseDate
+        )
+        assertEquals(
+            "[2026-01-01 00:00:00,2027-01-01 00:00:00)",
+            buildBangumiIndexRequestFilter(filter, BangumiType.VARIETY.value).releaseDate
         )
         assertEquals(
             "[2026-01-01 00:00:00,2027-01-01 00:00:00)",

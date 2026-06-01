@@ -162,9 +162,9 @@ fun TabletVideoLayout(
                     with(sharedTransitionScope) {
                         Modifier
                             .sharedBounds(
-                                sharedContentState = rememberSharedContentState(key = "video_cover_$bvid"),
+                                sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoCoverSharedElementKey(bvid)),
                                 animatedVisibilityScope = animatedVisibilityScope,
-                                boundsTransform = { _, _ -> com.android.purebilibili.core.theme.AnimationSpecs.BiliPaiSpringSpec },
+                                boundsTransform = { _, _ -> com.android.purebilibili.core.ui.motion.AppMotionTokens.spatialSpec() },
                                 clipInOverlayDuringTransition = OverlayClip(
                                     RoundedCornerShape(12.dp)
                                 )
@@ -202,8 +202,11 @@ fun TabletVideoLayout(
                             onDoubleTapLike = { viewModel.toggleLike() },
                             onReloadVideo = { viewModel.reloadVideo() },
                             cdnCount = (uiState as? PlayerUiState.Success)?.cdnCount ?: 1,
+                            cdnLineDiagnostics = (uiState as? PlayerUiState.Success)?.cdnLineDiagnostics.orEmpty(),
+                            isCdnProbing = (uiState as? PlayerUiState.Success)?.isCdnProbing ?: false,
                             onSwitchCdn = { viewModel.switchCdn() },
                             onSwitchCdnTo = { viewModel.switchCdnTo(it) },
+                            onProbeCdnCandidates = { viewModel.probeCurrentCdnCandidates() },
                             isAudioOnly = false,
                             onAudioOnlyToggle = {
                                 viewModel.setAudioMode(true)

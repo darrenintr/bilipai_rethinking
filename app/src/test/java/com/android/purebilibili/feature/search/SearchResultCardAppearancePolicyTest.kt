@@ -42,7 +42,7 @@ class SearchResultCardAppearancePolicyTest {
         assertFalse(appearance.glassEnabled)
         assertTrue(appearance.blurEnabled)
         assertFalse(appearance.showCoverGlassBadges)
-        assertTrue(appearance.showInfoGlassBadges)
+        assertFalse(appearance.showInfoGlassBadges)
         assertFalse(appearance.coverShadowEnabled)
     }
 

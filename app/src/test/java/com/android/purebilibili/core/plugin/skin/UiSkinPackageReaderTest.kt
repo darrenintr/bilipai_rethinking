@@ -222,18 +222,6 @@ class UiSkinPackageReaderTest {
     }
 
     @Test
-    fun builtInWinterSkinDeclaresOnlyDecorativeHomeChromeSurfaces() {
-        val skin = BuiltInUiSkins.winterCloud
-
-        assertEquals("builtin.winter_cloud", skin.skinId)
-        assertEquals(
-            setOf(UiSkinSurface.HOME_BOTTOM_BAR, UiSkinSurface.HOME_TOP_CHROME),
-            skin.surfaces
-        )
-        assertTrue(skin.assets.bottomBarTrim != null)
-    }
-
-    @Test
     fun bilibiliSkinThemeArchive_convertsToPreviewableBpskin() {
         val bytes = bilibiliThemeArchive(
             "萧逸/萧逸.json" to convertedThemeJson().toByteArray(),
@@ -368,6 +356,29 @@ class UiSkinPackageReaderTest {
         assertEquals("assets/tail_bg.png", preview.manifest.assets.bottomBarTrim)
         assertEquals("assets/head_bg.jpg", preview.manifest.assets.topAtmosphere)
         assertEquals("#223344", preview.manifest.colors.bottomBarTrimTint)
+    }
+
+    @Test
+    fun bilibiliSkinDirectNestedJson_downloadsPackageUrlAndConverts() {
+        val packageBytes = skinPackage(
+            "tail_bg.png" to pngBytes(),
+            "head_tab_bg.jpg" to jpegBytes()
+        )
+
+        val importPackage = UiSkinImportPackageResolver.resolve(
+            inputBytes = nestedOfficialSkinJson().toByteArray(),
+            remotePackageFetcher = { url ->
+                assertEquals("https://i0.hdslb.com/bfs/garb/nested_theme_package.zip", url)
+                packageBytes
+            }
+        ).getOrThrow()
+        val preview = UiSkinPackageReader.preview(importPackage.packageBytes).getOrThrow()
+
+        assertEquals(UiSkinImportSource.BILIBILI_SKIN_ARCHIVE, importPackage.source)
+        assertEquals("local.bilibili_skin.998877", preview.manifest.skinId)
+        assertEquals("嵌套官方主题", preview.manifest.displayName)
+        assertEquals("assets/tail_bg.png", preview.manifest.assets.bottomBarTrim)
+        assertEquals("assets/head_tab_bg.jpg", preview.manifest.assets.topAtmosphere)
     }
 
     @Test
@@ -607,6 +618,29 @@ class UiSkinPackageReaderTest {
                     "color": "#112233",
                     "color_second_page": "#445566",
                     "tail_color": "#223344"
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+    }
+
+    private fun nestedOfficialSkinJson(): String {
+        return """
+            {
+              "code": 0,
+              "data": {
+                "skin_suit": {
+                  "item": {
+                    "item_id": 998877,
+                    "name": "嵌套官方主题",
+                    "properties": {
+                      "ver": "1774972801",
+                      "package_url": "https://i0.hdslb.com/bfs/garb/nested_theme_package.zip",
+                      "color": "#334455",
+                      "color_second_page": "#556677",
+                      "tail_color": "#778899"
+                    }
                   }
                 }
               }

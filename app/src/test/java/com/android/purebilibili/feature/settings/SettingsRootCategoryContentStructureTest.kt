@@ -101,9 +101,25 @@ class SettingsRootCategoryContentStructureTest {
             .substringBefore("@Composable\nfun SupportToolsSection(")
 
         assertTrue(contentBlock.contains("Column {\n        when (category)"))
+        assertTrue(contentBlock.contains("SettingsRootCategory.SOCIAL_SUPPORT -> FollowAuthorSection("))
         assertTrue(contentBlock.contains("SettingsRootCategory.HOME_FEED -> {"))
         assertTrue(contentBlock.contains("SettingsRootCategory.DIAGNOSTICS_DEVELOPER -> {"))
         assertTrue(contentBlock.contains("SettingsRootCategory.ABOUT_SUPPORT -> {"))
+    }
+
+    @Test
+    fun aboutSupport_keepsReleaseChannelBelowAboutDetails() {
+        val source = listOf(
+            File("app/src/main/java/com/android/purebilibili/feature/settings/ui/SettingsSections.kt"),
+            File("src/main/java/com/android/purebilibili/feature/settings/ui/SettingsSections.kt")
+        ).first { it.exists() }.readText()
+
+        val aboutBlock = source
+            .substringAfter("SettingsRootCategory.ABOUT_SUPPORT -> {")
+            .substringBefore("SupportToolsSection(")
+
+        assertTrue(aboutBlock.indexOf("AboutSection(") < aboutBlock.indexOf("ReleaseChannelPinnedCard("))
+        assertFalse(aboutBlock.contains("FollowAuthorSection("))
     }
 
     @Test

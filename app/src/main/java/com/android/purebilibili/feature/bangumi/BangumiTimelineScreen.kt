@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import com.android.purebilibili.core.ui.AppShapes
@@ -121,11 +122,10 @@ private fun TimelineView(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(
+                itemsIndexed(
                     items = selectedDay.episodes,
-                    // [修复] 使用复合 key 防止 episodeId 重复导致崩溃
-                    key = { "${it.seasonId}_${it.episodeId}" }
-                ) { episode ->
+                    key = { index, episode -> resolveTimelineEpisodeLazyKey(index, episode) }
+                ) { _, episode ->
                     TimelineEpisodeCard(
                         episode = episode,
                         onClick = { onBangumiClick(episode.seasonId) }

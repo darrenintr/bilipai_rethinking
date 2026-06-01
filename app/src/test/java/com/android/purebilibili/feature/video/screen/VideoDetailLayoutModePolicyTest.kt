@@ -3,6 +3,7 @@ package com.android.purebilibili.feature.video.screen
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import com.android.purebilibili.core.store.FullscreenMode
+import com.android.purebilibili.core.ui.transition.shouldEnableVideoCoverSharedTransition
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -146,6 +147,31 @@ class VideoDetailLayoutModePolicyTest {
     }
 
     @Test
+    fun routedComment_forcesDetachedCommentThreadHostInitializationAfterAidIsReady() {
+        assertTrue(
+            shouldForceInitializeDetachedCommentThreadHostForRoute(
+                routeCommentRootRpid = 11L,
+                aid = 100L,
+                hasHandledRouteComment = false
+            )
+        )
+        assertFalse(
+            shouldForceInitializeDetachedCommentThreadHostForRoute(
+                routeCommentRootRpid = 11L,
+                aid = 0L,
+                hasHandledRouteComment = false
+            )
+        )
+        assertFalse(
+            shouldForceInitializeDetachedCommentThreadHostForRoute(
+                routeCommentRootRpid = 11L,
+                aid = 100L,
+                hasHandledRouteComment = true
+            )
+        )
+    }
+
+    @Test
     fun systemMultiWindowFullscreenPolicy_restoresMainWindowBeforeEnteringFullscreen() {
         assertTrue(
             shouldRestoreMainWindowBeforeEnteringFullscreen(
@@ -177,6 +203,35 @@ class VideoDetailLayoutModePolicyTest {
                 isInPictureInPictureMode = false,
                 isOrientationDrivenFullscreen = true,
                 isFullscreenMode = true
+            )
+        )
+    }
+
+    @Test
+    fun systemMultiWindowFullscreenPolicy_doesNotApplyRouteOrientationRequestInsideSmallWindow() {
+        assertFalse(
+            shouldApplyStartFullscreenOrientationRequest(
+                startInFullscreen = true,
+                isOrientationDrivenFullscreen = true,
+                isLandscape = false,
+                isInMultiWindowMode = true
+            )
+        )
+    }
+
+    @Test
+    fun phoneOrientationPolicy_doesNotWriteRequestedOrientationInsideSmallWindow() {
+        assertEquals(
+            null,
+            resolvePhoneVideoRequestedOrientation(
+                autoRotateEnabled = true,
+                systemAutoRotateEnabled = true,
+                fullscreenMode = FullscreenMode.AUTO,
+                isCompactDevice = true,
+                isOrientationDrivenFullscreen = true,
+                isFullscreenMode = true,
+                manualFullscreenRequested = true,
+                isInMultiWindowMode = true
             )
         )
     }
@@ -467,6 +522,54 @@ class VideoDetailLayoutModePolicyTest {
     }
 
     @Test
+    fun phoneAutoRotateApplyPolicy_appliesLandscapeCandidateImmediately() {
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
+            resolvePhoneAutoRotateTargetToApply(
+                candidateOrientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
+                lastLandscapeAppliedAtMs = null,
+                nowMs = 1_000L
+            )
+        )
+    }
+
+    @Test
+    fun phoneAutoRotateApplyPolicy_suppressesPortraitCandidateAfterRecentLandscape() {
+        assertEquals(
+            null,
+            resolvePhoneAutoRotateTargetToApply(
+                candidateOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+                lastLandscapeAppliedAtMs = 1_000L,
+                nowMs = 1_300L
+            )
+        )
+    }
+
+    @Test
+    fun phoneAutoRotateApplyPolicy_allowsPortraitCandidateAfterLandscapeSettleWindow() {
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+            resolvePhoneAutoRotateTargetToApply(
+                candidateOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+                lastLandscapeAppliedAtMs = 1_000L,
+                nowMs = 1_000L + PHONE_AUTO_ROTATE_LANDSCAPE_SETTLE_MS
+            )
+        )
+    }
+
+    @Test
+    fun phoneAutoRotateApplyPolicy_clearsUnknownCandidateImmediately() {
+        assertEquals(
+            null,
+            resolvePhoneAutoRotateTargetToApply(
+                candidateOrientation = null,
+                lastLandscapeAppliedAtMs = 1_000L,
+                nowMs = 1_300L
+            )
+        )
+    }
+
+    @Test
     fun phoneOrientationPolicy_autoRotateFullscreen_preservesExactLandscapeSide() {
         assertEquals(
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
@@ -512,6 +615,21 @@ class VideoDetailLayoutModePolicyTest {
                 isOrientationDrivenFullscreen = true,
                 fullscreenMode = FullscreenMode.AUTO,
                 manualPortraitHoldActive = true
+            )
+        )
+    }
+
+    @Test
+    fun phoneOrientationObserverPolicy_doesNotListenInsideSmallWindow() {
+        assertFalse(
+            shouldObservePhoneAutoRotate(
+                autoRotateEnabled = true,
+                systemAutoRotateEnabled = true,
+                isCompactDevice = true,
+                isOrientationDrivenFullscreen = true,
+                fullscreenMode = FullscreenMode.AUTO,
+                manualPortraitHoldActive = false,
+                isInMultiWindowMode = true
             )
         )
     }
@@ -632,6 +750,23 @@ class VideoDetailLayoutModePolicyTest {
                 startAudioFromRoute = false,
                 portraitExperienceEnabled = true,
                 useOfficialInlinePortraitDetailExperience = false,
+                isCurrentRouteVideoLoaded = true,
+                isVerticalVideo = true,
+                isPortraitFullscreen = false,
+                hasAutoEnteredPortraitFromRoute = false
+            )
+        )
+    }
+
+    @Test
+    fun autoPortraitRoutePolicy_doesNotEnter_whenWideWindowKeepsDetailContentVisible() {
+        assertFalse(
+            shouldAutoEnterPortraitFullscreenFromRoute(
+                autoEnterPortraitFromRoute = true,
+                startAudioFromRoute = false,
+                portraitExperienceEnabled = true,
+                useOfficialInlinePortraitDetailExperience = false,
+                allowStandalonePortraitAutoEnter = false,
                 isCurrentRouteVideoLoaded = true,
                 isVerticalVideo = true,
                 isPortraitFullscreen = false,

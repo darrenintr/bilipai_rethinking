@@ -125,10 +125,17 @@ class SpacePlaybackPolicyTest {
             mid = 0L,
             title = "收藏夹"
         )
+        val favoriteSeason = resolveSpaceCollectionDetailRequest(
+            type = "favorite_season",
+            id = 78L,
+            mid = 0L,
+            title = "追更合集"
+        )
 
         assertEquals(SpaceCollectionDetailType.SEASON, season?.type)
         assertEquals("合集", season?.title)
         assertEquals(SpaceCollectionDetailType.FAVORITE, favorite?.type)
+        assertEquals(SpaceCollectionDetailType.FAVORITE_SEASON, favoriteSeason?.type)
         assertNull(resolveSpaceCollectionDetailRequest("series", id = 0L, mid = 1L, title = ""))
         assertNull(resolveSpaceCollectionDetailRequest("unknown", id = 1L, mid = 1L, title = ""))
     }

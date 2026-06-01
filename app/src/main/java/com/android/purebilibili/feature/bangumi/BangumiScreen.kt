@@ -2,11 +2,16 @@
 package com.android.purebilibili.feature.bangumi
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -50,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.android.purebilibili.core.ui.AdaptiveScaffold
+import com.android.purebilibili.core.ui.rememberAppChevronUpIcon
 //  已改用 MaterialTheme.colorScheme.primary
 import com.android.purebilibili.core.theme.iOSYellow
 import com.android.purebilibili.core.util.FormatUtils
@@ -62,6 +68,7 @@ import com.android.purebilibili.data.model.response.TimelineDay
 import com.android.purebilibili.data.model.response.TimelineEpisode
 import com.android.purebilibili.data.model.response.resolveBangumiIndexFilterGroups
 import com.android.purebilibili.data.model.response.resolveBangumiIndexFilterKey
+import com.android.purebilibili.data.model.response.resolveBangumiSearchPlaceholder
 // [重构] 使用提取的可复用组件
 import com.android.purebilibili.feature.bangumi.ui.components.BangumiModeTabs
 import com.android.purebilibili.feature.bangumi.ui.components.BangumiIndexFilterRows
@@ -69,6 +76,8 @@ import com.android.purebilibili.feature.bangumi.ui.list.BangumiCard
 import com.android.purebilibili.feature.bangumi.ui.list.BangumiGrid
 import com.android.purebilibili.feature.bangumi.ui.list.BangumiSearchCardGrid
 import java.util.Calendar
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 /**
  * 番剧主页面
@@ -78,6 +87,7 @@ import java.util.Calendar
 fun BangumiScreen(
     onBack: () -> Unit,
     onBangumiClick: (Long) -> Unit,  // 点击番剧 -> seasonId
+    onBangumiEpisodeClick: (Long, Long) -> Unit = { seasonId, _ -> onBangumiClick(seasonId) },
     initialType: Int = 1,  // 初始类型：1=番剧 2=电影 等
     viewModel: BangumiViewModel = viewModel()
 ) {
@@ -95,6 +105,7 @@ fun BangumiScreen(
     // 搜索状态
     var showSearchBar by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var indexChromeCollapsed by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
     
     // 初始类型切换
@@ -124,6 +135,12 @@ fun BangumiScreen(
     }
     val listTransitionKey = remember(selectedType, filter) {
         resolveBangumiIndexFilterKey(selectedType, filter)
+    }
+
+    LaunchedEffect(displayMode, selectedType, filter) {
+        if (displayMode != BangumiDisplayMode.LIST) {
+            indexChromeCollapsed = false
+        }
     }
     
     //  [修复] 设置导航栏透明，确保底部手势栏沉浸式效果
@@ -197,26 +214,33 @@ fun BangumiScreen(
                 )
                 //  [修复] 移除这里的底部内边距，让内容区域自己处理（如 LazyVerticalGrid 的 contentPadding）
         ) {
-            // 模式切换 Tabs (时间表/索引)
+            val shouldShowIndexChrome = displayMode != BangumiDisplayMode.LIST || !indexChromeCollapsed
             if (displayMode == BangumiDisplayMode.LIST || displayMode == BangumiDisplayMode.TIMELINE) {
-                BangumiModeTabs(
-                    currentMode = displayMode,
-                    onModeChange = { viewModel.setDisplayMode(it) }
-                )
-            }
-            
-            // 类型选择 Tabs (仅列表模式显示)
-            if (displayMode == BangumiDisplayMode.LIST) {
-                BangumiTypeTabs(
-                    types = types,
-                    selectedType = selectedType,
-                    onTypeSelected = { viewModel.selectType(it) }
-                )
-                BangumiIndexFilterRows(
-                    groups = filterGroups,
-                    filter = filter,
-                    onFilterChange = { viewModel.updateFilter(it) }
-                )
+                AnimatedVisibility(
+                    visible = shouldShowIndexChrome,
+                    enter = expandVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(150)),
+                    exit = shrinkVertically(animationSpec = tween(160)) + fadeOut(animationSpec = tween(120))
+                ) {
+                    Column {
+                        BangumiModeTabs(
+                            currentMode = displayMode,
+                            onModeChange = { viewModel.setDisplayMode(it) }
+                        )
+
+                        if (displayMode == BangumiDisplayMode.LIST) {
+                            BangumiTypeTabs(
+                                types = types,
+                                selectedType = selectedType,
+                                onTypeSelected = { viewModel.selectType(it) }
+                            )
+                            BangumiIndexFilterRows(
+                                groups = filterGroups,
+                                filter = filter,
+                                onFilterChange = { viewModel.updateFilter(it) }
+                            )
+                        }
+                    }
+                }
             }
             
             // 内容区域
@@ -244,7 +268,8 @@ fun BangumiScreen(
                             onRetryMyFollow = { viewModel.loadMyFollowBangumi(myFollowType) },
                             onLoadMore = { viewModel.loadMore() },
                             onOpenMyFollow = { viewModel.openMyFollowEntry() },
-                            onItemClick = onBangumiClick
+                            onItemClick = onBangumiClick,
+                            onChromeCollapsedChange = { indexChromeCollapsed = it }
                         )
                     }
                 }
@@ -269,9 +294,11 @@ fun BangumiScreen(
                 BangumiDisplayMode.SEARCH -> {
                     BangumiSearchContent(
                         searchState = searchState,
+                        selectedType = selectedType,
                         onRetry = { viewModel.searchBangumi(searchKeyword) },
                         onLoadMore = { viewModel.loadMoreSearchResults() },
-                        onItemClick = onBangumiClick
+                        onItemClick = onBangumiClick,
+                        onEpisodeClick = onBangumiEpisodeClick
                     )
                 }
             }
@@ -295,10 +322,40 @@ private fun BangumiPiliPlusHomeContent(
     onRetryMyFollow: () -> Unit,
     onLoadMore: () -> Unit,
     onOpenMyFollow: () -> Unit,
-    onItemClick: (Long) -> Unit
+    onItemClick: (Long) -> Unit,
+    onChromeCollapsedChange: (Boolean) -> Unit
 ) {
     val gridState = rememberLazyGridState()
+    val coroutineScope = rememberCoroutineScope()
+    val currentOnChromeCollapsedChange by rememberUpdatedState(onChromeCollapsedChange)
     val hasMore = (listState as? BangumiListState.Success)?.hasMore == true
+    val shouldShowBackToTop by remember(gridState) {
+        derivedStateOf {
+            shouldShowBangumiIndexBackToTop(
+                firstVisibleItemIndex = gridState.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = gridState.firstVisibleItemScrollOffset
+            )
+        }
+    }
+
+    LaunchedEffect(gridState) {
+        snapshotFlow {
+            shouldCollapseBangumiIndexChrome(
+                firstVisibleItemIndex = gridState.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = gridState.firstVisibleItemScrollOffset
+            )
+        }
+            .distinctUntilChanged()
+            .collect { collapsed ->
+                currentOnChromeCollapsedChange(collapsed)
+            }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            currentOnChromeCollapsedChange(false)
+        }
+    }
 
     LaunchedEffect(gridState, hasMore) {
         snapshotFlow {
@@ -312,115 +369,145 @@ private fun BangumiPiliPlusHomeContent(
         }
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 106.dp),
-        state = gridState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 12.dp,
-            top = 12.dp,
-            end = 12.dp,
-            bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        ),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        val shouldShowFollowSection = (myFollowState as? MyFollowState.Error)?.message != "未登录"
-        if (shouldShowFollowSection) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                BangumiHomeSectionHeader(
-                    title = if (myFollowType == MY_FOLLOW_TYPE_BANGUMI) "最近追番" else "最近追剧",
-                    actionText = "查看全部",
-                    onAction = onOpenMyFollow
-                )
-            }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                BangumiFollowPreviewSection(
-                    state = myFollowState,
-                    onRetry = onRetryMyFollow,
-                    onOpenMyFollow = onOpenMyFollow,
-                    onItemClick = onItemClick
-                )
-            }
-        }
-
-        if (selectedType == BangumiType.ANIME.value || selectedType == BangumiType.GUOCHUANG.value) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                BangumiHomeSectionHeader(
-                    title = "追番时间表",
-                    actionText = "刷新",
-                    onAction = onRetryTimeline
-                )
-            }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                BangumiTimelinePreviewSection(
-                    state = timelineState,
-                    onRetry = onRetryTimeline,
-                    onItemClick = onItemClick
-                )
-            }
-        }
-
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            BangumiHomeSectionHeader(title = "推荐")
-        }
-
-        when (listState) {
-            is BangumiListState.Loading -> {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 106.dp),
+            state = gridState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                top = 12.dp,
+                end = 12.dp,
+                bottom = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            ),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            val shouldShowFollowSection = (myFollowState as? MyFollowState.Error)?.message != "未登录"
+            if (shouldShowFollowSection) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    HomeLoadingStrip(minHeight = 180.dp)
+                    BangumiHomeSectionHeader(
+                        title = if (myFollowType == MY_FOLLOW_TYPE_BANGUMI) "最近追番" else "最近追剧",
+                        actionText = "查看全部",
+                        onAction = onOpenMyFollow
+                    )
                 }
-            }
-            is BangumiListState.Error -> {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    HomeErrorStrip(
-                        message = listState.message,
-                        onRetry = onRetry
+                    BangumiFollowPreviewSection(
+                        state = myFollowState,
+                        onRetry = onRetryMyFollow,
+                        onOpenMyFollow = onOpenMyFollow,
+                        onItemClick = onItemClick
                     )
                 }
             }
-            is BangumiListState.Success -> {
-                if (listState.isRefreshing) {
-                    item(
-                        key = "refreshing-indicator",
-                        span = { GridItemSpan(maxLineSpan) }
-                    ) {
-                        LinearProgressIndicator(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 2.dp),
-                            color = MaterialTheme.colorScheme.primary
+
+            if (selectedType == BangumiType.ANIME.value || selectedType == BangumiType.GUOCHUANG.value) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    BangumiHomeSectionHeader(
+                        title = "追番时间表",
+                        actionText = "刷新",
+                        onAction = onRetryTimeline
+                    )
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    BangumiTimelinePreviewSection(
+                        state = timelineState,
+                        onRetry = onRetryTimeline,
+                        onItemClick = onItemClick
+                    )
+                }
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                BangumiHomeSectionHeader(title = "推荐")
+            }
+
+            when (listState) {
+                is BangumiListState.Loading -> {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        HomeLoadingStrip(minHeight = 180.dp)
+                    }
+                }
+                is BangumiListState.Error -> {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        HomeErrorStrip(
+                            message = listState.message,
+                            onRetry = onRetry
                         )
                     }
                 }
-                if (listState.items.isEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text(
-                            text = "暂无推荐内容",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 32.dp),
-                            fontSize = 14.sp
-                        )
+                is BangumiListState.Success -> {
+                    if (listState.isRefreshing) {
+                        item(
+                            key = "refreshing-indicator",
+                            span = { GridItemSpan(maxLineSpan) }
+                        ) {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 2.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
-                } else {
-                    items(
-                        items = listState.items,
-                        key = { it.seasonId }
-                    ) { item ->
-                        BangumiCard(
-                            item = item,
-                            modifier = Modifier.animateItem(),
-                            onClick = { onItemClick(item.seasonId) }
-                        )
-                    }
-                    if (listState.hasMore) {
+                    if (listState.items.isEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            HomeLoadingStrip(minHeight = 56.dp)
+                            Text(
+                                text = "暂无推荐内容",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 32.dp),
+                                fontSize = 14.sp
+                            )
+                        }
+                    } else {
+                        itemsIndexed(
+                            items = listState.items,
+                            key = { index, item -> resolveBangumiIndexItemLazyKey(index, item) }
+                        ) { _, item ->
+                            BangumiCard(
+                                item = item,
+                                modifier = Modifier.animateItem(),
+                                onClick = { onItemClick(item.seasonId) }
+                            )
+                        }
+                        if (listState.hasMore) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                HomeLoadingStrip(minHeight = 56.dp)
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = shouldShowBackToTop,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(
+                    end = 20.dp,
+                    bottom = 28.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                ),
+            enter = fadeIn(animationSpec = tween(180)) + scaleIn(initialScale = 0.92f),
+            exit = fadeOut(animationSpec = tween(140)) + scaleOut(targetScale = 0.92f)
+        ) {
+            SmallFloatingActionButton(
+                onClick = {
+                    coroutineScope.launch {
+                        gridState.animateScrollToItem(0)
+                        currentOnChromeCollapsedChange(false)
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                Icon(
+                    imageVector = rememberAppChevronUpIcon(),
+                    contentDescription = "回到顶部"
+                )
             }
         }
     }
@@ -637,10 +724,10 @@ private fun BangumiTimelinePreviewSection(
                     }
                 }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(
+                    itemsIndexed(
                         items = selectedDay.episodes.orEmpty(),
-                        key = { it.episodeId }
-                    ) { episode ->
+                        key = { index, episode -> resolveTimelineEpisodeLazyKey(index, episode) }
+                    ) { _, episode ->
                         TimelineEpisodeHomeCard(
                             episode = episode,
                             onClick = { onItemClick(episode.seasonId) }
@@ -1066,9 +1153,11 @@ private fun BangumiListContent(
 @Composable
 private fun BangumiSearchContent(
     searchState: BangumiSearchState,
+    selectedType: Int,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
-    onItemClick: (Long) -> Unit
+    onItemClick: (Long) -> Unit,
+    onEpisodeClick: (Long, Long) -> Unit
 ) {
     when (searchState) {
         is BangumiSearchState.Idle -> {
@@ -1077,7 +1166,7 @@ private fun BangumiSearchContent(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "输入关键词搜索番剧",
+                    resolveBangumiSearchPlaceholder(selectedType),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -1123,7 +1212,8 @@ private fun BangumiSearchContent(
                     items = searchState.items,
                     hasMore = searchState.hasMore,
                     onLoadMore = onLoadMore,
-                    onItemClick = onItemClick
+                    onItemClick = onItemClick,
+                    onEpisodeClick = onEpisodeClick
                 )
             }
         }
@@ -1135,7 +1225,8 @@ private fun BangumiSearchGrid(
     items: List<BangumiSearchItem>,
     hasMore: Boolean,
     onLoadMore: () -> Unit,
-    onItemClick: (Long) -> Unit
+    onItemClick: (Long) -> Unit,
+    onEpisodeClick: (Long, Long) -> Unit
 ) {
     val gridState = rememberLazyGridState()
     
@@ -1164,13 +1255,19 @@ private fun BangumiSearchGrid(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        items(
+        itemsIndexed(
             items = items,
-            key = { it.seasonId }
-        ) { item ->
+            key = { index, item -> resolveBangumiSearchItemLazyKey(index, item) }
+        ) { _, item ->
             BangumiSearchCardGrid(
                 item = item,
-                onClick = { onItemClick(item.seasonId) }
+                onClick = { onItemClick(item.seasonId.takeIf { it > 0L } ?: item.pgcSeasonId) },
+                onEpisodeClick = item.episodes?.firstOrNull { it.id > 0L }?.let { episode ->
+                    {
+                        val targetSeasonId = item.seasonId.takeIf { it > 0L } ?: item.pgcSeasonId
+                        onEpisodeClick(targetSeasonId, episode.id)
+                    }
+                }
             )
         }
         

@@ -261,6 +261,20 @@ class HomeInteractionMotionBudgetPolicyTest {
     }
 
     @Test
+    fun topTabSelectedContentPosition_tracksPagerOffsetWhileUserSwipesContent() {
+        assertEquals(
+            0.35f,
+            resolveTopTabSelectedContentPosition(
+                selectedIndex = 0,
+                pagerCurrentPage = 0,
+                pagerTargetPage = 1,
+                pagerCurrentPageOffsetFraction = 0.35f,
+                pagerIsScrolling = true
+            )
+        )
+    }
+
+    @Test
     fun topTabIndicatorRenderPosition_prefersSettledPagerPageWhenIdle() {
         assertEquals(
             2f,
@@ -341,5 +355,43 @@ class HomeInteractionMotionBudgetPolicyTest {
             ),
             0.001f
         )
+    }
+
+    @Test
+    fun iosTopTabCapsuleTranslation_prefersMeasuredSelectedItemLeft() {
+        assertEquals(
+            184f,
+            resolveIosTopTabCapsuleTargetTranslationPx(
+                measuredSelectedItemLeftPx = 184f,
+                absolutePagerPosition = 0f,
+                itemWidthPx = 160f,
+                rowScrollOffsetPx = 0f,
+                contentPaddingPx = 2f
+            ),
+            0.001f
+        )
+    }
+
+    @Test
+    fun iosTopTabCapsuleTranslation_ignoresMeasuredSelectedItemLeftDuringPagerSwipe() {
+        assertEquals(
+            66f,
+            resolveIosTopTabCapsuleTargetTranslationPx(
+                measuredSelectedItemLeftPx = 184f,
+                absolutePagerPosition = 0.4f,
+                itemWidthPx = 160f,
+                rowScrollOffsetPx = 0f,
+                contentPaddingPx = 2f,
+                followPagerPosition = true
+            ),
+            0.001f
+        )
+    }
+
+    @Test
+    fun iosTopTabCapsule_disablesSpringAnimationDuringPagerDrag() {
+        assertFalse(shouldAnimateIosTopTabCapsule(pagerIsDragging = true, pagerIsScrolling = false))
+        assertFalse(shouldAnimateIosTopTabCapsule(pagerIsDragging = false, pagerIsScrolling = true))
+        assertTrue(shouldAnimateIosTopTabCapsule(pagerIsDragging = false, pagerIsScrolling = false))
     }
 }

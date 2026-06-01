@@ -24,7 +24,7 @@ class TopTabStylePolicyTest {
         )
 
         assertEquals(true, state.floating)
-        assertEquals(TopTabMaterialMode.BLUR, state.materialMode)
+        assertEquals(TopTabMaterialMode.LIQUID_GLASS, state.materialMode)
     }
 
     @Test
@@ -64,7 +64,7 @@ class TopTabStylePolicyTest {
     }
 
     @Test
-    fun `docked with liquid downgrades to blur when blur enabled`() {
+    fun `docked with liquid uses liquid glass when blur enabled`() {
         val state = resolveTopTabStyle(
             isBottomBarFloating = false,
             isBottomBarBlurEnabled = true,
@@ -72,11 +72,11 @@ class TopTabStylePolicyTest {
         )
 
         assertEquals(false, state.floating)
-        assertEquals(TopTabMaterialMode.BLUR, state.materialMode)
+        assertEquals(TopTabMaterialMode.LIQUID_GLASS, state.materialMode)
     }
 
     @Test
-    fun `docked without blur uses plain`() {
+    fun `docked with liquid uses liquid glass without blur`() {
         val state = resolveTopTabStyle(
             isBottomBarFloating = false,
             isBottomBarBlurEnabled = false,
@@ -84,7 +84,7 @@ class TopTabStylePolicyTest {
         )
 
         assertEquals(false, state.floating)
-        assertEquals(TopTabMaterialMode.PLAIN, state.materialMode)
+        assertEquals(TopTabMaterialMode.LIQUID_GLASS, state.materialMode)
     }
 
     @Test
@@ -106,17 +106,23 @@ class TopTabStylePolicyTest {
     }
 
     @Test
-    fun `top tab liquid glass is disabled regardless of interaction budget`() {
-        assertFalse(
+    fun `top tab liquid glass follows requested state regardless of interaction budget`() {
+        assertTrue(
             resolveEffectiveTopTabLiquidGlassEnabled(
                 isLiquidGlassEnabled = true,
                 interactionBudget = HomeInteractionMotionBudget.FULL
             )
         )
-        assertFalse(
+        assertTrue(
             resolveEffectiveTopTabLiquidGlassEnabled(
                 isLiquidGlassEnabled = true,
                 interactionBudget = HomeInteractionMotionBudget.REDUCED
+            )
+        )
+        assertFalse(
+            resolveEffectiveTopTabLiquidGlassEnabled(
+                isLiquidGlassEnabled = false,
+                interactionBudget = HomeInteractionMotionBudget.FULL
             )
         )
     }
@@ -211,6 +217,97 @@ class TopTabStylePolicyTest {
     }
 
     @Test
+    fun `miuix top panel reserves extra content gap below category tabs`() {
+        val ios = resolveHomeTopPresetStyle(
+            uiPreset = UiPreset.IOS,
+            androidNativeVariant = AndroidNativeVariant.MATERIAL3,
+            labelMode = 2
+        )
+        val material3 = resolveHomeTopPresetStyle(
+            uiPreset = UiPreset.MD3,
+            androidNativeVariant = AndroidNativeVariant.MATERIAL3,
+            labelMode = 2
+        )
+        val miuix = resolveHomeTopPresetStyle(
+            uiPreset = UiPreset.MD3,
+            androidNativeVariant = AndroidNativeVariant.MIUIX,
+            labelMode = 2
+        )
+
+        assertEquals(5.dp, ios.reservedContentBottomGap)
+        assertEquals(5.dp, material3.reservedContentBottomGap)
+        assertEquals(12.dp, miuix.reservedContentBottomGap)
+        assertEquals(
+            12.dp,
+            resolveHomeTopReservedContentBottomGap(
+                uiPreset = UiPreset.MD3,
+                androidNativeVariant = AndroidNativeVariant.MIUIX
+            )
+        )
+    }
+
+    @Test
+    fun `miuix top settings button follows action button metrics while other presets keep existing size`() {
+        assertEquals(
+            40.dp,
+            resolveHomeTopSettingsButtonSize(
+                uiPreset = UiPreset.IOS,
+                androidNativeVariant = AndroidNativeVariant.MATERIAL3
+            )
+        )
+        assertEquals(
+            40.dp,
+            resolveHomeTopSettingsButtonSize(
+                uiPreset = UiPreset.MD3,
+                androidNativeVariant = AndroidNativeVariant.MATERIAL3
+            )
+        )
+        assertEquals(
+            44.dp,
+            resolveHomeTopSettingsButtonSize(
+                uiPreset = UiPreset.MD3,
+                androidNativeVariant = AndroidNativeVariant.MIUIX
+            )
+        )
+        assertEquals(
+            20.dp,
+            resolveHomeTopSettingsIconSize(
+                uiPreset = UiPreset.IOS,
+                androidNativeVariant = AndroidNativeVariant.MATERIAL3
+            )
+        )
+        assertEquals(
+            20.dp,
+            resolveHomeTopSettingsIconSize(
+                uiPreset = UiPreset.MD3,
+                androidNativeVariant = AndroidNativeVariant.MATERIAL3
+            )
+        )
+        assertEquals(
+            22.dp,
+            resolveHomeTopSettingsIconSize(
+                uiPreset = UiPreset.MD3,
+                androidNativeVariant = AndroidNativeVariant.MIUIX
+            )
+        )
+    }
+
+    @Test
+    fun `miuix category action trailing padding aligns with unified top settings center`() {
+        val miuix = resolveHomeTopPresetStyle(
+            uiPreset = UiPreset.MD3,
+            androidNativeVariant = AndroidNativeVariant.MIUIX,
+            labelMode = 2
+        )
+
+        assertEquals(4.dp, resolveMiuixTopTabRowHorizontalPadding())
+        assertEquals(
+            5.dp,
+            resolveMiuixTopTabActionTrailingPadding(miuix.unifiedPanelInnerPadding)
+        )
+    }
+
+    @Test
     fun `clicking selected top tab scrolls to top while other tabs select`() {
         assertEquals(
             TopTabClickAction.SCROLL_TO_TOP,
@@ -279,6 +376,22 @@ class TopTabStylePolicyTest {
 
         assertTrue(itemBlock.contains("HomeTopTabRenderer.IOS -> resolveSharedBottomBarCapsuleShape()"))
         assertFalse(itemBlock.contains("HomeTopTabRenderer.IOS -> AppShapes.container(ContainerLevel.Pill)"))
+    }
+
+    @Test
+    fun `ios lightweight top tab capsule uses gray white while content keeps theme primary`() {
+        val colorScheme = lightColorScheme(primary = Color(0xFF2D6A4F))
+        val capsuleColor = resolveIosTopTabCapsuleContainerColor(
+            isDarkTheme = false,
+            selectionFraction = 1f
+        )
+
+        assertEquals(Color(0xFFF2F2F7), capsuleColor)
+        assertEquals(
+            colorScheme.primary,
+            resolveIosTopTabSelectedContentColor(colorScheme)
+        )
+        assertFalse(capsuleColor == colorScheme.primary.copy(alpha = 0.10f))
     }
 
     @Test
@@ -399,6 +512,28 @@ class TopTabStylePolicyTest {
         assertFalse(
             "MiuiX 分区按钮普通态不应使用 primary 大面积铺色",
             miuixTabRowSource.contains("color = MiuixTheme.colorScheme.primary.copy")
+        )
+    }
+
+    @Test
+    fun `android native miuix top tabs keep native contour indicator driver`() {
+        val source = sourceText("src/main/java/com/android/purebilibili/feature/home/components/TopBar.kt")
+        val miuixSelectionSource = source
+            .substringAfter("private fun MiuixCategoryTabRow(")
+            .substringBefore("val topTabSpec =")
+
+        assertTrue(
+            "MiuiX 分类条必须继续使用原生轮廓 TabRow",
+            source.substringAfter("private fun MiuixCategoryTabRow(")
+                .contains("MiuixTabRowWithContour(")
+        )
+        assertFalse(
+            "MiuiX 原生轮廓指示器不应复用 MD3 的 pager 指示器位置驱动",
+            miuixSelectionSource.contains("resolveTopTabIndicatorRenderPosition(")
+        )
+        assertTrue(
+            "MiuiX 可见槽位应由已选中分类驱动，避免滑动中退化成 MD3 指示器语义",
+            miuixSelectionSource.contains("selectedIndex = selectedIndex")
         )
     }
 
@@ -567,6 +702,53 @@ class TopTabStylePolicyTest {
     }
 
     @Test
+    fun `md3 and miuix use screenshot underline when liquid glass is off`() {
+        assertTrue(
+            shouldUsePlainMd3TopTabUnderline(
+                uiPreset = UiPreset.MD3,
+                liquidGlassEnabled = false
+            )
+        )
+        assertFalse(
+            shouldUsePlainMd3TopTabUnderline(
+                uiPreset = UiPreset.MD3,
+                liquidGlassEnabled = true
+            )
+        )
+        assertFalse(
+            shouldUsePlainMd3TopTabUnderline(
+                uiPreset = UiPreset.IOS,
+                liquidGlassEnabled = false
+            )
+        )
+    }
+
+    @Test
+    fun `md3 top tabs remove outer dock when liquid glass is off`() {
+        assertFalse(
+            shouldDrawHomeTopTabOuterChromeSurface(
+                uiPreset = UiPreset.MD3,
+                androidNativeVariant = AndroidNativeVariant.MATERIAL3,
+                materialMode = TopTabMaterialMode.BLUR
+            )
+        )
+        assertFalse(
+            shouldDrawHomeTopTabOuterChromeSurface(
+                uiPreset = UiPreset.MD3,
+                androidNativeVariant = AndroidNativeVariant.MATERIAL3,
+                materialMode = TopTabMaterialMode.PLAIN
+            )
+        )
+        assertTrue(
+            shouldDrawHomeTopTabOuterChromeSurface(
+                uiPreset = UiPreset.MD3,
+                androidNativeVariant = AndroidNativeVariant.MATERIAL3,
+                materialMode = TopTabMaterialMode.LIQUID_GLASS
+            )
+        )
+    }
+
+    @Test
     fun `md3 top tabs use underline row semantics and tighter action shape`() {
         assertEquals(
             "UNDERLINE_FIXED",
@@ -715,7 +897,7 @@ class TopTabStylePolicyTest {
             .substringBefore("@Composable\nprivate fun MiuixCategoryTabRow(")
 
         assertTrue(categoryTabRowSource.contains("val hasSkinStickerIcons = topTabSkinIconPaths.isNotEmpty() || !partitionSkinIconPath.isNullOrBlank()"))
-        assertTrue(categoryTabRowSource.contains("if (!hasSkinStickerIcons && !skinPlainStyle && presetStyle.renderer == HomeTopTabRenderer.MIUIX)"))
+        assertTrue(categoryTabRowSource.contains("if (showPartitionAction && !hasSkinStickerIcons && !skinPlainStyle && presetStyle.renderer == HomeTopTabRenderer.MIUIX)"))
         assertTrue(categoryTabRowSource.contains("topTabSkinIconPaths = topTabSkinIconPaths"))
         assertTrue(categoryTabRowSource.contains("partitionSkinIconPath = partitionSkinIconPath"))
     }

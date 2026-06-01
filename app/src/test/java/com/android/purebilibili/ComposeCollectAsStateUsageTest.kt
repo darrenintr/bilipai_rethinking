@@ -42,7 +42,8 @@ class ComposeCollectAsStateUsageTest {
                 File(root, "com/android/purebilibili/feature/home"),
                 File(root, "com/android/purebilibili/feature/watchlater"),
                 File(root, "com/android/purebilibili/feature/list"),
-                File(root, "com/android/purebilibili/feature/profile")
+                File(root, "com/android/purebilibili/feature/profile"),
+                File(root, "com/android/purebilibili/navigation")
             )
         }
     }

@@ -1,6 +1,7 @@
 package com.android.purebilibili.feature.home.policy
 
 import com.android.purebilibili.feature.home.HomeCategory
+import com.android.purebilibili.feature.home.HomeTopTabEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -127,6 +128,24 @@ class HomePagerSyncPolicyTest {
     }
 
     @Test
+    fun pagerStateDrive_skipsWhenCategoryWasAlreadyDriven() {
+        assertTrue(
+            shouldSkipHomePagerStateDrive(
+                hasSyncedPagerWithState = true,
+                lastDrivenCategory = HomeCategory.RECOMMEND,
+                currentCategory = HomeCategory.RECOMMEND
+            )
+        )
+        assertFalse(
+            shouldSkipHomePagerStateDrive(
+                hasSyncedPagerWithState = true,
+                lastDrivenCategory = HomeCategory.RECOMMEND,
+                currentCategory = HomeCategory.LIVE
+            )
+        )
+    }
+
+    @Test
     fun pagerAnimation_skipsWhenAlreadyOnTarget() {
         assertFalse(
             shouldAnimateHomePagerToCategory(
@@ -161,6 +180,48 @@ class HomePagerSyncPolicyTest {
                 pagerCurrentPage = 1,
                 pagerScrolling = false,
                 programmaticPageSwitchInProgress = false
+            )
+        )
+    }
+
+    @Test
+    fun initialTopTabPage_restoresPartitionDisplayedIndex() {
+        val entries = listOf(
+            HomeTopTabEntry.Category(HomeCategory.RECOMMEND),
+            HomeTopTabEntry.Category(HomeCategory.POPULAR),
+            HomeTopTabEntry.Partition
+        )
+
+        assertEquals(
+            2,
+            resolveHomeInitialTopTabPage(
+                topTabEntries = entries,
+                currentCategory = HomeCategory.RECOMMEND,
+                displayedTabIndex = 2
+            )
+        )
+        assertTrue(
+            shouldTreatInitialHomePagerPageAsSyncedWithState(
+                initialEntry = entries[2],
+                currentCategory = HomeCategory.RECOMMEND
+            )
+        )
+    }
+
+    @Test
+    fun initialTopTabPage_ignoresStaleCategoryDisplayedIndex() {
+        val entries = listOf(
+            HomeTopTabEntry.Category(HomeCategory.RECOMMEND),
+            HomeTopTabEntry.Category(HomeCategory.POPULAR),
+            HomeTopTabEntry.Partition
+        )
+
+        assertEquals(
+            1,
+            resolveHomeInitialTopTabPage(
+                topTabEntries = entries,
+                currentCategory = HomeCategory.POPULAR,
+                displayedTabIndex = 0
             )
         )
     }

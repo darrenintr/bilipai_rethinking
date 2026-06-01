@@ -44,8 +44,8 @@ class CommonListAppearancePolicyTest {
                 isBottomBarBlurEnabled = false,
                 isTopBarLiquidGlassEnabled = false,
                 isBottomBarLiquidGlassEnabled = false,
-                showHomeCoverGlassBadges = false,
-                showHomeInfoGlassBadges = false
+                showHomeCoverGlassBadges = true,
+                showHomeInfoGlassBadges = true
             ),
             uiPreset = UiPreset.MD3
         )

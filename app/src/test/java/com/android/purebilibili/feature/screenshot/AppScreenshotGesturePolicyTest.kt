@@ -157,4 +157,36 @@ class AppScreenshotGesturePolicyTest {
             AppScreenshotGestureMode.fromValue(999)
         )
     }
+
+    @Test
+    fun screenshotSharePrompt_onlyOfferedForLandscapeSuccessfulSaveWithUri() {
+        assertTrue(
+            shouldOfferAppScreenshotShare(
+                isLandscape = true,
+                result = AppScreenshotResult.Success,
+                hasShareUri = true
+            )
+        )
+        assertFalse(
+            shouldOfferAppScreenshotShare(
+                isLandscape = false,
+                result = AppScreenshotResult.Success,
+                hasShareUri = true
+            )
+        )
+        assertFalse(
+            shouldOfferAppScreenshotShare(
+                isLandscape = true,
+                result = AppScreenshotResult.SaveFailed,
+                hasShareUri = true
+            )
+        )
+        assertFalse(
+            shouldOfferAppScreenshotShare(
+                isLandscape = true,
+                result = AppScreenshotResult.Success,
+                hasShareUri = false
+            )
+        )
+    }
 }

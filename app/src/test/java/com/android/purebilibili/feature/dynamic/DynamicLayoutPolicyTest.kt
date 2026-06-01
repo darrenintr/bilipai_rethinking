@@ -61,6 +61,20 @@ class DynamicLayoutPolicyTest {
     }
 
     @Test
+    fun `dynamic sidebar return header aligns with top tab row height`() {
+        assertEquals(52, resolveDynamicTopBarHeightDp())
+        assertEquals(resolveDynamicTopBarHeightDp(), resolveDynamicSidebarReturnHeaderHeightDp())
+    }
+
+    @Test
+    fun `dynamic sidebar divider starts below top chrome`() {
+        assertEquals(
+            76.dp,
+            resolveDynamicSidebarDividerTopOffset(topPadding = 24.dp)
+        )
+    }
+
+    @Test
     fun `dynamic sidebar trims width without crowding avatar affordances`() {
         assertEquals(68.dp, resolveDynamicSidebarWidth(isExpanded = true))
         assertEquals(60.dp, resolveDynamicSidebarWidth(isExpanded = false))
@@ -90,9 +104,9 @@ class DynamicLayoutPolicyTest {
     }
 
     @Test
-    fun `dynamic action text keeps share and comment labels when slot is narrow`() {
+    fun `dynamic action text keeps comment count when slot is narrow`() {
         assertEquals(
-            "评论",
+            "评论 1.2k",
             resolveDynamicActionButtonText(label = "评论", count = 1200, slotWidthDp = 96)
         )
         assertEquals(

@@ -9,6 +9,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -24,6 +25,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.annotation.OptIn
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -57,8 +61,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.media3.common.util.UnstableApi
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.rememberNavController
 import androidx.window.layout.WindowMetrics
 import androidx.window.layout.WindowMetricsCalculator
 import coil.compose.AsyncImagePainter
@@ -91,6 +93,7 @@ import com.android.purebilibili.feature.settings.AppUpdateInstallAction
 import com.android.purebilibili.feature.settings.AppLanguage
 import com.android.purebilibili.feature.settings.AppThemeMode
 import com.android.purebilibili.feature.settings.DarkThemeStyle
+import com.android.purebilibili.feature.settings.Md3ColorSource
 import com.android.purebilibili.feature.settings.applyAppLanguage
 import com.android.purebilibili.core.theme.resolveEffectiveDynamicColorEnabled
 import com.android.purebilibili.core.theme.UiPreset
@@ -102,7 +105,6 @@ import com.android.purebilibili.core.util.BilibiliUrlParser
 import com.android.purebilibili.core.util.LocalWindowSizeClass
 import com.android.purebilibili.core.util.calculateWindowSizeClass
 import com.android.purebilibili.data.repository.VideoRepository
-import com.android.purebilibili.feature.cast.DlnaManager
 import com.android.purebilibili.feature.cast.LocalProxyServer
 import com.android.purebilibili.feature.settings.RELEASE_DISCLAIMER_ACK_KEY
 import com.android.purebilibili.feature.settings.completeAppUpdateDownload
@@ -116,16 +118,23 @@ import com.android.purebilibili.feature.settings.resolveUpdateReleaseNotesText
 import com.android.purebilibili.feature.settings.selectPreferredAppUpdateAsset
 import com.android.purebilibili.feature.settings.shouldRunAppEntryAutoCheck
 import com.android.purebilibili.feature.settings.resolveThemePreferenceState
+import com.android.purebilibili.core.theme.resolveMd3DynamicColorEnabled
 import com.android.purebilibili.feature.screenshot.AppScreenshotCaptureMode
 import com.android.purebilibili.feature.screenshot.AppScreenshotGestureMode
 import com.android.purebilibili.feature.screenshot.AppScreenshotGestureBlockState
 import com.android.purebilibili.feature.screenshot.AppScreenshotResult
+import com.android.purebilibili.feature.screenshot.AppScreenshotSavedImage
 import com.android.purebilibili.feature.screenshot.AppScreenshotRegionOverlay
 import com.android.purebilibili.feature.screenshot.appScreenshotGestureDetector
-import com.android.purebilibili.feature.screenshot.captureAndSaveAppScreenshot
+import com.android.purebilibili.feature.screenshot.captureAndSaveAppScreenshotImage
 import com.android.purebilibili.feature.screenshot.captureCurrentAppWindow
 import com.android.purebilibili.feature.screenshot.cropAppScreenshotBitmap
-import com.android.purebilibili.feature.screenshot.saveAppScreenshotBitmapToGallery
+import com.android.purebilibili.feature.screenshot.saveAppScreenshotBitmapToGalleryUri
+import com.android.purebilibili.feature.screenshot.shareAppScreenshot
+import com.android.purebilibili.feature.screenshot.shouldOfferAppScreenshotShare
+import com.android.purebilibili.feature.privacy.PrivacyAuthenticationReason
+import com.android.purebilibili.feature.privacy.PrivacyAuthenticationRequest
+import com.android.purebilibili.feature.privacy.PrivacyAuthenticationResult
 import com.android.purebilibili.feature.video.player.MiniPlayerManager
 import com.android.purebilibili.feature.video.player.buildPipPlaybackRemoteActions
 import com.android.purebilibili.feature.video.ui.overlay.FullscreenPlayerOverlay
@@ -259,15 +268,6 @@ internal fun resolveIntentLinkFallbackUrl(rawInput: String): String? {
 
     return BilibiliUrlParser.extractUrls(rawInput)
         .firstNotNullOfOrNull(::normalizeIntentLinkWebCandidate)
-}
-
-private suspend fun awaitNavControllerReady(
-    navController: NavHostController
-) {
-    if (navController.currentDestination != null) return
-    snapshotFlow { navController.currentDestination != null }
-        .filter { it }
-        .first()
 }
 
 private fun normalizeIntentLinkWebCandidate(rawInput: String): String? {
@@ -725,6 +725,61 @@ open class MainActivity : AppCompatActivity() {
 
     var windowMetrics: WindowMetrics? by mutableStateOf(null)
 
+    private fun authenticatePrivacyAccess(
+        request: PrivacyAuthenticationRequest,
+        onResult: (PrivacyAuthenticationResult) -> Unit
+    ) {
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        val availability = BiometricManager.from(this).canAuthenticate(authenticators)
+        if (availability != BiometricManager.BIOMETRIC_SUCCESS) {
+            onResult(PrivacyAuthenticationResult.Failure(resolvePrivacyAuthenticationUnavailableMessage(request)))
+            return
+        }
+
+        var delivered = false
+        fun deliver(result: PrivacyAuthenticationResult) {
+            if (!delivered) {
+                delivered = true
+                onResult(result)
+            }
+        }
+
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    deliver(PrivacyAuthenticationResult.Success)
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    val message = when (errorCode) {
+                        BiometricPrompt.ERROR_CANCELED,
+                        BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+                        BiometricPrompt.ERROR_USER_CANCELED -> "已取消解锁"
+                        else -> errString.toString().ifBlank { "解锁失败，请稍后重试" }
+                    }
+                    deliver(PrivacyAuthenticationResult.Failure(message))
+                }
+            }
+        )
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(request.reason.title)
+            .setSubtitle(request.reason.subtitle)
+            .setAllowedAuthenticators(authenticators)
+            .build()
+        prompt.authenticate(promptInfo)
+    }
+
+    private fun resolvePrivacyAuthenticationUnavailableMessage(
+        request: PrivacyAuthenticationRequest
+    ): String {
+        return when (request.reason) {
+            PrivacyAuthenticationReason.OPEN_PRIVACY_CONTENT -> "请先设置系统锁屏后再解锁隐私内容"
+        }
+    }
+
     private fun refreshSystemThemeSnapshot(reason: String) {
         val currentSystemInDark = resolveMainActivitySystemInDarkTheme(
             resources.configuration.uiMode
@@ -978,7 +1033,6 @@ open class MainActivity : AppCompatActivity() {
             val context = LocalContext.current
             val uriHandler = LocalUriHandler.current
             val scope = rememberCoroutineScope()
-            val navController = rememberNavController()
             var startupUpdateCheckResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
             var startupUpdateDownloadState by remember { mutableStateOf(AppUpdateDownloadState()) }
             var pendingCrashSnapshotPath by remember {
@@ -995,54 +1049,6 @@ open class MainActivity : AppCompatActivity() {
                             startupUpdateCheckResult = info
                         }
                     }
-                }
-            }
-            
-            //  [新增] 监听 pendingVideoId 并导航到视频详情页
-            LaunchedEffect(pendingVideoId) {
-                pendingVideoId?.let { videoId ->
-                    awaitNavControllerReady(navController)
-                    val currentEntry = navController.currentBackStackEntry
-                    val currentRoute = currentEntry?.destination?.route
-                    val currentBvid = currentEntry?.arguments?.getString("bvid")
-                    val shouldNavigate = shouldNavigateToVideoFromNotification(
-                        currentRoute = currentRoute,
-                        currentBvid = currentBvid,
-                        targetBvid = videoId
-                    )
-
-                    if (shouldNavigate) {
-                        Logger.d(TAG, "🚀 导航到视频: $videoId")
-                        miniPlayerManager.isNavigatingToVideo = true
-                        navController.navigate(resolveMainActivityVideoRoute(bvid = videoId, cid = 0L)) {
-                            launchSingleTop = true
-                        }
-                    } else {
-                        Logger.d(TAG, "🎯 已在目标视频页，跳过重复导航: $videoId")
-                    }
-                    pendingVideoId = null
-                }
-            }
-            
-            // 🚀 [新增] 监听 pendingRoute 并导航到对应页面 (App Shortcuts)
-            LaunchedEffect(pendingRoute) {
-                pendingRoute?.let { route ->
-                    awaitNavControllerReady(navController)
-                    Logger.d(TAG, "🚀 导航到快捷入口: $route")
-                    val targetRoute = resolveShortcutRoute(route)
-                    targetRoute?.let { 
-                        navController.navigate(it) { launchSingleTop = true }
-                    }
-                    pendingRoute = null  // 清除，避免重复导航
-                }
-            }
-
-            LaunchedEffect(pendingNavigationRoute) {
-                pendingNavigationRoute?.let { route ->
-                    awaitNavControllerReady(navController)
-                    Logger.d(TAG, "🚀 导航到指定页面: $route")
-                    navController.navigate(route) { launchSingleTop = true }
-                    pendingNavigationRoute = null
                 }
             }
             
@@ -1066,7 +1072,12 @@ open class MainActivity : AppCompatActivity() {
             // LaunchedEffect(Unit) { ... }
 
             //  2. [新增] 获取动态取色设置 (默认为 true)
-            val dynamicColor by SettingsManager.getDynamicColor(context).collectAsState(initial = true)
+            val md3ColorSource by SettingsManager.getMd3ColorSource(context).collectAsState(
+                initial = Md3ColorSource.FOLLOW_WALLPAPER
+            )
+            val md3CustomColorHex by SettingsManager.getMd3CustomColorHex(context).collectAsState(
+                initial = "#007AFF"
+            )
             val colorStyle by SettingsManager.getThemeColorStyle(context).collectAsState(
                 initial = PaletteStyle.TonalSpot
             )
@@ -1106,7 +1117,10 @@ open class MainActivity : AppCompatActivity() {
             val useDarkTheme = themePreferenceState.useDarkTheme
             val useAmoledDarkTheme = themePreferenceState.useAmoledDarkTheme
             val effectiveDynamicColor = resolveEffectiveDynamicColorEnabled(
-                dynamicColorEnabled = dynamicColor,
+                dynamicColorEnabled = resolveMd3DynamicColorEnabled(
+                    source = md3ColorSource,
+                    sdkInt = Build.VERSION.SDK_INT
+                ),
                 amoledDarkTheme = useAmoledDarkTheme,
                 uiPreset = uiPreset
             )
@@ -1167,6 +1181,8 @@ open class MainActivity : AppCompatActivity() {
                 dynamicColor = effectiveDynamicColor,
                 amoledDarkTheme = useAmoledDarkTheme,
                 themeColorIndex = themeColorIndex, //  传入主题色索引
+                md3ColorSource = md3ColorSource,
+                md3CustomColorHex = md3CustomColorHex,
                 colorStyle = colorStyle,
                 colorSpec = colorSpec,
                 fontSizePreset = appFontSizePreset,
@@ -1186,6 +1202,29 @@ open class MainActivity : AppCompatActivity() {
                     var isAppScreenshotBlockedBySplash by remember { mutableStateOf(false) }
                     var isAppScreenshotSaving by remember { mutableStateOf(false) }
                     var appScreenshotRegionBitmap by remember { mutableStateOf<Bitmap?>(null) }
+                    val appScreenshotSnackbarHostState = remember { SnackbarHostState() }
+                    val isLandscapeAppScreenshot =
+                        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                    val showAppScreenshotSaveFeedback: suspend (AppScreenshotResult, Uri?) -> Unit = { result, uri ->
+                        val message = when (result) {
+                            AppScreenshotResult.Success -> "截图已保存到相册（PNG）"
+                            AppScreenshotResult.Blocked -> "当前状态暂不支持截图"
+                            AppScreenshotResult.CaptureFailed,
+                            AppScreenshotResult.SaveFailed -> "截图失败，请稍后重试"
+                        }
+                        if (shouldOfferAppScreenshotShare(isLandscapeAppScreenshot, result, uri != null)) {
+                            val snackbarResult = appScreenshotSnackbarHostState.showSnackbar(
+                                message = message,
+                                actionLabel = "分享",
+                                duration = SnackbarDuration.Short
+                            )
+                            if (snackbarResult == SnackbarResult.ActionPerformed && uri != null) {
+                                shareAppScreenshot(context, uri)
+                            }
+                        } else {
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1216,19 +1255,13 @@ open class MainActivity : AppCompatActivity() {
                                                         appScreenshotRegionBitmap = bitmap
                                                     }
                                                 } else {
-                                                    val result = runCatching {
-                                                        captureAndSaveAppScreenshot(this@MainActivity)
+                                                    val savedImage = runCatching {
+                                                        captureAndSaveAppScreenshotImage(this@MainActivity)
                                                     }.getOrElse {
                                                         Logger.e(TAG, "应用内截图失败", it)
-                                                        AppScreenshotResult.CaptureFailed
+                                                        AppScreenshotSavedImage(AppScreenshotResult.CaptureFailed)
                                                     }
-                                                    val message = when (result) {
-                                                        AppScreenshotResult.Success -> "截图已保存到相册（PNG）"
-                                                        AppScreenshotResult.Blocked -> "当前状态暂不支持截图"
-                                                        AppScreenshotResult.CaptureFailed,
-                                                        AppScreenshotResult.SaveFailed -> "截图失败，请稍后重试"
-                                                    }
-                                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                                    showAppScreenshotSaveFeedback(savedImage.result, savedImage.uri)
                                                 }
                                             } finally {
                                                 isAppScreenshotSaving = false
@@ -1265,9 +1298,26 @@ open class MainActivity : AppCompatActivity() {
                             //  SharedTransitionProvider 包裹导航，启用共享元素过渡
                             SharedTransitionProvider {
                                 AppNavigation(
-                                    navController = navController,
                                     miniPlayerManager = miniPlayerManager,
                                     isInPipMode = isPipRenderingActive,
+                                    pendingVideoId = pendingVideoId,
+                                    pendingShortcutRoute = pendingRoute,
+                                    pendingNavigationRoute = pendingNavigationRoute,
+                                    onPendingVideoIdConsumed = { consumedVideoId ->
+                                        if (pendingVideoId == consumedVideoId) {
+                                            pendingVideoId = null
+                                        }
+                                    },
+                                    onPendingShortcutRouteConsumed = { consumedRoute ->
+                                        if (pendingRoute == consumedRoute) {
+                                            pendingRoute = null
+                                        }
+                                    },
+                                    onPendingNavigationRouteConsumed = { consumedRoute ->
+                                        if (pendingNavigationRoute == consumedRoute) {
+                                            pendingNavigationRoute = null
+                                        }
+                                    },
                                     initialSearchKeyword = pendingSearchKeyword,
                                     onInitialSearchKeywordConsumed = { consumedKeyword ->
                                         if (pendingSearchKeyword == consumedKeyword) {
@@ -1290,6 +1340,7 @@ open class MainActivity : AppCompatActivity() {
                                         isInAudioModeRoute = false
                                         Logger.d(TAG, "🎧 退出听视频页")
                                     },
+                                    onPrivacyAuthenticationRequired = ::authenticatePrivacyAccess,
                                     mainHazeState = mainHazeState //  传递全局 Haze 状态
                                 )
                             }
@@ -1314,20 +1365,15 @@ open class MainActivity : AppCompatActivity() {
                                     val liveTitle = miniPlayerManager.currentTitle
                                     val liveUname = miniPlayerManager.currentLiveUname
                                     miniPlayerManager.exitMiniMode(animate = false)
-                                    navController.navigate(
+                                    pendingNavigationRoute =
                                         ScreenRoutes.Live.createRoute(roomId, liveTitle, liveUname)
-                                    ) {
-                                        launchSingleTop = true
-                                    }
                                 } else {
                                     //  [修改] 导航回详情页，而不是只显示全屏播放器
                                     miniPlayerManager.currentBvid?.let { bvid ->
                                         miniPlayerManager.isNavigatingToVideo = true
                                         miniPlayerManager.exitMiniMode(animate = false)
                                         val cid = miniPlayerManager.currentCid
-                                        navController.navigate(resolveMainActivityVideoRoute(bvid = bvid, cid = cid)) {
-                                            launchSingleTop = true
-                                        }
+                                        pendingNavigationRoute = resolveMainActivityVideoRoute(bvid = bvid, cid = cid)
                                     }
                                 }
                             }
@@ -1350,9 +1396,7 @@ open class MainActivity : AppCompatActivity() {
                                     miniPlayerManager.exitMiniMode(animate = false)
                                     //  [修复] 使用正确的 cid，而不是 0
                                     val cid = miniPlayerManager.currentCid
-                                    navController.navigate(resolveMainActivityVideoRoute(bvid = bvid, cid = cid)) {
-                                        launchSingleTop = true
-                                    }
+                                    pendingNavigationRoute = resolveMainActivityVideoRoute(bvid = bvid, cid = cid)
                                 }
                             }
                         )
@@ -1546,22 +1590,23 @@ open class MainActivity : AppCompatActivity() {
                                         isAppScreenshotSaving = true
                                         try {
                                             val croppedBitmap = cropAppScreenshotBitmap(bitmap, cropRect)
-                                            val saved = croppedBitmap?.let { cropped ->
+                                            val savedUri = croppedBitmap?.let { cropped ->
                                                 try {
-                                                    saveAppScreenshotBitmapToGallery(context, cropped)
+                                                    saveAppScreenshotBitmapToGalleryUri(context, cropped)
                                                 } finally {
                                                     cropped.recycle()
                                                 }
-                                            } ?: false
-                                            Toast.makeText(
-                                                context,
-                                                if (saved) "截图已保存到相册（PNG）" else "截图失败，请稍后重试",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                            if (saved) {
+                                            }
+                                            val result = if (savedUri != null) {
+                                                AppScreenshotResult.Success
+                                            } else {
+                                                AppScreenshotResult.SaveFailed
+                                            }
+                                            if (savedUri != null) {
                                                 bitmap.recycle()
                                                 appScreenshotRegionBitmap = null
                                             }
+                                            showAppScreenshotSaveFeedback(result, savedUri)
                                         } finally {
                                             isAppScreenshotSaving = false
                                         }
@@ -1570,6 +1615,14 @@ open class MainActivity : AppCompatActivity() {
                             }
                         )
                     }
+
+                    SnackbarHost(
+                        hostState = appScreenshotSnackbarHostState,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(WindowInsets.safeDrawing.asPaddingValues())
+                            .padding(16.dp)
+                    )
 
                     startupUpdateCheckResult?.let { info ->
                         val resolvedReleaseNotes = remember(info.releaseNotes) {
@@ -2041,7 +2094,6 @@ open class MainActivity : AppCompatActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
-        DlnaManager.unbindService(this)
     }
 }
 

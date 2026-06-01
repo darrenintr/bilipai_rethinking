@@ -6,6 +6,7 @@ import com.android.purebilibili.core.plugin.PluginCapabilityManifest
 import com.android.purebilibili.core.plugin.kotlinpkg.ExternalKotlinPluginPayloadEntry
 import com.android.purebilibili.core.plugin.kotlinpkg.ExternalKotlinPluginPayloadType
 import com.android.purebilibili.core.plugin.kotlinpkg.InstalledExternalPluginPackage
+import com.android.purebilibili.core.plugin.skin.InstalledUiSkinPackage
 import com.android.purebilibili.core.plugin.skin.UiSkinAssets
 import com.android.purebilibili.core.plugin.skin.UiSkinManifest
 import com.android.purebilibili.core.plugin.skin.UiSkinPackagePreview
@@ -224,6 +225,69 @@ class PluginsScreenPolicyTest {
         assertEquals(
             "1628501914 · 首页底栏、首页顶部 · 资源装饰",
             buildInstalledUiSkinSubtitle(manifest)
+        )
+    }
+
+    @Test
+    fun installedUiSkinPreview_exposesStatusHashAndDeleteCapability() {
+        val installed = InstalledUiSkinPackage(
+            manifest = UiSkinManifest(
+                formatVersion = 1,
+                skinId = "local.bilibili_skin.preview",
+                displayName = "预览皮肤",
+                version = "1.0.0",
+                apiVersion = 1,
+                surfaces = setOf(UiSkinSurface.HOME_BOTTOM_BAR, UiSkinSurface.HOME_TOP_CHROME),
+                assets = UiSkinAssets(
+                    bottomBarTrim = "assets/tail_bg.png",
+                    topAtmosphere = "assets/head_bg.jpg"
+                ),
+                styleSourceName = "KimmyXYC/bilibili-skin",
+                licenseNote = "仅本地使用",
+                communityShareable = false,
+                containsOfficialAssets = true
+            ),
+            packageSha256 = "abcdef123456",
+            packagePath = "/tmp/preview.bpskin",
+            installedAtMillis = 1234L,
+            assetFiles = mapOf(
+                "assets/tail_bg.png" to "/tmp/tail_bg.png",
+                "assets/head_bg.jpg" to "/tmp/head_bg.jpg"
+            )
+        )
+
+        val uiModel = buildInstalledUiSkinPreview(
+            installed = installed,
+            isActive = true
+        )
+
+        assertEquals("预览皮肤", uiModel.title)
+        assertEquals("1.0.0 · 首页底栏、首页顶部 · 当前启用", uiModel.subtitle)
+        assertEquals("SHA-256: abcdef123456", uiModel.packageHashText)
+        assertEquals("资源：2 个，已保存到本地", uiModel.assetSummaryText)
+        assertEquals("来源：KimmyXYC/bilibili-skin", uiModel.sourceText)
+        assertEquals("授权：仅本地使用", uiModel.licenseText)
+        assertEquals("官方素材：声明包含，请勿作为社区包分发", uiModel.officialAssetText)
+        assertTrue(uiModel.canDelete)
+    }
+
+    @Test
+    fun uiSkinImagePreviewModels_useDeclaredAssetLabelsAndLocalPaths() {
+        val models = buildUiSkinImagePreviewItems(
+            assetFiles = mapOf(
+                "assets/tail_bg.png" to "/tmp/tail_bg.png",
+                "assets/head_bg.jpg" to "/tmp/head_bg.jpg",
+                "assets/unknown.png" to "/tmp/unknown.png"
+            )
+        )
+
+        assertEquals(
+            listOf("底栏饰面", "顶部氛围", "资源图片"),
+            models.map { it.label }
+        )
+        assertEquals(
+            listOf("/tmp/tail_bg.png", "/tmp/head_bg.jpg", "/tmp/unknown.png"),
+            models.map { it.localPath }
         )
     }
 

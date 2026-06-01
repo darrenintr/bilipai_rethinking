@@ -191,7 +191,20 @@ private fun RuleEditor(
     onDelete: () -> Unit
 ) {
     val fieldOptions = if (pluginType == "feed") {
-        listOf("title", "duration", "owner.mid", "owner.name", "stat.view", "stat.like")
+        listOf(
+            "title",
+            "duration",
+            "tid",
+            "tname",
+            "owner.mid",
+            "owner.name",
+            "stat.view",
+            "stat.like",
+            "stat.reply",
+            "stat.danmaku",
+            "stat.coin",
+            "stat.favorite"
+        )
     } else {
         listOf("content", "userId", "type")
     }

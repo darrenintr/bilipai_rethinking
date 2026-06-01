@@ -1,10 +1,10 @@
 package com.android.purebilibili.feature.video.ui.components
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -46,7 +46,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,14 +54,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -75,12 +72,13 @@ import com.android.purebilibili.core.ui.common.CopySelectionDialog
 import com.android.purebilibili.core.util.FormatUtils
 import com.android.purebilibili.core.util.rememberStoragePermissionState
 import com.android.purebilibili.data.model.response.ReplyItem
+import com.android.purebilibili.data.repository.BlockedUpRelationSource
+import com.android.purebilibili.data.repository.BlockedUpRepository
 import com.android.purebilibili.feature.dynamic.components.ImagePreviewTextContent
 import com.android.purebilibili.core.ui.animation.MaybeDissolvableVideoCard
 import com.android.purebilibili.core.ui.common.rememberClipboardCopyHandler
 import com.android.purebilibili.core.ui.rememberAppLikeFilledIcon
 import com.android.purebilibili.core.ui.rememberAppLikeIcon
-import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.feature.video.viewmodel.CommentUiState
 import com.android.purebilibili.feature.video.viewmodel.SubReplyUiState
 import io.github.alexzhirkevich.cupertino.CupertinoActivityIndicator
@@ -156,13 +154,12 @@ internal fun resolveSubReplyDetailRevealDelayMillis(levelIndex: Int): Int {
 }
 
 internal fun resolveSubReplyDetailRevealSpec(
-    levelIndex: Int,
-    blurEnabled: Boolean = true
+    levelIndex: Int
 ): SubReplyDetailRevealSpec {
     return SubReplyDetailRevealSpec(
         delayMillis = resolveSubReplyDetailRevealDelayMillis(levelIndex),
         durationMillis = 300,
-        initialBlurRadiusDp = if (blurEnabled) 10f else 0f,
+        initialBlurRadiusDp = 0f,
         initialOffsetDp = 14
     )
 }
@@ -261,6 +258,17 @@ internal fun resolveSubReplyDetailListScrollResetKey(
     )
 }
 
+internal fun resolveSubReplyTargetListIndex(
+    rootReplyId: Long,
+    visibleReplies: List<ReplyItem>,
+    targetReplyId: Long
+): Int? {
+    if (targetReplyId <= 0L) return null
+    if (targetReplyId == rootReplyId) return 0
+    val replyIndex = visibleReplies.indexOfFirst { it.rpid == targetReplyId }
+    return replyIndex.takeIf { it >= 0 }?.plus(1)
+}
+
 internal fun resolveSubReplyAuxiliaryLabel(item: ReplyItem): String? {
     val visual = resolveFanGroupVisualFromMemberAndSailing(
         member = item.member,
@@ -338,7 +346,8 @@ internal fun VideoInlineSubReplyDetailContent(
         onUrlClick = onUrlClick,
         showIdentityDecorations = showIdentityDecorations,
         onAvatarClick = onAvatarClick,
-        maxTimestampMs = maxTimestampMs
+        maxTimestampMs = maxTimestampMs,
+        targetReplyId = state.targetReplyId
     )
 }
 
@@ -372,16 +381,13 @@ internal fun SubReplyDetailContent(
     showIdentityDecorations: Boolean = true,
     onAvatarClick: ((String) -> Unit)? = null,
     maxTimestampMs: Long? = null,
-    remoteReplyCount: Int = 0
+    remoteReplyCount: Int = 0,
+    targetReplyId: Long = 0
 ) {
     val layoutPolicy = remember {
         resolveSubReplyDetailLayoutPolicy(showRootCommentEntry = false)
     }
     val appearance = rememberVideoCommentAppearance()
-    val context = LocalContext.current
-    val revealBlurEnabled by SettingsManager
-        .getCommentSubReplyRevealBlurEnabled(context)
-        .collectAsState(initial = SettingsManager.DEFAULT_COMMENT_SUB_REPLY_REVEAL_BLUR_ENABLED)
     val unusedShowUpFlag = showUpFlag
     val listState = rememberLazyListState()
     var conversationAnchor by remember(rootReply.rpid) { mutableStateOf<ReplyItem?>(null) }
@@ -408,7 +414,7 @@ internal fun SubReplyDetailContent(
     val listScrollResetKey = remember(
         rootReply.rpid,
         effectiveConversationMode,
-        visibleReplies
+        visibleReplies.firstOrNull()?.rpid
     ) {
         resolveSubReplyDetailListScrollResetKey(
             rootReplyId = rootReply.rpid,
@@ -432,36 +438,51 @@ internal fun SubReplyDetailContent(
     LaunchedEffect(listScrollResetKey) {
         listState.scrollToItem(0)
     }
+    LaunchedEffect(targetReplyId, visibleReplies, isLoading, isEnd) {
+        val targetIndex = resolveSubReplyTargetListIndex(
+            rootReplyId = rootReply.rpid,
+            visibleReplies = visibleReplies,
+            targetReplyId = targetReplyId
+        )
+        when {
+            targetIndex != null -> listState.animateScrollToItem(targetIndex)
+            targetReplyId > 0L && !isLoading && !isEnd && !effectiveConversationMode -> onLoadMore()
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(appearance.panelColor)
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (applyStatusBarPadding) Modifier.statusBarsPadding() else Modifier)
                 .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 10.dp)
-                .testTag(SUB_REPLY_DETAIL_HEADER_TAG),
-            verticalAlignment = Alignment.CenterVertically
+                .testTag(SUB_REPLY_DETAIL_HEADER_TAG)
         ) {
-            Text(
-                text = if (effectiveConversationMode) "对话详情" else "评论详情",
-                fontWeight = FontWeight.Bold,
-                fontSize = 17.sp,
-                color = appearance.primaryTextColor
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.testTag(SUB_REPLY_DETAIL_CLOSE_TAG)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Close,
-                    contentDescription = "Close",
-                    tint = appearance.primaryTextColor
+                Text(
+                    text = if (effectiveConversationMode) "对话详情" else "评论详情",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = appearance.primaryTextColor
                 )
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.testTag(SUB_REPLY_DETAIL_CLOSE_TAG)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Close",
+                        tint = appearance.primaryTextColor
+                    )
+                }
             }
         }
         HorizontalDivider(thickness = 0.5.dp, color = appearance.dividerColor)
@@ -477,8 +498,7 @@ internal fun SubReplyDetailContent(
             item(key = "root_reply") {
                 SubReplyDetailStaggeredReveal(
                     revealKey = "root_${listScrollResetKey}",
-                    levelIndex = 0,
-                    blurEnabled = revealBlurEnabled
+                    levelIndex = 0
                 ) {
                     Box(modifier = Modifier.testTag(SUB_REPLY_DETAIL_ROOT_TAG)) {
                         SubReplyDetailItem(
@@ -509,8 +529,7 @@ internal fun SubReplyDetailContent(
                 }
                 SubReplyDetailStaggeredReveal(
                     revealKey = "section_${listScrollResetKey}",
-                    levelIndex = 1,
-                    blurEnabled = revealBlurEnabled
+                    levelIndex = 1
                 ) {
                     Column {
                         HorizontalDivider(thickness = 8.dp, color = appearance.sectionDividerColor)
@@ -580,19 +599,14 @@ internal fun SubReplyDetailContent(
             itemsIndexed(
                 items = visibleReplies,
                 key = { _, item -> item.rpid }
-            ) { index, item ->
-                SubReplyDetailStaggeredReveal(
-                    revealKey = "reply_${listScrollResetKey}_${item.rpid}",
-                    levelIndex = index + 2,
-                    blurEnabled = revealBlurEnabled
+            ) { _, item ->
+                MaybeDissolvableVideoCard(
+                    isDissolving = item.rpid in dissolvingIds,
+                    onDissolveComplete = { onDeleteComment?.invoke(item.rpid) },
+                    cardId = "subreply_detail_${item.rpid}",
+                    modifier = Modifier.padding(bottom = 1.dp)
                 ) {
-                    MaybeDissolvableVideoCard(
-                        isDissolving = item.rpid in dissolvingIds,
-                        onDissolveComplete = { onDeleteComment?.invoke(item.rpid) },
-                        cardId = "subreply_detail_${item.rpid}",
-                        modifier = Modifier.padding(bottom = 1.dp)
-                    ) {
-                        SubReplyDetailItem(
+                    SubReplyDetailItem(
                             item = item,
                             appearance = appearance,
                             isRootItem = false,
@@ -630,17 +644,11 @@ internal fun SubReplyDetailContent(
                                 null
                             },
                             showTrailingDivider = true
-                        )
-                    }
+                    )
                 }
             }
 
             item(key = "footer") {
-                LaunchedEffect(isLoading, isEnd) {
-                    if (!isLoading && !isEnd) {
-                        onLoadMore()
-                    }
-                }
                 if (isLoading) {
                     Box(
                         modifier = Modifier
@@ -736,11 +744,13 @@ private fun SubReplyDetailItem(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val copyToClipboard = rememberClipboardCopyHandler()
+    val blockedUpRepository = remember(context) { BlockedUpRepository(context) }
     var showActionSheet by remember(item.rpid) { mutableStateOf(false) }
     var showFreeCopyDialog by remember(item.rpid) { mutableStateOf(false) }
     var showReportDialog by remember(item.rpid) { mutableStateOf(false) }
     var pendingSaveReply by remember(item.rpid) { mutableStateOf<ReplyItem?>(null) }
     val copyText = remember(item.content.message) { item.content.message.trim() }
+    val replyMemberMid = remember(item.member.mid, item.mid) { resolveReplyMemberMid(item) }
     fun launchSaveReplyCommentImage(reply: ReplyItem) {
         scope.launch {
             val success = saveReplyCommentImageToGallery(context, reply)
@@ -766,18 +776,45 @@ private fun SubReplyDetailItem(
             storagePermission.request()
         }
     }
+    fun shareReplyComment() {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "分享评论")
+            putExtra(Intent.EXTRA_TEXT, buildReplyCommentShareText(item))
+        }
+        context.startActivity(Intent.createChooser(sendIntent, "分享评论"))
+    }
+    fun blockReplyUser() {
+        scope.launch {
+            val result = blockedUpRepository.blockUpWithBilibiliSync(
+                mid = replyMemberMid,
+                name = item.member.uname,
+                face = item.member.avatar,
+                relationSource = BlockedUpRelationSource.COMMENT
+            )
+            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     if (showActionSheet) {
         ReplyActionSheet(
             canDelete = onDeleteClick != null,
             canReport = onReportClick != null,
+            canShare = shouldSupportReplyShare(item),
+            canBlockUser = replyMemberMid > 0L,
             onDismiss = { showActionSheet = false },
             onCopyAll = { copyToClipboard(copyText, "评论内容") },
             onFreeCopy = { showFreeCopyDialog = true },
             onSave = {
                 requestSaveReplyCommentImage()
             },
+            onShare = {
+                shareReplyComment()
+            },
             onReply = onReplyClick,
+            onBlockUser = {
+                blockReplyUser()
+            },
             onReport = { showReportDialog = true },
             onToggleTop = {},
             onDelete = { onDeleteClick?.invoke() }
@@ -922,7 +959,12 @@ private fun SubReplyDetailItem(
                                     images,
                                     index,
                                     rect,
-                                    resolveReplyPreviewTextContent(item)
+                                    resolveReplyPreviewTextContent(
+                                        item = item,
+                                        isLiked = isLiked,
+                                        onLikeClick = onLikeClick,
+                                        onReplyClick = onReplyClick
+                                    )
                                 )
                             },
                             testTagPrefix = "$SUB_REPLY_DETAIL_IMAGE_TAG_PREFIX${item.rpid}_"
@@ -1018,33 +1060,15 @@ private fun SubReplyDetailStaggeredReveal(
     revealKey: Any,
     levelIndex: Int,
     modifier: Modifier = Modifier,
-    blurEnabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val spec = remember(levelIndex, blurEnabled) {
-        resolveSubReplyDetailRevealSpec(levelIndex, blurEnabled)
-    }
+    val spec = remember(levelIndex) { resolveSubReplyDetailRevealSpec(levelIndex) }
     var visible by remember(revealKey) { mutableStateOf(false) }
-    var blurSettled by remember(revealKey) { mutableStateOf(false) }
-    val density = LocalDensity.current
-    val blurRadiusDp by animateFloatAsState(
-        targetValue = if (visible && blurSettled) 0f else spec.initialBlurRadiusDp,
-        animationSpec = tween(durationMillis = spec.durationMillis),
-        label = "sub_reply_detail_reveal_blur"
-    )
-    val offsetDp by animateFloatAsState(
-        targetValue = if (visible) 0f else spec.initialOffsetDp.toFloat(),
-        animationSpec = tween(durationMillis = spec.durationMillis),
-        label = "sub_reply_detail_reveal_offset"
-    )
 
     LaunchedEffect(revealKey, levelIndex) {
         visible = false
-        blurSettled = false
         delay(spec.delayMillis.toLong())
         visible = true
-        delay(16)
-        blurSettled = true
     }
 
     AnimatedVisibility(
@@ -1056,7 +1080,7 @@ private fun SubReplyDetailStaggeredReveal(
                 expandFrom = Alignment.Top
             ) +
             slideInVertically(animationSpec = tween(durationMillis = spec.durationMillis)) { height ->
-                height / 5
+                height / 6
             },
         exit = fadeOut(animationSpec = tween(durationMillis = 120)) +
             shrinkVertically(animationSpec = tween(durationMillis = 120), shrinkTowards = Alignment.Top)
@@ -1064,10 +1088,6 @@ private fun SubReplyDetailStaggeredReveal(
         Box(
             modifier = Modifier
                 .animateContentSize(animationSpec = tween(durationMillis = spec.durationMillis))
-                .graphicsLayer {
-                    translationY = with(density) { offsetDp.dp.toPx() }
-                }
-                .blur(blurRadiusDp.dp)
         ) {
             content()
         }

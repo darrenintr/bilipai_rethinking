@@ -14,7 +14,7 @@ class UiSkinActivationPolicyTest {
     fun defaultSelection_keepsSkinDisabled() {
         val state = resolveUiSkinState(
             selection = UiSkinSelection(),
-            installedSkins = listOf(BuiltInUiSkins.winterCloudInstallRecord)
+            installedSkins = emptyList()
         )
 
         assertFalse(state.enabled)
@@ -23,16 +23,22 @@ class UiSkinActivationPolicyTest {
 
     @Test
     fun enabledSelectionActivatesOnlyMatchingInstalledSkin() {
+        val installed = installedSkin(
+            skinId = "local.bilibili_skin.winter_cloud",
+            packageSha256 = "1111111111111111111111111111111111111111111111111111111111111111",
+            version = "1.0.0"
+        )
+
         val state = resolveUiSkinState(
             selection = UiSkinSelection(
                 enabled = true,
-                selectedSkinId = BuiltInUiSkins.winterCloud.skinId
+                selectedSkinId = installed.skinId
             ),
-            installedSkins = listOf(BuiltInUiSkins.winterCloudInstallRecord)
+            installedSkins = listOf(installed)
         )
 
         assertTrue(state.enabled)
-        assertEquals(BuiltInUiSkins.winterCloud.skinId, state.activeSkin?.skinId)
+        assertEquals(installed.skinId, state.activeSkin?.skinId)
     }
 
     @Test
@@ -91,7 +97,7 @@ class UiSkinActivationPolicyTest {
     fun missingSelectedSkinFallsBackToNoActiveSkin() {
         val state = resolveUiSkinState(
             selection = UiSkinSelection(enabled = true, selectedSkinId = "missing"),
-            installedSkins = listOf(BuiltInUiSkins.winterCloudInstallRecord)
+            installedSkins = emptyList()
         )
 
         assertFalse(state.enabled)
@@ -100,6 +106,11 @@ class UiSkinActivationPolicyTest {
 
     @Test
     fun skinStateDoesNotMutateLiquidGlassSettings() {
+        val installed = installedSkin(
+            skinId = "local.bilibili_skin.winter_cloud",
+            packageSha256 = "1111111111111111111111111111111111111111111111111111111111111111",
+            version = "1.0.0"
+        )
         val homeSettings = HomeSettings(
             isBottomBarLiquidGlassEnabled = true,
             bottomBarLiquidGlassPreset = BottomBarLiquidGlassPreset.BILIPAI_TUNED
@@ -107,9 +118,9 @@ class UiSkinActivationPolicyTest {
         val state = resolveUiSkinState(
             selection = UiSkinSelection(
                 enabled = true,
-                selectedSkinId = BuiltInUiSkins.winterCloud.skinId
+                selectedSkinId = installed.skinId
             ),
-            installedSkins = listOf(BuiltInUiSkins.winterCloudInstallRecord)
+            installedSkins = listOf(installed)
         )
 
         val resolved = resolveUiSkinHomeSettings(

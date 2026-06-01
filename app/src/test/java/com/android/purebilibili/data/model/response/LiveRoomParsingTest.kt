@@ -75,4 +75,55 @@ class LiveRoomParsingTest {
 
         assertEquals(45678, room?.viewerCount())
     }
+
+    @Test
+    fun `web main recommend response keeps callbacks and maps to live room`() {
+        val response = json.decodeFromString(
+            LiveRecommendResponse.serializer(),
+            """
+            {
+              "code": 0,
+              "message": "0",
+              "data": {
+                "top_room_id": 923833,
+                "recommend_room_list": [
+                  {
+                    "roomid": 923833,
+                    "uid": 34646754,
+                    "title": "融合版斗蛐蛐",
+                    "uname": "沉默寡言白河愁",
+                    "face": "https://example.com/face.jpg",
+                    "cover": "https://example.com/cover.jpg",
+                    "keyframe": "https://example.com/keyframe.jpg",
+                    "area_v2_name": "怀旧游戏",
+                    "area_v2_parent_name": "单机游戏",
+                    "online": 262700,
+                    "watched_show": {
+                      "num": 123456,
+                      "text_large": "12.3万人看过"
+                    },
+                    "is_ad": true,
+                    "show_callback": "show-token",
+                    "click_callback": "click-token",
+                    "session_id": "session-token"
+                  }
+                ]
+              }
+            }
+            """.trimIndent()
+        )
+
+        val item = response.data?.recommendRoomList?.first()
+        val room = item?.toLiveRoom()
+
+        assertEquals(923833, response.data?.topRoomId)
+        assertEquals(true, item?.isAd)
+        assertEquals("show-token", item?.showCallback)
+        assertEquals("click-token", item?.clickCallback)
+        assertEquals("session-token", item?.sessionId)
+        assertEquals("怀旧游戏", room?.areaName)
+        assertEquals("单机游戏", room?.parentName)
+        assertEquals("https://example.com/cover.jpg", room?.displayCover())
+        assertEquals(123456, room?.viewerCount())
+    }
 }

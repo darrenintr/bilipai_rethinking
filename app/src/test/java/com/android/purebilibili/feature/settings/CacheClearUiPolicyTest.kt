@@ -68,13 +68,14 @@ class CacheClearUiPolicyTest {
             imageDiskCache = 3L * 1024 * 1024,
             imageMemoryCache = 512L * 1024,
             httpCache = 4L * 1024 * 1024,
+            playbackMediaCache = 6L * 1024 * 1024,
             otherCache = 7L * 1024 * 1024,
             playUrlMemoryCache = 256L * 1024,
             subtitleDanmakuMemoryCache = 768L * 1024
         )
 
         assertEquals(
-            (4L * 1024 * 1024) + (256L * 1024),
+            (4L * 1024 * 1024) + (6L * 1024 * 1024) + (256L * 1024),
             resolveSelectedCacheBytes(
                 breakdown = breakdown,
                 selectedTargets = setOf(
@@ -91,6 +92,7 @@ class CacheClearUiPolicyTest {
             imageDiskCache = 2L * 1024 * 1024,
             imageMemoryCache = 0L,
             httpCache = 1536L * 1024,
+            playbackMediaCache = 2L * 1024 * 1024,
             otherCache = 5L * 1024 * 1024,
             playUrlMemoryCache = 512L * 1024,
             subtitleDanmakuMemoryCache = 0L
@@ -104,7 +106,7 @@ class CacheClearUiPolicyTest {
             )
         )
         assertEquals(
-            "已选缓存：6.5 MB",
+            "已选缓存：8.5 MB",
             resolveSelectedCacheSizeSummary(
                 breakdown = breakdown,
                 selectedTargets = setOf(

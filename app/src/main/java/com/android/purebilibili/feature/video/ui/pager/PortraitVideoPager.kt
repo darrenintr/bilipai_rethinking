@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -62,7 +63,6 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -74,6 +74,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -101,6 +102,8 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.android.purebilibili.core.network.NetworkModule
+import com.android.purebilibili.core.store.DanmakuSettings
+import com.android.purebilibili.core.store.DanmakuSettingsScope
 import com.android.purebilibili.core.store.PlaybackCompletionBehavior
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.store.TokenManager
@@ -204,20 +207,25 @@ fun PortraitVideoPager(
     val entryStartPositionMs = remember(initialBvid) { initialStartPositionMs.coerceAtLeast(0L) }
     val scope = rememberCoroutineScope()
     val danmakuManager = rememberDanmakuManager()
-    val danmakuScope = com.android.purebilibili.core.store.DanmakuSettingsScope.PORTRAIT
-    val danmakuSettings by SettingsManager
-        .getDanmakuSettings(context, danmakuScope)
-        .collectAsState(
-            initial = com.android.purebilibili.core.store.DanmakuSettings(),
-            context = kotlin.coroutines.EmptyCoroutineContext
-        )
-    val danmakuEnabled = danmakuSettings.enabled
+    val danmakuScope = DanmakuSettingsScope.PORTRAIT
+    val loadedDanmakuSettings by produceState<DanmakuSettings?>(
+        initialValue = null,
+        context,
+        danmakuScope
+    ) {
+        SettingsManager.getDanmakuSettings(context, danmakuScope).collect { value = it }
+    }
+    val danmakuSettingsLoaded = loadedDanmakuSettings != null
+    val danmakuSettings = loadedDanmakuSettings ?: DanmakuSettings()
+    val danmakuEnabled = danmakuSettingsLoaded && danmakuSettings.enabled
     val danmakuOpacity = danmakuSettings.opacity
     val danmakuFontScale = danmakuSettings.fontScale
     val effectiveDanmakuFontScale = resolvePortraitDanmakuReadableFontScale(danmakuFontScale)
     val danmakuSpeed = danmakuSettings.speed
     val danmakuDisplayArea = danmakuSettings.displayArea
     val danmakuMergeDuplicates = danmakuSettings.mergeDuplicates
+    val danmakuDuplicateMergeWindowMs = danmakuSettings.duplicateMergeWindowMs
+    val danmakuDuplicateMergeCountThreshold = danmakuSettings.duplicateMergeCountThreshold
     val danmakuAllowScroll = danmakuSettings.allowScroll
     val danmakuAllowTop = danmakuSettings.allowTop
     val danmakuAllowBottom = danmakuSettings.allowBottom
@@ -853,8 +861,8 @@ fun PortraitVideoPager(
             }
     }
 
-    LaunchedEffect(currentPlayingCid, currentPlayingAid, danmakuEnabled, exoPlayer) {
-        if (currentPlayingCid > 0 && danmakuEnabled) {
+    LaunchedEffect(currentPlayingCid, currentPlayingAid, danmakuEnabled, danmakuSettingsLoaded, exoPlayer) {
+        if (shouldLoadPortraitDanmaku(danmakuSettingsLoaded, currentPlayingCid, danmakuEnabled)) {
             danmakuManager.isEnabled = true
             var durationMs = exoPlayer.duration
             var retries = 0
@@ -876,20 +884,26 @@ fun PortraitVideoPager(
         danmakuSpeed,
         danmakuDisplayArea,
         danmakuMergeDuplicates,
+        danmakuDuplicateMergeWindowMs,
+        danmakuDuplicateMergeCountThreshold,
         danmakuAllowScroll,
         danmakuAllowTop,
         danmakuAllowBottom,
         danmakuAllowColorful,
         danmakuAllowSpecial,
         danmakuBlockRules,
-        danmakuSmartOcclusion
+        danmakuSmartOcclusion,
+        danmakuSettingsLoaded
     ) {
+        if (!danmakuSettingsLoaded) return@LaunchedEffect
         danmakuManager.updateSettings(
             opacity = danmakuOpacity,
             fontScale = effectiveDanmakuFontScale,
             speed = danmakuSpeed,
             displayArea = danmakuDisplayArea,
             mergeDuplicates = danmakuMergeDuplicates,
+            duplicateMergeWindowMs = danmakuDuplicateMergeWindowMs,
+            duplicateMergeCountThreshold = danmakuDuplicateMergeCountThreshold,
             allowScroll = danmakuAllowScroll,
             allowTop = danmakuAllowTop,
             allowBottom = danmakuAllowBottom,
@@ -1205,13 +1219,33 @@ private fun VideoPageItem(
     var detailSheetUpOnlyMode by remember { mutableStateOf(false) }
     var isOverlayVisible by remember { mutableStateOf(true) }
     var commentSheetVisibilityProgress by remember { mutableFloatStateOf(0f) }
-    val commentExpandedPlayerScale by animateFloatAsState(
-        targetValue = resolvePortraitCommentExpandedPlayerScale(
-            commentVisibilityProgress = commentSheetVisibilityProgress
-        ),
-        animationSpec = tween(durationMillis = 260),
-        label = "portrait_comment_player_scale"
-    )
+    var portraitPageWidthPx by remember { mutableIntStateOf(0) }
+    var portraitPageHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val portraitPagerFillContainer = resolvePortraitPagerFillContainer()
+    val portraitViewportVerticalOffsetPx = with(density) {
+        resolvePortraitVideoViewportVerticalOffsetDp(
+            currentVideoAspect = currentVideoAspect,
+            fillContainer = portraitPagerFillContainer
+        ).dp.toPx()
+    }
+    val commentExpansionTransform = remember(
+        commentSheetVisibilityProgress,
+        portraitPageWidthPx,
+        portraitPageHeightPx,
+        currentVideoAspect,
+        portraitViewportVerticalOffsetPx,
+        portraitPagerFillContainer
+    ) {
+        resolvePortraitCommentPlayerTransform(
+            commentVisibilityProgress = commentSheetVisibilityProgress,
+            containerWidthPx = portraitPageWidthPx,
+            containerHeightPx = portraitPageHeightPx,
+            currentVideoAspect = currentVideoAspect,
+            viewportVerticalOffsetPx = portraitViewportVerticalOffsetPx,
+            fillContainer = portraitPagerFillContainer
+        )
+    }
 
     // 进度状态 (从播放器获取)
     var progressState by remember(bvid, initialDuration, initialProgressPositionMs) {
@@ -1353,8 +1387,12 @@ private fun VideoPageItem(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(isCurrentPage, bvid) {
-                if (!isCurrentPage) return@pointerInput
+            .onSizeChanged { size ->
+                portraitPageWidthPx = size.width
+                portraitPageHeightPx = size.height
+            }
+            .pointerInput(isCurrentPage, bvid, commentExpansionTransform.playerGesturesEnabled) {
+                if (!isCurrentPage || !commentExpansionTransform.playerGesturesEnabled) return@pointerInput
 
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
@@ -1407,16 +1445,27 @@ private fun VideoPageItem(
                     }
                 }
             }
-            .pointerInput(longPressSpeed, currentAudioQuality, isCurrentPage) {
+            .pointerInput(
+                longPressSpeed,
+                currentAudioQuality,
+                isCurrentPage,
+                commentExpansionTransform.playerGesturesEnabled
+            ) {
                 detectTapGestures(
                     onTap = {
-                        if (!shouldHandlePortraitTapGesture(scale = scale)) {
+                        if (
+                            !commentExpansionTransform.playerGesturesEnabled ||
+                            !shouldHandlePortraitTapGesture(scale = scale)
+                        ) {
                             return@detectTapGestures
                         }
                         isOverlayVisible = !isOverlayVisible
                     },
                     onDoubleTap = {
-                        if (!shouldHandlePortraitTapGesture(scale = scale)) {
+                        if (
+                            !commentExpansionTransform.playerGesturesEnabled ||
+                            !shouldHandlePortraitTapGesture(scale = scale)
+                        ) {
                             return@detectTapGestures
                         }
                         if (isCurrentPage) {
@@ -1424,7 +1473,10 @@ private fun VideoPageItem(
                         }
                     },
                     onLongPress = {
-                        if (!shouldHandlePortraitLongPressGesture(scale = scale)) {
+                        if (
+                            !commentExpansionTransform.playerGesturesEnabled ||
+                            !shouldHandlePortraitLongPressGesture(scale = scale)
+                        ) {
                             return@detectTapGestures
                         }
                         if (!isCurrentPage) return@detectTapGestures
@@ -1449,11 +1501,17 @@ private fun VideoPageItem(
                 )
             }
             // 进度调整手势
-            .pointerInput(progressState.duration, scale, isCurrentPage) {
+            .pointerInput(
+                progressState.duration,
+                scale,
+                isCurrentPage,
+                commentExpansionTransform.playerGesturesEnabled
+            ) {
                 detectHorizontalDragGestures(
                     onDragStart = { 
                         if (
                             isCurrentPage &&
+                            commentExpansionTransform.playerGesturesEnabled &&
                             progressState.duration > 0 &&
                             shouldHandlePortraitSeekGesture(scale = scale)
                         ) {
@@ -1483,8 +1541,9 @@ private fun VideoPageItem(
         val mediaLayerModifier = Modifier
             .fillMaxSize()
             .graphicsLayer {
-                scaleX = commentExpandedPlayerScale
-                scaleY = commentExpandedPlayerScale
+                scaleX = commentExpansionTransform.scale
+                scaleY = commentExpansionTransform.scale
+                translationY = commentExpansionTransform.translationYPx
                 transformOrigin = TransformOrigin(0.5f, 0f)
             }
         val danmakuSurfaceMode = resolvePortraitDanmakuSurfaceMode(currentVideoAspect)
@@ -1503,7 +1562,6 @@ private fun VideoPageItem(
                 translationX = panX
                 translationY = panY
             }
-        val density = LocalDensity.current
         val pageDanmakuTopInset = with(density) {
             WindowInsets.statusBars.getTop(this).toDp()
         }
@@ -1516,7 +1574,7 @@ private fun VideoPageItem(
             PortraitVideoViewportContainer(
                 currentVideoAspect = currentVideoAspect,
                 modifier = mediaLayerModifier,
-                fillContainer = resolvePortraitPagerFillContainer()
+                fillContainer = portraitPagerFillContainer
             ) {
                 key(currentPlayingBvid, bvid) {
                     Box(
@@ -1971,6 +2029,24 @@ private fun VideoPageItem(
                     }
                 }
             },
+            onLikeLongClick = {
+                if (canHandlePortraitInteraction) {
+                    val currentInteractionState = resolvedInteractionState
+                    viewModel.doTripleActionForVideo(
+                        aid = aid,
+                        bvid = bvid,
+                        currentLiked = currentInteractionState.isLiked,
+                        currentCoinCount = currentSuccess?.coinCount ?: 0,
+                        currentFavorited = currentInteractionState.isFavorited
+                    ) { result ->
+                        portraitInteractionOverride = resolvePortraitTripleActionOverride(
+                            currentState = currentInteractionState,
+                            likeSuccess = result.likeSuccess,
+                            favoriteSuccess = result.favoriteSuccess
+                        )
+                    }
+                }
+            },
             onCoinClick = { },
             onFavoriteClick = {
                 if (canHandlePortraitInteraction) {
@@ -2089,7 +2165,8 @@ private fun VideoPageItem(
                 onRotateToLandscape()
             },
             
-            showControls = isOverlayVisible && !showCommentSheet && !showDetailSheet
+            showControls = isOverlayVisible && !showDetailSheet,
+            commentExpansionProgress = commentSheetVisibilityProgress
         )
 
         if (showSpeedMenu && isCurrentPage) {
@@ -2140,6 +2217,7 @@ private fun VideoPageItem(
             val isSendingComment by viewModel.isSendingComment.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
             val replyingToComment by viewModel.replyingToComment.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
             val emotePackages by viewModel.emotePackages.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
+            val mentionSearchState by viewModel.commentMentionSearchState.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
             val commentState by commentViewModel.commentState.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
             val commentFraudDetectionEnabled by com.android.purebilibili.core.store.SettingsManager
                 .getCommentFraudDetectionEnabled(context)
@@ -2167,6 +2245,10 @@ private fun VideoPageItem(
                 canUploadImage = commentState.canUploadImage,
                 canInputComment = commentState.canInputComment,
                 emotePackages = emotePackages,
+                mentionUsers = mentionSearchState.users,
+                isMentionSearching = mentionSearchState.isLoading,
+                mentionSearchError = mentionSearchState.errorMessage,
+                onMentionSearchQueryChange = viewModel::searchCommentMentionUsers,
                 currentVideoPositionMsProvider = { exoPlayer.currentPosition.coerceAtLeast(0L) },
                 onSend = { message, imageUris, syncToDynamic ->
                     viewModel.sendComment(
@@ -2253,6 +2335,23 @@ internal fun resolvePortraitVideoInteractionUiState(
     }
 }
 
+internal fun resolvePortraitTripleActionOverride(
+    currentState: PortraitVideoInteractionUiState,
+    likeSuccess: Boolean,
+    favoriteSuccess: Boolean
+): PortraitVideoInteractionOverride {
+    val nextLiked = currentState.isLiked || likeSuccess
+    val nextFavorited = currentState.isFavorited || favoriteSuccess
+    val likeDelta = if (!currentState.isLiked && nextLiked) 1 else 0
+    val favoriteDelta = if (!currentState.isFavorited && nextFavorited) 1 else 0
+    return PortraitVideoInteractionOverride(
+        isLiked = nextLiked,
+        isFavorited = nextFavorited,
+        likeCount = (currentState.likeCount + likeDelta).coerceAtLeast(0),
+        favoriteCount = (currentState.favoriteCount + favoriteDelta).coerceAtLeast(0)
+    )
+}
+
 @Composable
 private fun PortraitDanmakuOverlay(
     danmakuManager: DanmakuManager,
@@ -2290,6 +2389,14 @@ internal fun shouldInsetPortraitDanmakuFromStatusBar(
     surfaceMode: PortraitDanmakuSurfaceMode
 ): Boolean {
     return surfaceMode == PortraitDanmakuSurfaceMode.Page
+}
+
+internal fun shouldLoadPortraitDanmaku(
+    settingsLoaded: Boolean,
+    cid: Long,
+    danmakuEnabled: Boolean
+): Boolean {
+    return settingsLoaded && cid > 0L && danmakuEnabled
 }
 
 internal fun resolvePortraitDanmakuReadableFontScale(fontScale: Float): Float {

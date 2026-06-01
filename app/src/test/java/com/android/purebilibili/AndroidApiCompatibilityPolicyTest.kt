@@ -36,7 +36,7 @@ class AndroidApiCompatibilityPolicyTest {
     }
 
     @Test
-    fun `manifest opts into system predictive back so enabled setting can show the effect`() {
+    fun `manifest opts out of system predictive back while feature is paused`() {
         val manifest = listOf(
             File("app/src/main/AndroidManifest.xml"),
             File("src/main/AndroidManifest.xml")
@@ -44,13 +44,13 @@ class AndroidApiCompatibilityPolicyTest {
 
         val source = manifest.readText()
 
-        assertTrue(
-            source.contains("""android:enableOnBackInvokedCallback="true""""),
-            "Predictive back requires manifest opt-in; setting false disables the platform animation globally."
-        )
         assertFalse(
+            source.contains("""android:enableOnBackInvokedCallback="true""""),
+            "预测性返回功能暂停期间，不能继续全局接入系统返回预览。"
+        )
+        assertTrue(
             source.contains("""android:enableOnBackInvokedCallback="false""""),
-            "Do not opt out globally because the in-app enabled state would never receive predictive back progress."
+            "预测性返回功能暂停期间，必须全局退出系统返回预览以避免和应用返回动画冲突。"
         )
     }
 }

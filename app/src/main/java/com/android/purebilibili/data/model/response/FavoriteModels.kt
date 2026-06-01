@@ -60,6 +60,7 @@ data class FavFolder(
     val fid: Long = 0,
     val mid: Long = 0,
     val title: String = "",
+    val cover: String = "",
     val media_count: Int = 0,
     val fav_state: Int = 0,
     val type: Int = 0,

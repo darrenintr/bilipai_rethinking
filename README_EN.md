@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <sub>Last updated: 2026-05-19 · Synced to v8.3.3 (source of truth: <a href="CHANGELOG.md">CHANGELOG</a> + code)</sub>
+  <sub>Last updated: 2026-06-01 · Synced to v9.0.0 (source of truth: <a href="CHANGELOG.md">CHANGELOG</a> + code)</sub>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-8.3.3-fb7299?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-9.0.0-fb7299?style=flat-square" alt="Version">
   <img src="https://img.shields.io/github/stars/jay3-yy/BiliPai?style=flat-square&color=yellow" alt="Stars">
   <img src="https://img.shields.io/github/forks/jay3-yy/BiliPai?style=flat-square&color=green" alt="Forks">
   <img src="https://img.shields.io/github/last-commit/jay3-yy/BiliPai?style=flat-square&color=purple" alt="Last Commit">
@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026)-brightgreen?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/APK-Varies-orange?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="License">
-  <img src="https://img.shields.io/badge/Plugins-6%20Built--in-blueviolet?style=flat-square" alt="Plugins">
+  <img src="https://img.shields.io/badge/Plugins-7%20Built--in-blueviolet?style=flat-square" alt="Plugins">
 </p>
 
 <p align="center">
@@ -59,6 +59,7 @@
 | **HD Quality** | Supports 4K / 1080P60 / HDR / Dolby Vision (Login/Premium required) |
 | **DASH Streaming** | Adaptive bitrate selection, seamless quality switching, smooth playback |
 | **Danmaku System** | Adjustable opacity, font size, speed, and density filtering |
+| **Video Notes** | Private notes, AI-summary drafts, rich text editing, timestamps, Markdown as the editor interchange format, and system sharing |
 | **Gesture Control** | Brightness (left), Volume (right), Seek (horizontal) |
 | **Playback Speed** | 0.5x / 0.75x / 1.0x / 1.25x / 1.5x / 2.0x, with swipe-up lock while long-press speed is active |
 | **Picture-in-Picture** | Floating window playback for multitasking |
@@ -71,7 +72,7 @@
 | **Comment Copy UX** | Long-press opens selectable-copy panel so users can drag-select exact comment text (including rich text scenarios) |
 | **Playback History** | Automatically resume playback, with a toggle and one-time prompt per target |
 | **TV Login** | Scan QR code to login as TV client to unlock high quality |
-| **Plugin System** | Built-in SponsorBlock, AdBlock, Danmaku Enhancement, Eye Protection, Today Watch, and CDN Region plugins |
+| **Plugin System** | Built-in SponsorBlock, AdBlock, Danmaku Enhancement, Eye Protection, Today Watch, CDN Region, and First Visit Recommendation plugins |
 
 ### 🔌 Plugin System
 
@@ -83,8 +84,11 @@
 | **Eye Protection** | Scheduled eye care, 3 presets + DIY tuning, real-time preview, warm filter, humane reminders with snooze |
 | **🆕 Today Watch** | Local recommendation plugin with Relax/Learn modes, collapse/expand, independent refresh, UP ranking, and reason tags |
 | **🆕 CDN Region** | Off by default; prioritizes same-region CDN candidates for normal video playback while preserving original URLs for fallback |
+| **🆕 First Visit Recommendation** | Off by default; removes cookies only from the Web home recommendation API so the feed is closer to public guest recommendations |
 | **Plugin Center** | Unified management for all plugins with independent configurations |
 | **🆕 External Plugins** | Support loading dynamic JSON rule plugins via URL |
+
+First Visit Recommendation credits wangdaodao's original [TabulaBili](https://github.com/wangdaodaodao/TabulaBili) and tjsky's [TabulaBili-Plus](https://github.com/tjsky/TabulaBili), adapted here as a built-in Android plugin.
 
 #### Implemented Details (Supplement)
 
@@ -432,14 +436,19 @@ A lightweight plugin format requiring **no coding**, just a simple JSON file to 
 
 See full changelog: [CHANGELOG.md](CHANGELOG.md)
 
-### Latest (v8.3.3 · 2026-05-19)
+### Latest (v9.0.0 · 2026-06-01)
 
-- Added more playback/CDN audio fallback diagnostics and improved Space progress, resume, publish-time, play-count, Today Watch UP-rank navigation, and speed-lock unlock behavior.
-- Improved nested comment loading, text expansion, transition motion, and the optional nested-reply blur switch.
-- Moved Telegram channel, Twitter / X, and donation entries to the top Settings group, and cleaned up duplicated publishing-channel statement UI.
-- Reworked the Space contribution toolbar into a compact dock: long-press the current tab to expand the horizontally scrollable Video / Article / Collection / Series tabs, with adaptive indicator width.
-- Fixed skin-sticker and Home-top visuals, removed the unstable transparent bottom-bar liquid-glass experiment, and fixed PGC history cards showing an unknown uploader plus false Bangumi black-screen warnings.
-- Bumped the app to `8.3.3` with `versionCode` `197`.
+- Bumped the app to `9.0.0` with `versionCode` `213`.
+- Completed live interaction and landscape send support.
+- Added comment `@` friend input, automatic dynamic-comment floor expansion, and fixed mini-site comment navigation.
+- Expanded home top layout, collapse, six-tab paging, and top-tab style settings.
+- Polished the top-tab, partition-rail, and bottom-bar indicator reuse path, including liquid-glass refraction, drag, alignment, and return-state fixes.
+- Fixed home video-return top chrome reset, repeated bottom-bar hiding, bottom-bar finishing, and delayed restore issues.
+- Improved offline download and resume stability, and fixed offline player danmaku/progress-bar behavior.
+- Expanded bangumi/movie API coverage and fixed collection entry/detail navigation.
+- Fixed MD3 pull-to-refresh being covered by video cards and made pull-back motion follow the finger.
+- Fixed rectangular click feedback around capsule-shaped top tabs.
+- Happy Children's Day, and early best wishes to students taking the gaokao.
 
 ---
 

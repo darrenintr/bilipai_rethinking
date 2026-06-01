@@ -57,6 +57,53 @@ class HomeFeedScrollStatePersistenceStructureTest {
         assertFalse(videoItemSource.contains("model = File(feedAtmosphereImagePath)"))
     }
 
+    @Test
+    fun `home pager page refresh uses page category instead of stale current state`() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/feature/home/HomeScreen.kt")
+        val pagerPageSource = source
+            .substringAfter("HorizontalPager(")
+            .substringBefore("// Close HorizontalPager lambda")
+
+        assertTrue(pagerPageSource.contains("if (category == HomeCategory.FOLLOW)"))
+        assertTrue(pagerPageSource.contains("viewModel.refresh(category)"))
+        assertTrue(pagerPageSource.contains("viewModel.refresh()"))
+    }
+
+    @Test
+    fun `home follow refresh preserves dynamic update baseline for incremental content`() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/feature/home/HomeViewModel.kt")
+        val followFeedSource = source
+            .substringAfter("private suspend fun fetchFollowFeed")
+            .substringBefore("private fun videoItemKey")
+
+        assertFalse(followFeedSource.contains("DynamicRepository.resetPagination"))
+    }
+
+    @Test
+    fun `home follow feed requests video dynamics instead of filtering all dynamics after baseline`() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/feature/home/HomeViewModel.kt")
+        val followFeedSource = source
+            .substringAfter("private suspend fun fetchFollowFeed")
+            .substringBefore("private fun videoItemKey")
+
+        assertTrue(followFeedSource.contains("type = \"video\""))
+    }
+
+    @Test
+    fun `home follow manual refresh reports actual inserted video count`() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/feature/home/HomeViewModel.kt")
+        val fetchDataSource = source
+            .substringAfter("if (currentCategory == HomeCategory.FOLLOW)")
+            .substringBefore("val currentCategoryState")
+        val followFeedSource = source
+            .substringAfter("private suspend fun fetchFollowFeed")
+            .substringBefore("private fun videoItemKey")
+
+        assertTrue(fetchDataSource.contains("return fetchFollowFeed("))
+        assertTrue(followFeedSource.contains("var addedCount = 0"))
+        assertTrue(followFeedSource.contains("return addedCount"))
+    }
+
     private fun loadSource(path: String): String {
         val normalizedPath = path.removePrefix("app/")
         val sourceFile = listOf(

@@ -42,6 +42,10 @@ internal fun shouldWriteCrashCustomKey(previousValue: Any?, nextValue: Any): Boo
     return previousValue != nextValue
 }
 
+internal fun shouldPersistLocalCrashSnapshot(crashTrackingEnabled: Boolean): Boolean {
+    return true
+}
+
 internal fun isSensitiveCrashCustomKey(key: String): Boolean {
     return key in SENSITIVE_CRASH_CUSTOM_KEYS
 }
@@ -140,6 +144,10 @@ object CrashReporter {
         previousUncaughtHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
+                if (shouldPersistLocalCrashSnapshot(crashTrackingEnabled = isEnabled)) {
+                    // 本地崩溃快照只写入设备，不依赖 Crashlytics 同意状态。
+                    Logger.persistCrashSnapshot(throwable)
+                }
                 if (isEnabled) {
                     setCustomKey("fatal_thread_name", thread.name)
                     setCustomKey("fatal_thread_id", thread.threadId())
@@ -157,7 +165,6 @@ object CrashReporter {
                         )
                     }
                     log("FATAL: ${throwable.javaClass.simpleName}: ${throwable.message.orEmpty().take(200)}")
-                    Logger.persistCrashSnapshot(throwable)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to enrich fatal crash context", e)

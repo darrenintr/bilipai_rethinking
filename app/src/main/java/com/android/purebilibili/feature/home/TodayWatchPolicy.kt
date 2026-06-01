@@ -68,7 +68,7 @@ internal fun buildTodayWatchPlan(
         val completion = estimateCompletionRatio(item)
         val recencyBonus = recencyBonus(item.view_at, nowEpochSec)
         agg.watchCount += 1
-        agg.score += 1.0 + completion * 1.2 + recencyBonus
+        agg.score += watchAffinityScore(completion = completion, recencyBonus = recencyBonus)
     }
 
     // 合并持久化画像信号（跨会话偏好记忆）。
@@ -403,6 +403,20 @@ private fun estimateCompletionRatio(item: VideoItem): Double {
         return (item.progress / 600.0).coerceIn(0.0, 1.0)
     }
     return (item.progress.toDouble() / item.duration.toDouble()).coerceIn(0.0, 1.0)
+}
+
+private fun watchAffinityScore(
+    completion: Double,
+    recencyBonus: Double
+): Double {
+    val completionScore = when {
+        completion >= 0.9 -> 1.85
+        completion >= 0.6 -> 0.9 + completion * 0.75
+        completion >= 0.3 -> 0.25 + completion * 0.45
+        else -> 0.1
+    }
+    val recencyWeight = if (completion >= 0.6) 1.0 else 0.35
+    return completionScore + recencyBonus * recencyWeight
 }
 
 private fun recencyBonus(viewAt: Long, nowEpochSec: Long): Double {

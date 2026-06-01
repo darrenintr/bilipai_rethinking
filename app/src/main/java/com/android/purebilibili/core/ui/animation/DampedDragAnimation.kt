@@ -2,6 +2,7 @@
 package com.android.purebilibili.core.ui.animation
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.horizontalDrag
@@ -76,6 +77,21 @@ internal class DampedDragAnimationState(
     
     /** 累计拖拽偏移量 (px) — 用于面板偏移效果 */
     private val offsetAnimation = Animatable(0f)
+
+    /**
+     * 玻璃偏移跟手弹簧：位置仍 snapTo 保证指示器即时滑动,
+     * 折射偏移单独用临界阻尼过滤输入采样抖动。
+     */
+    private val dragFollowSpring = spring<Float>(
+        dampingRatio = 1f,
+        stiffness = 1000f,
+        visibilityThreshold = 0.001f
+    )
+    private val deformationVelocitySpring = spring<Float>(
+        dampingRatio = 0.5f,
+        stiffness = 300f,
+        visibilityThreshold = 0.001f
+    )
     
     /** 当前动画位置 */
     val value: Float get() = animatable.value
@@ -84,8 +100,7 @@ internal class DampedDragAnimationState(
     val velocity: Float get() = animatable.velocity
 
     /** 指示器形变速度：拖拽时来自实时手势速度，释放后回到动画速度。 */
-    val deformationVelocityItemsPerSecond: Float
-        get() = if (isDragging) dragVelocityItemsPerSecond else velocity
+    val deformationVelocityItemsPerSecond: Float get() = deformationVelocityAnimation.value
 
     /** 最近一次释放手势的像素速度（px/s，用于折射/透镜强度） */
     var velocityPxPerSecond by mutableFloatStateOf(0f)
@@ -114,6 +129,9 @@ internal class DampedDragAnimationState(
     var settledReleaseCount by mutableIntStateOf(0)
         private set
 
+    var settledSelectionCount by mutableIntStateOf(0)
+        private set
+
     private var desiredValue = initialIndex.toFloat()
     private var desiredDragOffsetPx = 0f
     private var dragVelocityItemsPerSecond by mutableFloatStateOf(0f)
@@ -122,6 +140,8 @@ internal class DampedDragAnimationState(
     private var pressJob: Job? = null
     private var selectionJob: Job? = null
     private var offsetJob: Job? = null
+    private val deformationVelocityAnimation = Animatable(0f, 0.001f)
+    private var deformationVelocityJob: Job? = null
 
     private fun startNewMotion(): Int {
         motionGeneration += 1
@@ -149,6 +169,7 @@ internal class DampedDragAnimationState(
             desiredDragOffsetPx = offsetAnimation.value
             velocityPxPerSecond = 0f
             dragVelocityItemsPerSecond = 0f
+            deformationVelocityJob?.cancel()
             // 按压缩放 — 参考 LiquidBottomTabs press()
             pressJob?.cancel()
             pressJob = scope.launch {
@@ -159,6 +180,13 @@ internal class DampedDragAnimationState(
             velocityPxPerSecond = gestureVelocityPxPerSecond,
             itemWidthPx = itemWidthPx
         )
+        deformationVelocityJob?.cancel()
+        deformationVelocityJob = scope.launch {
+            deformationVelocityAnimation.animateTo(
+                targetValue = dragVelocityItemsPerSecond,
+                animationSpec = deformationVelocitySpring
+            )
+        }
         
         // [优化] 橡皮筋阻尼物理：
         val currentValue = desiredValue
@@ -179,18 +207,17 @@ internal class DampedDragAnimationState(
                 (itemCount - 1).toFloat() + motionSpec.drag.overscrollLimitItems
             )
         desiredValue = newValue
-        
-        positionJob?.cancel()
-        positionJob = scope.launch {
-            animatable.stop()
-            animatable.snapTo(newValue)
-        }
         // 累计偏移量 — 用于面板偏移
         desiredDragOffsetPx += dragAmountPx
+
+        // 指示器位置必须即时跟手;玻璃折射偏移单独阻尼,过滤拖拽采样抖动。
+        positionJob?.cancel()
         offsetJob?.cancel()
+        positionJob = scope.launch {
+            animatable.snapTo(newValue)
+        }
         offsetJob = scope.launch {
-            offsetAnimation.stop()
-            offsetAnimation.snapTo(desiredDragOffsetPx)
+            offsetAnimation.animateTo(desiredDragOffsetPx, dragFollowSpring)
         }
     }
 
@@ -216,6 +243,10 @@ internal class DampedDragAnimationState(
         desiredValue = targetValue
         dragVelocityItemsPerSecond = 0f
         targetIndex = targetValue.roundToInt().coerceIn(0, itemCount - 1)
+        deformationVelocityJob?.cancel()
+        deformationVelocityJob = scope.launch {
+            deformationVelocityAnimation.snapTo(0f)
+        }
         positionJob = scope.launch {
             if (generation != motionGeneration) return@launch
             animatable.stop()
@@ -272,6 +303,10 @@ internal class DampedDragAnimationState(
             if (generation == motionGeneration) {
                 velocityPxPerSecond = 0f
                 dragVelocityItemsPerSecond = 0f
+                deformationVelocityJob?.cancel()
+                deformationVelocityJob = launch {
+                    deformationVelocityAnimation.animateTo(0f, deformationVelocitySpring)
+                }
                 settledReleaseCount += 1
                 if (notifyIndexChanged && !notifyIndexChangedOnReleaseStart) {
                     onIndexChanged(releaseTargetIndex)
@@ -322,18 +357,32 @@ internal class DampedDragAnimationState(
         targetIndex = index
         desiredValue = index.toFloat()
         dragVelocityItemsPerSecond = 0f
+        deformationVelocityJob?.cancel()
+        deformationVelocityJob = scope.launch {
+            deformationVelocityAnimation.snapTo(0f)
+        }
         selectionJob = scope.launch {
             if (generation != motionGeneration) return@launch
             pressJob?.cancel()
             pressJob = launch {
                 pressProgressAnimation.animateTo(1f, motionSpec.drag.pressSpring.toSpringSpec())
             }
-            animatable.animateTo(
-                targetValue = index.toFloat(),
-                animationSpec = motionSpec.drag.selectionSpring.toSpringSpec()
-            )
-            pressJob?.cancel()
-            pressJob = launch {
+            val releaseTargetValue = index.toFloat()
+            launch {
+                animatable.animateTo(
+                    targetValue = releaseTargetValue,
+                    animationSpec = motionSpec.drag.selectionSpring.toSpringSpec()
+                )
+            }
+            launch {
+                // 对齐 KSU：切换动画接近目标后释放按压形变，而不是等弹簧完全静止。
+                val threshold = ((itemCount - 1).toFloat() * 0.025f).coerceAtLeast(0.001f)
+                snapshotFlow { animatable.value }
+                    .filter { abs(it - releaseTargetValue) < threshold }
+                    .first()
+                if (generation == motionGeneration) {
+                    settledSelectionCount += 1
+                }
                 pressProgressAnimation.animateTo(0f, motionSpec.drag.pressSpring.toSpringSpec())
             }
         }

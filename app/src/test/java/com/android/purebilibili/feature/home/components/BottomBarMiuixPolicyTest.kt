@@ -81,10 +81,10 @@ class BottomBarMiuixPolicyTest {
         assertTrue(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
         assertTrue(source.contains(".layerBackdrop(tabsBackdrop)"))
         assertTrue(source.contains("rememberCombinedBackdrop(backdrop, tabsBackdrop)"))
-        assertTrue(source.contains("refractionHeight = 24.dp.toPx()"))
-        assertTrue(source.contains("refractionAmount = 24.dp.toPx()"))
+        assertTrue(source.contains("refractionHeight = materialSpec.shellRefractionHeightDp.dp.toPx()"))
+        assertTrue(source.contains("refractionAmount = materialSpec.shellRefractionAmountDp.dp.toPx()"))
         assertTrue(source.contains("depthEffect = true"))
-        assertTrue(source.contains("chromaticAberration = true"))
+        assertTrue(source.contains("chromaticAberration = materialSpec.shellChromaticAberration"))
     }
 
     @Test
@@ -93,7 +93,7 @@ class BottomBarMiuixPolicyTest {
 
         assertTrue(
             Regex(
-                """rememberCombinedBackdrop\(backdrop, tabsBackdrop\)[\s\S]*?drawBackdrop\([\s\S]*?effects = \{[\s\S]*?lens\([\s\S]*?chromaticAberration = true""",
+                """rememberCombinedBackdrop\(backdrop, tabsBackdrop\)[\s\S]*?drawBackdrop\([\s\S]*?effects = \{[\s\S]*?lens\([\s\S]*?chromaticAberration = materialSpec\.shellChromaticAberration""",
                 RegexOption.MULTILINE
             ).containsMatchIn(source)
         )

@@ -66,6 +66,13 @@ class CdnRegionPolicyTest {
             ).region
         )
         assertEquals(
+            "成都",
+            selectCdnRegionForLocation(
+                location = IpLocationSnapshot(country = "中国", province = "重庆市", city = "重庆"),
+                catalog = catalog
+            ).region
+        )
+        assertEquals(
             "南京",
             selectCdnRegionForLocation(
                 location = IpLocationSnapshot(country = "中国", province = "江苏", city = "苏州"),
@@ -211,5 +218,111 @@ class CdnRegionPolicyTest {
                 catalog = mapOf("海外" to currentCatalogHosts)
             )
         )
+    }
+
+    @Test
+    fun `health score prefers stable fast host over low latency unstable host`() {
+        val urls = listOf(
+            "https://fast.bilivideo.com/video.m4s",
+            "https://laggy.bilivideo.com/video.m4s"
+        )
+        val sorted = sortCdnCandidatesByHealth(
+            urls = urls.reversed(),
+            healthByHost = mapOf(
+                "fast.bilivideo.com" to CdnCandidateHealth(
+                    host = "fast.bilivideo.com",
+                    readyCount = 3,
+                    manualProbeLatencyMs = 320,
+                    manualProbeSpeedKbps = 5_120,
+                    lastUpdatedAtMs = 1_000
+                ),
+                "laggy.bilivideo.com" to CdnCandidateHealth(
+                    host = "laggy.bilivideo.com",
+                    bufferingCount = 4,
+                    playbackErrorCount = 1,
+                    manualProbeLatencyMs = 80,
+                    manualProbeSpeedKbps = 1_024,
+                    lastUpdatedAtMs = 1_000
+                )
+            )
+        )
+
+        assertEquals("https://fast.bilivideo.com/video.m4s", sorted.first())
+    }
+
+    @Test
+    fun `health sorting keeps error host as fallback`() {
+        val urls = listOf(
+            "https://ok.bilivideo.com/video.m4s",
+            "https://bad.bilivideo.com/video.m4s"
+        )
+        val sorted = sortCdnCandidatesByHealth(
+            urls = urls,
+            healthByHost = mapOf(
+                "ok.bilivideo.com" to CdnCandidateHealth(
+                    host = "ok.bilivideo.com",
+                    readyCount = 1,
+                    lastUpdatedAtMs = 1_000
+                ),
+                "bad.bilivideo.com" to CdnCandidateHealth(
+                    host = "bad.bilivideo.com",
+                    playbackErrorCount = 3,
+                    lastUpdatedAtMs = 1_000
+                )
+            )
+        )
+
+        assertEquals(urls.first(), sorted.first())
+        assertTrue(sorted.contains(urls.last()))
+    }
+
+    @Test
+    fun `health sorting preserves original order without observations`() {
+        val urls = listOf(
+            "https://a.bilivideo.com/video.m4s",
+            "https://b.bilivideo.com/video.m4s"
+        )
+
+        assertEquals(urls, sortCdnCandidatesByHealth(urls, emptyMap()))
+    }
+
+    @Test
+    fun `manual probe candidates respect count and cooldown`() {
+        val urls = (1..7).map { index -> "https://h$index.bilivideo.com/video.m4s" }
+        val candidates = resolveCdnProbeCandidates(
+            urls = urls,
+            healthByHost = mapOf(
+                "h1.bilivideo.com" to CdnCandidateHealth(
+                    host = "h1.bilivideo.com",
+                    lastProbeAtMs = 9_500L
+                )
+            ),
+            nowMs = 10_000L,
+            limit = CdnProbeLimit(maxCandidates = 5, cooldownMs = 1_000L)
+        )
+
+        assertEquals(5, candidates.size)
+        assertFalse(candidates.first().allowed)
+        assertEquals(500L, candidates.first().cooldownRemainingMs)
+        assertTrue(candidates.drop(1).all { it.allowed })
+    }
+
+    @Test
+    fun `host diagnostics expose concrete manual probe latency`() {
+        val diagnostics = buildCdnHostDiagnostics(
+            hosts = listOf("cn-sccd-cm-03-02.bilivideo.com"),
+            healthByHost = mapOf(
+                "cn-sccd-cm-03-02.bilivideo.com" to CdnCandidateHealth(
+                    host = "cn-sccd-cm-03-02.bilivideo.com",
+                    manualProbeLatencyMs = 42L,
+                    readyCount = 1,
+                    lastProbeAtMs = 10_000L,
+                    lastUpdatedAtMs = 10_000L
+                )
+            )
+        )
+
+        assertEquals(42L, diagnostics.single().latencyMs)
+        assertEquals("延迟较低", diagnostics.single().statusLabel)
     }
 }

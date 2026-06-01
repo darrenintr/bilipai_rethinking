@@ -51,6 +51,13 @@ internal fun hasAiSummaryContent(aiSummary: AiSummaryData?): Boolean {
     return modelResult.summary.isNotBlank() || modelResult.outline.isNotEmpty()
 }
 
+internal fun shouldShowVideoNoteEntry(
+    isVideoLoaded: Boolean,
+    aid: Long
+): Boolean {
+    return isVideoLoaded && aid > 0L
+}
+
 internal fun shouldShowInlineOwnerIdentity(showOwnerAvatar: Boolean): Boolean {
     return !showOwnerAvatar
 }

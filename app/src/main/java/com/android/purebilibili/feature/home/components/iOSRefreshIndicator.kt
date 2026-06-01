@@ -170,12 +170,12 @@ fun iOSRefreshIndicator(
         isStateAnimating = state.isAnimating
     )
     
-    //  箭头旋转角度（下拉超过阈值时翻转）- 使用低阻尼弹簧实现过冲
+    //  箭头只表达阈值状态，使用高阻尼避免松手前后出现夸张回弹。
     val arrowRotation by animateFloatAsState(
         targetValue = if (isOverThreshold) 180f else 0f,
         animationSpec = spring(
-            dampingRatio = 0.4f,  // 低阻尼 = 过冲弹跳
-            stiffness = 250f
+            dampingRatio = 0.9f,
+            stiffness = 540f
         ),
         label = "arrow_rotation"
     )
@@ -183,36 +183,22 @@ fun iOSRefreshIndicator(
     //  透明度动画
     val alpha by animateFloatAsState(
         targetValue = if (progress > 0.1f || isRefreshing) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.8f),
+        animationSpec = spring(dampingRatio = 0.92f, stiffness = 620f),
         label = "alpha"
     )
     
-    //  缩放动画 - 增强弹性，释放时过冲
+    //  缩放跟随手势强度，阈值态只做轻强调，不制造果冻感。
     val scale by animateFloatAsState(
         targetValue = when {
             isRefreshing -> 1f
-            isOverThreshold -> 1.1f  // 超过阈值时放大
-            else -> (progress.coerceIn(0f, 1f) * 0.4f + 0.6f).coerceAtMost(1f)
+            isOverThreshold -> 1.03f
+            else -> (progress.coerceIn(0f, 1f) * 0.28f + 0.72f).coerceAtMost(1f)
         },
         animationSpec = spring(
-            dampingRatio = 0.45f,  // 低阻尼产生过冲
-            stiffness = 300f
+            dampingRatio = 0.9f,
+            stiffness = 620f
         ),
         label = "scale"
-    )
-    
-    //  [新增] Y 轴弹跳偏移 - 模拟橡皮筋拉伸感
-    val bounceY by animateFloatAsState(
-        targetValue = when {
-            isRefreshing -> 0f
-            isOverThreshold -> -8f  // 超过阈值向上弹起
-            else -> 0f
-        },
-        animationSpec = spring(
-            dampingRatio = 0.35f,  // 强过冲
-            stiffness = 350f
-        ),
-        label = "bounceY"
     )
     
     Box(
@@ -222,7 +208,6 @@ fun iOSRefreshIndicator(
                 this.alpha = alpha
                 this.scaleX = scale
                 this.scaleY = scale
-                translationY = bounceY  // Y 轴弹跳
             },
         contentAlignment = Alignment.Center
     ) {

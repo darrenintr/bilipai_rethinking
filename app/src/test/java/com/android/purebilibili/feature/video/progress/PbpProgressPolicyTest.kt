@@ -52,6 +52,29 @@ class PbpProgressPolicyTest {
     }
 
     @Test
+    fun buildPbpRidgeSamples_mapsDensityBucketsFromNormalizedIntensity() {
+        val samples = buildPbpRidgeSamples(
+            data = PbpProgressData(
+                stepSeconds = 1,
+                values = listOf(0f, 2.9f, 3f, 6.9f, 7f, 10f)
+            ),
+            durationMs = 10_000L
+        )
+
+        assertEquals(
+            listOf(
+                PbpRidgeDensity.QUIET,
+                PbpRidgeDensity.QUIET,
+                PbpRidgeDensity.NORMAL,
+                PbpRidgeDensity.NORMAL,
+                PbpRidgeDensity.HOT,
+                PbpRidgeDensity.HOT
+            ),
+            samples.map { it.density }
+        )
+    }
+
+    @Test
     fun buildPbpRidgeSamples_ignoresInvalidDataAndClampsFractions() {
         assertTrue(
             buildPbpRidgeSamples(

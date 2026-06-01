@@ -85,4 +85,23 @@ class FullscreenDoubleTapPolicyTest {
             )
         )
     }
+
+    @Test
+    fun seekFeedbackEvent_incrementsGenerationAndFormatsDirection() {
+        val forward = nextFullscreenSeekFeedbackEvent(
+            previousGeneration = 7L,
+            deltaSeconds = 30
+        )
+        val backward = nextFullscreenSeekFeedbackEvent(
+            previousGeneration = forward.generation,
+            deltaSeconds = -15
+        )
+
+        assertEquals(8L, forward.generation)
+        assertEquals("+30s", forward.text)
+        assertEquals(true, forward.forward)
+        assertEquals(9L, backward.generation)
+        assertEquals("-15s", backward.text)
+        assertEquals(false, backward.forward)
+    }
 }

@@ -14,6 +14,7 @@ import android.graphics.Shader
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.OrientationEventListener
 import android.view.Window
@@ -23,6 +24,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -37,7 +39,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.activity.compose.BackHandler
@@ -75,6 +76,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -83,6 +85,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.ui.layout.ContentScale
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.android.purebilibili.EXTRA_PENDING_NAVIGATION_ROUTE
 import com.android.purebilibili.resolveMainActivityVideoRoute
 import com.android.purebilibili.data.model.response.BgmInfo
@@ -96,6 +99,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.android.purebilibili.core.ui.blur.rememberRecoverableHazeState
 import com.android.purebilibili.core.store.PortraitPlayerCollapseMode
+import com.android.purebilibili.core.theme.LocalUiPreset
 //  已改用 MaterialTheme.colorScheme.primary
 
 import com.android.purebilibili.data.model.response.RelatedVideo
@@ -120,6 +124,7 @@ import com.android.purebilibili.feature.video.ui.components.PagesSelector
 // Imports for moved classes
 import com.android.purebilibili.feature.video.viewmodel.PlayerViewModel
 import com.android.purebilibili.feature.video.viewmodel.PlayerUiState
+import com.android.purebilibili.feature.video.viewmodel.QualitySwitchFailureDialogState
 import com.android.purebilibili.feature.video.viewmodel.CommentUiState
 import com.android.purebilibili.feature.video.viewmodel.VideoCommentViewModel
 import com.android.purebilibili.feature.video.state.VideoPlayerState
@@ -151,6 +156,7 @@ import io.github.alexzhirkevich.cupertino.CupertinoActivityIndicator
 import io.github.alexzhirkevich.cupertino.icons.CupertinoIcons
 import io.github.alexzhirkevich.cupertino.icons.outlined.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 //  共享元素过渡
@@ -158,6 +164,10 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.android.purebilibili.core.ui.LocalSharedTransitionScope
 import com.android.purebilibili.core.ui.LocalAnimatedVisibilityScope
+import com.android.purebilibili.core.ui.transition.resolveHomeVideoSharedTransitionCornerSpec
+import com.android.purebilibili.core.ui.transition.resolveVideoCardSharedTransitionMotionSpec
+import com.android.purebilibili.core.ui.transition.resolveVideoCardSharedTransitionEasing
+import com.android.purebilibili.core.ui.transition.shouldEnableVideoCoverSharedTransition
 import com.android.purebilibili.core.ui.rememberAppChevronUpIcon
 import com.android.purebilibili.core.ui.rememberAppCollectionIcon
 import com.android.purebilibili.core.ui.rememberAppDownloadIcon
@@ -178,11 +188,11 @@ import com.android.purebilibili.feature.video.ui.overlay.PlayerProgress
 import com.android.purebilibili.feature.video.ui.components.VideoAspectRatio
 import com.android.purebilibili.feature.video.danmaku.rememberDanmakuManager
 import com.android.purebilibili.feature.video.ui.components.BottomInputBar // [New] Bottom Input Bar
+import com.android.purebilibili.core.ui.blur.shouldAllowRuntimeShaderBackedHazeEffect
 import com.android.purebilibili.core.ui.blur.unifiedBlur
 import com.android.purebilibili.core.ui.IOSModalBottomSheet
 import com.android.purebilibili.core.util.CardPositionManager
 import com.android.purebilibili.core.util.FormatUtils
-import com.android.purebilibili.core.util.ShareUtils
 import coil.compose.AsyncImage
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -200,6 +210,10 @@ import com.android.purebilibili.feature.video.ui.feedback.TripleCelebrationPlace
 import com.android.purebilibili.feature.video.ui.feedback.resolveQualityReminderPlacement
 import com.android.purebilibili.feature.video.ui.feedback.resolveTripleCelebrationPlacement
 import com.android.purebilibili.feature.video.ui.feedback.resolveVideoFeedbackPlacement
+import com.android.purebilibili.feature.video.ui.section.resolveForcedReturnCoverSharedElementSourceRoute
+import com.android.purebilibili.feature.video.share.VideoSharePayload
+import com.android.purebilibili.feature.video.share.VideoShareSheet
+import com.android.purebilibili.feature.video.share.buildVideoSharePayload
 import com.android.purebilibili.feature.video.viewmodel.PlayerToastMessage
 import com.android.purebilibili.feature.video.viewmodel.PlayerToastPresentation
 import kotlin.math.abs
@@ -241,8 +255,12 @@ private const val COVER_TAKEOVER_PRE_BACK_DELAY_MILLIS = 16L
 internal fun resolveForceCoverOnlyForReturn(
     forceCoverOnlyOnReturn: Boolean,
     isReturningFromDetail: Boolean,
-    isExitTransitionInProgress: Boolean
+    isExitTransitionInProgress: Boolean,
+    transitionEnabled: Boolean = true,
+    detailShellSharedBoundsEnabled: Boolean = false
 ): Boolean {
+    if (!transitionEnabled) return false
+    if (detailShellSharedBoundsEnabled) return false
     return forceCoverOnlyOnReturn || isReturningFromDetail
 }
 
@@ -286,6 +304,21 @@ internal data class VideoDetailSystemBarsVisibilityPolicy(
     val hideNavigationBars: Boolean
 )
 
+internal enum class VideoDetailHiddenSystemBars {
+    NONE,
+    STATUS_BARS,
+    SYSTEM_BARS
+}
+
+internal data class VideoDetailSystemBarsApplySpec(
+    val hiddenBars: VideoDetailHiddenSystemBars,
+    val systemBarsBehavior: Int,
+    val statusBarColor: Int,
+    val navigationBarColor: Int,
+    val lightStatusBars: Boolean,
+    val lightNavigationBars: Boolean
+)
+
 internal fun resolveVideoDetailSystemBarsVisibilityPolicy(
     isFullscreenMode: Boolean,
     hideVideoPageStatusBar: Boolean,
@@ -310,6 +343,81 @@ internal fun resolveVideoDetailSystemBarsVisibilityPolicy(
     )
 }
 
+internal fun resolveVideoDetailSystemBarsApplySpec(
+    visibilityPolicy: VideoDetailSystemBarsVisibilityPolicy,
+    useTabletLayout: Boolean,
+    isLightBackground: Boolean,
+    backgroundColor: Int,
+    transparentColor: Int,
+    blackColor: Int,
+    transientBarsBehavior: Int
+): VideoDetailSystemBarsApplySpec {
+    if (visibilityPolicy.hideNavigationBars) {
+        return VideoDetailSystemBarsApplySpec(
+            hiddenBars = VideoDetailHiddenSystemBars.SYSTEM_BARS,
+            systemBarsBehavior = transientBarsBehavior,
+            statusBarColor = blackColor,
+            navigationBarColor = blackColor,
+            lightStatusBars = false,
+            lightNavigationBars = false
+        )
+    }
+
+    val hiddenBars = if (visibilityPolicy.hideStatusBars) {
+        VideoDetailHiddenSystemBars.STATUS_BARS
+    } else {
+        VideoDetailHiddenSystemBars.NONE
+    }
+    return if (useTabletLayout) {
+        VideoDetailSystemBarsApplySpec(
+            hiddenBars = hiddenBars,
+            systemBarsBehavior = transientBarsBehavior,
+            statusBarColor = backgroundColor,
+            navigationBarColor = backgroundColor,
+            lightStatusBars = isLightBackground,
+            lightNavigationBars = isLightBackground
+        )
+    } else {
+        VideoDetailSystemBarsApplySpec(
+            hiddenBars = hiddenBars,
+            systemBarsBehavior = transientBarsBehavior,
+            statusBarColor = transparentColor,
+            navigationBarColor = transparentColor,
+            lightStatusBars = false,
+            lightNavigationBars = false
+        )
+    }
+}
+
+internal fun resolveVideoDetailStableStatusBarHeightDp(
+    visibleStatusBarHeightDp: Float,
+    statusBarIgnoringVisibilityHeightDp: Float,
+    hideStatusBars: Boolean
+): Float {
+    fun sanitize(value: Float): Float {
+        return value.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 0f
+    }
+
+    val visibleInset = sanitize(visibleStatusBarHeightDp)
+    val stableInset = sanitize(statusBarIgnoringVisibilityHeightDp)
+    return if (hideStatusBars) {
+        stableInset.coerceAtLeast(visibleInset)
+    } else {
+        visibleInset
+    }
+}
+
+internal fun resolveVideoDetailPortraitPlayerTopInsetDp(
+    stableStatusBarHeightDp: Float,
+    hideStatusBars: Boolean
+): Float {
+    val stableInset = stableStatusBarHeightDp
+        .takeIf { it.isFinite() }
+        ?.coerceAtLeast(0f)
+        ?: 0f
+    return if (hideStatusBars) 0f else stableInset
+}
+
 internal fun shouldRestoreSystemBarsDuringVideoDetailExitTransition(
     isExitTransitionInProgress: Boolean,
     isActuallyLeaving: Boolean
@@ -317,6 +425,30 @@ internal fun shouldRestoreSystemBarsDuringVideoDetailExitTransition(
     if (!isExitTransitionInProgress) return false
     if (isActuallyLeaving) return false
     return true
+}
+
+private fun applyVideoDetailSystemBarsSpec(
+    window: Window,
+    insetsController: WindowInsetsControllerCompat,
+    spec: VideoDetailSystemBarsApplySpec
+) {
+    when (spec.hiddenBars) {
+        VideoDetailHiddenSystemBars.SYSTEM_BARS -> {
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        VideoDetailHiddenSystemBars.STATUS_BARS -> {
+            insetsController.hide(WindowInsetsCompat.Type.statusBars())
+            insetsController.show(WindowInsetsCompat.Type.navigationBars())
+        }
+        VideoDetailHiddenSystemBars.NONE -> {
+            insetsController.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+    insetsController.systemBarsBehavior = spec.systemBarsBehavior
+    insetsController.isAppearanceLightStatusBars = spec.lightStatusBars
+    insetsController.isAppearanceLightNavigationBars = spec.lightNavigationBars
+    window.statusBarColor = spec.statusBarColor
+    window.navigationBarColor = spec.navigationBarColor
 }
 
 internal fun shouldShowExternalPlaylistQueueBarByPolicy(
@@ -437,6 +569,34 @@ internal data class VideoDetailEntryVisualFrame(
     val blurRadiusPx: Float
 )
 
+internal data class VideoDetailRouteSheetMotion(
+    val enabled: Boolean,
+    val durationMillis: Int,
+    val mainDurationMillis: Int,
+    val settleDurationMillis: Int,
+    val initialScale: Float,
+    val initialTranslationYDp: Float,
+    val initialCornerDp: Float,
+    val initialBackgroundScrimAlpha: Float,
+    val settleScaleDelta: Float,
+    val settleTranslationDp: Float,
+    val easing: Easing
+)
+
+internal enum class VideoDetailRouteSheetSettleDirection {
+    None,
+    Enter,
+    Return
+}
+
+internal data class VideoDetailRouteSheetFrame(
+    val scale: Float,
+    val translationYDp: Float,
+    val cornerDp: Float,
+    val backgroundScrimAlpha: Float,
+    val settleProgress: Float
+)
+
 internal data class VideoDetailMotionSpec(
     val entryPhaseDurationMillis: Int,
     val contentSwapFadeDurationMillis: Int,
@@ -445,6 +605,16 @@ internal data class VideoDetailMotionSpec(
 
 private const val VIDEO_DETAIL_ENTRY_PHASE_MIN_DURATION_MILLIS = 120
 private const val VIDEO_DETAIL_CONTENT_PHASE_MIN_DURATION_MILLIS = 180
+private const val HOME_VIDEO_ROUTE_SHEET_MAIN_DURATION_MILLIS = 320
+private const val HOME_VIDEO_ROUTE_SHEET_SETTLE_DURATION_MILLIS = 96
+private const val HOME_VIDEO_ROUTE_SHEET_DURATION_MILLIS =
+    HOME_VIDEO_ROUTE_SHEET_MAIN_DURATION_MILLIS + HOME_VIDEO_ROUTE_SHEET_SETTLE_DURATION_MILLIS
+private const val HOME_VIDEO_ROUTE_SHEET_INITIAL_SCALE = 0.965f
+private const val HOME_VIDEO_ROUTE_SHEET_INITIAL_TRANSLATION_Y_DP = 56f
+private const val HOME_VIDEO_ROUTE_SHEET_INITIAL_CORNER_DP = 28f
+private const val HOME_VIDEO_ROUTE_SHEET_INITIAL_SCRIM_ALPHA = 0.18f
+private const val HOME_VIDEO_ROUTE_SHEET_SETTLE_SCALE_DELTA = 0.0015f
+private const val HOME_VIDEO_ROUTE_SHEET_SETTLE_TRANSLATION_DP = 1.5f
 
 internal fun resolveVideoDetailMotionSpec(
     transitionEnterDurationMillis: Int
@@ -459,18 +629,192 @@ internal fun resolveVideoDetailMotionSpec(
     )
 }
 
+internal fun resolveVideoDetailRouteSheetMotion(
+    sourceRoute: String?,
+    transitionEnabled: Boolean
+): VideoDetailRouteSheetMotion {
+    val isHomeSource = sourceRoute?.substringBefore("?") == com.android.purebilibili.navigation.ScreenRoutes.Home.route
+    val enabled = transitionEnabled && isHomeSource
+    return VideoDetailRouteSheetMotion(
+        enabled = enabled,
+        durationMillis = HOME_VIDEO_ROUTE_SHEET_DURATION_MILLIS,
+        mainDurationMillis = HOME_VIDEO_ROUTE_SHEET_MAIN_DURATION_MILLIS,
+        settleDurationMillis = HOME_VIDEO_ROUTE_SHEET_SETTLE_DURATION_MILLIS,
+        initialScale = HOME_VIDEO_ROUTE_SHEET_INITIAL_SCALE,
+        initialTranslationYDp = HOME_VIDEO_ROUTE_SHEET_INITIAL_TRANSLATION_Y_DP,
+        initialCornerDp = HOME_VIDEO_ROUTE_SHEET_INITIAL_CORNER_DP,
+        initialBackgroundScrimAlpha = HOME_VIDEO_ROUTE_SHEET_INITIAL_SCRIM_ALPHA,
+        settleScaleDelta = HOME_VIDEO_ROUTE_SHEET_SETTLE_SCALE_DELTA,
+        settleTranslationDp = HOME_VIDEO_ROUTE_SHEET_SETTLE_TRANSLATION_DP,
+        easing = resolveVideoCardSharedTransitionEasing()
+    )
+}
+
+internal fun resolveVideoDetailRouteSheetFrame(
+    rawProgress: Float,
+    settleProgress: Float = 0f,
+    settleDirection: VideoDetailRouteSheetSettleDirection = VideoDetailRouteSheetSettleDirection.None,
+    motion: VideoDetailRouteSheetMotion
+): VideoDetailRouteSheetFrame {
+    if (!motion.enabled) {
+        return VideoDetailRouteSheetFrame(
+            scale = 1f,
+            translationYDp = 0f,
+            cornerDp = 0f,
+            backgroundScrimAlpha = 0f,
+            settleProgress = 0f
+        )
+    }
+    val progress = rawProgress.coerceIn(0f, 1f)
+    val safeSettleProgress = settleProgress.coerceIn(0f, 1f)
+    val settleScale = when (settleDirection) {
+        VideoDetailRouteSheetSettleDirection.Enter -> motion.settleScaleDelta * safeSettleProgress
+        VideoDetailRouteSheetSettleDirection.Return -> -motion.settleScaleDelta * safeSettleProgress
+        VideoDetailRouteSheetSettleDirection.None -> 0f
+    }
+    val settleTranslation = when (settleDirection) {
+        VideoDetailRouteSheetSettleDirection.Enter -> -motion.settleTranslationDp * safeSettleProgress
+        VideoDetailRouteSheetSettleDirection.Return -> motion.settleTranslationDp * safeSettleProgress
+        VideoDetailRouteSheetSettleDirection.None -> 0f
+    }
+    return VideoDetailRouteSheetFrame(
+        scale = lerpVideoDetailFloat(motion.initialScale, 1f, progress) + settleScale,
+        translationYDp = lerpVideoDetailFloat(motion.initialTranslationYDp, 0f, progress) + settleTranslation,
+        cornerDp = lerpVideoDetailFloat(motion.initialCornerDp, 0f, progress),
+        backgroundScrimAlpha = lerpVideoDetailFloat(motion.initialBackgroundScrimAlpha, 0f, progress),
+        settleProgress = safeSettleProgress
+    )
+}
+
+private fun lerpVideoDetailFloat(start: Float, stop: Float, fraction: Float): Float {
+    return start + (stop - start) * fraction
+}
+
+@Composable
+private fun rememberVideoDetailRouteSheetFrame(
+    motion: VideoDetailRouteSheetMotion,
+    isExitTransitionInProgress: Boolean,
+    sharedBoundsActive: Boolean = false
+): VideoDetailRouteSheetFrame {
+    // shell sharedBounds 接管整张详情壳的 morph 时，sheet 自身的 scale/translation/corner/scrim
+    // 必须全部停摆——否则会与共享元素同时形变导致撕裂。等价于 motion.enabled = false。
+    val effectiveMotion = if (sharedBoundsActive) motion.copy(enabled = false) else motion
+    val routeSheetProgress = remember(effectiveMotion.enabled) {
+        Animatable(if (effectiveMotion.enabled) 0f else 1f)
+    }
+    val routeSheetSettleProgress = remember(effectiveMotion.enabled) {
+        Animatable(0f)
+    }
+    var settleDirection by remember {
+        mutableStateOf(VideoDetailRouteSheetSettleDirection.None)
+    }
+
+    LaunchedEffect(
+        effectiveMotion.enabled,
+        effectiveMotion.mainDurationMillis,
+        effectiveMotion.settleDurationMillis,
+        isExitTransitionInProgress
+    ) {
+        if (!effectiveMotion.enabled) {
+            settleDirection = VideoDetailRouteSheetSettleDirection.None
+            routeSheetSettleProgress.snapTo(0f)
+            routeSheetProgress.snapTo(1f)
+            return@LaunchedEffect
+        }
+
+        settleDirection = VideoDetailRouteSheetSettleDirection.None
+        routeSheetSettleProgress.snapTo(0f)
+        val targetProgress = if (isExitTransitionInProgress) 0f else 1f
+        routeSheetProgress.animateTo(
+            targetValue = targetProgress,
+            animationSpec = tween(
+                durationMillis = effectiveMotion.mainDurationMillis,
+                easing = effectiveMotion.easing
+            )
+        )
+        settleDirection = if (isExitTransitionInProgress) {
+            VideoDetailRouteSheetSettleDirection.Return
+        } else {
+            VideoDetailRouteSheetSettleDirection.Enter
+        }
+        routeSheetSettleProgress.snapTo(1f)
+        routeSheetSettleProgress.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(
+                durationMillis = effectiveMotion.settleDurationMillis,
+                easing = effectiveMotion.easing
+            )
+        )
+        settleDirection = VideoDetailRouteSheetSettleDirection.None
+    }
+
+    return remember(
+        routeSheetProgress.value,
+        routeSheetSettleProgress.value,
+        settleDirection,
+        effectiveMotion
+    ) {
+        resolveVideoDetailRouteSheetFrame(
+            rawProgress = routeSheetProgress.value,
+            settleProgress = routeSheetSettleProgress.value,
+            settleDirection = settleDirection,
+            motion = effectiveMotion
+        )
+    }
+}
+
+@Composable
+private fun VideoDetailRouteSheetHost(
+    frame: VideoDetailRouteSheetFrame,
+    motion: VideoDetailRouteSheetMotion,
+    isFullscreenMode: Boolean,
+    backgroundColor: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val routeSheetTranslationYPx = with(LocalDensity.current) {
+        frame.translationYDp.dp.toPx()
+    }
+    val routeSheetShape = RoundedCornerShape(frame.cornerDp.dp)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = frame.backgroundScrimAlpha))
+            .graphicsLayer {
+                scaleX = frame.scale
+                scaleY = frame.scale
+                translationY = routeSheetTranslationYPx
+                transformOrigin = TransformOrigin(0.5f, 0f)
+                clip = motion.enabled && frame.cornerDp > 0.01f
+                shape = routeSheetShape
+            }
+            .background(if (isFullscreenMode) Color.Black else backgroundColor),
+        content = content
+    )
+}
+
 internal fun resolveVideoDetailEntryVisualFrame(
     rawProgress: Float,
     transitionEnabled: Boolean,
+    fallbackBlurEnabled: Boolean = false,
     maxBlurRadiusPx: Float
 ): VideoDetailEntryVisualFrame {
     // 共享元素模式下，sharedBounds 已经处理视觉过渡，
     // 额外的 alpha/blur 会与共享元素动画冲突导致闪烁。
-    // 无论是否启用过渡，都返回完全不透明、无模糊。
+    if (transitionEnabled || !fallbackBlurEnabled) {
+        return VideoDetailEntryVisualFrame(
+            contentAlpha = 1f,
+            scrimAlpha = 0f,
+            blurRadiusPx = 0f
+        )
+    }
+    val progress = rawProgress.coerceIn(0f, 1f)
+    val maxLightBlurRadiusPx = maxBlurRadiusPx.coerceAtMost(6f).coerceAtLeast(0f)
     return VideoDetailEntryVisualFrame(
         contentAlpha = 1f,
         scrimAlpha = 0f,
-        blurRadiusPx = 0f
+        blurRadiusPx = maxLightBlurRadiusPx * (1f - progress)
     )
 }
 
@@ -508,6 +852,7 @@ internal fun shouldAutoEnterPortraitFullscreenFromRoute(
     startAudioFromRoute: Boolean,
     portraitExperienceEnabled: Boolean,
     useOfficialInlinePortraitDetailExperience: Boolean,
+    allowStandalonePortraitAutoEnter: Boolean = true,
     isCurrentRouteVideoLoaded: Boolean,
     isVerticalVideo: Boolean,
     isPortraitFullscreen: Boolean,
@@ -517,10 +862,21 @@ internal fun shouldAutoEnterPortraitFullscreenFromRoute(
         !startAudioFromRoute &&
         portraitExperienceEnabled &&
         !useOfficialInlinePortraitDetailExperience &&
+        allowStandalonePortraitAutoEnter &&
         isCurrentRouteVideoLoaded &&
         isVerticalVideo &&
         !isPortraitFullscreen &&
         !hasAutoEnteredPortraitFromRoute
+}
+
+internal fun shouldStartInPortraitFullscreenFromRouteHint(
+    autoEnterPortraitFromRoute: Boolean,
+    startAudioFromRoute: Boolean,
+    initialVerticalFromRoute: Boolean
+): Boolean {
+    return autoEnterPortraitFromRoute &&
+        !startAudioFromRoute &&
+        initialVerticalFromRoute
 }
 
 internal fun shouldSyncMainPlayerToInternalBvid(
@@ -603,6 +959,7 @@ private fun PortraitInlineVideoPlayerHost(
     onNavigateToAudioMode: () -> Unit,
     forceCoverOnly: Boolean,
     allowLivePlayerSharedElement: Boolean,
+    sourceRouteForSharedElement: String?,
     suppressSubtitleOverlay: Boolean,
     subtitleDisplayModePreferenceOverride: SubtitleDisplayMode?,
     onSubtitleDisplayModePreferenceOverrideChange: (SubtitleDisplayMode) -> Unit
@@ -641,8 +998,11 @@ private fun PortraitInlineVideoPlayerHost(
             onReloadVideo = { viewModel.reloadVideo() },
             currentCdnIndex = successState?.currentCdnIndex ?: 0,
             cdnCount = successState?.cdnCount ?: 1,
+            cdnLineDiagnostics = successState?.cdnLineDiagnostics.orEmpty(),
+            isCdnProbing = successState?.isCdnProbing ?: false,
             onSwitchCdn = { viewModel.switchCdn() },
             onSwitchCdnTo = { viewModel.switchCdnTo(it) },
+            onProbeCdnCandidates = { viewModel.probeCurrentCdnCandidates() },
             isAudioOnly = false,
             onAudioOnlyToggle = onNavigateToAudioMode,
             sleepTimerMinutes = sleepTimerMinutes,
@@ -669,6 +1029,7 @@ private fun PortraitInlineVideoPlayerHost(
             onDownloadAudio = { viewModel.downloadAudio(context) },
             forceCoverOnly = forceCoverOnly,
             allowLivePlayerSharedElement = allowLivePlayerSharedElement,
+            sourceRouteForSharedElement = sourceRouteForSharedElement,
             suppressSubtitleOverlay = suppressSubtitleOverlay,
             subtitleDisplayModePreferenceOverride = subtitleDisplayModePreferenceOverride,
             onSubtitleDisplayModePreferenceOverrideChange = onSubtitleDisplayModePreferenceOverrideChange
@@ -677,7 +1038,11 @@ private fun PortraitInlineVideoPlayerHost(
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-@OptIn(ExperimentalSharedTransitionApi::class, ExperimentalMaterial3Api::class)
+@OptIn(
+    ExperimentalSharedTransitionApi::class,
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class
+)
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
 fun VideoDetailScreen(
@@ -687,10 +1052,17 @@ fun VideoDetailScreen(
     startInFullscreen: Boolean = false,
     startAudioFromRoute: Boolean = false,
     autoEnterPortraitFromRoute: Boolean = false,
+    initialVerticalFromRoute: Boolean = false,
     resumePositionMsFromRoute: Long = 0L,
     openCommentRootRpidFromRoute: Long = 0L,
+    openCommentTargetRpidFromRoute: Long = 0L,
+    sourceRouteForSharedElement: String? = null,
+    isReturningFromDetail: Boolean = false,
+    isQuickReturningFromDetail: Boolean = false,
+    onMarkReturningFromDetail: () -> Unit = {},
+    onClearReturningFromDetail: () -> Unit = {},
     transitionEnabled: Boolean = false,
-    predictiveBackAnimationEnabled: Boolean = true,
+    fallbackEntryBlurEnabled: Boolean = false,
     transitionEnterDurationMillis: Int = 320,
     transitionMaxBlurRadiusPx: Float = 20f,
     onBack: () -> Unit,
@@ -721,6 +1093,24 @@ fun VideoDetailScreen(
     val motionSpec = remember(transitionEnterDurationMillis) {
         resolveVideoDetailMotionSpec(transitionEnterDurationMillis)
     }
+    val homeSharedTransitionMotionSpec = remember(sourceRouteForSharedElement, transitionEnabled) {
+        resolveVideoCardSharedTransitionMotionSpec(
+            sourceRoute = sourceRouteForSharedElement,
+            transitionEnabled = transitionEnabled
+        )
+    }
+    val homeSharedTransitionCornerSpec = remember(sourceRouteForSharedElement, transitionEnabled) {
+        resolveHomeVideoSharedTransitionCornerSpec(
+            sourceRoute = sourceRouteForSharedElement,
+            transitionEnabled = transitionEnabled
+        )
+    }
+    val routeSheetMotion = remember(sourceRouteForSharedElement, transitionEnabled) {
+        resolveVideoDetailRouteSheetMotion(
+            sourceRoute = sourceRouteForSharedElement,
+            transitionEnabled = transitionEnabled
+        )
+    }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val resumePlaybackSuggestion by viewModel.resumePlaybackSuggestion.collectAsStateWithLifecycle()
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
@@ -729,7 +1119,11 @@ fun VideoDetailScreen(
     var isNavigatingToMiniMode by remember { mutableStateOf(false) }
     var hasAutoEnteredAudioMode by rememberSaveable { mutableStateOf(false) }
     var hasAutoEnteredPortraitFromRoute by rememberSaveable(bvid) { mutableStateOf(false) }
-    var hasHandledCommentRootFromRoute by rememberSaveable(bvid, openCommentRootRpidFromRoute) { mutableStateOf(false) }
+    var hasHandledCommentRootFromRoute by rememberSaveable(
+        bvid,
+        openCommentRootRpidFromRoute,
+        openCommentTargetRpidFromRoute
+    ) { mutableStateOf(false) }
     // 🔄 [Seamless Playback] Internal BVID state to support seamless switching in portrait mode
     var currentBvid by rememberSaveable(bvid) { mutableStateOf(bvid) }
 
@@ -815,13 +1209,23 @@ fun VideoDetailScreen(
     }
     
     // 🎭 [性能优化] 进场视觉帧 + 重型组件延迟加载
-    var isTransitionFinished by remember { mutableStateOf(!transitionEnabled) }
-    val entryVisualProgress = remember(transitionEnabled) {
-        Animatable(if (transitionEnabled) 0f else 1f)
+    // shell sharedBounds 接管整体 morph 时，内容必须从第一帧就处在最终布局，
+    // 不能再走 isTransitionFinished 门控触发的二级 fadeIn / slide / shrink。
+    val shellSharedBoundsLikely = transitionEnabled && !sourceRouteForSharedElement.isNullOrBlank()
+    val entryVisualEnabled = transitionEnabled || fallbackEntryBlurEnabled
+    var isTransitionFinished by remember {
+        mutableStateOf(!entryVisualEnabled || shellSharedBoundsLikely)
+    }
+    val entryVisualProgress = remember(entryVisualEnabled) {
+        Animatable(if (entryVisualEnabled) 0f else 1f)
     }
 
-    LaunchedEffect(transitionEnabled, motionSpec.entryPhaseDurationMillis) {
-        if (!transitionEnabled) {
+    LaunchedEffect(
+        entryVisualEnabled,
+        motionSpec.entryPhaseDurationMillis,
+        shellSharedBoundsLikely
+    ) {
+        if (!entryVisualEnabled || shellSharedBoundsLikely) {
             entryVisualProgress.snapTo(1f)
             isTransitionFinished = true
             return@LaunchedEffect
@@ -842,11 +1246,13 @@ fun VideoDetailScreen(
     val entryVisualFrame = remember(
         entryVisualProgress.value,
         transitionEnabled,
+        fallbackEntryBlurEnabled,
         transitionMaxBlurRadiusPx
     ) {
         resolveVideoDetailEntryVisualFrame(
             rawProgress = entryVisualProgress.value,
             transitionEnabled = transitionEnabled,
+            fallbackBlurEnabled = fallbackEntryBlurEnabled,
             maxBlurRadiusPx = transitionMaxBlurRadiusPx
         )
     }
@@ -857,6 +1263,7 @@ fun VideoDetailScreen(
 
     LaunchedEffect(
         openCommentRootRpidFromRoute,
+        openCommentTargetRpidFromRoute,
         commentState.replies,
         commentState.isRepliesLoading,
         subReplyState.visible
@@ -867,10 +1274,16 @@ fun VideoDetailScreen(
 
         val rootReply = commentState.replies.firstOrNull { it.rpid == openCommentRootRpidFromRoute }
         if (rootReply != null) {
-            commentViewModel.openSubReply(rootReply)
+            commentViewModel.openSubReply(rootReply, openCommentTargetRpidFromRoute)
             hasHandledCommentRootFromRoute = true
-        } else if (!commentState.isRepliesLoading && commentState.isRepliesEnd) {
-            hasHandledCommentRootFromRoute = true
+        } else if (!commentState.isRepliesLoading) {
+            val openStarted = commentViewModel.openSubReplyFromRoute(
+                rootReplyId = openCommentRootRpidFromRoute,
+                targetReplyId = openCommentTargetRpidFromRoute
+            )
+            if (openStarted) {
+                hasHandledCommentRootFromRoute = true
+            }
         }
     }
     val commentDefaultSortMode by com.android.purebilibili.core.store.SettingsManager
@@ -997,7 +1410,8 @@ fun VideoDetailScreen(
     val hideVideoPageStatusBar by com.android.purebilibili.core.store.SettingsManager
         .getHideVideoPageStatusBar(context)
         .collectAsStateWithLifecycle(
-            initialValue = false,
+            initialValue = com.android.purebilibili.core.store.SettingsManager
+                .getHideVideoPageStatusBarSync(context),
             lifecycle = lifecycleOwner.lifecycle
         )
     val useTabletLayout = shouldUseTabletVideoLayout(
@@ -1079,6 +1493,7 @@ fun VideoDetailScreen(
     
     //  [PiP修复] 记录视频播放器在屏幕上的位置，用于PiP窗口只显示视频区域
     var videoPlayerBounds by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    var videoPlayerRootBottomPx by remember { mutableIntStateOf(0) }
     
     // 📱 [优化] isPortraitFullscreen 和 isVerticalVideo 现在从 playerState 获取（见 playerState 定义后）
     
@@ -1099,6 +1514,7 @@ fun VideoDetailScreen(
     )
     val externalPlaylistQueueTitle = resolveExternalPlaylistQueueTitle(externalPlaylistSource)
     var showExternalPlaylistQueueSheet by rememberSaveable { mutableStateOf(false) }
+    var pendingVideoShare by remember { mutableStateOf<VideoSharePayload?>(null) }
     val externalPlaylistQueueSheetPresentation = remember {
         resolveExternalPlaylistQueueSheetPresentation(requireRealtimeHaze = true)
     }
@@ -1124,12 +1540,23 @@ fun VideoDetailScreen(
     }
     
     //  从小窗展开时自动进入全屏
-    LaunchedEffect(startInFullscreen) {
+    LaunchedEffect(startInFullscreen, isOrientationDrivenFullscreen, isLandscape) {
         if (startInFullscreen) {
             if (!isOrientationDrivenFullscreen) {
                 userRequestedFullscreen = true
-            } else if (!isLandscape) {
+            } else {
                 context.findActivity()?.let { activity ->
+                    val isInMultiWindowMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+                        activity.isInMultiWindowMode
+                    if (!shouldApplyStartFullscreenOrientationRequest(
+                            startInFullscreen = startInFullscreen,
+                            isOrientationDrivenFullscreen = isOrientationDrivenFullscreen,
+                            isLandscape = isLandscape,
+                            isInMultiWindowMode = isInMultiWindowMode
+                        )
+                    ) {
+                        return@let
+                    }
                     activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 }
             }
@@ -1142,6 +1569,9 @@ fun VideoDetailScreen(
     //  [关键] 保存进入前的状态栏配置（在 DisposableEffect 外部定义以便复用）
     val activity = remember { context.findActivity() }
     val window = remember { activity?.window }
+    val isActivityInMultiWindowMode = activity?.let { host ->
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && host.isInMultiWindowMode
+    } ?: false
     var entryRequestedOrientation by rememberSaveable {
         mutableIntStateOf(
             activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -1184,6 +1614,7 @@ fun VideoDetailScreen(
     //  [修复] 包装的 onBack，在导航之前立即恢复状态栏并通知小窗管理器
     val latestOnBack by rememberUpdatedState(onBack)
     val latestOnHomeClick by rememberUpdatedState(onHomeClick)
+    val latestOnMarkReturningFromDetail by rememberUpdatedState(onMarkReturningFromDetail)
     val topBarActionHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
     var pendingTopBarActionRunnable by remember { mutableStateOf<Runnable?>(null) }
     var isActuallyLeaving by rememberSaveable(currentBvid) { mutableStateOf(false) }
@@ -1191,13 +1622,30 @@ fun VideoDetailScreen(
     val rootAnimatedVisibilityScope = LocalAnimatedVisibilityScope.current
     val isExitTransitionInProgress =
         rootAnimatedVisibilityScope?.transition?.targetState == EnterExitState.PostExit
+    val rootSharedTransitionScope = LocalSharedTransitionScope.current
+    val sharedBoundsActive = shouldEnableVideoCoverSharedTransition(
+        transitionEnabled = transitionEnabled,
+        hasSharedTransitionScope = rootSharedTransitionScope != null,
+        hasAnimatedVisibilityScope = rootAnimatedVisibilityScope != null
+    ) && !sourceRouteForSharedElement.isNullOrBlank()
+    // Shell sharedBounds 不再包裹整页，仅用于 route sheet 禁用标记
+    val detailShellSharedBoundsEnabled = false
+    val routeSheetFrame = rememberVideoDetailRouteSheetFrame(
+        motion = routeSheetMotion,
+        isExitTransitionInProgress = isExitTransitionInProgress,
+        sharedBoundsActive = sharedBoundsActive
+    )
+    // Shell sharedBounds 已移除，cover 独立 sharedBounds 处理播放器 → 封面映射
+    val detailShellModifier = Modifier
     val coverTakeoverBeforeBackDelayMillis = remember {
         resolveCoverTakeoverDelayBeforeBackNavigationMillis()
     }
     val forceCoverOnlyForReturn = resolveForceCoverOnlyForReturn(
         forceCoverOnlyOnReturn = forceCoverOnlyOnReturn,
-        isReturningFromDetail = CardPositionManager.isReturningFromDetail,
-        isExitTransitionInProgress = isExitTransitionInProgress
+        isReturningFromDetail = isReturningFromDetail,
+        isExitTransitionInProgress = isExitTransitionInProgress,
+        transitionEnabled = transitionEnabled,
+        detailShellSharedBoundsEnabled = detailShellSharedBoundsEnabled
     )
 
     val handleTopBarAction = remember(
@@ -1211,8 +1659,8 @@ fun VideoDetailScreen(
             isActuallyLeaving = true // 标记确实是用户通过点击或返回键离开
             isScreenActive = false  // 标记页面正在退出
             forceCoverOnlyOnReturn = true
-            // 进入返回流程时立即标记，确保封面优先接管
-            CardPositionManager.markReturning()
+            // 进入返回流程时立即标记，确保封面优先接管。
+            latestOnMarkReturningFromDetail()
             // 🎯 通知小窗管理器这是用户主动导航离开（用于控制后台音频）
             miniPlayerManager?.markLeavingByNavigation(expectedBvid = currentBvid)
 
@@ -1257,8 +1705,8 @@ fun VideoDetailScreen(
         pendingTopBarActionRunnable = null
         isScreenActive = true
         forceCoverOnlyOnReturn = false
-        if (shouldClearStaleReturningStateOnVideoDetailEnter(CardPositionManager.isReturningFromDetail)) {
-            CardPositionManager.clearReturning()
+        if (shouldClearStaleReturningStateOnVideoDetailEnter(isReturningFromDetail)) {
+            onClearReturningFromDetail()
         }
     }
 
@@ -1269,8 +1717,8 @@ fun VideoDetailScreen(
                 pendingTopBarActionRunnable = null
                 isScreenActive = true
                 forceCoverOnlyOnReturn = false
-                if (shouldClearStaleReturningStateOnVideoDetailEnter(CardPositionManager.isReturningFromDetail)) {
-                    CardPositionManager.clearReturning()
+                if (shouldClearStaleReturningStateOnVideoDetailEnter(isReturningFromDetail)) {
+                    onClearReturningFromDetail()
                 }
             }
         }
@@ -1345,7 +1793,7 @@ fun VideoDetailScreen(
         if (window != null) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
         }
-        
+
         onDispose {
             pendingTopBarActionRunnable?.let(topBarActionHandler::removeCallbacks)
             pendingTopBarActionRunnable = null
@@ -1370,9 +1818,9 @@ fun VideoDetailScreen(
                 )
             )
             if (shouldMarkReturningStateOnVideoDetailDispose(shouldHandleAsNavigationExit)) {
-                CardPositionManager.markReturning()
+                onMarkReturningFromDetail()
             } else {
-                CardPositionManager.clearReturning()
+                onClearReturningFromDetail()
             }
 
             // ⚡ [性能优化] Phase 2: 延迟执行 — 非视觉的系统调用推迟到下一帧
@@ -1540,7 +1988,15 @@ fun VideoDetailScreen(
     }
 
     // 📱 [修复] 提升竖屏全屏状态到 Screen 级别，防止 VideoPlayerState 重建时状态丢失
-    var isPortraitFullscreen by rememberSaveable { mutableStateOf(false) }
+    var isPortraitFullscreen by rememberSaveable {
+        mutableStateOf(
+            shouldStartInPortraitFullscreenFromRouteHint(
+                autoEnterPortraitFromRoute = autoEnterPortraitFromRoute,
+                startAudioFromRoute = startAudioFromRoute,
+                initialVerticalFromRoute = initialVerticalFromRoute
+            )
+        )
+    }
     val useSharedPortraitPlayer = shouldUseSharedPlayerForPortraitFullscreen()
     val portraitPagerMotionSpec = remember {
         resolveStandalonePortraitPagerMotionSpec()
@@ -1658,6 +2114,43 @@ fun VideoDetailScreen(
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 value = player.isPlaying
+            }
+        }
+        player.addListener(listener)
+        awaitDispose {
+            player.removeListener(listener)
+        }
+    }
+    val isPlaybackPaused by produceState(
+        initialValue = resolveIsPlaybackPausedForCollapse(
+            playWhenReady = playerState.player.playWhenReady,
+            playbackState = playerState.player.playbackState
+        ),
+        key1 = playerState.player,
+        key2 = currentBvid,
+        key3 = currentBvidCid
+    ) {
+        val player = playerState.player
+
+        fun updatePausedState() {
+            value = resolveIsPlaybackPausedForCollapse(
+                playWhenReady = player.playWhenReady,
+                playbackState = player.playbackState
+            )
+        }
+
+        updatePausedState()
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                updatePausedState()
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updatePausedState()
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                updatePausedState()
             }
         }
         player.addListener(listener)
@@ -1793,6 +2286,7 @@ fun VideoDetailScreen(
         isOrientationDrivenFullscreen,
         isFullscreenMode,
         windowSizeClass.isCompactDevice,
+        isActivityInMultiWindowMode,
         userRequestedFullscreen,
         manualPortraitHoldActive,
         isVerticalVideo
@@ -1807,7 +2301,8 @@ fun VideoDetailScreen(
             manualFullscreenRequested = userRequestedFullscreen,
             manualPortraitHoldActive = manualPortraitHoldActive,
             isVerticalVideo = isVerticalVideo,
-            currentRequestedOrientation = activity?.requestedOrientation
+            currentRequestedOrientation = activity?.requestedOrientation,
+            isInMultiWindowMode = isActivityInMultiWindowMode
         ) ?: return@LaunchedEffect
 
         if (activity?.requestedOrientation != requestedOrientation) {
@@ -1815,9 +2310,34 @@ fun VideoDetailScreen(
         }
         com.android.purebilibili.core.util.Logger.d(
             "VideoDetailScreen",
-            "🔄 Auto-rotate: enabled=$autoRotateEnabled, system=$systemAutoRotateEnabled, hold=$manualPortraitHoldActive, mode=$fullscreenMode, horizontal=$horizontalAdaptationEnabled, requested=$requestedOrientation, fullscreen=$isFullscreenMode, verticalVideo=$isVerticalVideo, isCompactDevice=${windowSizeClass.isCompactDevice}"
+            "🔄 Auto-rotate: enabled=$autoRotateEnabled, system=$systemAutoRotateEnabled, hold=$manualPortraitHoldActive, mode=$fullscreenMode, horizontal=$horizontalAdaptationEnabled, requested=$requestedOrientation, fullscreen=$isFullscreenMode, verticalVideo=$isVerticalVideo, isCompactDevice=${windowSizeClass.isCompactDevice}, multiWindow=$isActivityInMultiWindowMode"
         )
     }
+    var lastPhoneAutoRotateLandscapeAppliedAtMs by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(
+        autoRotateEnabled,
+        systemAutoRotateEnabled,
+        windowSizeClass.isCompactDevice,
+        isOrientationDrivenFullscreen,
+        fullscreenMode,
+        manualPortraitHoldActive,
+        isActivityInMultiWindowMode
+    ) {
+        if (!shouldObservePhoneAutoRotate(
+                autoRotateEnabled = autoRotateEnabled,
+                systemAutoRotateEnabled = systemAutoRotateEnabled,
+                isCompactDevice = windowSizeClass.isCompactDevice,
+                isOrientationDrivenFullscreen = isOrientationDrivenFullscreen,
+                fullscreenMode = fullscreenMode,
+                manualPortraitHoldActive = manualPortraitHoldActive,
+                isInMultiWindowMode = isActivityInMultiWindowMode
+            )
+        ) {
+            lastPhoneAutoRotateLandscapeAppliedAtMs = null
+        }
+    }
+
     DisposableEffect(
         activity,
         autoRotateEnabled,
@@ -1825,7 +2345,8 @@ fun VideoDetailScreen(
         fullscreenMode,
         useTabletLayout,
         isOrientationDrivenFullscreen,
-        manualPortraitHoldActive
+        manualPortraitHoldActive,
+        isActivityInMultiWindowMode
     ) {
         val hostActivity = activity
         if (
@@ -1836,7 +2357,8 @@ fun VideoDetailScreen(
                 isCompactDevice = windowSizeClass.isCompactDevice,
                 isOrientationDrivenFullscreen = isOrientationDrivenFullscreen,
                 fullscreenMode = fullscreenMode,
-                manualPortraitHoldActive = manualPortraitHoldActive
+                manualPortraitHoldActive = manualPortraitHoldActive,
+                isInMultiWindowMode = isActivityInMultiWindowMode
             ) ||
             !isOrientationDrivenFullscreen
         ) {
@@ -1856,10 +2378,18 @@ fun VideoDetailScreen(
                 val targetOrientation = resolvePhoneAutoRotateRequestedOrientation(
                     orientationDegrees = orientation,
                     isCurrentlyLandscape = isCurrentlyLandscape
+                )
+                val nowMs = SystemClock.elapsedRealtime()
+                val targetToApply = resolvePhoneAutoRotateTargetToApply(
+                    candidateOrientation = targetOrientation,
+                    lastLandscapeAppliedAtMs = lastPhoneAutoRotateLandscapeAppliedAtMs,
+                    nowMs = nowMs
                 ) ?: return
-                if (hostActivity.requestedOrientation != targetOrientation) {
-                    hostActivity.requestedOrientation = targetOrientation
+                if (hostActivity.requestedOrientation != targetToApply) {
+                    hostActivity.requestedOrientation = targetToApply
                 }
+                lastPhoneAutoRotateLandscapeAppliedAtMs =
+                    if (isLandscapeRequestedOrientation(targetToApply)) nowMs else null
             }
         }
 
@@ -1869,6 +2399,7 @@ fun VideoDetailScreen(
 
         onDispose {
             orientationListener.disable()
+            lastPhoneAutoRotateLandscapeAppliedAtMs = null
         }
     }
     val portraitExperienceEnabled = shouldEnablePortraitExperience()
@@ -1897,6 +2428,7 @@ fun VideoDetailScreen(
         startAudioFromRoute,
         portraitExperienceEnabled,
         useOfficialInlinePortraitDetailExperience,
+        windowSizeClass.widthSizeClass,
         isCurrentRouteVideoLoaded,
         isVerticalVideo,
         isPortraitFullscreen,
@@ -1908,6 +2440,8 @@ fun VideoDetailScreen(
                 startAudioFromRoute = startAudioFromRoute,
                 portraitExperienceEnabled = portraitExperienceEnabled,
                 useOfficialInlinePortraitDetailExperience = useOfficialInlinePortraitDetailExperience,
+                allowStandalonePortraitAutoEnter = windowSizeClass.widthSizeClass ==
+                    com.android.purebilibili.core.util.WindowWidthSizeClass.Compact,
                 isCurrentRouteVideoLoaded = isCurrentRouteVideoLoaded,
                 isVerticalVideo = isVerticalVideo,
                 isPortraitFullscreen = isPortraitFullscreen,
@@ -2240,42 +2774,34 @@ fun VideoDetailScreen(
             isScreenActive = isScreenActive
         )
     }
+    val systemBarsApplySpec = remember(
+        systemBarsVisibilityPolicy,
+        useTabletLayout,
+        isLightBackground,
+        backgroundColor
+    ) {
+        resolveVideoDetailSystemBarsApplySpec(
+            visibilityPolicy = systemBarsVisibilityPolicy,
+            useTabletLayout = useTabletLayout,
+            isLightBackground = isLightBackground,
+            backgroundColor = backgroundColor.toArgb(),
+            transparentColor = Color.Transparent.toArgb(),
+            blackColor = Color.Black.toArgb(),
+            transientBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        )
+    }
 
     //  iOS风格：竖屏时状态栏黑色背景（与播放器融为一体）
     //  只在页面活跃时修改状态栏，避免退出时覆盖恢复操作
-    if (!view.isInEditMode && isScreenActive) {
-        SideEffect {
-            val window = (view.context.findActivity())?.window ?: return@SideEffect
-            val insetsController = WindowCompat.getInsetsController(window, view)
-
-            if (systemBarsVisibilityPolicy.hideNavigationBars) {
-                // 📱 手机全屏隐藏状态栏
-                insetsController.hide(WindowInsetsCompat.Type.systemBars())
-                insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                window.statusBarColor = Color.Black.toArgb()
-                window.navigationBarColor = Color.Black.toArgb()
-            } else {
-                //  [沉浸式] 非全屏模式：手机保持透明沉浸，平板使用实体状态栏提升可读性
-                if (systemBarsVisibilityPolicy.hideStatusBars) {
-                    insetsController.hide(WindowInsetsCompat.Type.statusBars())
-                    insetsController.show(WindowInsetsCompat.Type.navigationBars())
-                    insetsController.systemBarsBehavior =
-                        androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                } else {
-                    insetsController.show(WindowInsetsCompat.Type.systemBars())
-                }
-                if (useTabletLayout) {
-                    insetsController.isAppearanceLightStatusBars = isLightBackground
-                    insetsController.isAppearanceLightNavigationBars = isLightBackground
-                    window.statusBarColor = backgroundColor.toArgb()
-                    window.navigationBarColor = backgroundColor.toArgb()
-                } else {
-                    insetsController.isAppearanceLightStatusBars = false  // 白色图标（视频区域是深色的）
-                    window.statusBarColor = Color.Transparent.toArgb()  // 透明状态栏
-                    window.navigationBarColor = Color.Transparent.toArgb()
-                }
-            }
+    LaunchedEffect(view, window, insetsController, isScreenActive, systemBarsApplySpec) {
+        if (view.isInEditMode || !isScreenActive || window == null || insetsController == null) {
+            return@LaunchedEffect
         }
+        applyVideoDetailSystemBarsSpec(
+            window = window,
+            insetsController = insetsController,
+            spec = systemBarsApplySpec
+        )
     }
 
     val uiSuccessState = uiState as? PlayerUiState.Success
@@ -2295,10 +2821,12 @@ fun VideoDetailScreen(
             )
     var selectedVideoContentTabIndex by rememberSaveable(currentBvid) { mutableIntStateOf(0) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (isFullscreenMode) Color.Black else MaterialTheme.colorScheme.background)
+    VideoDetailRouteSheetHost(
+        frame = routeSheetFrame,
+        motion = routeSheetMotion,
+        isFullscreenMode = isFullscreenMode,
+        backgroundColor = MaterialTheme.colorScheme.background,
+        modifier = detailShellModifier
     ) {
         // 📐 [平板适配] 全屏模式过渡动画（只有手机横屏才进入全屏）
         if (isFullscreenMode) {
@@ -2328,8 +2856,11 @@ fun VideoDetailScreen(
                 onReloadVideo = { viewModel.reloadVideo() },
                 //  [新增] CDN 线路切换
                 cdnCount = (uiState as? PlayerUiState.Success)?.cdnCount ?: 1,
+                cdnLineDiagnostics = (uiState as? PlayerUiState.Success)?.cdnLineDiagnostics.orEmpty(),
+                isCdnProbing = (uiState as? PlayerUiState.Success)?.isCdnProbing ?: false,
                 onSwitchCdn = { viewModel.switchCdn() },
                 onSwitchCdnTo = { viewModel.switchCdnTo(it) },
+                onProbeCdnCandidates = { viewModel.probeCurrentCdnCandidates() },
 
                 // [New] Codec & Audio (Fullscreen)
                 currentCodec = codecPreference,
@@ -2404,6 +2935,7 @@ fun VideoDetailScreen(
                 onPageSelect = { viewModel.switchPage(it) },
                 forceCoverOnly = forceCoverOnlyForReturn,
                 allowLivePlayerSharedElement = true,
+                sourceRouteForSharedElement = sourceRouteForSharedElement,
                 suppressSubtitleOverlay = shouldSuppressSubtitleOverlay,
                 subtitleDisplayModePreferenceOverride = subtitleDisplayModeOverride,
                 onSubtitleDisplayModePreferenceOverrideChange = { subtitleDisplayModeOverride = it }
@@ -2469,10 +3001,28 @@ fun VideoDetailScreen(
                     )
                 } else {
                     // 📱 手机竖屏：原有单列布局
-                    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+                    val stableStatusBarHeight = resolveVideoDetailStableStatusBarHeightDp(
+                        visibleStatusBarHeightDp = WindowInsets.statusBars
+                            .asPaddingValues()
+                            .calculateTopPadding()
+                            .value,
+                        statusBarIgnoringVisibilityHeightDp = WindowInsets.statusBarsIgnoringVisibility
+                            .asPaddingValues()
+                            .calculateTopPadding()
+                            .value,
+                        hideStatusBars = systemBarsVisibilityPolicy.hideStatusBars
+                    ).dp
+                    val playerTopInset = resolveVideoDetailPortraitPlayerTopInsetDp(
+                        stableStatusBarHeightDp = stableStatusBarHeight.value,
+                        hideStatusBars = systemBarsVisibilityPolicy.hideStatusBars
+                    ).dp
                     val screenWidthDp = configuration.screenWidthDp.dp
                     val screenHeightDp = configuration.screenHeightDp.dp
                     val videoHeight = screenWidthDp * 9f / 16f  // 16:9 比例
+                    val uiPreset = LocalUiPreset.current
+                    val videoContentTabSwitchAnimationSpec = remember(uiPreset) {
+                        resolveVideoContentTabSwitchAnimationSpec(uiPreset)
+                    }
 
                     //  读取竖屏播放器滚动缩小模式
                     val portraitPlayerCollapseMode by com.android.purebilibili.core.store.SettingsManager
@@ -2484,22 +3034,20 @@ fun VideoDetailScreen(
                     val inlinePortraitScrollEnabled = shouldEnableInlinePortraitScrollTransform(
                         collapseMode = portraitPlayerCollapseMode,
                         selectedTabIndex = selectedVideoContentTabIndex,
-                        isVerticalVideo = isVerticalVideo
+                        isVerticalVideo = isVerticalVideo,
+                        isPlaybackPaused = isPlaybackPaused
                     )
                     var introFirstVisibleItemIndex by remember { mutableIntStateOf(0) }
                     var introFirstVisibleItemScrollOffset by remember { mutableIntStateOf(0) }
-                    var commentFirstVisibleItemIndex by remember { mutableIntStateOf(0) }
-                    var commentFirstVisibleItemScrollOffset by remember { mutableIntStateOf(0) }
                     val compactInlinePlayerForCommentTab =
                         shouldUseCompactInlinePortraitPlayerForCommentTab(
                             useOfficialInlinePortraitDetailExperience = useOfficialInlinePortraitDetailExperience,
                             selectedTabIndex = selectedVideoContentTabIndex,
                             isPortraitFullscreen = isPortraitFullscreen,
                             isCommentThreadVisible = subReplyState.visible,
-                            firstVisibleItemIndex = commentFirstVisibleItemIndex,
-                            firstVisibleItemScrollOffset = commentFirstVisibleItemScrollOffset,
                             collapseMode = portraitPlayerCollapseMode,
-                            isVerticalVideo = isVerticalVideo
+                            isVerticalVideo = isVerticalVideo,
+                            isPlaybackPaused = isPlaybackPaused
                         )
                     val compactInlinePlayerForIntroScroll =
                         shouldUseCompactInlinePortraitPlayerForIntroScroll(
@@ -2509,7 +3057,8 @@ fun VideoDetailScreen(
                             firstVisibleItemIndex = introFirstVisibleItemIndex,
                             firstVisibleItemScrollOffset = introFirstVisibleItemScrollOffset,
                             collapseMode = portraitPlayerCollapseMode,
-                            isVerticalVideo = isVerticalVideo
+                            isVerticalVideo = isVerticalVideo,
+                            isPlaybackPaused = isPlaybackPaused
                         )
                     
                     // 📏 [Collapsing Player] 上滑隐藏播放器逻辑
@@ -2613,7 +3162,9 @@ fun VideoDetailScreen(
                     val commentTabCollapseProgress by animateFloatAsState(
                         targetValue = if (compactInlinePlayerForCommentTab || compactInlinePlayerForIntroScroll) 1f else 0f,
                         animationSpec = tween(
-                            durationMillis = 260,
+                            durationMillis = resolveInlinePortraitPlayerCommentCollapseDurationMillis(
+                                videoContentTabSwitchAnimationSpec
+                            ),
                             easing = FastOutSlowInEasing
                         ),
                         label = "inline_portrait_comment_tab_collapse"
@@ -2652,7 +3203,7 @@ fun VideoDetailScreen(
                         collapsedViewportWidth,
                         effectiveCollapseProgress
                     )
-                    val animatedPlayerHeight = animatedViewportHeight + statusBarHeight
+                    val animatedPlayerHeight = animatedViewportHeight + playerTopInset
                     
                     //  注意：移除了状态栏黑色 Spacer
                     // 播放器将延伸到状态栏下方，共享元素过渡更流畅
@@ -2660,12 +3211,15 @@ fun VideoDetailScreen(
                     //  注意：移除了状态栏黑色 Spacer
                     // 播放器将延伸到状态栏下方，共享元素过渡更流畅
                     
-                    //  视频播放器区域 - 包含状态栏高度
+                    //  视频播放器区域：状态栏可见时避让，隐藏时让画面沉浸到顶部。
                     //  尝试获取共享元素作用域
                     val sharedTransitionScope = LocalSharedTransitionScope.current
                     val animatedVisibilityScope = LocalAnimatedVisibilityScope.current
+                    val coverSharedElementSourceRoute = resolveForcedReturnCoverSharedElementSourceRoute(
+                        sourceRouteForSharedElement
+                    )
                     
-                    //  为播放器容器添加共享元素标记（受开关控制）
+                    //  为播放器容器添加共享元素标记（封面 ↔ 播放器区域映射）
                     val playerContainerModifier = if (
                         shouldEnableVideoCoverSharedTransition(
                             transitionEnabled = transitionEnabled,
@@ -2676,21 +3230,71 @@ fun VideoDetailScreen(
                         with(requireNotNull(sharedTransitionScope)) {
                             Modifier
                                 .sharedBounds(
-                                    sharedContentState = rememberSharedContentState(key = "video_cover_$bvid"),
+                                    sharedContentState = rememberSharedContentState(
+                                        key = com.android.purebilibili.core.ui.transition.videoCoverSharedElementKey(
+                                            bvid,
+                                            sourceRoute = coverSharedElementSourceRoute
+                                        )
+                                    ),
                                     animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                                     boundsTransform = { _, _ ->
-                                        com.android.purebilibili.core.theme.AnimationSpecs.BiliPaiSpringSpec
+                                        if (homeSharedTransitionMotionSpec.enabled) {
+                                            tween(
+                                                durationMillis = homeSharedTransitionMotionSpec.durationMillis,
+                                                easing = homeSharedTransitionMotionSpec.easing
+                                            )
+                                        } else {
+                                            com.android.purebilibili.core.ui.motion.AppMotionTokens.spatialSpec()
+                                        }
                                     },
                                     clipInOverlayDuringTransition = OverlayClip(
-                                        RoundedCornerShape(12.dp)
+                                        RoundedCornerShape(
+                                            if (homeSharedTransitionCornerSpec.enabled) {
+                                                homeSharedTransitionCornerSpec.endCornerDp.dp
+                                            } else {
+                                                12.dp
+                                            }
+                                        )
                                     )
                                 )
                         }
                     } else {
                         Modifier
                     }
-                    
-                    //  播放器容器包含状态栏高度，让视频延伸到顶部
+
+                    // 🎬 返回时视频 → 封面 crossfade
+                    val isLeaving = isReturningFromDetail || isExitTransitionInProgress
+                    val coverCrossfadeAlpha by animateFloatAsState(
+                        targetValue = if (isLeaving) 1f else 0f,
+                        animationSpec = tween(
+                            durationMillis = 200,
+                            delayMillis = if (isLeaving) 100 else 0
+                        ),
+                        label = "coverCrossfade"
+                    )
+                    val playerFadeAlpha by animateFloatAsState(
+                        targetValue = if (isLeaving) 0f else 1f,
+                        animationSpec = tween(
+                            durationMillis = 200,
+                            delayMillis = if (isLeaving) 60 else 0
+                        ),
+                        label = "playerFade"
+                    )
+                    val crossfadeCoverUrl = remember(coverUrl) {
+                        if (coverUrl.isNotBlank()) {
+                            val url = coverUrl.trim()
+                            when {
+                                url.startsWith("https://") -> url
+                                url.startsWith("http://") -> url.replace("http://", "https://")
+                                url.startsWith("//") -> "https:$url"
+                                else -> url
+                            }
+                        } else {
+                            ""
+                        }
+                    }
+
+                    //  播放器容器按当前顶部避让高度计算，避免隐藏状态栏后留下黑边。
                     //  [修复] 始终保持播放器在 Composition 中，避免隐藏时重新创建导致重载
                     Box(
                         modifier = playerContainerModifier
@@ -2701,6 +3305,7 @@ fun VideoDetailScreen(
                             //  [PiP修复] 捕获视频播放器在屏幕上的位置
                             .onGloballyPositioned { layoutCoordinates ->
                                 val position = layoutCoordinates.positionInWindow()
+                                val rootPosition = layoutCoordinates.positionInRoot()
                                 val size = layoutCoordinates.size
                                 val nextBounds = android.graphics.Rect(
                                     position.x.toInt(),
@@ -2708,16 +3313,38 @@ fun VideoDetailScreen(
                                     position.x.toInt() + size.width,
                                     position.y.toInt() + size.height
                                 )
+                                val nextRootBottomPx = (rootPosition.y + size.height).roundToInt()
+                                if (
+                                    videoPlayerRootBottomPx == 0 ||
+                                    abs(videoPlayerRootBottomPx - nextRootBottomPx) > 3
+                                ) {
+                                    videoPlayerRootBottomPx = nextRootBottomPx
+                                }
                                 if (!hasMeaningfulBoundsChange(videoPlayerBounds, nextBounds)) {
                                     return@onGloballyPositioned
                                 }
                                 videoPlayerBounds = nextBounds
                             }
                     ) {
+                        // 🎬 返回时视频 → 封面 crossfade：封面图叠在播放器上方
+                        if (crossfadeCoverUrl.isNotBlank()) {
+                            AsyncImage(
+                                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                                    .data(crossfadeCoverUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "cover",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .alpha(coverCrossfadeAlpha),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(top = statusBarHeight)
+                                .padding(top = playerTopInset)
+                                .alpha(playerFadeAlpha)
                         ) {
                         PortraitInlineVideoPlayerHost(
                             modifier = Modifier.align(Alignment.TopCenter),
@@ -2767,6 +3394,7 @@ fun VideoDetailScreen(
                             },
                             forceCoverOnly = forceCoverOnlyForReturn,
                             allowLivePlayerSharedElement = true,
+                            sourceRouteForSharedElement = sourceRouteForSharedElement,
                             suppressSubtitleOverlay = shouldSuppressSubtitleOverlay,
                             subtitleDisplayModePreferenceOverride = subtitleDisplayModeOverride,
                             onSubtitleDisplayModePreferenceOverrideChange = { subtitleDisplayModeOverride = it }
@@ -2850,9 +3478,16 @@ fun VideoDetailScreen(
                                         ) {
                                             // [性能优化] 延迟显示下方内容，优先保证进场动画流畅
                                             // 配合 isTransitionFinished 状态
+                                            // 🎬 返回时非核心内容延迟淡出
+                                            val detailContentRevealEnter =
+                                                fadeIn(tween(motionSpec.contentRevealFadeDurationMillis))
+                                            val detailContentExitFade =
+                                                fadeOut(tween(durationMillis = 180, delayMillis = 60))
+                                            val detailContentVisible = isTransitionFinished && !isLeaving
                                             androidx.compose.animation.AnimatedVisibility(
-                                                visible = isTransitionFinished,
-                                                enter = fadeIn(tween(motionSpec.contentRevealFadeDurationMillis))
+                                                visible = detailContentVisible,
+                                                enter = detailContentRevealEnter,
+                                                exit = detailContentExitFade
                                             ) {
                                                 Box(modifier = Modifier.fillMaxSize()) {
                                                     VideoContentSection(
@@ -2863,6 +3498,7 @@ fun VideoDetailScreen(
                                                         emoteMap = success.emoteMap,
                                                         isRepliesLoading = commentState.isRepliesLoading,
                                                         isRepliesEnd = commentState.isRepliesEnd,
+                                                        isLoggedIn = success.isLoggedIn,
                                                         // [新增] 传递删除相关参数
                                                         currentMid = commentState.currentMid,
                                                         showUpFlag = commentState.showUpFlag,
@@ -2924,10 +3560,10 @@ fun VideoDetailScreen(
                                                         onDownloadClick = { viewModel.openDownloadDialog() },
                                                         onWatchLaterClick = { viewModel.toggleWatchLater() },
                                                         onShareClick = {
-                                                            ShareUtils.shareVideo(
-                                                                context = context,
+                                                            pendingVideoShare = buildVideoSharePayload(
                                                                 title = success.info.title,
-                                                                bvid = success.info.bvid
+                                                                bvid = success.info.bvid,
+                                                                coverUrl = success.info.pic
                                                             )
                                                         },
                                                         //  [新增] 时间戳点击跳转
@@ -2953,6 +3589,8 @@ fun VideoDetailScreen(
                                                         },
                                                         // 🔗 [新增] 传递共享元素过渡开关
                                                         transitionEnabled = transitionEnabled,
+                                                        isQuickReturnLimitedForSharedElements =
+                                                            isReturningFromDetail && isQuickReturningFromDetail,
                                                         
                                                         // [新增] 收藏夹相关
                                                         favoriteFolderDialogVisible = showFavoriteFolderDialog,
@@ -2974,6 +3612,19 @@ fun VideoDetailScreen(
                                                         aiSummary = success.aiSummary,
                                                         aiSummaryPrompt = success.aiSummaryPrompt,
                                                         onRetryAiSummary = { viewModel.retryAiSummary() },
+                                                        onCreateNoteDraftFromAiSummary = { viewModel.createVideoNoteDraftFromAiSummary() },
+                                                        videoNoteState = success.videoNoteState,
+                                                        onOpenVideoNoteEditor = { viewModel.openVideoNoteEditor() },
+                                                        onCloseVideoNoteEditor = { viewModel.closeVideoNoteEditor() },
+                                                        onVideoNoteDocumentChange = { viewModel.updateVideoNoteEditorDocument(it) },
+                                                        onInsertVideoNoteTimestamp = { viewModel.insertCurrentPlaybackTimestampIntoNote() },
+                                                        onVideoNoteTimestampClick = { positionMs -> viewModel.seekTo(positionMs) },
+                                                        onSaveVideoNote = { viewModel.saveVideoNote(it) },
+                                                        onDeleteVideoNote = { viewModel.deleteVideoNote() },
+                                                        onRetryVideoNote = { viewModel.retryVideoNote() },
+                                                        onPublicVideoNoteClick = { _, url ->
+                                                            if (url.isNotBlank()) onOpenBilibiliLink?.invoke(url)
+                                                        },
                                                         bgmInfo = success.bgmInfo,
                                                         bgmInfoList = success.bgmInfoList,
                                                         onBgmClick = onBgmClick,
@@ -2987,10 +3638,6 @@ fun VideoDetailScreen(
                                                         onIntroScrollStateChange = { index, offset ->
                                                             introFirstVisibleItemIndex = index
                                                             introFirstVisibleItemScrollOffset = offset
-                                                        },
-                                                        onCommentScrollStateChange = { index, offset ->
-                                                            commentFirstVisibleItemIndex = index
-                                                            commentFirstVisibleItemScrollOffset = offset
                                                         }
                                                     )
 
@@ -3007,20 +3654,16 @@ fun VideoDetailScreen(
                                                             },
                                                             onCoinClick = { viewModel.openCoinDialog() },
                                                             onShareClick = {
-                                                                val shareText = "【${success.info.title}】\nhttps://www.bilibili.com/video/${success.info.bvid}"
-                                                                val sendIntent = android.content.Intent().apply {
-                                                                    action = android.content.Intent.ACTION_SEND
-                                                                    putExtra(android.content.Intent.EXTRA_TEXT, shareText)
-                                                                    type = "text/plain"
-                                                                }
-                                                                val shareIntent = android.content.Intent.createChooser(sendIntent, "分享视频到")
-                                                                context.startActivity(shareIntent)
+                                                                pendingVideoShare = buildVideoSharePayload(
+                                                                    title = success.info.title,
+                                                                    bvid = success.info.bvid,
+                                                                    coverUrl = success.info.pic
+                                                                )
                                                             },
                                                             onCommentClick = {
                                                                 android.util.Log.d("VideoDetailScreen", "📝 Comment input clicked!")
                                                                 viewModel.openRootCommentComposer()
-                                                            },
-                                                            hazeState = hazeState
+                                                            }
                                                         )
                                                     }
 
@@ -3144,7 +3787,7 @@ fun VideoDetailScreen(
             useOfficialInlinePortraitDetailExperience = useOfficialInlinePortraitDetailExperience,
             hasPlayableState = uiState is PlayerUiState.Success || uiState is PlayerUiState.Loading
         )
-        
+
         // 缓存上一个成功状态以在 Loading 时使用
         var cachedSuccess by remember { mutableStateOf<PlayerUiState.Success?>(null) }
         LaunchedEffect(uiState) {
@@ -3334,96 +3977,7 @@ fun VideoDetailScreen(
             onConfirm = { count, alsoLike -> viewModel.doCoin(count, alsoLike) }
         )
 
-        val followGroupDialogVisible by viewModel.followGroupDialogVisible.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
-        val followGroupTags by viewModel.followGroupTags.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
-        val followGroupSelectedTagIds by viewModel.followGroupSelectedTagIds.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
-        val isFollowGroupsLoading by viewModel.isFollowGroupsLoading.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
-        val isSavingFollowGroups by viewModel.isSavingFollowGroups.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
-        if (followGroupDialogVisible) {
-            AlertDialog(
-                onDismissRequest = {
-                    if (!isSavingFollowGroups) viewModel.dismissFollowGroupDialog()
-                },
-                title = { Text("设置关注分组") },
-                text = {
-                    if (isFollowGroupsLoading) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CupertinoActivityIndicator()
-                        }
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 320.dp)
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            if (followGroupTags.isEmpty()) {
-                                Text(
-                                    text = "暂无可用分组（不勾选即为默认分组）",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 13.sp
-                                )
-                            } else {
-                                followGroupTags.forEach { tag ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { viewModel.toggleFollowGroupSelection(tag.tagid) }
-                                            .padding(vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Checkbox(
-                                            checked = followGroupSelectedTagIds.contains(tag.tagid),
-                                            onCheckedChange = { viewModel.toggleFollowGroupSelection(tag.tagid) }
-                                        )
-                                        Text(
-                                            text = "${tag.name} (${tag.count})",
-                                            fontSize = 14.sp,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                            }
-                            Text(
-                                text = "可多选，确定后覆盖原分组设置。",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = { viewModel.saveFollowGroupSelection() },
-                        enabled = !isFollowGroupsLoading && !isSavingFollowGroups
-                    ) {
-                        if (isSavingFollowGroups) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        } else {
-                            Text("确定")
-                        }
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = { viewModel.dismissFollowGroupDialog() },
-                        enabled = !isSavingFollowGroups
-                    ) {
-                        Text("取消")
-                    }
-                }
-            )
-        }
+        VideoDetailFollowGroupDialog(viewModel = viewModel)
 
         ExternalPlaylistQueueSheet(
             visible = shouldShowExternalPlaylistQueueBar && showExternalPlaylistQueueSheet,
@@ -3442,96 +3996,53 @@ fun VideoDetailScreen(
                 }
             }
         )
-        
-        // [新增] 播放完成选择对话框
-        val showPlaybackEndedDialog by viewModel.showPlaybackEndedDialog.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
-        if (showPlaybackEndedDialog) {
-            androidx.compose.ui.window.Dialog(
-                onDismissRequest = { viewModel.dismissPlaybackEndedDialog() }
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = "播放完成",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        
-                        Text(
-                            text = "选择接下来的操作",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        
-                        // 重播按钮
-                        Button(
-                            onClick = {
-                                viewModel.dismissPlaybackEndedDialog()
-                                playerState.player.seekTo(0)
-                                playPlayerFromUserAction(playerState.player)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        ) {
-                            Text("🔄 重播当前视频")
-                        }
-                        
-                        // 播放下一个按钮
-                        Button(
-                            onClick = {
-                                viewModel.dismissPlaybackEndedDialog()
-                                viewModel.playNextRecommended()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text("▶️ 播放下一个视频")
-                        }
-                        
-                        // 关闭按钮
-                        TextButton(
-                            onClick = { viewModel.dismissPlaybackEndedDialog() }
-                        ) {
-                            Text("暂不操作")
-                        }
-                    }
-                }
-            }
+
+        pendingVideoShare?.let { payload ->
+            VideoShareSheet(
+                payload = payload,
+                onDismiss = { pendingVideoShare = null }
+            )
         }
+        
+        VideoDetailPlaybackEndedDialog(
+            viewModel = viewModel,
+            player = playerState.player
+        )
         
         //  [新增] 弹幕发送对话框
         val showDanmakuDialog by viewModel.showDanmakuDialog.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
         val isSendingDanmaku by viewModel.isSendingDanmaku.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
         val fallbackPlayerBottomPx = with(LocalDensity.current) {
             val fallbackPlayerHeight = configuration.screenWidthDp.dp * 9f / 16f
-            val fallbackStatusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            (fallbackPlayerHeight + fallbackStatusBar).toPx().roundToInt()
+            val fallbackStableStatusBar = resolveVideoDetailStableStatusBarHeightDp(
+                visibleStatusBarHeightDp = WindowInsets.statusBars
+                    .asPaddingValues()
+                    .calculateTopPadding()
+                    .value,
+                statusBarIgnoringVisibilityHeightDp = WindowInsets.statusBarsIgnoringVisibility
+                    .asPaddingValues()
+                    .calculateTopPadding()
+                    .value,
+                hideStatusBars = systemBarsVisibilityPolicy.hideStatusBars
+            )
+            val fallbackPlayerTopInset = resolveVideoDetailPortraitPlayerTopInsetDp(
+                stableStatusBarHeightDp = fallbackStableStatusBar,
+                hideStatusBars = systemBarsVisibilityPolicy.hideStatusBars
+            ).dp
+            (fallbackPlayerHeight + fallbackPlayerTopInset).toPx().roundToInt()
         }
         val danmakuDialogTopReservePx = remember(
             isLandscape,
             isFullscreenMode,
             isPortraitFullscreen,
-            videoPlayerBounds,
+            videoPlayerRootBottomPx,
             fallbackPlayerBottomPx
         ) {
             resolveDanmakuDialogTopReservePx(
                 isLandscape = isLandscape,
                 isFullscreenMode = isFullscreenMode,
                 isPortraitFullscreen = isPortraitFullscreen,
-                playerBottomPx = videoPlayerBounds?.bottom,
+                playerBottomPx = videoPlayerRootBottomPx.takeIf { it > 0 },
                 fallbackPlayerBottomPx = fallbackPlayerBottomPx
             )
         }
@@ -3584,6 +4095,7 @@ fun VideoDetailScreen(
         val isSendingComment by viewModel.isSendingComment.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext) // 暂时复用 ViewModel 状态?
         val replyingToComment by viewModel.replyingToComment.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
         val emotePackages by viewModel.emotePackages.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext) // [新增]
+        val mentionSearchState by viewModel.commentMentionSearchState.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
         
         com.android.purebilibili.feature.video.ui.components.CommentInputDialog(
             visible = showCommentInput,
@@ -3594,6 +4106,10 @@ fun VideoDetailScreen(
             canUploadImage = commentState.canUploadImage,
             canInputComment = commentState.canInputComment,
             emotePackages = emotePackages, // [新增]
+            mentionUsers = mentionSearchState.users,
+            isMentionSearching = mentionSearchState.isLoading,
+            mentionSearchError = mentionSearchState.errorMessage,
+            onMentionSearchQueryChange = viewModel::searchCommentMentionUsers,
             currentVideoPositionMsProvider = { playerState.player.currentPosition.coerceAtLeast(0L) },
             onSend = { message, imageUris, syncToDynamic ->
                 viewModel.sendComment(message, imageUris, syncToDynamic)
@@ -3822,8 +4338,8 @@ fun VideoDetailScreen(
                 title = successForDownload.info.title,
                 qualityOptions = sortedQualityOptions,
                 currentQuality = highestQuality,
-                onQualitySelected = { quality ->
-                    viewModel.downloadWithQuality(quality)
+                onQualitySelected = { quality, options ->
+                    viewModel.downloadWithQuality(quality, options)
                     showQualitySelection = false
                 },
                 onDismiss = { showQualitySelection = false }
@@ -3853,9 +4369,10 @@ fun VideoDetailScreen(
                 qualityOptions = sortedQualityOptions,
                 currentQuality = highestQuality,
                 downloadedIds = downloadedCandidateIds,
-                onConfirm = { quality, selectedCandidates ->
+                onConfirm = { quality, options, selectedCandidates ->
                     viewModel.downloadBatchWithQuality(
                         qualityId = quality,
+                        options = options,
                         candidates = selectedCandidates
                     )
                     showBatchDownloadDialog = false
@@ -3870,6 +4387,11 @@ fun VideoDetailScreen(
             successState = successState,
             commentState = commentState,
             commentViewModel = commentViewModel,
+            forceInitialize = shouldForceInitializeDetachedCommentThreadHostForRoute(
+                routeCommentRootRpid = openCommentRootRpidFromRoute,
+                aid = successState?.info?.aid ?: 0L,
+                hasHandledRouteComment = hasHandledCommentRootFromRoute
+            ),
             viewModel = viewModel,
             onUpClick = navigateToUserSpaceFromVideo,
             onNavigateToRelatedVideo = { targetVideoId ->
@@ -3978,26 +4500,241 @@ fun VideoDetailScreen(
             )
         }
 
-        LaunchedEffect(
-            qualitySwitchFailureDialog?.requestedQualityId,
-            qualitySwitchFailureDialogEnabled,
-            qualitySwitchFailureDialogOnceEnabled,
-            qualitySwitchFailureDialogShown
-        ) {
-            val dialog = qualitySwitchFailureDialog ?: return@LaunchedEffect
-            val shouldSuppressDialog = !qualitySwitchFailureDialogEnabled ||
-                (qualitySwitchFailureDialogOnceEnabled && qualitySwitchFailureDialogShown)
-            if (shouldSuppressDialog) {
-                viewModel.dismissQualitySwitchFailureDialog()
+        VideoDetailQualitySwitchFailureDialog(
+            context = context,
+            viewModel = viewModel,
+            qualitySwitchFailureDialog = qualitySwitchFailureDialog,
+            qualitySwitchFailureDialogEnabled = qualitySwitchFailureDialogEnabled,
+            qualitySwitchFailureDialogOnceEnabled = qualitySwitchFailureDialogOnceEnabled,
+            qualitySwitchFailureDialogShown = qualitySwitchFailureDialogShown,
+            playerDiagnosticLoggingEnabled = playerDiagnosticLoggingEnabled,
+            qualitySwitchDialogScope = qualitySwitchDialogScope
+        )
+
+        VideoDetailDanmakuContextMenu(
+            context = context,
+            viewModel = viewModel,
+            activeDanmakuBlockRulesRaw = activeDanmakuBlockRulesRaw,
+            activeDanmakuScope = activeDanmakuScope,
+            sortPreferenceScope = sortPreferenceScope
+        )
+
+        // 🔗 绑定弹幕点击监听器
+        LaunchedEffect(danmakuManager) {
+            danmakuManager.setOnDanmakuClickListener { text, dmid, userHash, isSelf ->
+                android.util.Log.d("VideoDetailScreen", "👆 Danmaku clicked: $text")
+                viewModel.showDanmakuMenu(dmid, text, userHash, isSelf)
             }
         }
+    }
+}
 
-        qualitySwitchFailureDialog
-            ?.takeIf {
-                qualitySwitchFailureDialogEnabled &&
-                    !(qualitySwitchFailureDialogOnceEnabled && qualitySwitchFailureDialogShown)
+@Composable
+private fun VideoDetailFollowGroupDialog(
+    viewModel: PlayerViewModel
+) {
+    val followGroupDialogVisible by viewModel.followGroupDialogVisible.collectAsState(
+        context = kotlin.coroutines.EmptyCoroutineContext
+    )
+    val followGroupTags by viewModel.followGroupTags.collectAsState(
+        context = kotlin.coroutines.EmptyCoroutineContext
+    )
+    val followGroupSelectedTagIds by viewModel.followGroupSelectedTagIds.collectAsState(
+        context = kotlin.coroutines.EmptyCoroutineContext
+    )
+    val isFollowGroupsLoading by viewModel.isFollowGroupsLoading.collectAsState(
+        context = kotlin.coroutines.EmptyCoroutineContext
+    )
+    val isSavingFollowGroups by viewModel.isSavingFollowGroups.collectAsState(
+        context = kotlin.coroutines.EmptyCoroutineContext
+    )
+    if (!followGroupDialogVisible) return
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!isSavingFollowGroups) viewModel.dismissFollowGroupDialog()
+        },
+        title = { Text("设置关注分组") },
+        text = {
+            if (isFollowGroupsLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CupertinoActivityIndicator()
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (followGroupTags.isEmpty()) {
+                        Text(
+                            text = "暂无可用分组（不勾选即为默认分组）",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                    } else {
+                        followGroupTags.forEach { tag ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.toggleFollowGroupSelection(tag.tagid) }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = followGroupSelectedTagIds.contains(tag.tagid),
+                                    onCheckedChange = { viewModel.toggleFollowGroupSelection(tag.tagid) }
+                                )
+                                Text(
+                                    text = "${tag.name} (${tag.count})",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "可多选，确定后覆盖原分组设置。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
-            ?.let { dialog ->
+        },
+        confirmButton = {
+            Button(
+                onClick = { viewModel.saveFollowGroupSelection() },
+                enabled = !isFollowGroupsLoading && !isSavingFollowGroups
+            ) {
+                if (isSavingFollowGroups) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Text("确定")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = { viewModel.dismissFollowGroupDialog() },
+                enabled = !isSavingFollowGroups
+            ) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+private fun VideoDetailPlaybackEndedDialog(
+    viewModel: PlayerViewModel,
+    player: Player
+) {
+    val showPlaybackEndedDialog by viewModel.showPlaybackEndedDialog.collectAsState(
+        context = kotlin.coroutines.EmptyCoroutineContext
+    )
+    if (!showPlaybackEndedDialog) return
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { viewModel.dismissPlaybackEndedDialog() }
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "播放完成",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "选择接下来的操作",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = {
+                        viewModel.dismissPlaybackEndedDialog()
+                        player.seekTo(0)
+                        playPlayerFromUserAction(player)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                ) {
+                    Text("🔄 重播当前视频")
+                }
+                Button(
+                    onClick = {
+                        viewModel.dismissPlaybackEndedDialog()
+                        viewModel.playNextRecommended()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text("▶️ 播放下一个视频")
+                }
+                TextButton(
+                    onClick = { viewModel.dismissPlaybackEndedDialog() }
+                ) {
+                    Text("暂不操作")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoDetailQualitySwitchFailureDialog(
+    context: Context,
+    viewModel: PlayerViewModel,
+    qualitySwitchFailureDialog: QualitySwitchFailureDialogState?,
+    qualitySwitchFailureDialogEnabled: Boolean,
+    qualitySwitchFailureDialogOnceEnabled: Boolean,
+    qualitySwitchFailureDialogShown: Boolean,
+    playerDiagnosticLoggingEnabled: Boolean,
+    qualitySwitchDialogScope: CoroutineScope
+) {
+    LaunchedEffect(
+        qualitySwitchFailureDialog?.requestedQualityId,
+        qualitySwitchFailureDialogEnabled,
+        qualitySwitchFailureDialogOnceEnabled,
+        qualitySwitchFailureDialogShown
+    ) {
+        val dialog = qualitySwitchFailureDialog ?: return@LaunchedEffect
+        val shouldSuppressDialog = !qualitySwitchFailureDialogEnabled ||
+            (qualitySwitchFailureDialogOnceEnabled && qualitySwitchFailureDialogShown)
+        if (shouldSuppressDialog) {
+            viewModel.dismissQualitySwitchFailureDialog()
+        }
+    }
+
+    qualitySwitchFailureDialog
+        ?.takeIf {
+            qualitySwitchFailureDialogEnabled &&
+                !(qualitySwitchFailureDialogOnceEnabled && qualitySwitchFailureDialogShown)
+        }
+        ?.let { dialog ->
             fun dismissQualitySwitchFailureDialogAfterUserChoice() {
                 qualitySwitchDialogScope.launch {
                     if (qualitySwitchFailureDialogOnceEnabled) {
@@ -4076,82 +4813,82 @@ fun VideoDetailScreen(
                 }
             )
         }
+}
 
-        // 💬 弹幕上下文菜单
-        val danmakuMenuState by viewModel.danmakuMenuState.collectAsState(context = kotlin.coroutines.EmptyCoroutineContext)
-        
-        if (danmakuMenuState.visible) {
-            DanmakuContextMenu(
-                text = danmakuMenuState.text,
-                onDismiss = { viewModel.hideDanmakuMenu() },
-                onLike = { viewModel.likeDanmaku(danmakuMenuState.dmid) },
-                onRecall = { viewModel.recallDanmaku(danmakuMenuState.dmid) },
-                onReport = { reason -> 
-                    viewModel.reportDanmaku(danmakuMenuState.dmid, reason)
-                },
-                voteCount = danmakuMenuState.voteCount,
-                hasLiked = danmakuMenuState.hasLiked,
-                voteLoading = danmakuMenuState.voteLoading,
-                canVote = danmakuMenuState.canVote,
-                canRecall = danmakuMenuState.isSelf,
-                canBlockKeyword = danmakuMenuState.text.isNotBlank(),
-                onBlockKeyword = {
-                    val updatedRules = appendDanmakuKeywordBlockRule(
-                        rawRules = activeDanmakuBlockRulesRaw,
-                        keyword = danmakuMenuState.text
-                    )
-                    val changed = updatedRules != activeDanmakuBlockRulesRaw
-                    sortPreferenceScope.launch {
-                        com.android.purebilibili.core.store.SettingsManager.setDanmakuBlockRulesRaw(
-                            context,
-                            updatedRules,
-                            activeDanmakuScope
-                        )
-                    }
-                    viewModel.toast(
-                        resolveDanmakuBlockActionFeedbackMessage(
-                            target = DanmakuBlockActionTarget.KEYWORD,
-                            changed = changed
-                        )
-                    )
-                },
-                canBlockUser = danmakuMenuState.userHash.isNotBlank(),
-                onBlockUser = {
-                    val userHash = danmakuMenuState.userHash
-                    if (userHash.isBlank()) {
-                        viewModel.toast("该弹幕缺少发送者标识")
-                    } else {
-                        val updatedRules = appendDanmakuUserHashBlockRule(
-                            rawRules = activeDanmakuBlockRulesRaw,
-                            userHash = userHash
-                        )
-                        val changed = updatedRules != activeDanmakuBlockRulesRaw
-                        sortPreferenceScope.launch {
-                            com.android.purebilibili.core.store.SettingsManager.setDanmakuBlockRulesRaw(
-                                context,
-                                updatedRules,
-                                activeDanmakuScope
-                            )
-                        }
-                        viewModel.toast(
-                            resolveDanmakuBlockActionFeedbackMessage(
-                                target = DanmakuBlockActionTarget.USER,
-                                changed = changed
-                            )
-                        )
-                    }
-                }
+@Composable
+private fun VideoDetailDanmakuContextMenu(
+    context: Context,
+    viewModel: PlayerViewModel,
+    activeDanmakuBlockRulesRaw: String,
+    activeDanmakuScope: com.android.purebilibili.core.store.DanmakuSettingsScope,
+    sortPreferenceScope: CoroutineScope
+) {
+    val danmakuMenuState by viewModel.danmakuMenuState.collectAsState(
+        context = kotlin.coroutines.EmptyCoroutineContext
+    )
+    if (!danmakuMenuState.visible) return
+
+    DanmakuContextMenu(
+        text = danmakuMenuState.text,
+        onDismiss = { viewModel.hideDanmakuMenu() },
+        onLike = { viewModel.likeDanmaku(danmakuMenuState.dmid) },
+        onRecall = { viewModel.recallDanmaku(danmakuMenuState.dmid) },
+        onReport = { reason ->
+            viewModel.reportDanmaku(danmakuMenuState.dmid, reason)
+        },
+        voteCount = danmakuMenuState.voteCount,
+        hasLiked = danmakuMenuState.hasLiked,
+        voteLoading = danmakuMenuState.voteLoading,
+        canVote = danmakuMenuState.canVote,
+        canRecall = danmakuMenuState.isSelf,
+        canBlockKeyword = danmakuMenuState.text.isNotBlank(),
+        onBlockKeyword = {
+            val updatedRules = appendDanmakuKeywordBlockRule(
+                rawRules = activeDanmakuBlockRulesRaw,
+                keyword = danmakuMenuState.text
             )
-        }
-        
-        // 🔗 绑定弹幕点击监听器
-        LaunchedEffect(danmakuManager) {
-            danmakuManager.setOnDanmakuClickListener { text, dmid, userHash, isSelf ->
-                android.util.Log.d("VideoDetailScreen", "👆 Danmaku clicked: $text")
-                viewModel.showDanmakuMenu(dmid, text, userHash, isSelf)
+            val changed = updatedRules != activeDanmakuBlockRulesRaw
+            sortPreferenceScope.launch {
+                com.android.purebilibili.core.store.SettingsManager.setDanmakuBlockRulesRaw(
+                    context,
+                    updatedRules,
+                    activeDanmakuScope
+                )
+            }
+            viewModel.toast(
+                resolveDanmakuBlockActionFeedbackMessage(
+                    target = DanmakuBlockActionTarget.KEYWORD,
+                    changed = changed
+                )
+            )
+        },
+        canBlockUser = danmakuMenuState.userHash.isNotBlank(),
+        onBlockUser = {
+            val userHash = danmakuMenuState.userHash
+            if (userHash.isBlank()) {
+                viewModel.toast("该弹幕缺少发送者标识")
+            } else {
+                val updatedRules = appendDanmakuUserHashBlockRule(
+                    rawRules = activeDanmakuBlockRulesRaw,
+                    userHash = userHash
+                )
+                val changed = updatedRules != activeDanmakuBlockRulesRaw
+                sortPreferenceScope.launch {
+                    com.android.purebilibili.core.store.SettingsManager.setDanmakuBlockRulesRaw(
+                        context,
+                        updatedRules,
+                        activeDanmakuScope
+                    )
+                }
+                viewModel.toast(
+                    resolveDanmakuBlockActionFeedbackMessage(
+                        target = DanmakuBlockActionTarget.USER,
+                        changed = changed
+                    )
+                )
             }
         }
-    }
+    )
 }
 
 @OptIn(ExperimentalHazeMaterialsApi::class)
@@ -4164,13 +4901,20 @@ private fun ExternalPlaylistQueueCollapsedBar(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(16.dp)
+    val useHazeEffect = shouldAllowRuntimeShaderBackedHazeEffect(Build.VERSION.SDK_INT)
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .hazeEffect(
-                state = hazeState,
-                style = HazeMaterials.ultraThin()
+            .then(
+                if (useHazeEffect) {
+                    Modifier.hazeEffect(
+                        state = hazeState,
+                        style = HazeMaterials.ultraThin()
+                    )
+                } else {
+                    Modifier
+                }
             )
             .clickable { onClick() },
         shape = shape,
@@ -4237,6 +4981,7 @@ private fun ExternalPlaylistQueueSheet(
     when (presentation) {
         ExternalPlaylistQueueSheetPresentation.INLINE_HAZE -> {
             val interactionSource = remember { MutableInteractionSource() }
+            val useHazeEffect = shouldAllowRuntimeShaderBackedHazeEffect(Build.VERSION.SDK_INT)
             Box(
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -4255,9 +5000,15 @@ private fun ExternalPlaylistQueueSheet(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .clip(sheetShape)
-                        .hazeEffect(
-                            state = hazeState,
-                            style = HazeMaterials.ultraThin()
+                        .then(
+                            if (useHazeEffect) {
+                                Modifier.hazeEffect(
+                                    state = hazeState,
+                                    style = HazeMaterials.ultraThin()
+                                )
+                            } else {
+                                Modifier
+                            }
                         ),
                     shape = sheetShape,
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
@@ -4583,6 +5334,14 @@ internal fun resolveIsPlayerCollapsed(
     return playerHeightOffsetPx <= (-videoHeightPx + collapseTolerancePx)
 }
 
+internal fun resolveIsPlaybackPausedForCollapse(
+    playWhenReady: Boolean,
+    playbackState: Int
+): Boolean {
+    // 这里按用户暂停意图判断，而不是按 isPlaying，避免缓冲态误判为“暂停时可缩小”。
+    return !playWhenReady && playbackState != Player.STATE_ENDED
+}
+
 internal fun shouldUseTabletVideoLayout(
     isExpandedScreen: Boolean,
     isTabletDevice: Boolean
@@ -4617,10 +5376,32 @@ internal fun resolveVideoDetailCommentThreadHostMainSheetVisible(
     return useEmbeddedPresentation && subReplyVisible
 }
 
+internal fun shouldForceInitializeDetachedCommentThreadHostForRoute(
+    routeCommentRootRpid: Long,
+    aid: Long,
+    hasHandledRouteComment: Boolean
+): Boolean {
+    return routeCommentRootRpid > 0L && aid > 0L && !hasHandledRouteComment
+}
+
 internal fun shouldApplyPhoneAutoRotatePolicy(
     isCompactDevice: Boolean
 ): Boolean {
     return isCompactDevice
+}
+
+internal fun shouldApplyStartFullscreenOrientationRequest(
+    startInFullscreen: Boolean,
+    isOrientationDrivenFullscreen: Boolean,
+    isLandscape: Boolean,
+    isInMultiWindowMode: Boolean
+): Boolean {
+    if (!startInFullscreen) return false
+    if (!isOrientationDrivenFullscreen) return false
+    if (isLandscape) return false
+    // 系统小窗/分屏内强写 requestedOrientation 会让部分 ROM 在横竖窗口间反复重建。
+    if (isInMultiWindowMode) return false
+    return true
 }
 
 internal fun resolvePhoneFullscreenEnterOrientation(
@@ -4687,8 +5468,12 @@ internal fun resolvePhoneVideoRequestedOrientation(
     manualFullscreenRequested: Boolean = false,
     manualPortraitHoldActive: Boolean = false,
     isVerticalVideo: Boolean = false,
-    currentRequestedOrientation: Int? = null
+    currentRequestedOrientation: Int? = null,
+    isInMultiWindowMode: Boolean = false
 ): Int? {
+    if (isInMultiWindowMode) {
+        return null
+    }
     if (!shouldApplyPhoneAutoRotatePolicy(isCompactDevice)) {
         return ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
@@ -4774,6 +5559,26 @@ internal fun resolvePhoneAutoRotateRequestedOrientation(
     }
 }
 
+internal const val PHONE_AUTO_ROTATE_LANDSCAPE_SETTLE_MS = 500L
+
+internal fun resolvePhoneAutoRotateTargetToApply(
+    candidateOrientation: Int?,
+    lastLandscapeAppliedAtMs: Long?,
+    nowMs: Long,
+    landscapeSettleMs: Long = PHONE_AUTO_ROTATE_LANDSCAPE_SETTLE_MS
+): Int? {
+    if (candidateOrientation == null) return null
+    // 系统配置切到横屏有延迟；按最近一次横屏写入时间保护，避免刚进横屏又被残留竖屏角度拉回。
+    if (
+        candidateOrientation == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT &&
+        lastLandscapeAppliedAtMs != null &&
+        nowMs - lastLandscapeAppliedAtMs < landscapeSettleMs
+    ) {
+        return null
+    }
+    return candidateOrientation
+}
+
 private fun resolveCurrentExactLandscapeOrientation(currentRequestedOrientation: Int?): Int? {
     return when (currentRequestedOrientation) {
         ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
@@ -4802,6 +5607,11 @@ private fun resolveExactLandscapeOrientation(
         ) -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         else -> null
     }
+}
+
+private fun isLandscapeRequestedOrientation(requestedOrientation: Int): Boolean {
+    return requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ||
+        requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
 }
 
 internal fun shouldEnterPortraitFullscreenOnFullscreenToggle(
@@ -4848,10 +5658,12 @@ internal fun shouldObservePhoneAutoRotate(
     isCompactDevice: Boolean,
     isOrientationDrivenFullscreen: Boolean,
     fullscreenMode: com.android.purebilibili.core.store.FullscreenMode,
-    manualPortraitHoldActive: Boolean
+    manualPortraitHoldActive: Boolean,
+    isInMultiWindowMode: Boolean = false
 ): Boolean {
     if (!autoRotateEnabled) return false
     if (!systemAutoRotateEnabled) return false
+    if (isInMultiWindowMode) return false
     if (!shouldApplyPhoneAutoRotatePolicy(isCompactDevice)) return false
     if (!isOrientationDrivenFullscreen) return false
     if (fullscreenMode == com.android.purebilibili.core.store.FullscreenMode.NONE) return false
@@ -4928,6 +5740,7 @@ private fun DetachedVideoCommentThreadHost(
     successState: PlayerUiState.Success?,
     commentState: CommentUiState,
     commentViewModel: VideoCommentViewModel,
+    forceInitialize: Boolean,
     viewModel: PlayerViewModel,
     onUpClick: (Long) -> Unit,
     onNavigateToRelatedVideo: (String) -> Unit,
@@ -4967,6 +5780,7 @@ private fun DetachedVideoCommentThreadHost(
         topReservedPx = topReservedPx,
         onTimestampClick = onTimestampClick,
         maxTimestampMs = successState?.videoDurationMs?.takeIf { it > 0L },
+        forceInitialize = forceInitialize,
         handleFraudEvents = false
     )
 }
@@ -4975,16 +5789,6 @@ internal fun resolveVideoDetailExitRequestedOrientation(
     originalRequestedOrientation: Int?
 ): Int {
     return originalRequestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-}
-
-internal fun shouldEnableVideoCoverSharedTransition(
-    transitionEnabled: Boolean,
-    hasSharedTransitionScope: Boolean,
-    hasAnimatedVisibilityScope: Boolean
-): Boolean {
-    return transitionEnabled &&
-        hasSharedTransitionScope &&
-        hasAnimatedVisibilityScope
 }
 
 internal fun shouldEnablePortraitExperience(): Boolean {

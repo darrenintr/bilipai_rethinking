@@ -70,6 +70,59 @@ class LiveCategorySegmentedControlStructureTest {
         assertFalse(source.contains("var isChatVisible by remember { mutableStateOf(true) }"))
     }
 
+    @Test
+    fun `live send sheet uses danmaku permission and lifecycle controls heartbeat`() {
+        val screenSource = loadSource(
+            "app/src/main/java/com/android/purebilibili/feature/live/LivePlayerScreen.kt"
+        )
+        val sheetSource = loadSource(
+            "app/src/main/java/com/android/purebilibili/feature/live/components/LiveSendDanmakuSheet.kt"
+        )
+
+        assertTrue(screenSource.contains("permission = successState?.danmakuPermission"))
+        assertTrue(screenSource.contains("viewModel.pauseLiveHeartbeat()"))
+        assertTrue(screenSource.contains("viewModel.resumeLiveHeartbeatIfNeeded()"))
+        assertTrue(sheetSource.contains("permission: LiveDanmakuPermission"))
+        assertTrue(sheetSource.contains("permission.canSend"))
+    }
+
+    @Test
+    fun `live player wires danmaku display area settings`() {
+        val screenSource = loadSource(
+            "app/src/main/java/com/android/purebilibili/feature/live/LivePlayerScreen.kt"
+        )
+        val overlaySource = loadSource(
+            "app/src/main/java/com/android/purebilibili/feature/video/ui/overlay/LiveDanmakuOverlay.kt"
+        )
+
+        assertTrue(screenSource.contains("resolveDanmakuSettingsScope(isLandscape = isLandscape)"))
+        assertTrue(screenSource.contains("getDanmakuSettings(context, liveDanmakuSettingsScope)"))
+        assertTrue(screenSource.contains("val liveDanmakuDisplayArea = liveDanmakuSettings.displayArea"))
+        assertTrue(screenSource.contains("displayArea = liveDanmakuDisplayArea"))
+        assertTrue(screenSource.contains("setDanmakuArea(context, area, liveDanmakuSettingsScope)"))
+        assertTrue(screenSource.contains("title = \"弹幕区域\""))
+        assertTrue(screenSource.contains("\"半屏\""))
+        assertTrue(screenSource.contains("\"全屏\""))
+        assertTrue(overlaySource.contains("displayArea: Float = 1f"))
+        assertTrue(overlaySource.contains(".fillMaxHeight(safeDisplayArea)"))
+    }
+
+    @Test
+    fun `live player applies fixed aspect ratio viewport`() {
+        val source = loadSource(
+            "app/src/main/java/com/android/purebilibili/feature/live/LivePlayerScreen.kt"
+        )
+
+        assertTrue(source.contains("val viewportAspectRatio = videoAspectRatio"))
+        assertTrue(source.contains("resolveVideoViewportLayout("))
+        assertTrue(source.contains("containerWidth = maxWidth.roundToPx()"))
+        assertTrue(source.contains("containerHeight = maxHeight.roundToPx()"))
+        assertTrue(source.contains("aspectRatio = viewportAspectRatio"))
+        assertTrue(source.contains("Modifier.size("))
+        assertTrue(source.contains("width = viewportLayout.width.toDp()"))
+        assertTrue(source.contains("height = viewportLayout.height.toDp()"))
+    }
+
     private fun loadSource(path: String): String {
         val normalizedPath = path.removePrefix("app/")
         val sourceFile = listOf(

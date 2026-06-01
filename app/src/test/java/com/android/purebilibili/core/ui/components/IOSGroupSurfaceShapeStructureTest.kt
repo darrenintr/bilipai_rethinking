@@ -52,6 +52,23 @@ class IOSGroupSurfaceShapeStructureTest {
         assertTrue(!switchItemSource.contains("BasicComponent("))
     }
 
+    @Test
+    fun `miuix switch item respects app haptic setting`() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/core/ui/components/iOSListComponents.kt")
+        val switchItemSource = source
+            .substringAfter("fun IOSSwitchItem(")
+            .substringBefore("@Composable\nfun IOSClickableItem")
+
+        assertTrue(
+            switchItemSource.contains("SettingsManager.isHapticFeedbackEnabledSync"),
+            "Miuix switch 内部触感必须受应用触感反馈开关控制"
+        )
+        assertTrue(
+            switchItemSource.contains("NoOpHapticFeedback"),
+            "触感关闭时必须用 no-op LocalHapticFeedback 屏蔽 Miuix 内部震动"
+        )
+    }
+
     private fun loadSource(path: String): String {
         val normalizedPath = path.removePrefix("app/")
         val sourceFile = listOf(

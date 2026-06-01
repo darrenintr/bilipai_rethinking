@@ -102,6 +102,7 @@ internal fun HomeCategoryPageContent(
     dissolvingVideos: Set<String>,
     followingMids: Set<Long>,
     onVideoClick: (HomeVideoClickRequest) -> Unit,
+    onUpClick: (Long) -> Unit = {},
     onLiveClick: (Long, String, String) -> Unit,
     onLoadMore: () -> Unit,
     onDismissVideo: (String) -> Unit,
@@ -112,6 +113,8 @@ internal fun HomeCategoryPageContent(
     cardAnimationEnabled: Boolean,
     cardMotionTier: MotionTier = MotionTier.Normal,
     cardTransitionEnabled: Boolean,
+    isReturningFromVideoDetail: Boolean = false,
+    isQuickReturningFromVideoDetail: Boolean = false,
     smartVisualGuardEnabled: Boolean = false,
     isDataSaverActive: Boolean,
     preferLowQualityCover: Boolean = false,
@@ -143,6 +146,7 @@ internal fun HomeCategoryPageContent(
                 bvid = video.bvid,
                 cid = video.cid,
                 coverUrl = video.pic,
+                isVerticalVideo = video.isVertical,
                 source = HomeVideoClickSource.TODAY_WATCH
             )
         )
@@ -351,6 +355,8 @@ internal fun HomeCategoryPageContent(
                                         animationEnabled = cardAnimationEnabled,
                                         motionTier = cardMotionTier,
                                         transitionEnabled = cardTransitionEnabled,
+                                        isReturningFromVideoDetail = isReturningFromVideoDetail,
+                                        isQuickReturningFromVideoDetail = isQuickReturningFromVideoDetail,
                                         scrollLiteModeEnabled = scrollLiteModeEnabled,
                                         isDataSaverActive = isDataSaverActive,
                                         preferLowQualityCover = preferLowQualityCover,
@@ -359,6 +365,7 @@ internal fun HomeCategoryPageContent(
                                         showUpBadge = showUpBadges,
                                         showDurationBadge = showDurationBadges,
                                         showOnlineCount = showOnlineCount,
+                                        onUpClick = onUpClick,
                                         showPublishTime = true,
                                         onDismiss = { onDismissVideo(video.bvid) },
                                         onLongClick = if (isDynamicDetailCard) null else ({ longPressCallback(video) }),
@@ -369,6 +376,7 @@ internal fun HomeCategoryPageContent(
                                                     dynamicId = video.dynamicId,
                                                     cid = cid,
                                                     coverUrl = video.pic,
+                                                    isVerticalVideo = video.isVertical,
                                                     source = HomeVideoClickSource.GRID
                                                 )
                                             )
@@ -384,6 +392,8 @@ internal fun HomeCategoryPageContent(
                                         animationEnabled = cardAnimationEnabled,
                                         motionTier = cardMotionTier,
                                         transitionEnabled = cardTransitionEnabled,
+                                        isReturningFromVideoDetail = isReturningFromVideoDetail,
+                                        isQuickReturningFromVideoDetail = isQuickReturningFromVideoDetail,
                                         scrollLiteModeEnabled = scrollLiteModeEnabled,
                                         showPublishTime = true,
                                         isDataSaverActive = isDataSaverActive,
@@ -396,6 +406,7 @@ internal fun HomeCategoryPageContent(
                                         showUpBadge = showUpBadges,
                                         showDurationBadge = showDurationBadges,
                                         showOnlineCount = showOnlineCount,
+                                        onUpClick = onUpClick,
                                         onDismiss = { onDismissVideo(video.bvid) },
                                         onWatchLater = if (isDynamicDetailCard) null else ({
                                             onWatchLater(video.bvid, resolveWatchLaterAid(video))
@@ -408,6 +419,7 @@ internal fun HomeCategoryPageContent(
                                                     dynamicId = video.dynamicId,
                                                     cid = cid,
                                                     coverUrl = video.pic,
+                                                    isVerticalVideo = video.isVertical,
                                                     source = HomeVideoClickSource.GRID
                                                 )
                                             )

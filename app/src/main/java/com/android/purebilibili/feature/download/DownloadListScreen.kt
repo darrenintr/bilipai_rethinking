@@ -325,6 +325,23 @@ private fun DownloadTaskItem(
                     }
                 )
 
+                val assetSummary = resolveDownloadAssetSummary(task)
+                val assetTexts = listOfNotNull(
+                    assetSummary.videoText,
+                    assetSummary.audioText,
+                    assetSummary.danmakuText
+                )
+                if (assetTexts.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = assetTexts.joinToString(" · "),
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
                 if (task.isComplete && !offlinePlayable) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(

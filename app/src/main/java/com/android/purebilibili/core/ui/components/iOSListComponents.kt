@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +32,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,6 +59,7 @@ import com.android.purebilibili.core.theme.iOSRed
 import com.android.purebilibili.core.theme.iOSSystemGray
 import com.android.purebilibili.core.theme.iOSTeal
 import com.android.purebilibili.core.theme.iOSYellow
+import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.ui.LocalGlobalWallpaperBackdropVisible
 import com.android.purebilibili.core.ui.common.copyOnLongPress
 import io.github.alexzhirkevich.cupertino.CupertinoSwitch
@@ -70,6 +76,10 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference as MiuixArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference as MiuixSwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.max
+
+private object NoOpHapticFeedback : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
+}
 
 // ═══════════════════════════════════════════════════
 //  Common iOS List Components (Reused across Settings, Profile, etc.)
@@ -668,37 +678,46 @@ fun IOSSwitchItem(
     val cornerRadiusScale = LocalCornerRadiusScale.current
     val iconCornerRadius = if (uiPreset == UiPreset.MD3) visualSpec.iconCornerRadiusDp.dp else iOSCornerRadius.Small * cornerRadiusScale
     if (uiPreset == UiPreset.MD3 && androidNativeVariant == AndroidNativeVariant.MIUIX) {
-        MiuixSwitchPreference(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            title = title,
-            titleColor = BasicComponentDefaults.titleColor(color = textColor),
-            summary = subtitle,
-            summaryColor = BasicComponentDefaults.summaryColor(color = subtitleColor),
-            enabled = enabled,
-            insideMargin = PaddingValues(
-                horizontal = rowSpec.insideHorizontalPaddingDp.dp,
-                vertical = rowSpec.insideVerticalPaddingDp.dp
-            ),
-            startAction = {
-                if (icon != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(visualSpec.iconContainerSizeDp.dp)
-                            .clip(RoundedCornerShape(visualSpec.iconCornerRadiusDp.dp))
-                            .background(effectiveIconTint.copy(alpha = visualSpec.iconBackgroundAlpha)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = effectiveIconTint,
-                            modifier = Modifier.size(visualSpec.iconGlyphSizeDp.dp)
-                        )
+        val context = LocalContext.current
+        val platformHaptic = LocalHapticFeedback.current
+        val effectiveHaptic = if (SettingsManager.isHapticFeedbackEnabledSync(context)) {
+            platformHaptic
+        } else {
+            NoOpHapticFeedback
+        }
+        CompositionLocalProvider(LocalHapticFeedback provides effectiveHaptic) {
+            MiuixSwitchPreference(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                title = title,
+                titleColor = BasicComponentDefaults.titleColor(color = textColor),
+                summary = subtitle,
+                summaryColor = BasicComponentDefaults.summaryColor(color = subtitleColor),
+                enabled = enabled,
+                insideMargin = PaddingValues(
+                    horizontal = rowSpec.insideHorizontalPaddingDp.dp,
+                    vertical = rowSpec.insideVerticalPaddingDp.dp
+                ),
+                startAction = {
+                    if (icon != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(visualSpec.iconContainerSizeDp.dp)
+                                .clip(RoundedCornerShape(visualSpec.iconCornerRadiusDp.dp))
+                                .background(effectiveIconTint.copy(alpha = visualSpec.iconBackgroundAlpha)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = effectiveIconTint,
+                                modifier = Modifier.size(visualSpec.iconGlyphSizeDp.dp)
+                            )
+                        }
                     }
                 }
-            }
-        )
+            )
+        }
         return
     }
     if (uiPreset == UiPreset.MD3) {

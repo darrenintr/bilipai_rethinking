@@ -1,6 +1,7 @@
 // 文件路径: core/ui/blur/UnifiedBlur.kt
 package com.android.purebilibili.core.ui.blur
 
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -83,6 +84,7 @@ fun Modifier.unifiedBlur(
     forceLowBudget: Boolean = false
 ): Modifier = composed {
     if (!enabled) return@composed this
+    if (!shouldAllowRuntimeShaderBackedHazeEffect(Build.VERSION.SDK_INT)) return@composed this
 
     val blurIntensity = currentUnifiedBlurIntensity()
     val budget = resolveBlurBudget(

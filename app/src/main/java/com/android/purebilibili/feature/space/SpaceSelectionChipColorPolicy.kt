@@ -46,12 +46,3 @@ internal fun resolveSpaceFollowButtonColors(
         )
     }
 }
-
-internal fun resolveSpaceOfficialTagColors(
-    colorScheme: ColorScheme
-): SpaceSelectionChipColors {
-    return SpaceSelectionChipColors(
-        backgroundColor = colorScheme.tertiaryContainer,
-        textColor = colorScheme.onTertiaryContainer
-    )
-}

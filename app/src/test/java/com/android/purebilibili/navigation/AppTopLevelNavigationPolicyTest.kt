@@ -1,6 +1,7 @@
 package com.android.purebilibili.navigation
 
 import com.android.purebilibili.feature.home.components.BottomNavItem
+import com.android.purebilibili.navigation3.BiliPaiNavKey
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -87,64 +88,55 @@ class AppTopLevelNavigationPolicyTest {
         assertEquals(
             AppSystemBackAction.RETURN_TO_HOME_TAB,
             resolveAppSystemBackAction(
-                currentRoute = ScreenRoutes.Home.route,
+                isAtMainHostRoot = true,
                 currentBottomItem = BottomNavItem.FAVORITE,
-                hasPreviousBackStackEntry = false
+                homeItem = BottomNavItem.HOME
             )
         )
         assertEquals(
             AppSystemBackAction.RETURN_TO_HOME_TAB,
             resolveAppSystemBackAction(
-                currentRoute = ScreenRoutes.Home.route,
+                isAtMainHostRoot = true,
                 currentBottomItem = BottomNavItem.HISTORY,
-                hasPreviousBackStackEntry = true
+                homeItem = BottomNavItem.HOME
             )
         )
     }
 
     @Test
-    fun predictiveBackStillInterceptsRetainedBottomTabReturn() {
+    fun appBackHandlerInterceptsOnlyAppOwnedBackActions() {
         assertTrue(
             shouldInterceptSystemBackForAppAction(
-                predictiveBackAnimationEnabled = true,
                 action = AppSystemBackAction.RETURN_TO_HOME_TAB
             )
         )
         assertFalse(
             shouldInterceptSystemBackForAppAction(
-                predictiveBackAnimationEnabled = true,
                 action = AppSystemBackAction.NAVIGATE_UP
             )
         )
         assertFalse(
             shouldInterceptSystemBackForAppAction(
-                predictiveBackAnimationEnabled = true,
                 action = AppSystemBackAction.FINISH_ACTIVITY
-            )
-        )
-        assertTrue(
-            shouldInterceptSystemBackForAppAction(
-                predictiveBackAnimationEnabled = false,
-                action = AppSystemBackAction.NAVIGATE_UP
             )
         )
     }
 
     @Test
-    fun classicBackHandler_isComposedAfterNavHostSoItCanOverrideNavigationPredictiveBack() {
+    fun classicBackHandler_isComposedAfterNavDisplaySoItCanOwnAppBackAction() {
         val sourceFile = listOf(
             File("app/src/main/java/com/android/purebilibili/navigation/AppNavigation.kt"),
             File("src/main/java/com/android/purebilibili/navigation/AppNavigation.kt")
         ).first { it.exists() }
         val source = sourceFile.readText()
-        val navHostIndex = source.indexOf("NavHost(")
+        val navDisplayIndex = source.indexOf("BiliPaiNavDisplayHost(")
         val classicBackHandlerIndex = source.indexOf("BackHandler(enabled = shouldInterceptSystemBack)")
 
-        assertTrue(navHostIndex >= 0)
+        assertTrue(navDisplayIndex >= 0)
         assertTrue(classicBackHandlerIndex >= 0)
         assertTrue(
-            classicBackHandlerIndex > navHostIndex,
-            "关闭预测性返回时的经典 BackHandler 必须在 NavHost 之后组合，才能覆盖 Navigation Compose 的返回回调。"
+            classicBackHandlerIndex > navDisplayIndex,
+            "经典 BackHandler 必须在 NavDisplay 之后组合，才能由应用壳接管返回动作。"
         )
     }
 
@@ -153,17 +145,17 @@ class AppTopLevelNavigationPolicyTest {
         assertEquals(
             AppSystemBackAction.NAVIGATE_UP,
             resolveAppSystemBackAction(
-                currentRoute = ScreenRoutes.Home.route,
+                isAtMainHostRoot = false,
                 currentBottomItem = BottomNavItem.HOME,
-                hasPreviousBackStackEntry = true
+                homeItem = BottomNavItem.HOME
             )
         )
         assertEquals(
             AppSystemBackAction.FINISH_ACTIVITY,
             resolveAppSystemBackAction(
-                currentRoute = ScreenRoutes.Home.route,
+                isAtMainHostRoot = true,
                 currentBottomItem = BottomNavItem.HOME,
-                hasPreviousBackStackEntry = false
+                homeItem = BottomNavItem.HOME
             )
         )
     }
@@ -253,6 +245,207 @@ class AppTopLevelNavigationPolicyTest {
     }
 
     @Test
+    fun videoSourceRoute_matchesCurrentRouteWhenNavigationTopIsSourcePage() {
+        assertEquals(
+            ScreenRoutes.Dynamic.route,
+            resolveVideoCardSourceRouteForNavigation(
+                currentRoute = ScreenRoutes.Dynamic.route,
+                videoBvid = "BV1xx411c7mD",
+                lastClickedVideoSourceKey = "${ScreenRoutes.Dynamic.route}:BV1xx411c7mD",
+                visibleBottomBarRoutes = setOf(
+                    ScreenRoutes.Home.route,
+                    ScreenRoutes.Dynamic.route,
+                    ScreenRoutes.History.route,
+                    ScreenRoutes.Profile.route
+                )
+            )
+        )
+    }
+
+    @Test
+    fun videoSourceRoute_matchesVisibleBottomPagerRouteWhenNavigationTopIsMainHost() {
+        assertEquals(
+            ScreenRoutes.Dynamic.route,
+            resolveVideoCardSourceRouteForNavigation(
+                currentRoute = "main_host",
+                videoBvid = "BV1xx411c7mD",
+                lastClickedVideoSourceKey = "${ScreenRoutes.Dynamic.route}:BV1xx411c7mD",
+                visibleBottomBarRoutes = setOf(
+                    ScreenRoutes.Home.route,
+                    ScreenRoutes.Dynamic.route,
+                    ScreenRoutes.History.route,
+                    ScreenRoutes.Profile.route
+                )
+            )
+        )
+    }
+
+    @Test
+    fun videoSourceRoute_rejectsMismatchedClickedVideoKey() {
+        assertNull(
+            resolveVideoCardSourceRouteForNavigation(
+                currentRoute = "main_host",
+                videoBvid = "BV1xx411c7mD",
+                lastClickedVideoSourceKey = "${ScreenRoutes.Dynamic.route}:BV9xx411c7mD",
+                visibleBottomBarRoutes = setOf(
+                    ScreenRoutes.Home.route,
+                    ScreenRoutes.Dynamic.route,
+                    ScreenRoutes.History.route,
+                    ScreenRoutes.Profile.route
+                )
+            )
+        )
+    }
+
+    @Test
+    fun mainHostUsesCurrentBottomPagerItemAsActiveBottomRoute() {
+        assertEquals(
+            ScreenRoutes.Home.route,
+            resolveActiveBottomTabRoute(
+                currentKey = BiliPaiNavKey.MainHost,
+                currentBottomItem = BottomNavItem.HOME
+            )
+        )
+        assertEquals(
+            ScreenRoutes.Dynamic.route,
+            resolveActiveBottomTabRoute(
+                currentKey = BiliPaiNavKey.MainHost,
+                currentBottomItem = BottomNavItem.DYNAMIC
+            )
+        )
+    }
+
+    @Test
+    fun unresolvedMainHostUsesCurrentBottomPagerItemAsActiveBottomRoute() {
+        assertEquals(
+            ScreenRoutes.Home.route,
+            resolveActiveBottomTabRoute(
+                currentKey = null,
+                currentBottomItem = BottomNavItem.HOME
+            )
+        )
+        assertEquals(
+            ScreenRoutes.Dynamic.route,
+            resolveActiveBottomTabRoute(
+                currentKey = BiliPaiNavKey.Unknown("main_host"),
+                currentBottomItem = BottomNavItem.DYNAMIC
+            )
+        )
+    }
+
+    @Test
+    fun directTopLevelKeyUsesItsOwnRouteForBottomBarDestination() {
+        assertEquals(
+            ScreenRoutes.Home.route,
+            resolveActiveBottomTabRoute(
+                currentKey = BiliPaiNavKey.Home,
+                currentBottomItem = BottomNavItem.DYNAMIC
+            )
+        )
+        assertEquals(
+            ScreenRoutes.Dynamic.route,
+            resolveActiveBottomTabRoute(
+                currentKey = BiliPaiNavKey.Dynamic,
+                currentBottomItem = BottomNavItem.HOME
+            )
+        )
+    }
+
+    @Test
+    fun bottomBarShowsForConfiguredMainHostAndDirectTopLevelRoutes() {
+        val defaultRoutes = setOf(
+            ScreenRoutes.Home.route,
+            ScreenRoutes.Dynamic.route,
+            ScreenRoutes.History.route,
+            ScreenRoutes.Profile.route
+        )
+
+        assertTrue(
+            shouldShowBottomBarForNavigation(
+                activeRoute = resolveActiveBottomTabRoute(BiliPaiNavKey.MainHost, BottomNavItem.HOME),
+                visibleBottomBarRoutes = defaultRoutes,
+                useSideNavigation = false,
+                shouldHideBottomBarOnTablet = false,
+                shouldDeferReveal = false
+            )
+        )
+        assertTrue(
+            shouldShowBottomBarForNavigation(
+                activeRoute = resolveActiveBottomTabRoute(BiliPaiNavKey.Home, BottomNavItem.HOME),
+                visibleBottomBarRoutes = defaultRoutes,
+                useSideNavigation = false,
+                shouldHideBottomBarOnTablet = false,
+                shouldDeferReveal = false
+            )
+        )
+        assertTrue(
+            shouldShowBottomBarForNavigation(
+                activeRoute = resolveActiveBottomTabRoute(BiliPaiNavKey.Dynamic, BottomNavItem.HOME),
+                visibleBottomBarRoutes = defaultRoutes,
+                useSideNavigation = false,
+                shouldHideBottomBarOnTablet = false,
+                shouldDeferReveal = false
+            )
+        )
+    }
+
+    @Test
+    fun bottomBarHidesForUnconfiguredHomeAndExcludedNavigationStates() {
+        val routesWithoutHome = setOf(
+            ScreenRoutes.Dynamic.route,
+            ScreenRoutes.History.route,
+            ScreenRoutes.Profile.route
+        )
+        val defaultRoutes = routesWithoutHome + ScreenRoutes.Home.route
+
+        assertFalse(
+            shouldShowBottomBarForNavigation(
+                activeRoute = resolveActiveBottomTabRoute(BiliPaiNavKey.Home, BottomNavItem.DYNAMIC),
+                visibleBottomBarRoutes = routesWithoutHome,
+                useSideNavigation = false,
+                shouldHideBottomBarOnTablet = false,
+                shouldDeferReveal = false
+            )
+        )
+        assertFalse(
+            shouldShowBottomBarForNavigation(
+                activeRoute = ScreenRoutes.Story.route,
+                visibleBottomBarRoutes = defaultRoutes + ScreenRoutes.Story.route,
+                useSideNavigation = false,
+                shouldHideBottomBarOnTablet = false,
+                shouldDeferReveal = false
+            )
+        )
+        assertFalse(
+            shouldShowBottomBarForNavigation(
+                activeRoute = ScreenRoutes.Settings.route,
+                visibleBottomBarRoutes = defaultRoutes + ScreenRoutes.Settings.route,
+                useSideNavigation = false,
+                shouldHideBottomBarOnTablet = true,
+                shouldDeferReveal = false
+            )
+        )
+        assertFalse(
+            shouldShowBottomBarForNavigation(
+                activeRoute = ScreenRoutes.Home.route,
+                visibleBottomBarRoutes = defaultRoutes,
+                useSideNavigation = true,
+                shouldHideBottomBarOnTablet = false,
+                shouldDeferReveal = false
+            )
+        )
+        assertFalse(
+            shouldShowBottomBarForNavigation(
+                activeRoute = ScreenRoutes.Home.route,
+                visibleBottomBarRoutes = defaultRoutes,
+                useSideNavigation = false,
+                shouldHideBottomBarOnTablet = false,
+                shouldDeferReveal = true
+            )
+        )
+    }
+
+    @Test
     fun bottomPagerNavigationDuration_scalesWithNavigationDistance() {
         assertEquals(
             300,
@@ -286,8 +479,46 @@ class AppTopLevelNavigationPolicyTest {
 
     @Test
     fun bottomPagerPreload_waitsUntilContentReady() {
-        assertEquals(0, resolveBottomPagerBeyondViewportPageCount(contentReady = false))
-        assertEquals(1, resolveBottomPagerBeyondViewportPageCount(contentReady = true))
+        assertEquals(
+            0,
+            resolveBottomPagerBeyondViewportPageCount(
+                contentReady = false,
+                isNavigating = false,
+                currentPage = 0,
+                selectedPage = 0
+            )
+        )
+        assertEquals(
+            3,
+            resolveBottomPagerBeyondViewportPageCount(
+                contentReady = true,
+                isNavigating = false,
+                currentPage = 0,
+                selectedPage = 0
+            )
+        )
+    }
+
+    @Test
+    fun bottomPagerPreload_expandsDuringNavigationToKeepTargetComposed() {
+        assertEquals(
+            3,
+            resolveBottomPagerBeyondViewportPageCount(
+                contentReady = true,
+                isNavigating = true,
+                currentPage = 0,
+                selectedPage = 3
+            )
+        )
+        assertEquals(
+            3,
+            resolveBottomPagerBeyondViewportPageCount(
+                contentReady = true,
+                isNavigating = true,
+                currentPage = 2,
+                selectedPage = 3
+            )
+        )
     }
 
     @Test
@@ -296,36 +527,89 @@ class AppTopLevelNavigationPolicyTest {
     }
 
     @Test
-    fun bottomPagerDuringNavigation_composesOnlyCurrentAndTargetBeforeReady() {
+    fun bottomPagerDuringNavigation_composesOnlyStartAndTargetBeforeReady() {
         assertTrue(
             shouldComposeBottomPagerPage(
+                item = BottomNavItem.HOME,
                 page = 0,
-                currentPage = 0,
-                selectedPage = 2,
+                currentPage = 1,
+                selectedPage = 3,
+                isNavigating = true,
+                navigationStartPage = 0,
                 contentReady = false
             )
         )
         assertTrue(
             shouldComposeBottomPagerPage(
-                page = 2,
-                currentPage = 0,
-                selectedPage = 2,
+                item = BottomNavItem.PROFILE,
+                page = 3,
+                currentPage = 1,
+                selectedPage = 3,
+                isNavigating = true,
+                navigationStartPage = 0,
                 contentReady = false
             )
         )
         assertFalse(
             shouldComposeBottomPagerPage(
+                item = BottomNavItem.DYNAMIC,
                 page = 1,
-                currentPage = 0,
-                selectedPage = 2,
+                currentPage = 1,
+                selectedPage = 3,
+                isNavigating = true,
+                navigationStartPage = 0,
                 contentReady = false
+            )
+        )
+        assertFalse(
+            shouldComposeBottomPagerPage(
+                item = BottomNavItem.HISTORY,
+                page = 2,
+                currentPage = 1,
+                selectedPage = 3,
+                isNavigating = true,
+                navigationStartPage = 0,
+                contentReady = false
+            )
+        )
+    }
+
+    @Test
+    fun bottomPagerDuringNavigation_composesIntermediatePagesAfterReady() {
+        assertTrue(
+            shouldComposeBottomPagerPage(
+                item = BottomNavItem.DYNAMIC,
+                page = 1,
+                currentPage = 1,
+                selectedPage = 3,
+                isNavigating = true,
+                navigationStartPage = 0,
+                contentReady = true
             )
         )
         assertTrue(
             shouldComposeBottomPagerPage(
-                page = 1,
-                currentPage = 0,
-                selectedPage = 2,
+                item = BottomNavItem.HISTORY,
+                page = 2,
+                currentPage = 1,
+                selectedPage = 3,
+                isNavigating = true,
+                navigationStartPage = 0,
+                contentReady = true
+            )
+        )
+    }
+
+    @Test
+    fun bottomPagerAfterNavigation_composesSettledPage() {
+        assertTrue(
+            shouldComposeBottomPagerPage(
+                item = BottomNavItem.PROFILE,
+                page = 3,
+                currentPage = 3,
+                selectedPage = 3,
+                isNavigating = false,
+                navigationStartPage = 3,
                 contentReady = true
             )
         )
@@ -345,107 +629,44 @@ class AppTopLevelNavigationPolicyTest {
     }
 
     @Test
-    fun routeMatchingVisibleBottomItem_selectsThatItem() {
-        assertEquals(
-            BottomNavItem.HISTORY,
-            resolveBottomNavItemForRoute(
-                currentRoute = ScreenRoutes.History.route,
-                retainedItem = BottomNavItem.HOME
-            )
-        )
-        assertEquals(
-            BottomNavItem.PROFILE,
-            resolveBottomNavItemForRoute(
-                currentRoute = ScreenRoutes.Profile.route,
-                retainedItem = BottomNavItem.HISTORY
-            )
-        )
-    }
-
-    @Test
-    fun secondaryRoute_keepsRetainedBottomItemInsteadOfFallingBackHome() {
-        assertEquals(
-            BottomNavItem.HISTORY,
-            resolveBottomNavItemForRoute(
-                currentRoute = VideoRoute.route,
-                retainedItem = BottomNavItem.HISTORY
-            )
-        )
-        assertEquals(
-            BottomNavItem.PROFILE,
-            resolveBottomNavItemForRoute(
-                currentRoute = ScreenRoutes.DownloadList.route,
-                retainedItem = BottomNavItem.PROFILE
-            )
-        )
-    }
-
-    @Test
-    fun unknownRouteWithoutRetainedItem_fallsBackHome() {
-        assertEquals(
-            BottomNavItem.HOME,
-            resolveBottomNavItemForRoute(
-                currentRoute = ScreenRoutes.DownloadList.route,
-                retainedItem = null
-            )
-        )
-    }
-
-    @Test
-    fun bottomTabToBottomTab_usesInstantTransition() {
-        val visibleRoutes = setOf(
-            ScreenRoutes.Home.route,
-            ScreenRoutes.Dynamic.route,
-            ScreenRoutes.History.route,
-            ScreenRoutes.Profile.route
-        )
-
-        assertTrue(
-            shouldUseInstantBottomTabTransition(
-                fromRoute = ScreenRoutes.Home.route,
-                toRoute = ScreenRoutes.History.route,
-                visibleBottomBarRoutes = visibleRoutes
+    fun storyBottomPagerPage_skipsOffscreenPreloadEvenAfterContentReady() {
+        assertFalse(
+            shouldComposeBottomPagerPage(
+                item = BottomNavItem.STORY,
+                page = 3,
+                currentPage = 0,
+                selectedPage = 1,
+                isNavigating = false,
+                navigationStartPage = 0,
+                contentReady = true
             )
         )
         assertTrue(
-            shouldUseInstantBottomTabTransition(
-                fromRoute = ScreenRoutes.Profile.route,
-                toRoute = ScreenRoutes.Dynamic.route,
-                visibleBottomBarRoutes = visibleRoutes
+            shouldComposeBottomPagerPage(
+                item = BottomNavItem.STORY,
+                page = 3,
+                currentPage = 3,
+                selectedPage = 1,
+                isNavigating = false,
+                navigationStartPage = 3,
+                contentReady = false
             )
         )
     }
 
     @Test
-    fun secondaryRouteTransitions_keepRegularRouteMotion() {
-        val visibleRoutes = setOf(
-            ScreenRoutes.Home.route,
-            ScreenRoutes.Dynamic.route,
-            ScreenRoutes.History.route,
-            ScreenRoutes.Profile.route
-        )
+    fun appNavigationUsesMainBottomPagerStateForRenderBudget() {
+        val sourceFile = listOf(
+            File("app/src/main/java/com/android/purebilibili/navigation/AppNavigation.kt"),
+            File("src/main/java/com/android/purebilibili/navigation/AppNavigation.kt")
+        ).first { it.exists() }
+        val source = sourceFile.readText()
 
-        assertFalse(
-            shouldUseInstantBottomTabTransition(
-                fromRoute = VideoRoute.route,
-                toRoute = ScreenRoutes.History.route,
-                visibleBottomBarRoutes = visibleRoutes
-            )
-        )
-        assertFalse(
-            shouldUseInstantBottomTabTransition(
-                fromRoute = ScreenRoutes.Home.route,
-                toRoute = ScreenRoutes.Search.route,
-                visibleBottomBarRoutes = visibleRoutes
-            )
-        )
-        assertFalse(
-            shouldUseInstantBottomTabTransition(
-                fromRoute = ScreenRoutes.History.route,
-                toRoute = ScreenRoutes.History.route,
-                visibleBottomBarRoutes = visibleRoutes
-            )
-        )
+        assertTrue(source.contains("rememberMainBottomPagerState("))
+        assertTrue(source.contains("resolveBottomPagerRenderBudget(isNavigating = mainBottomPagerState.isNavigating)"))
+        assertFalse(source.contains("pendingBottomTabTransitionRoute"))
+        assertFalse(source.contains("resolveBottomTabTransitionTargetRoute"))
+        assertFalse(source.contains("shouldUseInstantBottomTabTransition"))
     }
 
     @Test

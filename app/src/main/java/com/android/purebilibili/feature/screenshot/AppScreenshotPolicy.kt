@@ -40,6 +40,14 @@ enum class AppScreenshotResult {
     Blocked
 }
 
+fun shouldOfferAppScreenshotShare(
+    isLandscape: Boolean,
+    result: AppScreenshotResult,
+    hasShareUri: Boolean
+): Boolean {
+    return isLandscape && result == AppScreenshotResult.Success && hasShareUri
+}
+
 data class AppScreenshotPointerPosition(
     val x: Float,
     val y: Float

@@ -12,9 +12,16 @@ data class PbpProgressData(
     val values: List<Float>
 )
 
+enum class PbpRidgeDensity {
+    QUIET,
+    NORMAL,
+    HOT
+}
+
 data class PbpRidgeSample(
     val fraction: Float,
-    val intensity: Float
+    val intensity: Float,
+    val density: PbpRidgeDensity
 )
 
 private val PBP_JSON = Json {
@@ -48,6 +55,15 @@ fun normalizePbpProgressValues(values: List<Float>): List<Float> {
     return values.map { value -> (value / peak).coerceIn(0f, 1f) }
 }
 
+fun resolvePbpRidgeDensity(normalizedIntensity: Float): PbpRidgeDensity {
+    val value = normalizedIntensity.coerceIn(0f, 1f)
+    return when {
+        value < 0.30f -> PbpRidgeDensity.QUIET
+        value < 0.70f -> PbpRidgeDensity.NORMAL
+        else -> PbpRidgeDensity.HOT
+    }
+}
+
 fun buildPbpRidgeSamples(
     data: PbpProgressData,
     durationMs: Long
@@ -61,7 +77,8 @@ fun buildPbpRidgeSamples(
         val sampleTimeMs = index * stepMs
         PbpRidgeSample(
             fraction = (sampleTimeMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f),
-            intensity = intensity.coerceIn(0f, 1f)
+            intensity = intensity.coerceIn(0f, 1f),
+            density = resolvePbpRidgeDensity(intensity)
         )
     }
 }

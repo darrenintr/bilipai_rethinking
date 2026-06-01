@@ -1,11 +1,14 @@
 package com.android.purebilibili.feature.screenshot
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -22,19 +25,32 @@ import kotlin.coroutines.resume
 private const val APP_SCREENSHOT_TAG = "AppScreenshot"
 private const val APP_SCREENSHOT_RELATIVE_PATH = "Pictures/BiliPai/Screenshots"
 
+data class AppScreenshotSavedImage(
+    val result: AppScreenshotResult,
+    val uri: Uri? = null
+)
+
 suspend fun captureAndSaveAppScreenshot(
     activity: Activity,
     timestampMs: Long = System.currentTimeMillis()
 ): AppScreenshotResult {
+    return captureAndSaveAppScreenshotImage(activity, timestampMs).result
+}
+
+suspend fun captureAndSaveAppScreenshotImage(
+    activity: Activity,
+    timestampMs: Long = System.currentTimeMillis()
+): AppScreenshotSavedImage {
     val bitmap = captureCurrentAppWindow(activity = activity)
-        ?: return AppScreenshotResult.CaptureFailed
+        ?: return AppScreenshotSavedImage(AppScreenshotResult.CaptureFailed)
     val fileName = buildAppScreenshotFileName(timestampMs = timestampMs)
 
     return try {
-        if (saveAppScreenshotBitmapToGallery(activity, bitmap, fileName)) {
-            AppScreenshotResult.Success
+        val uri = saveAppScreenshotBitmapToGalleryUri(activity, bitmap, fileName)
+        if (uri != null) {
+            AppScreenshotSavedImage(AppScreenshotResult.Success, uri)
         } else {
-            AppScreenshotResult.SaveFailed
+            AppScreenshotSavedImage(AppScreenshotResult.SaveFailed)
         }
     } finally {
         bitmap.recycle()
@@ -128,7 +144,13 @@ internal suspend fun saveAppScreenshotBitmapToGallery(
     context: Context,
     bitmap: Bitmap,
     fileName: String = buildAppScreenshotFileName()
-): Boolean = withContext(Dispatchers.IO) {
+): Boolean = saveAppScreenshotBitmapToGalleryUri(context, bitmap, fileName) != null
+
+internal suspend fun saveAppScreenshotBitmapToGalleryUri(
+    context: Context,
+    bitmap: Bitmap,
+    fileName: String = buildAppScreenshotFileName()
+): Uri? = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
     val values = ContentValues().apply {
         put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
@@ -139,7 +161,7 @@ internal suspend fun saveAppScreenshotBitmapToGallery(
         }
     }
     val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-        ?: return@withContext false
+        ?: return@withContext null
 
     try {
         val wrote = resolver.openOutputStream(uri)?.use { output ->
@@ -147,17 +169,41 @@ internal suspend fun saveAppScreenshotBitmapToGallery(
         } ?: false
         if (!wrote) {
             resolver.delete(uri, null, null)
-            return@withContext false
+            return@withContext null
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             values.clear()
             values.put(MediaStore.Images.Media.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
         }
-        true
+        uri
     } catch (e: Exception) {
         Logger.e(APP_SCREENSHOT_TAG, "Failed to save app screenshot", e)
         resolver.delete(uri, null, null)
-        false
+        null
     }
+}
+
+fun shareAppScreenshot(context: Context, uri: Uri): Boolean {
+    return runCatching {
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newUri(context.contentResolver, "BiliPai screenshot", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (context !is Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        val chooser = Intent.createChooser(shareIntent, "分享截图").apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (context !is Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        context.startActivity(chooser)
+        true
+    }.onFailure { throwable ->
+        Logger.e(APP_SCREENSHOT_TAG, "Failed to share app screenshot", throwable)
+    }.getOrDefault(false)
 }

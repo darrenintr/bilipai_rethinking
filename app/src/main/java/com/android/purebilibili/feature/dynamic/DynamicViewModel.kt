@@ -7,18 +7,26 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.android.purebilibili.core.network.DynamicDeleteRequest
 import com.android.purebilibili.core.network.NetworkModule
+import com.android.purebilibili.core.network.buildDynamicRepostRequest
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.util.appendDistinctByKey
 import com.android.purebilibili.core.util.prependDistinctByKey
 import com.android.purebilibili.data.model.response.DynamicItem
 import com.android.purebilibili.data.model.response.FollowingUser
 import com.android.purebilibili.data.model.response.LiveRoom
+import com.android.purebilibili.data.model.response.ReplyData
+import com.android.purebilibili.data.model.response.ReplyItem
 import com.android.purebilibili.data.repository.ActionRepository
 import com.android.purebilibili.data.repository.CommentRepository
 import com.android.purebilibili.data.repository.DynamicFeedScope
 import com.android.purebilibili.data.repository.DynamicRepository
 import com.android.purebilibili.data.repository.LiveRepository
+import com.android.purebilibili.feature.video.viewmodel.resolveRoutedCommentRootReply
+import com.android.purebilibili.feature.video.viewmodel.resolveSubReplyLoadedTotalCount
+import com.android.purebilibili.feature.video.viewmodel.resolveSubReplyPageEnd
+import com.android.purebilibili.feature.video.viewmodel.resolveSubReplyRemoteTotalCount
 import com.android.purebilibili.feature.video.viewmodel.SubReplyUiState
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -81,6 +89,7 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
     private var isFollowingsLoading: Boolean = false
     private var cacheSaveJob: Job? = null
     private var startupFollowingsHydrationScheduled: Boolean = false
+    private var startupLoadsActivated: Boolean = false
 
     private val _uiState = MutableStateFlow(DynamicUiState())
     val uiState: StateFlow<DynamicUiState> = _uiState.asStateFlow()
@@ -123,7 +132,6 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
     val selectedTab: StateFlow<Int> = _selectedTab.asStateFlow()
 
     init {
-        val startupPlan = resolveDynamicStartupLoadPlan()
         viewModelScope.launch {
             SettingsManager.getIncrementalTimelineRefresh(appContext).collect { enabled ->
                 incrementalTimelineRefreshEnabled = enabled
@@ -133,7 +141,12 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
         loadCachedDynamics()
         rebuildFollowedUsers()
         observeFollowStateChanges()
-        refreshInBackground(startupPlan)
+    }
+
+    fun activateStartupLoads() {
+        if (startupLoadsActivated) return
+        startupLoadsActivated = true
+        refreshInBackground(resolveDynamicStartupLoadPlan())
     }
 
     private fun observeFollowStateChanges() {
@@ -634,12 +647,20 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
             savedTab = tab,
             tabCount = DYNAMIC_TOP_TAB_COUNT
         )
-        if (_selectedTab.value == resolvedTab) return
+        val previousSelectedUserId = _selectedUserId.value
+        val nextSelectedUserId = resolveDynamicSelectedUserForTab(
+            selectedTab = resolvedTab,
+            selectedUserId = previousSelectedUserId
+        )
+        if (_selectedTab.value == resolvedTab && previousSelectedUserId == nextSelectedUserId) return
+        if (previousSelectedUserId != nextSelectedUserId) {
+            selectUser(nextSelectedUserId)
+        }
         _selectedTab.value = resolvedTab
         userPrefs.edit()
             .putInt(KEY_SELECTED_TAB, resolvedTab)
             .apply()
-        if (_selectedUserId.value == null) {
+        if (nextSelectedUserId == null) {
             DynamicRepository.resetPagination(
                 scope = DynamicFeedScope.DYNAMIC_SCREEN,
                 type = resolveDynamicFeedRequestType(resolvedTab)
@@ -835,9 +856,17 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun openCommentSheet(item: DynamicItem) {
+    fun openCommentSheet(
+        item: DynamicItem,
+        rootReplyId: Long = 0L,
+        targetReplyId: Long = 0L
+    ) {
         _selectedDynamic.value = item
-        loadCommentsForDynamic(item)
+        loadCommentsForDynamic(
+            item = item,
+            routedRootReplyId = rootReplyId,
+            routedTargetReplyId = targetReplyId
+        )
     }
     
     /**
@@ -855,7 +884,11 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
     /**
      *  加载动态评论 (使用正确的 oid 和 type)
      */
-    private fun loadCommentsForDynamic(item: DynamicItem) {
+    private fun loadCommentsForDynamic(
+        item: DynamicItem,
+        routedRootReplyId: Long = 0L,
+        routedTargetReplyId: Long = 0L
+    ) {
         viewModelScope.launch {
             _commentsLoading.value = true
             _selectedCommentTarget.value = null
@@ -913,11 +946,20 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
 
-                val selected = selectPreferredDynamicCommentAttempt(attempts = attempts)
+                val selected = selectPreferredDynamicCommentAttempt(
+                    attempts = attempts,
+                    expectedCount = fallbackCount
+                )
                 if (selected != null) {
                     _selectedCommentTarget.value = selected.target
                     _comments.value = selected.replies
                     _commentTotalCount.value = selected.totalCount
+                    if (routedRootReplyId > 0L) {
+                        openSubReplyFromRoute(
+                            rootReplyId = routedRootReplyId,
+                            targetReplyId = routedTargetReplyId
+                        )
+                    }
                 } else {
                     _comments.value = emptyList()
                     _commentTotalCount.value = fallbackCount
@@ -941,11 +983,17 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun openSubReply(rootReply: com.android.purebilibili.data.model.response.ReplyItem) {
+    fun openSubReply(rootReply: ReplyItem, targetReplyId: Long = 0L) {
         val target = _selectedCommentTarget.value ?: return
         _subReplyState.value = SubReplyUiState(
             visible = true,
             rootReply = rootReply,
+            targetReplyId = targetReplyId.takeIf { it != rootReply.rpid } ?: 0L,
+            totalCount = resolveSubReplyLoadedTotalCount(
+                rootReply = rootReply,
+                loadedReplyCount = rootReply.replies.orEmpty().size,
+                remoteReplyCount = 0
+            ),
             isLoading = true,
             page = 1
         )
@@ -954,6 +1002,99 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
             type = target.type,
             rootId = rootReply.rpid,
             page = 1
+        )
+    }
+
+    fun openSubReplyFromRoute(rootReplyId: Long, targetReplyId: Long = 0L): Boolean {
+        val target = _selectedCommentTarget.value ?: return false
+        if (rootReplyId <= 0L) return false
+
+        if (openLoadedRoutedSubReply(rootReplyId, targetReplyId)) return true
+
+        markRoutedSubReplyLoading(rootReplyId, targetReplyId)
+        loadRoutedSubReplyFromRemote(target, rootReplyId, targetReplyId)
+        return true
+    }
+
+    private fun openLoadedRoutedSubReply(rootReplyId: Long, targetReplyId: Long): Boolean {
+        resolveRoutedCommentRootReply(
+            loadedReplies = _comments.value,
+            remoteData = null,
+            rootReplyId = rootReplyId
+        )?.let { rootReply ->
+            openSubReply(rootReply, targetReplyId)
+            return true
+        }
+        return false
+    }
+
+    private fun markRoutedSubReplyLoading(rootReplyId: Long, targetReplyId: Long) {
+        _subReplyState.value = _subReplyState.value.copy(
+            visible = false,
+            isLoading = true,
+            error = null,
+            targetReplyId = targetReplyId.takeIf { it != rootReplyId } ?: 0L
+        )
+    }
+
+    private fun loadRoutedSubReplyFromRemote(
+        target: DynamicCommentTarget,
+        rootReplyId: Long,
+        targetReplyId: Long
+    ) {
+        viewModelScope.launch {
+            CommentRepository.getSubCommentsForSubject(
+                oid = target.oid,
+                type = target.type,
+                rootId = rootReplyId,
+                page = 1,
+                ps = 20,
+                preferRestPaging = true
+            ).onSuccess { data ->
+                showRoutedSubReply(data, rootReplyId, targetReplyId)
+            }.onFailure { error ->
+                _subReplyState.value = _subReplyState.value.copy(
+                    isLoading = false,
+                    error = error.message ?: "回复加载失败"
+                )
+            }
+        }
+    }
+
+    private fun showRoutedSubReply(data: ReplyData, rootReplyId: Long, targetReplyId: Long) {
+        val rootReply = resolveRoutedCommentRootReply(
+            loadedReplies = emptyList(),
+            remoteData = data,
+            rootReplyId = rootReplyId
+        )
+        if (rootReply == null) {
+            _subReplyState.value = _subReplyState.value.copy(
+                isLoading = false,
+                error = "回复可能已被删除或不可见"
+            )
+            return
+        }
+
+        val items = data.replies.orEmpty()
+        val remoteTotalCount = resolveSubReplyRemoteTotalCount(data)
+        val isEnd = resolveSubReplyPageEnd(
+            cursorIsEnd = data.cursor.isEnd,
+            fetchedReplyCount = items.size,
+            loadedReplyCount = items.size,
+            remoteReplyCount = remoteTotalCount
+        )
+        _subReplyState.value = SubReplyUiState(
+            visible = true,
+            rootReply = rootReply,
+            items = items,
+            baseItems = items,
+            totalCount = resolveSubReplyLoadedTotalCount(rootReply, items.size, remoteTotalCount),
+            isLoading = false,
+            page = 1,
+            basePage = 1,
+            isEnd = isEnd,
+            baseIsEnd = isEnd,
+            targetReplyId = targetReplyId.takeIf { it != rootReplyId } ?: 0L
         )
     }
 
@@ -1118,13 +1259,23 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
     fun repostDynamic(dynamicId: String, content: String = "", onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
             try {
+                if (dynamicId.isBlank()) {
+                    onResult(false, "无法转发该动态")
+                    return@launch
+                }
                 val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache
                 if (csrf.isNullOrEmpty()) {
                     onResult(false, "请先登录")
                     return@launch
                 }
                 val response = com.android.purebilibili.core.network.NetworkModule.dynamicApi
-                    .repostDynamic(dynIdStr = dynamicId, content = content, csrf = csrf)
+                    .repostDynamic(
+                        csrf = csrf,
+                        body = buildDynamicRepostRequest(
+                            dynamicId = dynamicId,
+                            content = content
+                        )
+                    )
                 if (response.code == 0) {
                     onResult(true, "转发成功")
                 } else {
@@ -1134,6 +1285,47 @@ class DynamicViewModel(application: Application) : AndroidViewModel(application)
                 onResult(false, e.message ?: "网络错误")
             }
         }
+    }
+
+    fun deleteDynamic(action: DynamicDeleteAction, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                if (action.dynamicId.isBlank()) {
+                    onResult(false, "无法删除该动态")
+                    return@launch
+                }
+                val csrf = com.android.purebilibili.core.store.TokenManager.csrfCache
+                if (csrf.isNullOrEmpty()) {
+                    onResult(false, "请先登录")
+                    return@launch
+                }
+
+                val response = NetworkModule.dynamicApi.deleteDynamic(
+                    csrf = csrf,
+                    body = DynamicDeleteRequest(
+                        dyn_id_str = action.dynamicId,
+                        dyn_type = action.dynType,
+                        rid_str = action.rid
+                    )
+                )
+                if (response.code == 0) {
+                    removeDynamicFromUiState(action.dynamicId)
+                    onResult(true, "已删除动态")
+                } else {
+                    onResult(false, response.message.ifBlank { "删除失败" })
+                }
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "网络错误")
+            }
+        }
+    }
+
+    private fun removeDynamicFromUiState(dynamicId: String) {
+        val currentState = _uiState.value
+        _uiState.value = currentState.copy(
+            items = currentState.items.filterNot { it.id_str == dynamicId },
+            userItems = currentState.userItems.filterNot { it.id_str == dynamicId }
+        )
     }
 
     companion object {

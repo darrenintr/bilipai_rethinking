@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,6 +36,7 @@ import com.android.purebilibili.core.plugin.kotlinpkg.ExternalKotlinPluginInstal
 import com.android.purebilibili.core.plugin.kotlinpkg.ExternalKotlinPluginPackagePreview
 import com.android.purebilibili.core.network.NetworkModule
 import com.android.purebilibili.core.plugin.skin.UiSkinImportPackageResolver
+import com.android.purebilibili.core.plugin.skin.InstalledUiSkinPackage
 import com.android.purebilibili.core.plugin.skin.UiSkinInstallStore
 import com.android.purebilibili.core.plugin.skin.UiSkinPackagePreview
 import com.android.purebilibili.core.plugin.skin.UiSkinSelection
@@ -42,6 +44,11 @@ import com.android.purebilibili.core.plugin.skin.UiSkinSettingsStore
 import com.android.purebilibili.core.plugin.skin.rememberUiSkinState
 import com.android.purebilibili.core.plugin.PluginInfo
 import com.android.purebilibili.core.plugin.PluginManager
+import com.android.purebilibili.core.plugin.json.JsonPluginStatsNotificationConfig
+import com.android.purebilibili.core.plugin.json.persistJsonPluginStatsNotificationConfig
+import com.android.purebilibili.core.plugin.json.postJsonPluginStatsTestNotification
+import com.android.purebilibili.core.plugin.json.readJsonPluginStatsNotificationConfig
+import com.android.purebilibili.core.plugin.json.scheduleJsonPluginStatsSummary
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.theme.iOSPink  // 插件图标色
 import com.android.purebilibili.core.theme.iOSBlue
@@ -56,7 +63,9 @@ import com.android.purebilibili.core.ui.rememberAppBackIcon
 import com.android.purebilibili.core.ui.components.AppAdaptiveSwitch
 import com.android.purebilibili.core.ui.components.rememberAdaptiveSemanticIconTint
 import com.android.purebilibili.core.util.FormatUtils
+import com.android.purebilibili.core.util.rememberNotificationPermissionState
 import com.android.purebilibili.feature.plugin.SPONSOR_BLOCK_PLUGIN_ID
+import com.android.purebilibili.feature.settings.buildUiSkinImagePreviewItems
 import com.android.purebilibili.feature.settings.buildUiSkinPackagePreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -181,6 +190,23 @@ fun PluginsContent(
     
     // Local UI states
     var expandedPluginId by remember { mutableStateOf<String?>(null) }
+    var jsonStatsNotificationEnabled by remember(context) {
+        mutableStateOf(readJsonPluginStatsNotificationConfig(context).enabled)
+    }
+    fun showToast(message: String) {
+        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+    }
+    fun sendJsonStatsTestNotification() {
+        val posted = postJsonPluginStatsTestNotification(context)
+        showToast(if (posted) "测试通知已发送" else "系统通知未开启")
+    }
+    val notificationPermission = rememberNotificationPermissionState { granted ->
+        if (granted) {
+            sendJsonStatsTestNotification()
+        } else {
+            showToast("通知权限未开启")
+        }
+    }
     
     //  导入插件对话框状态
     var showImportDialog by remember { mutableStateOf(false) }
@@ -213,6 +239,9 @@ fun PluginsContent(
     }
     var uiSkinPreview by remember { mutableStateOf<UiSkinPackagePreview?>(null) }
     var uiSkinPackageBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var uiSkinPreviewAssetFiles by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var uiSkinInstalledPreview by remember { mutableStateOf<InstalledUiSkinPackage?>(null) }
+    var uiSkinPendingDelete by remember { mutableStateOf<InstalledUiSkinPackage?>(null) }
     var uiSkinImportError by remember { mutableStateOf<String?>(null) }
     var isUiSkinPackageLoading by remember { mutableStateOf(false) }
     val uiSkinPackagePicker = rememberLauncherForActivityResult(
@@ -231,13 +260,18 @@ fun PluginsContent(
                         remotePackageFetcher = ::downloadUiSkinRemotePackage
                     ).getOrThrow()
                     val preview = uiSkinStore.previewPackage(importPackage.packageBytes).getOrThrow()
-                    preview to importPackage.packageBytes
+                    val previewAssetFiles = uiSkinStore.extractPreviewAssetFiles(
+                        preview = preview,
+                        packageBytes = importPackage.packageBytes
+                    ).getOrThrow()
+                    Triple(preview, importPackage.packageBytes, previewAssetFiles)
                 }
             }
             isUiSkinPackageLoading = false
-            result.onSuccess { (preview, bytes) ->
+            result.onSuccess { (preview, bytes, previewAssetFiles) ->
                 uiSkinPreview = preview
                 uiSkinPackageBytes = bytes
+                uiSkinPreviewAssetFiles = previewAssetFiles
             }.onFailure { error ->
                 uiSkinImportError = resolveUiSkinImportErrorMessage(error.message)
             }
@@ -682,41 +716,24 @@ fun PluginsContent(
                     ) {
                         Column {
                             installedUiSkins.forEachIndexed { index, skin ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = skin.displayName,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = buildInstalledUiSkinSubtitle(skin.manifest),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            lineHeight = 18.sp,
-                                            maxLines = 2
-                                        )
-                                    }
-                                    AppAdaptiveSwitch(
-                                        checked = uiSkinState.enabled &&
-                                            uiSkinState.activeSkin?.installId == skin.installId,
-                                        onCheckedChange = { enabled ->
-                                            UiSkinSettingsStore.setSelection(
-                                                context = context,
-                                                selection = UiSkinSelection(
-                                                    enabled = enabled,
-                                                    selectedSkinId = if (enabled) skin.skinId else null,
-                                                    selectedInstallId = if (enabled) skin.installId else null
-                                                )
+                                val isActive = uiSkinState.enabled &&
+                                    uiSkinState.activeSkin?.installId == skin.installId
+                                InstalledUiSkinItem(
+                                    skin = skin,
+                                    isActive = isActive,
+                                    onToggle = { enabled ->
+                                        UiSkinSettingsStore.setSelection(
+                                            context = context,
+                                            selection = UiSkinSelection(
+                                                enabled = enabled,
+                                                selectedSkinId = if (enabled) skin.skinId else null,
+                                                selectedInstallId = if (enabled) skin.installId else null
                                             )
-                                        }
-                                    )
-                                }
+                                        )
+                                    },
+                                    onPreview = { uiSkinInstalledPreview = skin },
+                                    onDelete = { uiSkinPendingDelete = skin }
+                                )
                                 if (index < installedUiSkins.lastIndex) {
                                     Box(
                                         modifier = Modifier
@@ -734,6 +751,25 @@ fun PluginsContent(
             
             //  已安装的 JSON 插件列表
             if (jsonPlugins.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    JsonPluginStatsNotificationSection(
+                        enabled = jsonStatsNotificationEnabled,
+                        onEnabledChange = { enabled ->
+                            jsonStatsNotificationEnabled = enabled
+                            persistJsonPluginStatsNotificationConfig(
+                                context,
+                                JsonPluginStatsNotificationConfig(enabled = enabled)
+                            )
+                            scheduleJsonPluginStatsSummary(context, enabled)
+                        },
+                        onSendTest = {
+                            notificationPermission.launchWithPermission {
+                                sendJsonStatsTestNotification()
+                            }
+                        }
+                    )
+                }
                 item {
                     Spacer(modifier = Modifier.height(12.dp))
                     val filterStats by com.android.purebilibili.core.plugin.json.JsonPluginManager.filterStats.collectAsState()
@@ -1128,11 +1164,13 @@ fun PluginsContent(
 
     uiSkinPreview?.let { preview ->
         val previewModel = buildUiSkinPackagePreview(preview)
+        val imagePreviewItems = buildUiSkinImagePreviewItems(uiSkinPreviewAssetFiles)
         AlertDialog(
             onDismissRequest = {
                 if (!isImporting) {
                     uiSkinPreview = null
                     uiSkinPackageBytes = null
+                    uiSkinPreviewAssetFiles = emptyMap()
                 }
             },
             icon = { Icon(CupertinoIcons.Filled.Paintbrush, contentDescription = null) },
@@ -1178,6 +1216,7 @@ fun PluginsContent(
                             MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
+                    UiSkinImagePreviewGrid(items = imagePreviewItems)
                     Text(
                         text = "宿主只保存资源和启用记录，不执行代码；可替换首页皮肤图标和装饰层，不替换底栏液态玻璃链路。",
                         style = MaterialTheme.typography.bodySmall,
@@ -1202,6 +1241,7 @@ fun PluginsContent(
                             )
                             uiSkinPreview = null
                             uiSkinPackageBytes = null
+                            uiSkinPreviewAssetFiles = emptyMap()
                             android.widget.Toast.makeText(
                                 context,
                                 "皮肤包已保存并启用",
@@ -1211,6 +1251,7 @@ fun PluginsContent(
                             uiSkinImportError = error.message ?: "皮肤包导入失败"
                             uiSkinPreview = null
                             uiSkinPackageBytes = null
+                            uiSkinPreviewAssetFiles = emptyMap()
                         }
                     }
                 ) {
@@ -1222,8 +1263,140 @@ fun PluginsContent(
                     onClick = {
                         uiSkinPreview = null
                         uiSkinPackageBytes = null
+                        uiSkinPreviewAssetFiles = emptyMap()
                     }
                 ) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    uiSkinInstalledPreview?.let { installed ->
+        val isActive = uiSkinState.enabled && uiSkinState.activeSkin?.installId == installed.installId
+        val previewModel = buildInstalledUiSkinPreview(
+            installed = installed,
+            isActive = isActive
+        )
+        val imagePreviewItems = buildUiSkinImagePreviewItems(installed.assetFiles)
+        AlertDialog(
+            onDismissRequest = { uiSkinInstalledPreview = null },
+            icon = { Icon(CupertinoIcons.Default.Eye, contentDescription = null) },
+            title = { Text("皮肤预览") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = previewModel.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = previewModel.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = previewModel.packageHashText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = previewModel.assetSummaryText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = previewModel.sourceText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = previewModel.licenseText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "${previewModel.shareText} · ${previewModel.officialAssetText}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (installed.manifest.containsOfficialAssets) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    UiSkinImagePreviewGrid(items = imagePreviewItems)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        UiSkinSettingsStore.setSelection(
+                            context = context,
+                            selection = UiSkinSelection(
+                                enabled = true,
+                                selectedSkinId = installed.skinId,
+                                selectedInstallId = installed.installId
+                            )
+                        )
+                        uiSkinInstalledPreview = null
+                        android.widget.Toast.makeText(
+                            context,
+                            "已启用皮肤预览",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    enabled = !isActive
+                ) {
+                    Text(if (isActive) "已启用" else "启用预览")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { uiSkinInstalledPreview = null }) {
+                    Text("关闭")
+                }
+            }
+        )
+    }
+
+    uiSkinPendingDelete?.let { skin ->
+        AlertDialog(
+            onDismissRequest = { uiSkinPendingDelete = null },
+            icon = { Icon(CupertinoIcons.Default.Trash, contentDescription = null) },
+            title = { Text("删除皮肤") },
+            text = { Text("确定要删除皮肤 \"${skin.displayName}\" 吗？删除后会清理本地包和已解压资源。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val wasActive = uiSkinState.enabled &&
+                            uiSkinState.activeSkin?.installId == skin.installId
+                        val result = uiSkinStore.deleteInstalledPackage(skin.installId)
+                        result.onSuccess { deleted ->
+                            if (deleted) {
+                                installedUiSkins = uiSkinStore.listInstalledPackages()
+                                if (wasActive) {
+                                    UiSkinSettingsStore.setSelection(
+                                        context = context,
+                                        selection = UiSkinSelection()
+                                    )
+                                }
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "皮肤已删除",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            uiSkinPendingDelete = null
+                        }.onFailure { error ->
+                            uiSkinPendingDelete = null
+                            uiSkinImportError = error.message ?: "皮肤删除失败"
+                        }
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { uiSkinPendingDelete = null }) {
                     Text("取消")
                 }
             }
@@ -1244,6 +1417,119 @@ fun PluginsContent(
                     testResult = null
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun UiSkinImagePreviewGrid(
+    items: List<com.android.purebilibili.feature.settings.UiSkinImagePreviewItem>
+) {
+    if (items.isEmpty()) {
+        Text(
+            text = "图片预览：未找到可展示资源",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items.take(6).forEach { item ->
+            Column(
+                modifier = Modifier.width(88.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                AsyncImage(
+                    model = item.localPath,
+                    contentDescription = item.label,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                )
+                Text(
+                    text = item.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstalledUiSkinItem(
+    skin: InstalledUiSkinPackage,
+    isActive: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onPreview: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val previewModel = remember(skin, isActive) {
+        buildInstalledUiSkinPreview(
+            installed = skin,
+            isActive = isActive
+        )
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = skin.displayName,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = buildInstalledUiSkinSubtitle(skin.manifest),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 18.sp,
+                maxLines = 2
+            )
+        }
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            AppAdaptiveSwitch(
+                checked = isActive,
+                onCheckedChange = onToggle
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                IconButton(onClick = onPreview) {
+                    Icon(
+                        imageVector = CupertinoIcons.Default.Eye,
+                        contentDescription = "预览皮肤",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                IconButton(
+                    onClick = onDelete,
+                    enabled = previewModel.canDelete
+                ) {
+                    Icon(
+                        imageVector = CupertinoIcons.Default.Trash,
+                        contentDescription = "删除皮肤",
+                        tint = if (previewModel.canDelete) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                        },
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -1481,6 +1767,81 @@ private fun getPluginColor(index: Int): Color {
     return colors[index % colors.size]
 }
 
+@Composable
+private fun JsonPluginStatsNotificationSection(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onSendTest: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(12.dp)),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(iOSPurple.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = CupertinoIcons.Default.Bell,
+                        contentDescription = null,
+                        tint = iOSPurple,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "插件统计通知",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "每天汇总 JSON 规则插件过滤数量",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                AppAdaptiveSwitch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 66.dp)
+                    .height(0.5.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            )
+            TextButton(
+                onClick = onSendTest,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = iOSPurple)
+            ) {
+                Icon(CupertinoIcons.Default.Bell, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("发送测试通知", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
 /**
  * JSON 规则插件列表项
  */
@@ -1713,15 +2074,15 @@ private fun TestResultDialog(
 ) {
     val blockedCount = originalCount - filteredCount
     val dialogIconTint = rememberAdaptiveSemanticIconTint(iOSBlue)
-    
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { 
+        icon = {
             Icon(
-                CupertinoIcons.Default.Lightbulb, 
+                CupertinoIcons.Default.Lightbulb,
                 contentDescription = null,
                 tint = dialogIconTint
-            ) 
+            )
         },
         title = { Text("规则测试结果") },
         text = {

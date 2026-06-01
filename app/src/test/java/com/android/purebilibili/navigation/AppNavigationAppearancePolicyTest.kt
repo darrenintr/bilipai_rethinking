@@ -5,7 +5,6 @@ import com.android.purebilibili.core.theme.AndroidNativeVariant
 import com.android.purebilibili.core.theme.UiPreset
 import java.io.File
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -19,28 +18,25 @@ class AppNavigationAppearancePolicyTest {
                 bottomBarLabelMode = 2,
                 isBottomBarBlurEnabled = false,
                 cardTransitionEnabled = false,
-                videoTransitionRealtimeBlurEnabled = false,
-                predictiveBackAnimationEnabled = false
+                videoTransitionRealtimeBlurEnabled = false
             )
         )
 
         assertFalse(appearance.cardTransitionEnabled)
         assertFalse(appearance.videoTransitionRealtimeBlurEnabled)
-        assertFalse(appearance.predictiveBackAnimationEnabled)
         assertFalse(appearance.bottomBarBlurEnabled)
-        assertEquals(2, appearance.bottomBarLabelMode)
+        kotlin.test.assertEquals(2, appearance.bottomBarLabelMode)
         assertFalse(appearance.bottomBarFloating)
     }
 
     @Test
-    fun keepsDefaultsWhenHomeSettingsUseDefaults() {
+    fun keepsDefaultsWithoutRemovedBackPreviewAppearanceState() {
         val appearance = resolveAppNavigationAppearance(HomeSettings())
 
         assertTrue(appearance.cardTransitionEnabled)
         assertTrue(appearance.videoTransitionRealtimeBlurEnabled)
-        assertTrue(appearance.predictiveBackAnimationEnabled)
         assertTrue(appearance.bottomBarBlurEnabled)
-        assertEquals(0, appearance.bottomBarLabelMode)
+        kotlin.test.assertEquals(0, appearance.bottomBarLabelMode)
         assertTrue(appearance.bottomBarFloating)
     }
 
@@ -53,7 +49,7 @@ class AppNavigationAppearancePolicyTest {
 
         assertTrue(appearance.bottomBarFloating)
         assertTrue(appearance.bottomBarBlurEnabled)
-        assertEquals(0, appearance.bottomBarLabelMode)
+        kotlin.test.assertEquals(0, appearance.bottomBarLabelMode)
     }
 
     @Test
@@ -69,7 +65,7 @@ class AppNavigationAppearancePolicyTest {
 
         assertTrue(appearance.bottomBarFloating)
         assertFalse(appearance.bottomBarBlurEnabled)
-        assertEquals(1, appearance.bottomBarLabelMode)
+        kotlin.test.assertEquals(1, appearance.bottomBarLabelMode)
     }
 
     @Test
@@ -82,21 +78,21 @@ class AppNavigationAppearancePolicyTest {
 
         assertTrue(appearance.bottomBarFloating)
         assertTrue(appearance.bottomBarBlurEnabled)
-        assertEquals(0, appearance.bottomBarLabelMode)
+        kotlin.test.assertEquals(0, appearance.bottomBarLabelMode)
     }
 
     @Test
-    fun bottomBarBackdropCapturesGlobalWallpaperBeforeNavHostContent() {
+    fun bottomBarBackdropCapturesGlobalWallpaperBeforeNavDisplayContent() {
         val source = loadSource("app/src/main/java/com/android/purebilibili/navigation/AppNavigation.kt")
         val capturedLayerSource = source
             .substringAfter(".layerBackdrop(bottomBarBackdrop)")
             .substringBefore("// ===== 全局底栏")
 
         val wallpaperIndex = capturedLayerSource.indexOf("HomeWallpaperBackdrop(")
-        val navHostIndex = capturedLayerSource.indexOf("NavHost(")
+        val navDisplayIndex = capturedLayerSource.indexOf("BiliPaiNavDisplayHost(")
 
         assertTrue(wallpaperIndex >= 0)
-        assertTrue(navHostIndex > wallpaperIndex)
+        assertTrue(navDisplayIndex > wallpaperIndex)
         assertTrue(capturedLayerSource.contains(".then(if (mainHazeState != null) Modifier.hazeSource(mainHazeState) else Modifier)"))
     }
 
@@ -119,6 +115,14 @@ class AppNavigationAppearancePolicyTest {
         assertFalse(source.contains("videoTransitionRealtimeBlurEnabled"))
         assertFalse(source.contains("video_source_background_blur"))
         assertFalse(source.contains("RenderEffect.createBlurEffect"))
+    }
+
+    @Test
+    fun appNavigationAppearanceDoesNotExposeRemovedBackPreviewState() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/navigation/AppNavigationAppearancePolicy.kt")
+
+        assertFalse(source.contains("Predictive" + "BackAnimationStyle"))
+        assertFalse(source.contains("predictive" + "BackAnimationStyle"))
     }
 
     private fun loadSource(path: String): String {

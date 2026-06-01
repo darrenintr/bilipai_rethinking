@@ -54,11 +54,12 @@ import com.android.purebilibili.core.ui.VideoCardSkeleton
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.draw.rotate
 import com.android.purebilibili.core.ui.common.copyOnClick
+import com.android.purebilibili.core.ui.OfficialVerifyBadge
 import com.android.purebilibili.core.ui.components.resolveUpStatsText
 import com.android.purebilibili.core.ui.components.UserUpBadge
+import com.android.purebilibili.core.ui.resolveOfficialVerifyBadgeFromRole
 import com.android.purebilibili.core.ui.transition.shouldEnableVideoCoverSharedTransition
 import com.android.purebilibili.core.ui.transition.shouldEnableVideoMetadataSharedTransition
-import com.android.purebilibili.core.util.CardPositionManager
 import com.android.purebilibili.data.model.response.BgmDetailData
 import com.android.purebilibili.data.model.response.BgmInfo
 import com.android.purebilibili.data.model.response.AiSummaryData
@@ -271,6 +272,7 @@ fun VideoTitleWithDesc(
     onlineCount: String = "",
     showOnlineCount: Boolean = true,
     transitionEnabled: Boolean = false,  // 🔗 共享元素过渡开关
+    isQuickReturnLimitedForSharedElements: Boolean = false,
     animateLayout: Boolean = true,
     onDescriptionUrlClick: ((String) -> Unit)? = null,
     onBgmClick: (BgmInfo) -> Unit = {},
@@ -279,7 +281,10 @@ fun VideoTitleWithDesc(
     val context = LocalContext.current
     val defaultExpanded by com.android.purebilibili.core.store.SettingsManager
         .getVideoInfoDefaultExpanded(context)
-        .collectAsState(initial = true)
+        .collectAsState(
+            initial = true,
+            context = kotlin.coroutines.EmptyCoroutineContext
+        )
     var expanded by remember(info.bvid, info.desc, videoTags.size, defaultExpanded) {
         mutableStateOf(
             resolveVideoInfoInitialExpandedState(
@@ -322,7 +327,7 @@ fun VideoTitleWithDesc(
     )
     val metadataSharedEnabled = shouldEnableVideoMetadataSharedTransition(
         coverSharedEnabled = coverSharedEnabled,
-        isQuickReturnLimited = CardPositionManager.shouldLimitSharedElementsForQuickReturn()
+        isQuickReturnLimited = isQuickReturnLimitedForSharedElements
     )
     
     Column(
@@ -344,7 +349,7 @@ fun VideoTitleWithDesc(
             if (metadataSharedEnabled) {
                 with(requireNotNull(sharedTransitionScope)) {
                      titleModifier = titleModifier.sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = "video_title_${info.bvid}"),
+                        sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoTitleSharedElementKey(info.bvid)),
                         animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                         boundsTransform = { _, _ ->
                             androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -395,7 +400,7 @@ fun VideoTitleWithDesc(
                 if (metadataSharedEnabled) {
                     with(requireNotNull(sharedTransitionScope)) {
                         viewsModifier = viewsModifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(key = "video_views_${info.bvid}"),
+                            sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoViewsSharedElementKey(info.bvid)),
                             animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                             boundsTransform = { _, _ ->
                                 androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -421,7 +426,7 @@ fun VideoTitleWithDesc(
                 if (metadataSharedEnabled) {
                     with(requireNotNull(sharedTransitionScope)) {
                         danmakuModifier = danmakuModifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(key = "video_danmaku_${info.bvid}"),
+                            sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoDanmakuSharedElementKey(info.bvid)),
                             animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                             boundsTransform = { _, _ ->
                                 androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -657,6 +662,7 @@ fun UpInfoSection(
     followerCount: Int? = null,
     videoCount: Int? = null,
     transitionEnabled: Boolean = false,  // 🔗 共享元素过渡开关
+    isQuickReturnLimitedForSharedElements: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     //  尝试获取共享元素作用域
@@ -669,7 +675,7 @@ fun UpInfoSection(
     )
     val metadataSharedEnabled = shouldEnableVideoMetadataSharedTransition(
         coverSharedEnabled = coverSharedEnabled,
-        isQuickReturnLimited = CardPositionManager.shouldLimitSharedElementsForQuickReturn()
+        isQuickReturnLimited = isQuickReturnLimitedForSharedElements
     )
     val upStatsText = resolveUpStatsText(
         followerCount = followerCount,
@@ -695,7 +701,7 @@ fun UpInfoSection(
                 if (metadataSharedEnabled) {
                     with(requireNotNull(sharedTransitionScope)) {
                         avatarModifier = avatarModifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(key = "video_avatar_${info.bvid}"),
+                            sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoAvatarSharedElementKey(info.bvid)),
                             animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                             boundsTransform = { _, _ ->
                                 androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -744,7 +750,7 @@ fun UpInfoSection(
                     if (metadataSharedEnabled) {
                         with(requireNotNull(sharedTransitionScope)) {
                             upNameModifier = upNameModifier.sharedBounds(
-                                sharedContentState = rememberSharedContentState(key = "video_up_${info.bvid}"),
+                                sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoUpNameSharedElementKey(info.bvid)),
                                 animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                                 boundsTransform = { _, _ ->
                                     androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -802,7 +808,7 @@ fun UpInfoSection(
             if (metadataSharedEnabled) {
                 with(requireNotNull(sharedTransitionScope)) {
                     followActionModifier = followActionModifier.sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = "video_up_action_${info.bvid}"),
+                        sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoUpActionSharedElementKey(info.bvid)),
                         animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                         boundsTransform = { _, _ ->
                             androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f)
@@ -909,6 +915,15 @@ private fun CreatorTeamMemberChip(
     member: VideoStaff,
     onClick: () -> Unit
 ) {
+    val officialBadge = remember(member.official) {
+        resolveOfficialVerifyBadgeFromRole(
+            type = member.official.type,
+            role = member.official.role,
+            title = member.official.title,
+            desc = member.official.desc,
+            compact = true
+        )
+    }
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
@@ -933,14 +948,26 @@ private fun CreatorTeamMemberChip(
         Column(
             modifier = Modifier.widthIn(min = 64.dp, max = 112.dp)
         ) {
-            Text(
-                text = member.name,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = member.name,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (officialBadge != null) {
+                    OfficialVerifyBadge(
+                        badge = officialBadge,
+                        compact = true
+                    )
+                }
+            }
             if (member.title.isNotBlank()) {
                 Text(
                     text = member.title,

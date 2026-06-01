@@ -11,6 +11,26 @@ import org.junit.Test
 class TopTabRefractionPolicyTest {
 
     @Test
+    fun `liquid glass top tabs reuse capsule or underline indicator shape`() {
+        val source = loadSource("app/src/main/java/com/android/purebilibili/feature/home/components/TopBar.kt")
+
+        assertTrue(source.contains("shouldUseMovingIosCapsule"))
+        assertTrue(source.contains("shouldUseLiquidGlassIndicator"))
+        assertTrue(source.contains("shouldForceDragLiquidGlassIndicator"))
+        assertTrue(source.contains("KernelSuBottomBarIndicatorLayer("))
+        assertFalse(source.contains("BottomBarLiquidIndicatorSurface("))
+        assertTrue(source.contains("resolveBottomBarRefractionMotionProfile("))
+        assertTrue(source.contains("resolveBottomBarBackdropPresetIndicatorLens("))
+        assertTrue(source.contains("topTabShouldStretchIndicator"))
+        assertTrue(source.contains("val shouldPrimeTopTabLiquidGlassCapture ="))
+        assertTrue(source.contains("(isLiquidGlassEnabled || backdrop != null)"))
+        assertTrue(source.contains("val topTabContentBackdrop = rememberLayerBackdrop()"))
+        assertTrue(source.contains("rememberCombinedBackdrop(backdrop, topTabContentBackdrop)"))
+        assertTrue(source.contains("contentBackdrop = topTabIndicatorContentBackdrop"))
+        assertTrue(source.contains("indicatorHeight = 4.dp"))
+    }
+
+    @Test
     fun `indicator should not refract when stationary on integer page`() {
         assertFalse(
             shouldTopTabIndicatorUseRefraction(
@@ -286,7 +306,7 @@ class TopTabRefractionPolicyTest {
     }
 
     @Test
-    fun `home top tab row uses lightweight pager aware tabs without liquid renderer`() {
+    fun `home top tab row uses lightweight pager aware tabs with shared liquid renderer`() {
         val source = loadSource(
             "app/src/main/java/com/android/purebilibili/feature/home/components/TopBar.kt"
         )
@@ -295,12 +315,29 @@ class TopTabRefractionPolicyTest {
         assertTrue(source.contains("resolveTopTabIndicatorRenderPosition("))
         assertTrue(source.contains("pagerCurrentPageOffsetFraction = pagerState?.currentPageOffsetFraction"))
         assertTrue(source.contains("resolveTopTabClickAction(index, selectedIndex)"))
+        assertTrue(source.contains("KernelSuBottomBarIndicatorLayer("))
+        assertFalse(source.contains("BottomBarLiquidIndicatorSurface("))
         assertFalse(source.contains("LiquidIndicator("))
         assertFalse(source.contains("SimpleLiquidIndicator("))
         assertFalse(source.contains("BottomBarStyleIndicatorSurface("))
         assertFalse(source.contains("drawBackdrop("))
         assertFalse(source.contains(".layerBackdrop(tabsBackdrop)"))
         assertFalse(source.contains("rememberCombinedBackdrop(backdrop, tabsBackdrop)"))
+        assertTrue(source.contains("if (shouldPrimeTopTabLiquidGlassCapture)"))
+        assertTrue(source.contains("layerBackdrop(topTabContentBackdrop)"))
+    }
+
+    @Test
+    fun `md3 liquid top tab uses moving capsule instead of bottom underline`() {
+        val source = loadSource(
+            "app/src/main/java/com/android/purebilibili/feature/home/components/TopBar.kt"
+        )
+
+        assertTrue(source.contains("val shouldUseMd3LiquidCapsule = effectiveRenderer == HomeTopTabRenderer.MD3"))
+        assertTrue(source.contains("val shouldUseMd3DockBackedCapsule = effectiveRenderer == HomeTopTabRenderer.MD3"))
+        assertTrue(source.contains("indicatorLayerScaleProgress = topTabIndicatorLayerScaleProgress"))
+        assertTrue(source.contains("refractionMotionProfile = topTabRefractionMotionProfile"))
+        assertTrue(source.contains("indicatorHeight = dockIndicatorHeight"))
     }
 
     private fun loadSource(path: String): String {

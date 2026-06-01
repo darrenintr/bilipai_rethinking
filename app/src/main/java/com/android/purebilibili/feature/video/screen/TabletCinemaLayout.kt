@@ -91,6 +91,7 @@ import com.android.purebilibili.core.ui.LocalSharedTransitionScope
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.store.TabletCommentPanelWidthPreset
 import com.android.purebilibili.core.ui.transition.VIDEO_SHARED_COVER_ASPECT_RATIO
+import com.android.purebilibili.core.ui.transition.shouldEnableVideoCoverSharedTransition
 import com.android.purebilibili.core.util.ShareUtils
 import com.android.purebilibili.data.model.response.BgmInfo
 import com.android.purebilibili.data.model.response.ViewPoint
@@ -98,6 +99,9 @@ import com.android.purebilibili.feature.common.resolveIndexedVideoLazyKey
 import com.android.purebilibili.feature.dynamic.components.ImagePreviewDialog
 import com.android.purebilibili.feature.dynamic.components.ImagePreviewTextContent
 import com.android.purebilibili.feature.video.state.VideoPlayerState
+import com.android.purebilibili.feature.video.note.VideoNoteEditorDocument
+import com.android.purebilibili.feature.video.note.buildVideoNoteShareText
+import com.android.purebilibili.feature.video.note.shouldShowVideoNoteCard
 import com.android.purebilibili.feature.video.progress.PbpProgressData
 import com.android.purebilibili.feature.video.ui.components.CommentSortFilterBar
 import com.android.purebilibili.feature.video.ui.components.CollectionRow
@@ -116,6 +120,9 @@ import com.android.purebilibili.feature.video.ui.section.VideoTitleWithDesc
 import com.android.purebilibili.feature.video.ui.section.VideoPlayerSection
 import com.android.purebilibili.feature.video.ui.section.AiSummaryCard
 import com.android.purebilibili.feature.video.ui.section.AiSummaryPromptCard
+import com.android.purebilibili.feature.video.ui.section.VideoNoteCard
+import com.android.purebilibili.feature.video.ui.section.VideoNoteDeleteConfirmDialog
+import com.android.purebilibili.feature.video.ui.section.VideoNoteEditorSheet
 import com.android.purebilibili.feature.video.ui.section.shouldShowAiSummaryEntry
 import com.android.purebilibili.feature.video.viewmodel.CommentUiState
 import com.android.purebilibili.feature.video.viewmodel.PlayerUiState
@@ -300,7 +307,16 @@ fun TabletCinemaLayout(
                         onOpenBilibiliLink = onOpenBilibiliLink,
                         onBgmClick = onBgmClick,
                         onRelatedVideoClick = onRelatedVideoClick,
-                        onRetryAiSummary = viewModel::retryAiSummary
+                        onRetryAiSummary = viewModel::retryAiSummary,
+                        onCreateNoteDraftFromAiSummary = viewModel::createVideoNoteDraftFromAiSummary,
+                        onOpenVideoNoteEditor = viewModel::openVideoNoteEditor,
+                        onCloseVideoNoteEditor = viewModel::closeVideoNoteEditor,
+                        onVideoNoteDocumentChange = viewModel::updateVideoNoteEditorDocument,
+                        onInsertVideoNoteTimestamp = viewModel::insertCurrentPlaybackTimestampIntoNote,
+                        onVideoNoteTimestampClick = viewModel::seekTo,
+                        onSaveVideoNote = viewModel::saveVideoNote,
+                        onDeleteVideoNote = viewModel::deleteVideoNote,
+                        onRetryVideoNote = viewModel::retryVideoNote
                     )
                 } else {
                     Surface(
@@ -397,7 +413,7 @@ private fun CinemaStagePlayer(
     ) {
         with(requireNotNull(sharedTransitionScope)) {
             Modifier.sharedBounds(
-                sharedContentState = rememberSharedContentState(key = "video_cover_$bvid"),
+                sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.videoCoverSharedElementKey(bvid)),
                 animatedVisibilityScope = requireNotNull(animatedVisibilityScope),
                 clipInOverlayDuringTransition = OverlayClip(
                     RoundedCornerShape(12.dp)
@@ -442,8 +458,11 @@ private fun CinemaStagePlayer(
                 onReloadVideo = { viewModel.reloadVideo() },
                 currentCdnIndex = success?.currentCdnIndex ?: 0,
                 cdnCount = success?.cdnCount ?: 1,
+                cdnLineDiagnostics = success?.cdnLineDiagnostics.orEmpty(),
+                isCdnProbing = success?.isCdnProbing ?: false,
                 onSwitchCdn = { viewModel.switchCdn() },
                 onSwitchCdnTo = { viewModel.switchCdnTo(it) },
+                onProbeCdnCandidates = { viewModel.probeCurrentCdnCandidates() },
                 isAudioOnly = false,
                 onAudioOnlyToggle = {
                     viewModel.setAudioMode(true)
@@ -507,7 +526,16 @@ private fun CinemaMetaPanel(
     onOpenBilibiliLink: ((String) -> Unit)?,
     onBgmClick: (BgmInfo) -> Unit = {},
     onRelatedVideoClick: (String, android.os.Bundle?) -> Unit = { _, _ -> },
-    onRetryAiSummary: () -> Unit
+    onRetryAiSummary: () -> Unit,
+    onCreateNoteDraftFromAiSummary: () -> Unit,
+    onOpenVideoNoteEditor: () -> Unit,
+    onCloseVideoNoteEditor: () -> Unit,
+    onVideoNoteDocumentChange: (VideoNoteEditorDocument) -> Unit,
+    onInsertVideoNoteTimestamp: () -> Unit,
+    onVideoNoteTimestampClick: (Long) -> Unit,
+    onSaveVideoNote: (VideoNoteEditorDocument) -> Unit,
+    onDeleteVideoNote: () -> Unit,
+    onRetryVideoNote: () -> Unit
 ) {
     val context = LocalContext.current
     val isDarkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
@@ -515,6 +543,20 @@ private fun CinemaMetaPanel(
         success.info.pages.indexOfFirst { it.cid == success.info.cid }.coerceAtLeast(0)
     }
     var showCollectionSheet by rememberSaveable(success.info.bvid) { mutableStateOf(false) }
+    var confirmDeleteNote by rememberSaveable(success.info.bvid) { mutableStateOf(false) }
+    val onShareVideoNote: (VideoNoteEditorDocument, Boolean) -> Unit = { document, isDraft ->
+        ShareUtils.shareText(
+            context = context,
+            subject = document.title.ifBlank { success.info.title },
+            text = buildVideoNoteShareText(
+                videoTitle = success.info.title,
+                bvid = success.info.bvid,
+                document = document,
+                isDraft = isDraft
+            ),
+            chooserTitle = "分享视频笔记"
+        )
+    }
 
     success.info.ugc_season?.let { season ->
         if (showCollectionSheet) {
@@ -648,7 +690,15 @@ private fun CinemaMetaPanel(
                             onOpenBilibiliLink = onOpenBilibiliLink,
                             onBgmClick = onBgmClick,
                             onRelatedVideoClick = onRelatedVideoClick,
-                            onRetryAiSummary = onRetryAiSummary
+                            onRetryAiSummary = onRetryAiSummary,
+                            onCreateNoteDraftFromAiSummary = onCreateNoteDraftFromAiSummary,
+                            onOpenVideoNoteEditor = onOpenVideoNoteEditor,
+                            onRetryVideoNote = onRetryVideoNote,
+                            onDeleteVideoNoteClick = { confirmDeleteNote = true },
+                            onShareVideoNote = { document -> onShareVideoNote(document, false) },
+                            onPublicVideoNoteClick = { _, url ->
+                                if (url.isNotBlank()) onOpenBilibiliLink?.invoke(url)
+                            }
                         )
                     }
                     CinemaMetaPanelBlock.COLLECTION -> {
@@ -675,6 +725,26 @@ private fun CinemaMetaPanel(
             }
         }
     }
+
+    VideoNoteEditorSheet(
+        noteState = success.videoNoteState,
+        onDismiss = onCloseVideoNoteEditor,
+        onDocumentChange = onVideoNoteDocumentChange,
+        onInsertTimestamp = onInsertVideoNoteTimestamp,
+        onTimestampClick = onVideoNoteTimestampClick,
+        onShare = { document -> onShareVideoNote(document, success.videoNoteState.editorFromAiSummary) },
+        onSave = onSaveVideoNote
+    )
+
+    VideoNoteDeleteConfirmDialog(
+        visible = confirmDeleteNote,
+        deleting = success.videoNoteState.deleting,
+        onConfirm = {
+            confirmDeleteNote = false
+            onDeleteVideoNote()
+        },
+        onDismiss = { confirmDeleteNote = false }
+    )
 }
 
 @Composable
@@ -740,7 +810,13 @@ private fun CinemaVideoIntroSection(
     onBgmClick: (BgmInfo) -> Unit = {},
     onOpenBilibiliLink: ((String) -> Unit)? = null,
     onRelatedVideoClick: (String, android.os.Bundle?) -> Unit = { _, _ -> },
-    onRetryAiSummary: () -> Unit = {}
+    onRetryAiSummary: () -> Unit = {},
+    onCreateNoteDraftFromAiSummary: () -> Unit = {},
+    onOpenVideoNoteEditor: () -> Unit = {},
+    onRetryVideoNote: () -> Unit = {},
+    onDeleteVideoNoteClick: () -> Unit = {},
+    onShareVideoNote: (VideoNoteEditorDocument) -> Unit = {},
+    onPublicVideoNoteClick: (Long, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val isDarkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
@@ -782,12 +858,29 @@ private fun CinemaVideoIntroSection(
             )
         ) {
             AiSummaryCard(
-                aiSummary = success.aiSummary
+                aiSummary = success.aiSummary,
+                onCreateNoteDraftClick = onCreateNoteDraftFromAiSummary
             )
         } else if (videoAiSummaryEntryEnabled && success.aiSummaryPrompt != null) {
             AiSummaryPromptCard(
                 promptState = success.aiSummaryPrompt,
                 onActionClick = onRetryAiSummary
+            )
+        }
+        val videoNoteEnabled by SettingsManager.getVideoNoteEnabled(context)
+            .collectAsState(initial = true)
+        val videoNoteDefaultCollapsed by SettingsManager.getVideoNoteDefaultCollapsed(context)
+            .collectAsState(initial = false)
+        if (shouldShowVideoNoteCard(videoNoteEnabled)) {
+            VideoNoteCard(
+                noteState = success.videoNoteState,
+                isLoggedIn = success.isLoggedIn,
+                onCreateOrEditClick = onOpenVideoNoteEditor,
+                onRetryClick = onRetryVideoNote,
+                onDeleteClick = onDeleteVideoNoteClick,
+                onShareClick = onShareVideoNote,
+                onPublicNoteClick = onPublicVideoNoteClick,
+                defaultCollapsed = videoNoteDefaultCollapsed
             )
         }
     }

@@ -1,6 +1,8 @@
 package com.android.purebilibili.navigation
 
 import com.android.purebilibili.feature.home.components.BottomNavItem
+import com.android.purebilibili.navigation3.BiliPaiNavKey
+import com.android.purebilibili.navigation3.toLegacyRoute
 
 internal enum class TopLevelNavigationAction {
     SKIP,
@@ -24,6 +26,8 @@ internal data class BottomPagerRenderBudget(
     val forceLowBlurBudget: Boolean,
     val deferProfileImmersiveBackground: Boolean
 )
+
+internal const val BOTTOM_TAB_RENDER_BUDGET_HOLD_MILLIS = 220L
 
 internal fun resolveTopLevelNavigationAction(
     currentRoute: String?,
@@ -53,29 +57,23 @@ internal fun resolveBottomBarSelectionAction(
 }
 
 internal fun resolveAppSystemBackAction(
-    currentRoute: String?,
+    isAtMainHostRoot: Boolean,
     currentBottomItem: BottomNavItem,
-    hasPreviousBackStackEntry: Boolean
+    homeItem: BottomNavItem = BottomNavItem.HOME
 ): AppSystemBackAction {
-    val routeBase = currentRoute?.substringBefore("?")
-    if (routeBase == ScreenRoutes.Home.route && currentBottomItem != BottomNavItem.HOME) {
+    if (!isAtMainHostRoot) {
+        return AppSystemBackAction.NAVIGATE_UP
+    }
+    if (currentBottomItem != homeItem) {
         return AppSystemBackAction.RETURN_TO_HOME_TAB
     }
-    return if (hasPreviousBackStackEntry) {
-        AppSystemBackAction.NAVIGATE_UP
-    } else {
-        AppSystemBackAction.FINISH_ACTIVITY
-    }
+    return AppSystemBackAction.FINISH_ACTIVITY
 }
 
 internal fun shouldInterceptSystemBackForAppAction(
-    predictiveBackAnimationEnabled: Boolean,
     action: AppSystemBackAction
 ): Boolean {
-    return action == AppSystemBackAction.RETURN_TO_HOME_TAB ||
-        shouldInterceptSystemBackForClassicMotion(
-            predictiveBackAnimationEnabled = predictiveBackAnimationEnabled
-        )
+    return action == AppSystemBackAction.RETURN_TO_HOME_TAB
 }
 
 internal fun resolveBottomPagerPageForRoute(
@@ -94,6 +92,48 @@ internal fun resolveBottomPagerItemForPage(
     return visibleItems.getOrNull(page) ?: BottomNavItem.HOME
 }
 
+internal fun resolveActiveBottomTabRoute(
+    currentKey: BiliPaiNavKey?,
+    currentBottomItem: BottomNavItem
+): String? {
+    if (currentKey == null || currentKey == BiliPaiNavKey.MainHost) {
+        return currentBottomItem.route
+    }
+    val route = currentKey.toLegacyRoute()
+    return if (route == BiliPaiNavKey.MainHost.routeBase) currentBottomItem.route else route
+}
+
+internal fun shouldShowBottomBarForNavigation(
+    activeRoute: String?,
+    visibleBottomBarRoutes: Set<String>,
+    useSideNavigation: Boolean,
+    shouldHideBottomBarOnTablet: Boolean,
+    shouldDeferReveal: Boolean
+): Boolean {
+    return activeRoute != ScreenRoutes.Story.route &&
+        activeRoute in visibleBottomBarRoutes &&
+        !useSideNavigation &&
+        !shouldHideBottomBarOnTablet &&
+        !shouldDeferReveal
+}
+
+internal fun resolveVideoCardSourceRouteForNavigation(
+    currentRoute: String?,
+    videoBvid: String,
+    lastClickedVideoSourceKey: String?,
+    visibleBottomBarRoutes: Set<String>
+): String? {
+    if (videoBvid.isBlank() || lastClickedVideoSourceKey.isNullOrBlank()) return null
+    val routeBase = currentRoute?.substringBefore("?")
+    val currentRouteMatch = routeBase
+        ?.takeIf { route -> lastClickedVideoSourceKey == "$route:$videoBvid" }
+    if (currentRouteMatch != null) return currentRouteMatch
+
+    return visibleBottomBarRoutes.firstOrNull { route ->
+        lastClickedVideoSourceKey == "$route:$videoBvid"
+    }
+}
+
 internal fun resolveBottomPagerSaveableStateKey(item: BottomNavItem): String {
     return "bottom:${item.route}"
 }
@@ -106,8 +146,19 @@ internal fun resolveBottomPagerNavigationDurationMillis(
     return 100 * distance + 100
 }
 
-internal fun resolveBottomPagerBeyondViewportPageCount(contentReady: Boolean): Int {
-    return if (contentReady) 1 else 0
+internal fun resolveBottomPagerBeyondViewportPageCount(
+    contentReady: Boolean,
+    isNavigating: Boolean,
+    currentPage: Int,
+    selectedPage: Int
+): Int {
+    if (!contentReady) return 0
+    val navigationDistance = if (isNavigating) {
+        kotlin.math.abs(selectedPage - currentPage)
+    } else {
+        0
+    }
+    return navigationDistance.coerceAtLeast(3)
 }
 
 internal fun resolveBottomPagerRenderBudget(isNavigating: Boolean): BottomPagerRenderBudget {
@@ -121,37 +172,21 @@ internal fun resolveBottomPagerRenderBudget(isNavigating: Boolean): BottomPagerR
 internal fun shouldEnableBottomPagerUserScroll(): Boolean = false
 
 internal fun shouldComposeBottomPagerPage(
+    item: BottomNavItem,
     page: Int,
     currentPage: Int,
     selectedPage: Int,
+    isNavigating: Boolean,
+    navigationStartPage: Int,
     contentReady: Boolean
 ): Boolean {
-    return contentReady || page == currentPage || page == selectedPage
-}
-
-internal fun resolveBottomNavItemForRoute(
-    currentRoute: String?,
-    retainedItem: BottomNavItem?,
-    visibleItems: List<BottomNavItem> = BottomNavItem.entries
-): BottomNavItem {
-    val routeBase = currentRoute?.substringBefore("?")
-    return visibleItems.firstOrNull { item -> item.route == routeBase }
-        ?: retainedItem
-        ?: BottomNavItem.HOME
-}
-
-internal fun shouldUseInstantBottomTabTransition(
-    fromRoute: String?,
-    toRoute: String?,
-    visibleBottomBarRoutes: Set<String>
-): Boolean {
-    val fromRouteBase = fromRoute?.substringBefore("?")
-    val toRouteBase = toRoute?.substringBefore("?")
-    return fromRouteBase != null &&
-        toRouteBase != null &&
-        fromRouteBase != toRouteBase &&
-        fromRouteBase in visibleBottomBarRoutes &&
-        toRouteBase in visibleBottomBarRoutes
+    if (item == BottomNavItem.STORY) {
+        return page == currentPage || page == selectedPage
+    }
+    if (!contentReady) {
+        return page == navigationStartPage || page == selectedPage
+    }
+    return true
 }
 
 internal fun shouldBypassNavigationDebounceForRoute(targetRoute: String): Boolean {

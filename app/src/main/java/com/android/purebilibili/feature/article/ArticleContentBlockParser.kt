@@ -3,6 +3,7 @@ package com.android.purebilibili.feature.article
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -26,9 +27,23 @@ internal fun parseArticleContentBlocks(
 ): List<ArticleContentBlock> {
     val structuredBlocks = structuredParagraphs.flatMap(::parseStructuredParagraph)
     if (structuredBlocks.isNotEmpty()) return structuredBlocks
-    val opsBlocks = parseOpsBlocks(ops)
+    val contentOps = ops.ifEmpty { parseOpsFromContentJson(htmlContent) }
+    val opsBlocks = parseOpsBlocks(contentOps)
     if (opsBlocks.isNotEmpty()) return opsBlocks
     return parseHtmlBlocks(htmlContent)
+}
+
+private val articleContentJson = Json { ignoreUnknownKeys = true }
+
+private fun parseOpsFromContentJson(content: String?): List<JsonObject> {
+    val rawContent = content?.trim().orEmpty()
+    if (!rawContent.startsWith("{")) return emptyList()
+    return runCatching {
+        val root = articleContentJson.parseToJsonElement(rawContent).jsonObject
+        root["ops"]?.jsonArray
+            ?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+            .orEmpty()
+    }.getOrDefault(emptyList())
 }
 
 private fun parseStructuredParagraph(paragraph: JsonObject): List<ArticleContentBlock> {
@@ -160,6 +175,7 @@ private fun parseOpsImage(insert: JsonObject): ArticleContentBlock.Image? {
     }
 
     val cardKeys = listOf(
+        "native-image",
         "image-card",
         "article-card",
         "live-card",

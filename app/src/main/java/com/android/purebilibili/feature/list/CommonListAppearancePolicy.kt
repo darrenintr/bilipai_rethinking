@@ -68,8 +68,8 @@ internal fun resolveCommonListVideoCardAppearance(
             androidNativeLiquidGlassEnabled = homeSettings.androidNativeLiquidGlassEnabled
         ),
         blurEnabled = headerBlurEnabled || homeSettings.isBottomBarBlurEnabled,
-        showCoverGlassBadges = homeSettings.showHomeCoverGlassBadges,
-        showInfoGlassBadges = homeSettings.showHomeInfoGlassBadges
+        showCoverGlassBadges = false,
+        showInfoGlassBadges = false
     )
 }
 

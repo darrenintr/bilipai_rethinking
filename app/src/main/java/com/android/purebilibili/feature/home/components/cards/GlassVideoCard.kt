@@ -50,9 +50,13 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 //  共享元素过渡
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.core.tween
 import com.android.purebilibili.core.ui.LocalSharedTransitionScope
 import com.android.purebilibili.core.ui.LocalAnimatedVisibilityScope
+import com.android.purebilibili.core.ui.transition.LocalVideoCardSharedElementSourceRoute
 import com.android.purebilibili.core.ui.transition.VIDEO_SHARED_COVER_ASPECT_RATIO
+import com.android.purebilibili.core.ui.transition.resolveVideoCardSharedTransitionMotionSpec
+import com.android.purebilibili.core.ui.transition.videoCoverSharedElementKey
 import com.android.purebilibili.feature.home.resolveHomeCardEnterAnimationEnabledAtMount
 import com.android.purebilibili.feature.home.rememberHomeGlassPillColors
 import com.android.purebilibili.feature.home.resolveHomeGlassCoverPillBaseColor
@@ -75,6 +79,8 @@ fun GlassVideoCard(
     animationEnabled: Boolean = true,  //  卡片动画开关
     motionTier: MotionTier = MotionTier.Normal,
     transitionEnabled: Boolean = false, //  卡片过渡动画开关
+    sharedElementSourceRoute: String? = null,
+    isReturningFromVideoDetail: Boolean = false,
     isDataSaverActive: Boolean = false,
     preferLowQualityCover: Boolean = false,
     showCoverGlassBadges: Boolean = true,
@@ -149,9 +155,25 @@ fun GlassVideoCard(
     
     //  记录卡片位置（非 Compose State，避免滚动时触发高频重组）
     val cardBoundsRef = remember { object { var value: androidx.compose.ui.geometry.Rect? = null } }
+    val localSharedElementSourceRoute = LocalVideoCardSharedElementSourceRoute.current
+    val effectiveSharedElementSourceRoute = remember(sharedElementSourceRoute, localSharedElementSourceRoute) {
+        sharedElementSourceRoute ?: localSharedElementSourceRoute
+    }
+    val cardSharedTransitionMotionSpec = remember(effectiveSharedElementSourceRoute, transitionEnabled) {
+        resolveVideoCardSharedTransitionMotionSpec(
+            sourceRoute = effectiveSharedElementSourceRoute,
+            transitionEnabled = transitionEnabled
+        )
+    }
     val triggerCardClick = {
         cardBoundsRef.value?.let { bounds ->
-            CardPositionManager.recordCardPosition(bounds, screenWidthPx, screenHeightPx)
+            CardPositionManager.recordVideoCardPosition(
+                bvid = video.bvid,
+                sourceRoute = effectiveSharedElementSourceRoute,
+                bounds = bounds,
+                screenWidth = screenWidthPx,
+                screenHeight = screenHeightPx
+            )
         }
         onClick(video.bvid, 0)
     }
@@ -178,9 +200,23 @@ fun GlassVideoCard(
         with(sharedTransitionScope) {
             Modifier
                 .sharedBounds(
-                    sharedContentState = rememberSharedContentState(key = "video_cover_${video.bvid}"),
+                    sharedContentState = rememberSharedContentState(
+                        key = videoCoverSharedElementKey(
+                            video.bvid,
+                            sourceRoute = effectiveSharedElementSourceRoute
+                        )
+                    ),
                     animatedVisibilityScope = animatedVisibilityScope,
-                    boundsTransform = { _, _ -> com.android.purebilibili.core.theme.AnimationSpecs.BiliPaiSpringSpec },
+                    boundsTransform = { _, _ ->
+                        if (cardSharedTransitionMotionSpec.enabled) {
+                            tween(
+                                durationMillis = cardSharedTransitionMotionSpec.durationMillis,
+                                easing = cardSharedTransitionMotionSpec.easing
+                            )
+                        } else {
+                            com.android.purebilibili.core.ui.motion.AppMotionTokens.spatialSpec()
+                        }
+                    },
                     clipInOverlayDuringTransition = OverlayClip(
                         RoundedCornerShape(cardCornerRadius)  // 过渡时保持动态圆角
                     )
@@ -192,7 +228,7 @@ fun GlassVideoCard(
     val enterAnimationEnabledAtMount = remember(video.bvid) {
         resolveHomeCardEnterAnimationEnabledAtMount(
             baseAnimationEnabled = animationEnabled,
-            isReturningFromDetail = CardPositionManager.isReturningFromDetail,
+            isReturningFromDetail = isReturningFromVideoDetail,
             isSwitchingCategory = CardPositionManager.isSwitchingCategory
         )
     }

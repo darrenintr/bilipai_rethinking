@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import com.android.purebilibili.core.ui.AppShapes
 import com.android.purebilibili.core.ui.ContainerLevel
 //  Cupertino Icons - iOS SF Symbols 风格图标
@@ -29,6 +31,9 @@ import com.android.purebilibili.feature.bangumi.BANGUMI_FOLLOW_STATUS_UNFOLLOW
 import com.android.purebilibili.feature.bangumi.BANGUMI_FOLLOW_STATUS_WATCHING
 import com.android.purebilibili.feature.bangumi.isBangumiFollowed
 import com.android.purebilibili.feature.bangumi.resolveBangumiFollowStatusLabel
+import com.android.purebilibili.feature.video.ui.components.VideoCommentMainList
+import com.android.purebilibili.feature.video.viewmodel.VideoCommentViewModel
+import kotlinx.coroutines.launch
 
 /**
  * 番剧播放内容区域
@@ -37,17 +42,38 @@ import com.android.purebilibili.feature.bangumi.resolveBangumiFollowStatusLabel
 fun BangumiPlayerContent(
     detail: BangumiDetail,
     currentEpisode: BangumiEpisode,
+    commentViewModel: VideoCommentViewModel,
     onEpisodeClick: (BangumiEpisode) -> Unit,
-    onFollowStatusSelect: (Int) -> Unit,
-    onCommentClick: () -> Unit
+    onFollowStatusSelect: (Int) -> Unit
 ) {
     val isFollowing = isBangumiFollowed(detail.userStatus)
     var showFollowStatusDialog by remember { mutableStateOf(false) }
-    
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 32.dp)
-    ) {
+    val tabs = listOf("简介", "评论 ${detail.stat?.reply?.takeIf { it > 0L } ?: ""}".trim())
+    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val scope = rememberCoroutineScope()
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = pagerState.currentPage == index,
+                    onClick = {
+                        scope.launch { pagerState.animateScrollToPage(index) }
+                    },
+                    text = { Text(title) }
+                )
+            }
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f)
+        ) { page ->
+            when (page) {
+                0 -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 32.dp)
+                ) {
         // 标题和信息
         item {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -80,7 +106,7 @@ fun BangumiPlayerContent(
             }
         }
         
-        // 追番与评论入口
+        // 追番操作
         item {
             Row(
                 modifier = Modifier
@@ -110,19 +136,6 @@ fun BangumiPlayerContent(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(resolveBangumiFollowStatusLabel(detail.userStatus))
-                }
-                OutlinedButton(
-                    onClick = onCommentClick,
-                    modifier = Modifier.weight(1f),
-                    enabled = currentEpisode.aid > 0L
-                ) {
-                    Icon(
-                        CupertinoIcons.Outlined.BubbleLeft,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("评论")
                 }
             }
         }
@@ -279,6 +292,35 @@ fun BangumiPlayerContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 20.sp
                 )
+            }
+        }
+                }
+
+                1 -> {
+                    if (currentEpisode.aid > 0L) {
+                        VideoCommentMainList(
+                            viewModel = commentViewModel,
+                            showIdentityDecorations = false,
+                            onRootCommentClick = {},
+                            onReplyClick = {},
+                            onUserClick = {},
+                            onCommentUrlClick = {},
+                            onTimestampClick = null,
+                            maxTimestampMs = currentEpisode.duration.takeIf { it > 0L },
+                            onImagePreview = { _, _, _, _ -> }
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "当前剧集暂无评论区",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
         }
     }

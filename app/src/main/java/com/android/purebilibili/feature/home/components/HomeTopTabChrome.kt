@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.android.purebilibili.feature.home.HomeTopTabGestureAction
 import com.android.purebilibili.feature.home.resolveHomeTopTabGestureAction
+import com.android.purebilibili.core.store.BottomBarLiquidGlassPreset
 import com.android.purebilibili.core.store.LiquidGlassStyle
 import com.android.purebilibili.core.ui.adaptive.MotionTier
 import com.android.purebilibili.core.ui.AppShapes
@@ -54,6 +55,7 @@ internal fun HomeTopTabChrome(
     backdrop: LayerBackdrop?,
     liquidStyle: LiquidGlassStyle,
     liquidGlassTuning: LiquidGlassTuning? = null,
+    liquidGlassPreset: BottomBarLiquidGlassPreset = BottomBarLiquidGlassPreset.BILIPAI_TUNED,
     motionTier: MotionTier,
     isScrolling: Boolean,
     isTransitionRunning: Boolean,
@@ -66,6 +68,8 @@ internal fun HomeTopTabChrome(
     isTabsCollapsed: Boolean = false,
     onTabsCollapsedChange: ((Boolean) -> Unit)? = null,
     drawChromeSurface: Boolean = true,
+    useBottomBarMatchedSurface: Boolean = false,
+    drawMatchedShellLens: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
@@ -135,20 +139,36 @@ internal fun HomeTopTabChrome(
                 )
                 .then(
                     if (drawChromeSurface) {
-                        Modifier.homeTopChromeSurface(
-                            renderMode = tabChromeRenderMode,
-                            shape = tabShape,
-                            surfaceColor = tabSurfaceColor,
-                            hazeState = hazeState,
-                            backdrop = backdrop,
-                            liquidStyle = liquidStyle,
-                            liquidGlassTuning = liquidGlassTuning,
-                            motionTier = motionTier,
-                            isScrolling = isScrolling,
-                            isTransitionRunning = isTransitionRunning,
-                            forceLowBlurBudget = forceLowBlurBudget,
-                            preferFlatGlass = preferFlatGlass
-                        )
+                        if (useBottomBarMatchedSurface) {
+                            Modifier.homeTopBottomBarMatchedSurface(
+                                renderMode = tabChromeRenderMode,
+                                shape = tabShape,
+                                hazeState = hazeState,
+                                backdrop = backdrop,
+                                liquidGlassStyle = liquidStyle,
+                                liquidGlassTuning = liquidGlassTuning,
+                                liquidGlassPreset = liquidGlassPreset,
+                                motionTier = motionTier,
+                                isTransitionRunning = isTransitionRunning,
+                                forceLowBlurBudget = forceLowBlurBudget,
+                                drawShellLens = drawMatchedShellLens
+                            )
+                        } else {
+                            Modifier.homeTopChromeSurface(
+                                renderMode = tabChromeRenderMode,
+                                shape = tabShape,
+                                surfaceColor = tabSurfaceColor,
+                                hazeState = hazeState,
+                                backdrop = backdrop,
+                                liquidStyle = liquidStyle,
+                                liquidGlassTuning = liquidGlassTuning,
+                                motionTier = motionTier,
+                                isScrolling = isScrolling,
+                                isTransitionRunning = isTransitionRunning,
+                                forceLowBlurBudget = forceLowBlurBudget,
+                                preferFlatGlass = preferFlatGlass
+                            )
+                        }
                     } else {
                         Modifier
                     }
@@ -189,7 +209,12 @@ internal fun HomeTopTabChrome(
                     )
                 }
             }
-            content()
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                content()
+            }
         }
 
         if (showCollapsedHandle) {

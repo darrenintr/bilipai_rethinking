@@ -81,8 +81,8 @@ android {
         targetSdk = 35  // 保持35以避免Android 16的新运行时行为
         // 🔥🔥 [版本号] 发布新版前记得更新！格式：versionCode +1, versionName 递增
         // 更新日志：CHANGELOG.md
-        versionCode = 197
-        versionName = "8.3.3"
+        versionCode = 213
+        versionName = "9.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -276,6 +276,7 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.03.01"))  // 🔥 更新到最新版本
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.appcompat:appcompat:1.7.1")  // 🚀 For AppCompatDelegate night mode
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.foundation:foundation")
@@ -287,6 +288,7 @@ dependencies {
     // 图标扩展库 (全屏、设置图标等)
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.animation:animation")
+    implementation("com.mohamedrejeb.richeditor:richeditor-compose:1.0.0-rc14")
 
     // --- 2. Network (网络请求) ---
     implementation("com.squareup.retrofit2:retrofit:2.12.0")
@@ -303,6 +305,7 @@ dependencies {
     // --- 3.1 Palette (颜色提取 - 动态取色) ---
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("com.materialkolor:material-kolor:4.1.1")
+    implementation("com.github.skydoves:colorpicker-compose:1.1.4")
     
     // --- 3.2 Lottie (动画效果) ---
     implementation("com.airbnb.android:lottie-compose:6.7.1")
@@ -321,9 +324,10 @@ dependencies {
     // 🍎 800+ iOS SF Symbols 风格图标
     implementation("io.github.alexzhirkevich:cupertino-icons-extended:0.1.0-alpha04")
     
-    // --- 3.6 Orbital (iOS 风格共享元素动画) ---
-    // 提供流畅的共享元素过渡、尺寸变换、位置移动动画
-    implementation("com.github.skydoves:orbital:0.4.0")
+    // --- 3.6 Navigation3 (Compose 自有返回栈与预测性返回迁移层) ---
+    implementation("androidx.navigation3:navigation3-runtime:1.1.1")
+    implementation("androidx.navigation3:navigation3-ui:1.1.1")
+    implementation("androidx.navigationevent:navigationevent-compose:1.1.1")
     
     // --- 3.7 Startup (应用初始化) ---
     implementation("androidx.startup:startup-runtime:1.2.0")
@@ -338,6 +342,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")  // 🔥 HLS 直播流支持
     implementation("androidx.media3:media3-ui:$media3Version")
+    implementation("androidx.media3:media3-datasource:$media3Version")
     implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
     implementation("androidx.media3:media3-session:$media3Version")
 
@@ -364,6 +369,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:$lifecycleVersion")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleVersion")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-navigation3:$lifecycleVersion")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:$lifecycleVersion")
     implementation("androidx.lifecycle:lifecycle-process:$lifecycleVersion")  // 🔋 ProcessLifecycleOwner 后台检测
     implementation("androidx.metrics:metrics-performance:1.0.0")
@@ -371,7 +377,11 @@ dependencies {
 
     // --- 8.1 WorkManager (后台下载任务) ---
     implementation("androidx.work:work-runtime-ktx:2.11.2")
-    // --- 8.2 DLNA & Local Proxy (投屏) ---
+    // --- 8.2 Google Cast (CAF) ---
+    implementation("com.google.android.gms:play-services-cast-framework:22.3.1")
+    implementation("androidx.mediarouter:mediarouter:1.8.1")
+
+    // --- 8.3 DLNA & Local Proxy (投屏) ---
     // DLNA Casting (Cling)
     implementation("org.fourthline.cling:cling-core:2.1.2")
     implementation("org.fourthline.cling:cling-support:2.1.2")
@@ -384,7 +394,6 @@ dependencies {
     // NanoHTTPD (Lightweight local proxy server)
     implementation("org.nanohttpd:nanohttpd:2.3.1")
 
-    implementation("androidx.navigation:navigation-compose:2.9.7")
     
     // --- 9. SplashScreen (启动屏支持) ---
     implementation("androidx.core:core-splashscreen:1.2.0")

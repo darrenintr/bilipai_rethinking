@@ -244,6 +244,7 @@ internal fun shouldTriggerPinchExitFullscreen(
 }
 
 internal fun shouldLockLongPressSpeedInTargetZone(
+    longPressSpeedLockEnabled: Boolean = true,
     isLongPressing: Boolean,
     alreadyLocked: Boolean,
     currentPointerY: Float,
@@ -252,6 +253,7 @@ internal fun shouldLockLongPressSpeedInTargetZone(
     accumulatedDragYPx: Float = 0f,
     minDragDistancePx: Float = 0f
 ): Boolean {
+    if (!longPressSpeedLockEnabled) return false
     if (!isLongPressing || alreadyLocked) return false
     if (containerHeightPx <= 0f || lockZoneHeightPx <= 0f) return false
     if (abs(accumulatedDragYPx) < minDragDistancePx.coerceAtLeast(0f)) return false
@@ -442,7 +444,28 @@ internal fun shouldTriggerFullscreenBySwipe(
 internal fun shouldAllowPlaybackStateAutoFullscreen(
     smallestScreenWidthDp: Int
 ): Boolean {
-    return smallestScreenWidthDp < 600
+    return smallestScreenWidthDp > 0
+}
+
+internal fun shouldToggleAutoFullscreenForCurrentPlaybackSnapshot(
+    autoEnterFullscreenEnabled: Boolean,
+    autoExitFullscreenEnabled: Boolean,
+    allowPlaybackStateAutoFullscreen: Boolean,
+    playbackState: Int,
+    playWhenReady: Boolean,
+    hasAutoEnteredFullscreen: Boolean,
+    isFullscreen: Boolean
+): Boolean {
+    return shouldToggleAutoFullscreenForPlaybackEvent(
+        autoEnterFullscreenEnabled = autoEnterFullscreenEnabled,
+        autoExitFullscreenEnabled = autoExitFullscreenEnabled,
+        allowPlaybackStateAutoFullscreen = allowPlaybackStateAutoFullscreen,
+        playbackState = playbackState,
+        playWhenReady = playWhenReady,
+        hasAutoEnteredFullscreen = hasAutoEnteredFullscreen,
+        isFullscreen = isFullscreen,
+        previousPlayWhenReady = false
+    )
 }
 
 internal fun shouldToggleAutoFullscreenForPlaybackEvent(
@@ -867,6 +890,8 @@ internal fun shouldEnableForcedReturnCoverSharedBounds(
     sourceRoute: String?
 ): Boolean {
     val sourceRouteBase = sourceRoute?.substringBefore("?")
+    // 返回阶段播放器容器会让出 sharedBounds，由强制封面承接同一个 cover key，
+    // 避免详情页视频画面与首页封面在退出期间各自跑一段动画。
     val allowBySourceRoute = sourceRouteBase == null ||
         com.android.purebilibili.navigation.isVideoCardReturnTargetRoute(sourceRouteBase)
     return forceCoverDuringReturnAnimation &&
@@ -874,6 +899,15 @@ internal fun shouldEnableForcedReturnCoverSharedBounds(
         hasSharedTransitionScope &&
         hasAnimatedVisibilityScope &&
         allowBySourceRoute
+}
+
+internal fun resolveForcedReturnCoverSharedElementSourceRoute(sourceRoute: String?): String? {
+    val sourceRouteBase = sourceRoute?.substringBefore("?")
+    return if (com.android.purebilibili.navigation.isVideoCardReturnTargetRoute(sourceRouteBase)) {
+        sourceRouteBase?.takeIf { it.isNotBlank() }
+    } else {
+        null
+    }
 }
 
 internal fun shouldUseReturnLandingMotionForForcedReturnCover(

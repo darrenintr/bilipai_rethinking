@@ -14,7 +14,48 @@ class LiveRealtimeMessagePolicyTest {
     fun `playurl reload requests silent stream refresh`() {
         val action = resolveLiveRealtimeAction(json("""{"cmd":"PLAYURL_RELOAD"}"""))
 
-        assertEquals(LiveRealtimeAction.RefreshPlayback, action)
+        val refresh = assertIs<LiveRealtimeAction.RefreshPlayback>(action)
+        assertEquals(null, refresh.playUrlData)
+    }
+
+    @Test
+    fun `playurl reload parses inline playurl when available`() {
+        val action = resolveLiveRealtimeAction(
+            json(
+                """
+                {
+                  "cmd": "PLAYURL_RELOAD",
+                  "data": {
+                    "playurl": {
+                      "g_qn_desc": [{"qn": 10000, "desc": "原画"}],
+                      "stream": [
+                        {
+                          "protocol_name": "http_hls",
+                          "format": [
+                            {
+                              "format_name": "fmp4",
+                              "codec": [
+                                {
+                                  "codec_name": "avc",
+                                  "current_qn": 10000,
+                                  "base_url": "/live.m3u8",
+                                  "url_info": [{"host": "https://example.com", "extra": "?token=1"}]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+                """
+            )
+        )
+
+        val refresh = assertIs<LiveRealtimeAction.RefreshPlayback>(action)
+        assertEquals(10000, refresh.playUrlData?.current_quality)
+        assertEquals("原画", refresh.playUrlData?.quality_description?.firstOrNull()?.desc)
     }
 
     @Test

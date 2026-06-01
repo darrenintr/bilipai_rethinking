@@ -14,9 +14,13 @@ data class PluginVideoCandidate(
     val title: String,
     val authorName: String = "",
     val authorMid: Long? = null,
+    val partitionId: Int = 0,
+    val partitionName: String = "",
     val durationSeconds: Long = 0,
     val playCount: Long = 0,
     val likeCount: Long = 0,
+    val replyCount: Long = 0,
+    val danmakuCount: Long = 0,
     val publishTimeEpochSec: Long? = null,
     val tags: List<String> = emptyList()
 )

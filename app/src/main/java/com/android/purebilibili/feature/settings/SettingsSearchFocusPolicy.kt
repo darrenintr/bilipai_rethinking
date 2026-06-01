@@ -110,7 +110,8 @@ internal fun resolveAnimationSettingsScrollIndex(
     focusId: String
 ): Int? {
     return when (focusId) {
-        SettingsSearchFocusIds.ANIMATION_VISUAL_EFFECTS -> 2
+        // 列表顶部新增「界面动效」分组(标题+开关 2 项)后,视觉效果分组整体下移 2。
+        SettingsSearchFocusIds.ANIMATION_VISUAL_EFFECTS -> 4
         else -> null
     }
 }
@@ -158,6 +159,7 @@ internal fun resolveSettingsSceneDetailFocus(
     SettingsSearchTarget.SETTINGS_SHARE,
     SettingsSearchTarget.WEBDAV_BACKUP,
     SettingsSearchTarget.DOWNLOAD_PATH,
+    SettingsSearchTarget.IMAGE_SAVE_PATH,
     SettingsSearchTarget.CLEAR_CACHE,
     SettingsSearchTarget.PLUGINS,
     SettingsSearchTarget.EXPORT_LOGS,

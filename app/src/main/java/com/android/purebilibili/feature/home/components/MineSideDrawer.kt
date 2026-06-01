@@ -123,6 +123,7 @@ fun MineSideDrawer(
     val drawerMotionBudget = resolveDrawerMotionBudget(
         isDrawerTransitionRunning = drawerState.currentValue != drawerState.targetValue
     )
+    val forceLowBlurBudget = shouldForceLowDrawerBlurBudget(drawerMotionBudget)
     val effectiveBlurActive = shouldEnableDrawerBlur(
         blurActive = blurActive,
         budget = drawerMotionBudget
@@ -133,7 +134,11 @@ fun MineSideDrawer(
             blurEnabled = effectiveBlurActive
         )
     }
-    val palette = resolveDrawerGlassPalette(isDark = isDark, blurEnabled = effectiveBlurActive)
+    val palette = resolveDrawerGlassPalette(
+        isDark = isDark,
+        blurEnabled = effectiveBlurActive,
+        budget = drawerMotionBudget
+    )
     val colorScheme = MaterialTheme.colorScheme
     val downloadIcon = rememberAppDownloadIcon()
     val historyIcon = rememberAppHistoryIcon()
@@ -186,7 +191,8 @@ fun MineSideDrawer(
                         shape = RoundedCornerShape(
                             topEnd = layoutPolicy.drawerEdgeRadiusDp.dp,
                             bottomEnd = layoutPolicy.drawerEdgeRadiusDp.dp
-                        )
+                        ),
+                        forceLowBudget = forceLowBlurBudget
                     )
                 } else Modifier
             )

@@ -75,6 +75,20 @@ class PortraitDetailPresentationPolicyTest {
     }
 
     @Test
+    fun inlinePortraitPlayerLayout_keepsFoldableInnerScreenDetailReachable() {
+        val spec = resolvePortraitInlinePlayerLayoutSpec(
+            screenWidthDp = 768f,
+            screenHeightDp = 1024f,
+            isCollapsed = false
+        )
+
+        assertEquals(768f, spec.widthDp)
+        assertEquals(532.48f, spec.heightDp, absoluteTolerance = 0.01f)
+        assertTrue(spec.heightDp < spec.widthDp)
+        assertTrue(spec.heightDp < 1024f * 0.6f)
+    }
+
+    @Test
     fun inlinePortraitPlayerLayout_collapsesToFullWidth16By9Header() {
         val expanded = resolvePortraitInlinePlayerLayoutSpec(
             screenWidthDp = 412f,
@@ -123,14 +137,12 @@ class PortraitDetailPresentationPolicyTest {
     }
 
     @Test
-    fun inlinePortraitPlayer_keepsExpandedAtCommentTopThenCompactsWhenCommentScrollsDown() {
-        assertFalse(
+    fun inlinePortraitPlayer_compactsImmediatelyWhenCommentTabIsSelected() {
+        assertTrue(
             shouldUseCompactInlinePortraitPlayerForCommentTab(
                 useOfficialInlinePortraitDetailExperience = true,
                 selectedTabIndex = 1,
                 isPortraitFullscreen = false,
-                firstVisibleItemIndex = 0,
-                firstVisibleItemScrollOffset = 0,
                 collapseMode = PortraitPlayerCollapseMode.BOTH
             )
         )
@@ -139,8 +151,6 @@ class PortraitDetailPresentationPolicyTest {
                 useOfficialInlinePortraitDetailExperience = true,
                 selectedTabIndex = 1,
                 isPortraitFullscreen = false,
-                firstVisibleItemIndex = 0,
-                firstVisibleItemScrollOffset = 80,
                 collapseMode = PortraitPlayerCollapseMode.BOTH
             )
         )
@@ -149,8 +159,6 @@ class PortraitDetailPresentationPolicyTest {
                 useOfficialInlinePortraitDetailExperience = true,
                 selectedTabIndex = 0,
                 isPortraitFullscreen = false,
-                firstVisibleItemIndex = 1,
-                firstVisibleItemScrollOffset = 0,
                 collapseMode = PortraitPlayerCollapseMode.BOTH
             )
         )
@@ -159,8 +167,18 @@ class PortraitDetailPresentationPolicyTest {
                 useOfficialInlinePortraitDetailExperience = true,
                 selectedTabIndex = 1,
                 isPortraitFullscreen = true,
-                firstVisibleItemIndex = 1,
-                firstVisibleItemScrollOffset = 0,
+                collapseMode = PortraitPlayerCollapseMode.BOTH
+            )
+        )
+    }
+
+    @Test
+    fun inlinePortraitPlayer_commentHistoryDoesNotCollapseIntroTab() {
+        assertFalse(
+            shouldUseCompactInlinePortraitPlayerForCommentTab(
+                useOfficialInlinePortraitDetailExperience = true,
+                selectedTabIndex = 0,
+                isPortraitFullscreen = false,
                 collapseMode = PortraitPlayerCollapseMode.BOTH
             )
         )
@@ -184,6 +202,74 @@ class PortraitDetailPresentationPolicyTest {
                 isPortraitFullscreen = false,
                 isCommentThreadVisible = true,
                 collapseMode = PortraitPlayerCollapseMode.BOTH
+            )
+        )
+    }
+
+    @Test
+    fun inlinePortraitPlayer_pausedOnlyKeepsCommentTabExpandedWhilePlaying() {
+        assertFalse(
+            shouldEnableInlinePortraitScrollTransform(
+                collapseMode = PortraitPlayerCollapseMode.PAUSED_ONLY,
+                selectedTabIndex = 1,
+                isVerticalVideo = false,
+                isPlaybackPaused = false
+            )
+        )
+        assertFalse(
+            shouldUseCompactInlinePortraitPlayerForCommentTab(
+                useOfficialInlinePortraitDetailExperience = true,
+                selectedTabIndex = 1,
+                isPortraitFullscreen = false,
+                collapseMode = PortraitPlayerCollapseMode.PAUSED_ONLY,
+                isVerticalVideo = false,
+                isPlaybackPaused = false
+            )
+        )
+    }
+
+    @Test
+    fun inlinePortraitPlayer_pausedOnlyAllowsCommentScrollCollapseWhenPausedInAnyOrientation() {
+        assertTrue(
+            shouldEnableInlinePortraitScrollTransform(
+                collapseMode = PortraitPlayerCollapseMode.PAUSED_ONLY,
+                selectedTabIndex = 1,
+                isVerticalVideo = false,
+                isPlaybackPaused = true
+            )
+        )
+        assertTrue(
+            shouldEnableInlinePortraitScrollTransform(
+                collapseMode = PortraitPlayerCollapseMode.PAUSED_ONLY,
+                selectedTabIndex = 1,
+                isVerticalVideo = true,
+                isPlaybackPaused = true
+            )
+        )
+        assertFalse(
+            shouldUseCompactInlinePortraitPlayerForCommentTab(
+                useOfficialInlinePortraitDetailExperience = true,
+                selectedTabIndex = 1,
+                isPortraitFullscreen = false,
+                collapseMode = PortraitPlayerCollapseMode.PAUSED_ONLY,
+                isVerticalVideo = false,
+                isPlaybackPaused = true
+            )
+        )
+    }
+
+    @Test
+    fun inlinePortraitPlayer_pausedOnlyKeepsIntroScrollCollapseAvailableWhenPaused() {
+        assertTrue(
+            shouldUseCompactInlinePortraitPlayerForIntroScroll(
+                useOfficialInlinePortraitDetailExperience = true,
+                selectedTabIndex = 0,
+                isPortraitFullscreen = false,
+                firstVisibleItemIndex = 1,
+                firstVisibleItemScrollOffset = 0,
+                collapseMode = PortraitPlayerCollapseMode.PAUSED_ONLY,
+                isVerticalVideo = false,
+                isPlaybackPaused = true
             )
         )
     }
@@ -230,8 +316,6 @@ class PortraitDetailPresentationPolicyTest {
                 useOfficialInlinePortraitDetailExperience = true,
                 selectedTabIndex = 1,
                 isPortraitFullscreen = false,
-                firstVisibleItemIndex = 1,
-                firstVisibleItemScrollOffset = 0,
                 collapseMode = PortraitPlayerCollapseMode.INTRO_ONLY,
                 isVerticalVideo = true
             )
@@ -252,8 +336,6 @@ class PortraitDetailPresentationPolicyTest {
                 useOfficialInlinePortraitDetailExperience = true,
                 selectedTabIndex = 1,
                 isPortraitFullscreen = false,
-                firstVisibleItemIndex = 1,
-                firstVisibleItemScrollOffset = 0,
                 collapseMode = PortraitPlayerCollapseMode.INTRO_ONLY,
                 isVerticalVideo = false
             )
@@ -274,8 +356,6 @@ class PortraitDetailPresentationPolicyTest {
                 useOfficialInlinePortraitDetailExperience = true,
                 selectedTabIndex = 1,
                 isPortraitFullscreen = false,
-                firstVisibleItemIndex = 1,
-                firstVisibleItemScrollOffset = 0,
                 collapseMode = PortraitPlayerCollapseMode.COMMENT_ONLY,
                 isVerticalVideo = false
             )
@@ -304,6 +384,16 @@ class PortraitDetailPresentationPolicyTest {
                 manualCollapseProgress = 0.2f,
                 compactForCommentTabProgress = 0.6f
             )
+        )
+    }
+
+    @Test
+    fun inlinePortraitPlayer_commentCollapseMotionUsesTabSwitchDuration() {
+        val spec = VideoContentTabSwitchAnimationSpec(durationMs = 360)
+
+        assertEquals(
+            spec.durationMs,
+            resolveInlinePortraitPlayerCommentCollapseDurationMillis(spec)
         )
     }
 

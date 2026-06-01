@@ -35,7 +35,7 @@ class SettingsSearchFocusPolicyTest {
     @Test
     fun animationFocusIndex_mapsVisualEffectsSection() {
         assertEquals(
-            2,
+            4,
             resolveAnimationSettingsScrollIndex(SettingsSearchFocusIds.ANIMATION_VISUAL_EFFECTS)
         )
     }

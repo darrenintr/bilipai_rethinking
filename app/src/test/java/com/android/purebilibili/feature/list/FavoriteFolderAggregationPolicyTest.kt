@@ -101,7 +101,7 @@ class FavoriteFolderAggregationPolicyTest {
 
         assertEquals(
             FavoriteCollectionRoute(
-                type = "season",
+                type = "favorite_season",
                 id = 1324105L,
                 mid = 39366561L,
                 title = "一天体重测试系列",

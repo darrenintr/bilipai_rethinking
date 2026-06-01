@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,7 +28,13 @@ import com.android.purebilibili.feature.dynamic.resolveDynamicTopBarHorizontalPa
 import com.android.purebilibili.feature.dynamic.resolveDynamicTopBarLiquidTabSpec
 import com.android.purebilibili.core.ui.blur.BlurStyles
 import com.android.purebilibili.core.ui.blur.currentUnifiedBlurIntensity
+import com.android.purebilibili.core.store.HomeSettings
+import com.android.purebilibili.core.store.SettingsManager
+import com.android.purebilibili.core.theme.LocalUiPreset
 import com.android.purebilibili.feature.home.components.BottomBarLiquidSegmentedControl
+import com.android.purebilibili.feature.home.components.SegmentedControlChromeStyle
+import com.android.purebilibili.feature.home.components.resolveSegmentedControlChromeStyle
+import com.android.purebilibili.feature.home.components.resolveSegmentedControlLiquidGlassEnabled
 import com.kyant.backdrop.Backdrop
 import dev.chrisbanes.haze.HazeState
 
@@ -50,8 +59,22 @@ fun DynamicTopBarWithTabs(
     backdrop: Backdrop? = null
 ) {
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val uiPreset = LocalUiPreset.current
+    val homeSettings by SettingsManager
+        .getHomeSettings(context)
+        .collectAsState(
+            initial = HomeSettings(),
+            context = kotlin.coroutines.EmptyCoroutineContext
+        )
     val statusBarHeight = WindowInsets.statusBars.getTop(density).let { with(density) { it.toDp() } }
     val liquidTabSpec = resolveDynamicTopBarLiquidTabSpec()
+    val reusesLiquidGlassDock = shouldReuseDynamicTopBarLiquidGlassDock(
+        hasBackdrop = backdrop != null,
+        storedLiquidGlassEnabled = homeSettings.isBottomBarLiquidGlassEnabled,
+        uiPreset = uiPreset,
+        androidNativeLiquidGlassEnabled = homeSettings.androidNativeLiquidGlassEnabled
+    )
     
     //  读取当前模糊强度以确定背景透明度
     val blurIntensity = currentUnifiedBlurIntensity()
@@ -59,7 +82,8 @@ fun DynamicTopBarWithTabs(
     val globalWallpaperVisible = LocalGlobalWallpaperBackdropVisible.current
     val shouldUseHeaderBlur = shouldUseDynamicTopBarHeaderBlur(
         hasHazeState = hazeState != null,
-        globalWallpaperVisible = globalWallpaperVisible
+        globalWallpaperVisible = globalWallpaperVisible,
+        reusesLiquidGlassDock = reusesLiquidGlassDock
     )
     
     //  使用 blurIntensity 对应的背景透明度实现毛玻璃质感
@@ -158,8 +182,30 @@ internal fun resolveDynamicTopBarHeaderColor(
 
 internal fun shouldUseDynamicTopBarHeaderBlur(
     hasHazeState: Boolean,
-    globalWallpaperVisible: Boolean
-): Boolean = hasHazeState && !globalWallpaperVisible
+    globalWallpaperVisible: Boolean,
+    reusesLiquidGlassDock: Boolean = false
+): Boolean = hasHazeState && !globalWallpaperVisible && !reusesLiquidGlassDock
+
+internal fun shouldReuseDynamicTopBarLiquidGlassDock(
+    hasBackdrop: Boolean,
+    storedLiquidGlassEnabled: Boolean,
+    uiPreset: com.android.purebilibili.core.theme.UiPreset,
+    androidNativeLiquidGlassEnabled: Boolean
+): Boolean {
+    if (!hasBackdrop) return false
+    val chromeStyle = resolveSegmentedControlChromeStyle(
+        uiPreset = uiPreset,
+        androidNativeLiquidGlassEnabled = androidNativeLiquidGlassEnabled,
+        preferInlineContentStyle = true
+    )
+    if (chromeStyle != SegmentedControlChromeStyle.LIQUID_PILL) return false
+    return resolveSegmentedControlLiquidGlassEnabled(
+        storedLiquidGlassEnabled = storedLiquidGlassEnabled,
+        liquidGlassEffectsEnabled = true,
+        uiPreset = uiPreset,
+        androidNativeLiquidGlassEnabled = androidNativeLiquidGlassEnabled
+    )
+}
 
 @Composable
 private fun rememberDynamicTabUnselectedColor(): Color {

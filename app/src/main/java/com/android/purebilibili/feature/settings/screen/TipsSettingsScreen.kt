@@ -29,7 +29,8 @@ import com.android.purebilibili.core.ui.AppSurfaceTokens
 import com.android.purebilibili.core.ui.ContainerLevel
 import com.android.purebilibili.core.ui.resolveBottomSafeAreaPadding
 import com.android.purebilibili.core.ui.adaptive.resolveDeviceUiProfile
-import com.android.purebilibili.core.ui.animation.staggeredEntrance
+import com.android.purebilibili.core.ui.animation.EntranceGroup
+import com.android.purebilibili.core.ui.animation.entrance
 import com.android.purebilibili.core.ui.components.rememberAdaptiveSemanticIconTint
 import com.android.purebilibili.core.ui.components.IOSSectionTitle
 import com.android.purebilibili.core.ui.rememberAppBackIcon
@@ -50,10 +51,6 @@ private data class TipEntry(
 fun TipsSettingsScreen(
     onBack: () -> Unit
 ) {
-    var isVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        isVisible = true
-    }
     val context = LocalContext.current
     val screenTitle = stringResource(R.string.tips_title)
     val backLabel = stringResource(R.string.common_back)
@@ -62,9 +59,6 @@ fun TipsSettingsScreen(
         resolveDeviceUiProfile(
             widthSizeClass = windowSizeClass.widthSizeClass
         )
-    }
-    val effectiveMotionTier = remember(deviceUiProfile.motionTier) {
-        resolveSettingsEntranceMotionTier(deviceUiProfile.motionTier)
     }
     val contentBottomPadding = resolveBottomSafeAreaPadding(
         navigationBarsBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
@@ -77,7 +71,7 @@ fun TipsSettingsScreen(
                 icon = CupertinoIcons.Filled.HandDraw,
                 iconTint = iOSBlue,
                 title = "1. 摸鱼模式：播放器缩小策略",
-                content = "在播放设置里把「播放器缩小策略」设为竖屏、横屏或全部后，对应视频方向使用缩小播放器策略。"
+                content = "在播放设置里把「播放器缩小策略」设为竖屏、横屏、全部或暂停时，再按对应条件缩小播放器。"
             ),
             TipEntry(
                 icon = CupertinoIcons.Default.ChevronUp,
@@ -177,6 +171,7 @@ fun TipsSettingsScreen(
         containerColor = AppSurfaceTokens.groupedListContainer(),
         contentWindowInsets = WindowInsets(0.dp)
     ) { padding ->
+        EntranceGroup {
         LazyColumn(
             modifier = Modifier
                 .padding(padding)
@@ -184,37 +179,38 @@ fun TipsSettingsScreen(
             contentPadding = PaddingValues(bottom = contentBottomPadding)
         ) {
             item {
-                Box(modifier = Modifier.staggeredEntrance(0, isVisible, motionTier = effectiveMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSSectionTitle("基础技巧")
                 }
             }
             item {
-                Box(modifier = Modifier.staggeredEntrance(1, isVisible, motionTier = effectiveMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     TipSection(items = basicTips)
                 }
             }
 
             item {
-                Box(modifier = Modifier.staggeredEntrance(2, isVisible, motionTier = effectiveMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSSectionTitle("隐藏技巧")
                 }
             }
             item {
-                Box(modifier = Modifier.staggeredEntrance(3, isVisible, motionTier = effectiveMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     TipSection(items = hiddenTips)
                 }
             }
 
             item {
-                Box(modifier = Modifier.staggeredEntrance(4, isVisible, motionTier = effectiveMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSSectionTitle("进阶玩法")
                 }
             }
             item {
-                Box(modifier = Modifier.staggeredEntrance(5, isVisible, motionTier = effectiveMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     TipSection(items = advancedTips)
                 }
             }
+        }
         }
     }
 }

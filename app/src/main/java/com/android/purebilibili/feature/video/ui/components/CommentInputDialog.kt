@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.*
@@ -42,8 +44,10 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,7 +56,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import com.android.purebilibili.core.ui.motion.resolveCommentVerticalContentRevealMotionSpec
+import com.android.purebilibili.core.ui.motion.verticalContentRevealEnterTransition
+import com.android.purebilibili.core.ui.motion.verticalContentRevealExitTransition
 import com.android.purebilibili.core.util.FormatUtils
+import com.android.purebilibili.data.model.response.MentionSearchUser
 import kotlinx.coroutines.delay
 
 private const val COMMENT_INPUT_FOCUS_RETRY_COUNT = 3
@@ -124,6 +132,10 @@ fun CommentInputDialog(
     canInputComment: Boolean = true,
     modifier: Modifier = Modifier,
     currentVideoPositionMsProvider: () -> Long = { 0L },
+    mentionUsers: List<MentionSearchUser> = emptyList(),
+    isMentionSearching: Boolean = false,
+    mentionSearchError: String? = null,
+    onMentionSearchQueryChange: (String) -> Unit = {},
     emotePackages: List<com.android.purebilibili.data.model.response.EmotePackage> = emptyList() // [新增] 表情包列表
 ) {
     val configuration = LocalConfiguration.current
@@ -133,11 +145,14 @@ fun CommentInputDialog(
     }
 
     // 状态
-    var text by remember { mutableStateOf("") }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     var isForwardToDynamic by remember { mutableStateOf(false) } // 转发到动态
     var showEmojiPanel by remember { mutableStateOf(false) }    // 表情面板
+    var showMentionPanel by remember { mutableStateOf(false) }
+    var mentionSearchText by remember { mutableStateOf("") }
     var currentTab by remember { mutableStateOf(0) } // 0=Kaomoji, 1=Emoji, 2+=API Packages
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    val text = textFieldValue.text
     
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -159,6 +174,30 @@ fun CommentInputDialog(
         }
     }
 
+    fun updateTextFieldValue(nextValue: TextFieldValue) {
+        if (nextValue.text.length > 1000) return
+        textFieldValue = nextValue
+        val mentionQuery = resolveActiveCommentMentionQuery(
+            text = nextValue.text,
+            cursor = nextValue.selection.end
+        )
+        if (mentionQuery != null) {
+            showMentionPanel = true
+            showEmojiPanel = false
+            mentionSearchText = mentionQuery.query
+            onMentionSearchQueryChange(mentionQuery.query)
+        } else {
+            showMentionPanel = false
+        }
+    }
+
+    fun insertTextAtCursor(insertText: String) {
+        val cursor = textFieldValue.selection.end.coerceIn(0, textFieldValue.text.length)
+        val nextText = textFieldValue.text.replaceRange(cursor, cursor, insertText)
+        val nextCursor = cursor + insertText.length
+        updateTextFieldValue(TextFieldValue(nextText, TextRange(nextCursor)))
+    }
+
     suspend fun requestInputFocusWithRetry() {
         repeat(COMMENT_INPUT_FOCUS_RETRY_COUNT) { index ->
             delay(COMMENT_INPUT_FOCUS_RETRY_DELAY_MS + index * 40L)
@@ -170,9 +209,11 @@ fun CommentInputDialog(
     // 重置状态
     LaunchedEffect(visible, canInputComment) {
         if (visible) {
-            text = ""
+            textFieldValue = TextFieldValue("")
             isForwardToDynamic = false
             showEmojiPanel = false
+            showMentionPanel = false
+            mentionSearchText = ""
             selectedImageUris = emptyList()
         }
     }
@@ -254,8 +295,8 @@ fun CommentInputDialog(
                                 .padding(12.dp)
                         ) {
                             BasicTextField(
-                                value = text,
-                                onValueChange = { if (it.length <= 1000) text = it },
+                                value = textFieldValue,
+                                onValueChange = ::updateTextFieldValue,
                                 enabled = canInputComment && !isSending,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -294,6 +335,35 @@ fun CommentInputDialog(
                                     .size(16.dp)
                                     .alpha(0.5f),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = showMentionPanel && canInputComment,
+                            enter = verticalContentRevealEnterTransition(resolveCommentVerticalContentRevealMotionSpec()),
+                            exit = verticalContentRevealExitTransition(resolveCommentVerticalContentRevealMotionSpec())
+                        ) {
+                            CommentMentionSearchPanel(
+                                query = mentionSearchText,
+                                onQueryChange = { query ->
+                                    mentionSearchText = query
+                                    onMentionSearchQueryChange(query)
+                                },
+                                users = mentionUsers,
+                                isLoading = isMentionSearching,
+                                errorMessage = mentionSearchError,
+                                onUserClick = { user ->
+                                    val cursor = textFieldValue.selection.end
+                                    val (nextText, nextSelection) = insertCommentMentionText(
+                                        text = textFieldValue.text,
+                                        cursor = cursor,
+                                        mentionName = user.name
+                                    )
+                                    textFieldValue = TextFieldValue(nextText, nextSelection)
+                                    showMentionPanel = false
+                                    mentionSearchText = ""
+                                },
+                                modifier = Modifier.padding(top = 8.dp)
                             )
                         }
 
@@ -410,9 +480,11 @@ fun CommentInputDialog(
 
                                 IconButton(
                                     onClick = {
-                                        text += "@"
-                                        // 切换回键盘
+                                        insertTextAtCursor("@")
                                         showEmojiPanel = false
+                                        showMentionPanel = true
+                                        mentionSearchText = ""
+                                        onMentionSearchQueryChange("")
                                     },
                                     enabled = canInputComment && !isSending,
                                     modifier = Modifier.size(layoutPolicy.toolbarToolButtonSizeDp.dp)
@@ -427,8 +499,9 @@ fun CommentInputDialog(
 
                                 TextButton(
                                     onClick = {
-                                        text += resolveCommentProgressInsertText(currentVideoPositionMsProvider())
+                                        insertTextAtCursor(resolveCommentProgressInsertText(currentVideoPositionMsProvider()))
                                         showEmojiPanel = false
+                                        showMentionPanel = false
                                     },
                                     enabled = canInputComment && !isSending,
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -517,10 +590,13 @@ fun CommentInputDialog(
                         }
                         
                         // 3. 表情面板區域
+                        val emojiPanelRevealMotion = remember {
+                            resolveCommentVerticalContentRevealMotionSpec()
+                        }
                         AnimatedVisibility(
                             visible = showEmojiPanel,
-                            enter = androidx.compose.animation.expandVertically() + fadeIn(),
-                            exit = androidx.compose.animation.shrinkVertically() + fadeOut()
+                            enter = verticalContentRevealEnterTransition(emojiPanelRevealMotion),
+                            exit = verticalContentRevealExitTransition(emojiPanelRevealMotion)
                         ) {
                             Column(
                                 modifier = Modifier
@@ -601,7 +677,7 @@ fun CommentInputDialog(
                                                         modifier = Modifier
                                                             .height(36.dp)
                                                             .clip(RoundedCornerShape(4.dp))
-                                                            .clickable { text += kaomojis[i] }
+                                                            .clickable { insertTextAtCursor(kaomojis[i]) }
                                                             .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.1f))
                                                     ) {
                                                         Text(kaomojis[i], fontSize = 13.sp)
@@ -628,7 +704,7 @@ fun CommentInputDialog(
                                                         contentAlignment = Alignment.Center,
                                                         modifier = Modifier
                                                             .size(40.dp)
-                                                            .clickable { text += emojis[i] }
+                                                            .clickable { insertTextAtCursor(emojis[i]) }
                                                     ) {
                                                         Text(emojis[i], fontSize = 24.sp)
                                                     }
@@ -650,7 +726,7 @@ fun CommentInputDialog(
                                                         val emote = emotes[i]
                                                         Column(
                                                             horizontalAlignment = Alignment.CenterHorizontally,
-                                                            modifier = Modifier.clickable { text += emote.text }
+                                                            modifier = Modifier.clickable { insertTextAtCursor(emote.text) }
                                                         ) {
                                                             AsyncImage(
                                                                 model = emote.url,
@@ -670,6 +746,138 @@ fun CommentInputDialog(
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentMentionSearchPanel(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    users: List<MentionSearchUser>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onUserClick: (MentionSearchUser) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = 220.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                singleLine = true,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                placeholder = { Text("搜索好友昵称") },
+                textStyle = MaterialTheme.typography.bodySmall,
+                shape = RoundedCornerShape(18.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                )
+            )
+
+            when {
+                isLoading -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "正在搜索好友",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                errorMessage != null -> {
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+
+                users.isEmpty() -> {
+                    Text(
+                        text = if (query.isBlank()) "输入好友昵称搜索" else "没有找到匹配的用户",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                    ) {
+                        items(users, key = { it.uid }) { user ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onUserClick(user) }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = user.face,
+                                    contentDescription = user.name,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(17.dp))
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = user.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${FormatUtils.formatStat(user.fans.toLong())} 粉丝",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
                                 }
                             }
                         }

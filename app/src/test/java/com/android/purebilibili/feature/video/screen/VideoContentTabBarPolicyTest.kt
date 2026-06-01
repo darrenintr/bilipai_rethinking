@@ -99,6 +99,47 @@ class VideoContentTabBarPolicyTest {
         assertEquals(360, iosSpec.durationMs)
         assertEquals(240, md3Spec.durationMs)
         assertTrue(iosSpec.durationMs > md3Spec.durationMs)
+        assertEquals(iosSpec.durationMs, resolveInlinePortraitPlayerCommentCollapseDurationMillis(iosSpec))
+        assertEquals(md3Spec.durationMs, resolveInlinePortraitPlayerCommentCollapseDurationMillis(md3Spec))
+    }
+
+    @Test
+    fun `effective selected tab follows target while pager is switching`() {
+        assertEquals(
+            1,
+            resolveVideoContentEffectiveSelectedTabIndex(
+                currentPage = 0,
+                targetPage = 1,
+                isScrollInProgress = true,
+                pageCount = 2
+            )
+        )
+    }
+
+    @Test
+    fun `effective selected tab uses current page when pager is idle`() {
+        assertEquals(
+            0,
+            resolveVideoContentEffectiveSelectedTabIndex(
+                currentPage = 0,
+                targetPage = 1,
+                isScrollInProgress = false,
+                pageCount = 2
+            )
+        )
+    }
+
+    @Test
+    fun `effective selected tab falls back to current page for invalid target`() {
+        assertEquals(
+            0,
+            resolveVideoContentEffectiveSelectedTabIndex(
+                currentPage = 0,
+                targetPage = 3,
+                isScrollInProgress = true,
+                pageCount = 2
+            )
+        )
     }
 
     private fun loadSource(path: String): String {

@@ -142,6 +142,41 @@ class ArticleContentBlockParserTest {
         )
     }
 
+    @Test
+    fun `parseArticleContentBlocks reads json content ops and native images from article api`() {
+        val blocks = parseArticleContentBlocks(
+            structuredParagraphs = emptyList(),
+            htmlContent = """
+                {
+                  "ops": [
+                    { "insert": "第一段 JSON 正文\n" },
+                    {
+                      "insert": {
+                        "native-image": {
+                          "url": "//i0.hdslb.com/bfs/article/native.png",
+                          "width": 1080,
+                          "height": 1920
+                        }
+                      }
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        assertEquals(
+            listOf(
+                ArticleContentBlock.Paragraph("第一段 JSON 正文"),
+                ArticleContentBlock.Image(
+                    url = "https://i0.hdslb.com/bfs/article/native.png",
+                    width = 1080,
+                    height = 1920
+                )
+            ),
+            blocks
+        )
+    }
+
     private fun paragraph(
         textWords: List<String> = emptyList(),
         headingWords: List<String> = emptyList(),

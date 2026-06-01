@@ -13,15 +13,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.chrisbanes.haze.HazeState
 import com.android.purebilibili.core.ui.rememberAppBookmarkIcon
-import com.android.purebilibili.core.ui.blur.unifiedBlur
-import com.android.purebilibili.core.ui.blur.currentUnifiedBlurIntensity
 import com.android.purebilibili.core.ui.rememberAppCoinIcon
 import com.android.purebilibili.core.ui.rememberAppLikeFilledIcon
 import com.android.purebilibili.core.ui.rememberAppLikeIcon
 import com.android.purebilibili.core.ui.rememberAppShareIcon
-import com.android.purebilibili.feature.home.components.resolveBottomBarSurfaceColor
 
 @Composable
 fun BottomInputBar(
@@ -34,30 +30,19 @@ fun BottomInputBar(
     onCoinClick: () -> Unit,
     onShareClick: () -> Unit,
     onCommentClick: () -> Unit,
-    hazeState: HazeState? = null
 ) {
-    val blurIntensity = currentUnifiedBlurIntensity()
     val favoriteIcon = rememberAppBookmarkIcon()
     val coinIcon = rememberAppCoinIcon()
     val likeIcon = rememberAppLikeIcon()
     val likeFilledIcon = rememberAppLikeFilledIcon()
     val shareIcon = rememberAppShareIcon()
-    
-    val barColor = resolveBottomBarSurfaceColor(
-        surfaceColor = MaterialTheme.colorScheme.surface,
-        blurEnabled = hazeState != null,
-        blurIntensity = blurIntensity
-    )
 
     Surface(
-        color = barColor,
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp,
-        shadowElevation = if (hazeState != null) 0.dp else 8.dp, // Reduce shadow if blur is on for cleaner glass look
+        shadowElevation = 8.dp,
         modifier = modifier
             .fillMaxWidth()
-            .let { m ->
-                if (hazeState != null) m.unifiedBlur(hazeState = hazeState) else m
-            }
     ) {
         Row(
             modifier = Modifier

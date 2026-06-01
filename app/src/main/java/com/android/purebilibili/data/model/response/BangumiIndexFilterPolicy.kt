@@ -2,8 +2,12 @@ package com.android.purebilibili.data.model.response
 
 enum class BangumiIndexFilterGroupKey {
     ORDER,
+    SEASON_VERSION,
     STYLE,
     PRODUCER,
+    SPOKEN_LANGUAGE,
+    COPYRIGHT,
+    SEASON_MONTH,
     YEAR,
     SEASON_STATUS
 }
@@ -15,7 +19,11 @@ data class BangumiIndexFilterOption(
     val styleId: Int? = null,
     val producerId: Int? = null,
     val year: String? = null,
-    val seasonStatus: String? = null
+    val seasonStatus: String? = null,
+    val seasonVersion: Int? = null,
+    val spokenLanguageType: Int? = null,
+    val copyright: String? = null,
+    val seasonMonth: Int? = null
 )
 
 data class BangumiIndexFilterGroup(
@@ -33,7 +41,11 @@ data class BangumiIndexRequestFilter(
     val releaseDate: String,
     val styleId: Int,
     val producerId: Int,
-    val seasonStatus: String
+    val seasonStatus: String,
+    val seasonVersion: Int,
+    val spokenLanguageType: Int,
+    val copyright: String,
+    val seasonMonth: Int
 )
 
 fun buildBangumiIndexRequestFilter(
@@ -49,8 +61,26 @@ fun buildBangumiIndexRequestFilter(
         releaseDate = filter.toApiReleaseDate(seasonType),
         styleId = filter.styleId,
         producerId = filter.producerId,
-        seasonStatus = filter.seasonStatus
+        seasonStatus = filter.seasonStatus,
+        seasonVersion = filter.seasonVersion,
+        spokenLanguageType = filter.spokenLanguageType,
+        copyright = filter.copyright,
+        seasonMonth = filter.seasonMonth
     )
+}
+
+fun resolveBangumiSearchTypeForSeasonType(seasonType: Int): SearchType {
+    return when (seasonType) {
+        BangumiType.ANIME.value, BangumiType.GUOCHUANG.value -> SearchType.BANGUMI
+        else -> SearchType.MEDIA_FT
+    }
+}
+
+fun resolveBangumiSearchPlaceholder(seasonType: Int): String {
+    return when (resolveBangumiSearchTypeForSeasonType(seasonType)) {
+        SearchType.MEDIA_FT -> "输入关键词搜索影视"
+        else -> "输入关键词搜索番剧"
+    }
 }
 
 fun resolveBangumiIndexFilterGroups(
@@ -74,6 +104,32 @@ fun resolveBangumiIndexFilterGroups(
         title = "全部风格",
         options = resolveBangumiStyleOptions(seasonType)
     )
+
+    groups += BangumiIndexFilterGroup(
+        key = BangumiIndexFilterGroupKey.SEASON_VERSION,
+        title = "全部类型",
+        options = SEASON_VERSION_OPTIONS
+    )
+
+    groups += BangumiIndexFilterGroup(
+        key = BangumiIndexFilterGroupKey.SPOKEN_LANGUAGE,
+        title = "全部配音",
+        options = SPOKEN_LANGUAGE_OPTIONS
+    )
+
+    groups += BangumiIndexFilterGroup(
+        key = BangumiIndexFilterGroupKey.COPYRIGHT,
+        title = "全部版权",
+        options = COPYRIGHT_OPTIONS
+    )
+
+    if (seasonType == BangumiType.ANIME.value || seasonType == BangumiType.GUOCHUANG.value) {
+        groups += BangumiIndexFilterGroup(
+            key = BangumiIndexFilterGroupKey.SEASON_MONTH,
+            title = "全部季度",
+            options = SEASON_MONTH_OPTIONS
+        )
+    }
 
     if (seasonType == BangumiType.DOCUMENTARY.value) {
         groups += BangumiIndexFilterGroup(
@@ -114,7 +170,11 @@ fun applyBangumiIndexFilterOption(
         styleId = option.styleId ?: filter.styleId,
         producerId = option.producerId ?: filter.producerId,
         year = option.year ?: filter.year,
-        seasonStatus = option.seasonStatus ?: filter.seasonStatus
+        seasonStatus = option.seasonStatus ?: filter.seasonStatus,
+        seasonVersion = option.seasonVersion ?: filter.seasonVersion,
+        spokenLanguageType = option.spokenLanguageType ?: filter.spokenLanguageType,
+        copyright = option.copyright ?: filter.copyright,
+        seasonMonth = option.seasonMonth ?: filter.seasonMonth
     )
 }
 
@@ -130,6 +190,10 @@ fun resolveBangumiIndexSelectedOption(
             BangumiIndexFilterGroupKey.PRODUCER -> option.producerId == filter.producerId
             BangumiIndexFilterGroupKey.YEAR -> option.year == filter.year
             BangumiIndexFilterGroupKey.SEASON_STATUS -> option.seasonStatus == filter.seasonStatus
+            BangumiIndexFilterGroupKey.SEASON_VERSION -> option.seasonVersion == filter.seasonVersion
+            BangumiIndexFilterGroupKey.SPOKEN_LANGUAGE -> option.spokenLanguageType == filter.spokenLanguageType
+            BangumiIndexFilterGroupKey.COPYRIGHT -> option.copyright == filter.copyright
+            BangumiIndexFilterGroupKey.SEASON_MONTH -> option.seasonMonth == filter.seasonMonth
         }
     } ?: group.options.first()
 }
@@ -146,7 +210,11 @@ fun resolveBangumiIndexFilterKey(
         filter.year,
         filter.seasonStatus,
         filter.order,
-        filter.sortDirection
+        filter.sortDirection,
+        filter.seasonVersion,
+        filter.spokenLanguageType,
+        filter.copyright,
+        filter.seasonMonth
     ).joinToString("|")
 }
 
@@ -215,5 +283,33 @@ private val DOCUMENTARY_PRODUCER_OPTIONS = listOf(
 private val SEASON_STATUS_OPTIONS = listOf(
     BangumiIndexFilterOption(label = "全部", seasonStatus = "-1"),
     BangumiIndexFilterOption(label = "免费", seasonStatus = "1"),
+    BangumiIndexFilterOption(label = "付费", seasonStatus = "2,6"),
     BangumiIndexFilterOption(label = "大会员", seasonStatus = "4,6")
+)
+
+private val SEASON_VERSION_OPTIONS = listOf(
+    BangumiIndexFilterOption(label = "全部类型", seasonVersion = -1),
+    BangumiIndexFilterOption(label = "正片", seasonVersion = 1),
+    BangumiIndexFilterOption(label = "电影", seasonVersion = 2),
+    BangumiIndexFilterOption(label = "其他", seasonVersion = 3)
+)
+
+private val SPOKEN_LANGUAGE_OPTIONS = listOf(
+    BangumiIndexFilterOption(label = "全部配音", spokenLanguageType = -1),
+    BangumiIndexFilterOption(label = "原声", spokenLanguageType = 1),
+    BangumiIndexFilterOption(label = "中文配音", spokenLanguageType = 2)
+)
+
+private val COPYRIGHT_OPTIONS = listOf(
+    BangumiIndexFilterOption(label = "全部版权", copyright = "-1"),
+    BangumiIndexFilterOption(label = "独家", copyright = "3"),
+    BangumiIndexFilterOption(label = "其他", copyright = "1,2,4")
+)
+
+private val SEASON_MONTH_OPTIONS = listOf(
+    BangumiIndexFilterOption(label = "全部季度", seasonMonth = -1),
+    BangumiIndexFilterOption(label = "一月", seasonMonth = 1),
+    BangumiIndexFilterOption(label = "四月", seasonMonth = 4),
+    BangumiIndexFilterOption(label = "七月", seasonMonth = 7),
+    BangumiIndexFilterOption(label = "十月", seasonMonth = 10)
 )

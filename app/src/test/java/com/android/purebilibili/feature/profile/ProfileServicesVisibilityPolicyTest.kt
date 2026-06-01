@@ -69,6 +69,24 @@ class ProfileServicesVisibilityPolicyTest {
         )
     }
 
+    @Test
+    fun `profile dynamic menu exposes delete and image preview keeps source rect animation`() {
+        val source = File("src/main/java/com/android/purebilibili/feature/profile/ProfileScreen.kt").readText()
+        val cardSource = source.substringAfter("private fun ProfileDynamicCard(")
+            .substringBefore("@Composable\nprivate fun ProfileDynamicOriginalContent(")
+        val mediaSource = source.substringAfter("private fun ProfileDynamicMajorContent(")
+            .substringBefore("@Composable\nprivate fun ProfileDynamicActionRow(")
+
+        assertTrue(cardSource.contains("val deleteAction = remember(item) { resolveProfileDynamicDeleteAction(item) }"))
+        assertTrue(cardSource.contains("pendingDeleteAction = deleteAction"))
+        assertTrue(cardSource.contains("onDeleteClick(action)"))
+        assertTrue(mediaSource.contains("var sourceRect by remember(item.id_str, imageUrls)"))
+        assertTrue(mediaSource.contains(".onGloballyPositioned { coordinates ->"))
+        assertTrue(mediaSource.contains("sourceRect = coordinates.boundsInWindow()"))
+        assertTrue(mediaSource.contains("sourceRect = sourceRect"))
+        assertTrue(mediaSource.contains("sourceCornerRadiusDp = 6f"))
+    }
+
     private fun extractFunctionSignature(source: String, functionName: String): String {
         val start = source.indexOf("fun $functionName(")
         require(start >= 0) { "Cannot find function $functionName" }

@@ -145,6 +145,48 @@ object SearchRepository {
             searchVideoFallback(keyword = keyword, page = page)
         }
     }
+
+    suspend fun searchWithDurations(
+        keyword: String,
+        order: SearchOrder = SearchOrder.TOTALRANK,
+        durations: Set<SearchDuration> = emptySet(),
+        tids: Int = 0,
+        page: Int = 1
+    ): Result<Pair<List<VideoItem>, SearchPageInfo>> {
+        val requests = resolveSearchDurationRequests(durations)
+        if (requests.size == 1) {
+            return search(
+                keyword = keyword,
+                order = order,
+                duration = requests.single(),
+                tids = tids,
+                page = page
+            )
+        }
+
+        val pages = mutableListOf<Pair<List<VideoItem>, SearchPageInfo>>()
+        var firstFailure: Throwable? = null
+        for (duration in requests) {
+            search(
+                keyword = keyword,
+                order = order,
+                duration = duration,
+                tids = tids,
+                page = page
+            ).fold(
+                onSuccess = { pages += it },
+                onFailure = { error ->
+                    if (firstFailure == null) firstFailure = error
+                }
+            )
+        }
+
+        return if (pages.isNotEmpty()) {
+            Result.success(mergeSearchDurationResultPages(pages))
+        } else {
+            Result.failure(firstFailure ?: IllegalStateException("搜索失败"))
+        }
+    }
     
     //  UP主 搜索
     suspend fun searchUp(

@@ -43,12 +43,16 @@ import com.android.purebilibili.core.ui.rememberAppMoreIcon
 import com.android.purebilibili.core.ui.rememberAppVisibilityOffIcon
 import com.android.purebilibili.data.model.response.DynamicDesc
 import com.android.purebilibili.data.model.response.DynamicItem
+import com.android.purebilibili.data.model.response.DrawItem
 import com.android.purebilibili.feature.dynamic.resolveDynamicActionButtonSlotWeight
 import com.android.purebilibili.feature.dynamic.resolveDynamicActionButtonSpacing
 import com.android.purebilibili.feature.dynamic.resolveDynamicCardContentPadding
 import com.android.purebilibili.feature.dynamic.resolveDynamicCardOuterPadding
 import com.android.purebilibili.data.model.response.DynamicStatModule
 import com.android.purebilibili.data.model.response.DynamicType
+import com.android.purebilibili.data.model.response.OpusContentBlock
+import com.android.purebilibili.feature.dynamic.DynamicDeleteAction
+import com.android.purebilibili.feature.dynamic.resolveDynamicDeleteAction
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -61,36 +65,79 @@ fun DynamicCardV2(
     onBangumiClick: (Long, Long) -> Unit = { _, _ -> },
     onUserClick: (Long) -> Unit,
     onLiveClick: (roomId: Long, title: String, uname: String) -> Unit = { _, _, _ -> },
+    onArticleClick: ((articleId: Long, title: String) -> Unit)? = null,
     onDynamicDetailClick: ((dynamicId: String) -> Unit)? = null,
     isDetail: Boolean = false,
+    onPrimaryClickOverride: ((DynamicItem) -> Unit)? = null,
     gifImageLoader: ImageLoader,
     //  [新增] 评论/转发/点赞回调
     onCommentClick: (dynamicId: String) -> Unit = {},
     onRepostClick: (dynamicId: String) -> Unit = {},
     onLikeClick: (dynamicId: String) -> Unit = {},
     onWatchLaterClick: ((aid: Long) -> Unit)? = null,
+    onDeleteClick: ((DynamicDeleteAction) -> Unit)? = null,
     isLiked: Boolean = false
 ) {
     val author = item.modules.module_author
     val content = item.modules.module_dynamic
     val stat = item.modules.module_stat
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val dynamicPreviewTextVisible by SettingsManager.getDynamicImagePreviewTextVisible(context)
         .collectAsState(initial = true)
+    val authorTimeText = remember(author?.pub_time, author?.pub_ts) {
+        author?.let {
+            resolveDynamicAuthorTimeText(
+                pubTime = it.pub_time,
+                pubTs = it.pub_ts
+            )
+        }.orEmpty()
+    }
     val contentHasImages = content?.major?.draw?.items?.isNotEmpty() == true ||
         content?.major?.opus?.pics?.isNotEmpty() == true
     val visibleDynamicDesc = content?.desc?.let { desc ->
         resolveDynamicDescForImages(desc, hasImages = contentHasImages)
     }
+    val fullOpusContentBlocks = content?.major?.opus?.let { opus ->
+        resolveDynamicOpusPresentationBlocks(opus = opus, isDetail = isDetail)
+    }.orEmpty()
+    val hasFullOpusDetailContent = fullOpusContentBlocks.isNotEmpty()
     val type = DynamicType.fromApiValue(item.type)
     val cardClickAction = remember(item) { resolveDynamicCardPrimaryAction(item) }
     val watchLaterAid = remember(item) { resolveDynamicWatchLaterAid(item) }
-    val isPrimaryClickEnabled = remember(cardClickAction, onDynamicDetailClick) {
-        when (cardClickAction) {
-            is DynamicCardPrimaryAction.OpenDynamicDetail -> onDynamicDetailClick != null
-            DynamicCardPrimaryAction.None -> false
-            else -> true
-        }
+    val deleteAction = remember(item) { resolveDynamicDeleteAction(item) }
+    var pendingDeleteAction by remember(item.id_str) { mutableStateOf<DynamicDeleteAction?>(null) }
+    val isPrimaryClickEnabled = remember(cardClickAction, onArticleClick, onDynamicDetailClick, onPrimaryClickOverride) {
+        shouldEnableDynamicCardPrimaryClick(
+            action = cardClickAction,
+            hasArticleClick = onArticleClick != null,
+            hasDynamicDetailClick = onDynamicDetailClick != null,
+            hasPrimaryClickOverride = onPrimaryClickOverride != null
+        )
+    }
+
+    pendingDeleteAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteAction = null },
+            icon = { Icon(CupertinoIcons.Default.Trash, contentDescription = null) },
+            title = { Text(action.title) },
+            text = { Text(action.content) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteAction = null
+                        onDeleteClick?.invoke(action)
+                    }
+                ) {
+                    Text(action.confirmText, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteAction = null }) {
+                    Text(action.cancelText)
+                }
+            }
+        )
     }
 
     Column(
@@ -98,10 +145,13 @@ fun DynamicCardV2(
             .fillMaxWidth()
             .padding(horizontal = resolveDynamicCardOuterPadding())
             .clickable(enabled = isPrimaryClickEnabled) {
-                dispatchDynamicCardPrimaryAction(
+                dispatchDynamicCardPrimaryClick(
+                    item = item,
                     action = cardClickAction,
+                    onPrimaryClickOverride = onPrimaryClickOverride,
                     onVideoClick = onVideoClick,
                     onBangumiClick = onBangumiClick,
+                    onArticleClick = onArticleClick,
                     onDynamicDetailClick = onDynamicDetailClick,
                     onUserClick = onUserClick,
                     onLiveClick = onLiveClick
@@ -139,6 +189,7 @@ fun DynamicCardV2(
                                 action = DynamicCardPrimaryAction.OpenUser(author.mid),
                                 onVideoClick = onVideoClick,
                                 onBangumiClick = onBangumiClick,
+                                onArticleClick = onArticleClick,
                                 onDynamicDetailClick = onDynamicDetailClick,
                                 onUserClick = onUserClick,
                                 onLiveClick = onLiveClick
@@ -157,7 +208,7 @@ fun DynamicCardV2(
                         color = if (author.vip?.status == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        author.pub_time,
+                        authorTimeText,
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.6f)
                     )
@@ -218,6 +269,24 @@ fun DynamicCardV2(
                             )
                         }
 
+                        if (deleteAction != null && onDeleteClick != null) {
+                            DropdownMenuItem(
+                                text = { Text(deleteAction.label, color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = {
+                                    Icon(
+                                        CupertinoIcons.Default.Trash,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    pendingDeleteAction = deleteAction
+                                }
+                            )
+                        }
+
                         // 不感兴趣
                         DropdownMenuItem(
                             text = { Text("不感兴趣", color = MaterialTheme.colorScheme.onSurface) },
@@ -241,7 +310,7 @@ fun DynamicCardV2(
         }
         
         //  动态内容文字（支持@高亮）
-        visibleDynamicDesc?.let { desc ->
+        if (!hasFullOpusDetailContent) visibleDynamicDesc?.let { desc ->
             if (shouldRenderDynamicRichText(desc)) {
                 RichTextContent(
                     desc = desc,
@@ -257,11 +326,12 @@ fun DynamicCardV2(
             VideoCardLarge(
                 archive = archive,
                 publishTs = author?.pub_ts ?: 0L,
+                cornerBadgeText = resolveDynamicArchiveBadgeLabel(archive),
                 onClick = {
                     playableBvid?.let(onVideoClick)
                         ?: onDynamicDetailClick?.invoke(item.id_str)
                 },
-                transitionName = "video-${archive.bvid}" // [新增] 共享元素过渡名称
+                sharedElementKey = com.android.purebilibili.core.ui.transition.videoPlayerSharedElementKey(archive.bvid)
             )
             Spacer(modifier = Modifier.height(12.dp))
         }
@@ -276,7 +346,9 @@ fun DynamicCardV2(
                     bangumiTarget?.let { onBangumiClick(it.seasonId, it.epId) }
                         ?: onDynamicDetailClick?.invoke(item.id_str)
                 },
-                transitionName = "video-${pgc.bvid.ifBlank { item.id_str }}"
+                sharedElementKey = com.android.purebilibili.core.ui.transition.videoPlayerSharedElementKey(
+                    pgc.bvid.ifBlank { item.id_str }
+                )
             )
             Spacer(modifier = Modifier.height(12.dp))
         }
@@ -368,9 +440,89 @@ fun DynamicCardV2(
             }
             
             // 显示图片 (转换为 DrawItem 格式复用现有组件)
-            if (opus.pics.isNotEmpty()) {
+            if (fullOpusContentBlocks.isNotEmpty()) {
+                val previewImages = remember(opus.pics) { opus.pics.map { it.url } }
+                var fullContentSelectedImageIndex by remember { mutableIntStateOf(-1) }
+                var fullContentImageIndex = 0
+                fullOpusContentBlocks.forEach { block ->
+                    when (block) {
+                        is OpusContentBlock.Text -> {
+                            Text(
+                                text = block.text,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        }
+                        is OpusContentBlock.Image -> {
+                            val currentImageIndex = fullContentImageIndex
+                            fullContentImageIndex += 1
+                            val aspectRatio = remember(block.pic.width, block.pic.height) {
+                                if (block.pic.width > 0 && block.pic.height > 0) {
+                                    block.pic.width.toFloat() / block.pic.height.toFloat()
+                                } else {
+                                    null
+                                }
+                            }
+                            AsyncImage(
+                                model = block.pic.url,
+                                contentDescription = opus.title.orEmpty(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (aspectRatio != null) {
+                                            Modifier.aspectRatio(aspectRatio)
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable(enabled = currentImageIndex in previewImages.indices) {
+                                        fullContentSelectedImageIndex = currentImageIndex
+                                    },
+                                contentScale = ContentScale.FillWidth
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        is OpusContentBlock.LinkCard -> {
+                            DynamicOpusLinkCard(
+                                card = block.card,
+                                modifier = Modifier.padding(bottom = 12.dp),
+                                onClick = {
+                                    when (val action = resolveDynamicOpusLinkCardAction(block.card)) {
+                                        is DynamicOpusLinkCardAction.OpenVideo -> onVideoClick(action.videoId)
+                                        is DynamicOpusLinkCardAction.OpenDynamicDetail -> onDynamicDetailClick?.invoke(action.dynamicId)
+                                        is DynamicOpusLinkCardAction.OpenArticle -> onArticleClick?.invoke(action.articleId, action.title)
+                                        is DynamicOpusLinkCardAction.OpenLive -> onLiveClick(
+                                            action.roomId,
+                                            block.card.title.ifBlank { "直播间" },
+                                            author?.name.orEmpty()
+                                        )
+                                        is DynamicOpusLinkCardAction.OpenUser -> onUserClick(action.mid)
+                                        is DynamicOpusLinkCardAction.OpenBangumi -> onBangumiClick(action.seasonId, action.epId)
+                                        is DynamicOpusLinkCardAction.OpenExternalUrl -> runCatching {
+                                            uriHandler.openUri(action.url)
+                                        }
+                                        DynamicOpusLinkCardAction.None -> Unit
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (fullContentSelectedImageIndex >= 0) {
+                    ImagePreviewDialog(
+                        images = previewImages,
+                        initialIndex = fullContentSelectedImageIndex,
+                        textContent = opusPreviewText,
+                        defaultTextVisible = dynamicPreviewTextVisible,
+                        onDismiss = { fullContentSelectedImageIndex = -1 }
+                    )
+                }
+            } else if (opus.pics.isNotEmpty()) {
                 val drawItems = opus.pics.map { pic ->
-                    com.android.purebilibili.data.model.response.DrawItem(
+                    DrawItem(
                         src = pic.url,
                         width = pic.width,
                         height = pic.height
@@ -379,7 +531,7 @@ fun DynamicCardV2(
                 DrawGridV2(
                     items = drawItems,
                     gifImageLoader = gifImageLoader,
-                    maxDisplayImages = if (isDetail) null else 9,
+                    maxDisplayImages = resolveDynamicOpusPreviewImageLimit(isDetail),
                     onImageClick = { index, rect ->
                         val action = resolveDynamicCardMediaAction(item, index)
                         if (action is DynamicCardMediaAction.PreviewImages) {
@@ -424,10 +576,15 @@ fun DynamicCardV2(
                     gifImageLoader = gifImageLoader,
                     maxDisplayImages = if (isDetail) null else 9,
                     onImageClick = { index, rect ->
-                        val action = resolveDynamicCardMediaAction(item, index)
-                        if (action is DynamicCardMediaAction.PreviewImages) {
-                            selectedImageIndex = action.initialIndex
-                            sourceRect = rect
+                        when (val action = resolveDynamicCardMediaAction(item, index, isDetail = isDetail)) {
+                            is DynamicCardMediaAction.PreviewImages -> {
+                                selectedImageIndex = action.initialIndex
+                                sourceRect = rect
+                            }
+                            is DynamicCardMediaAction.OpenDynamicDetail -> {
+                                onDynamicDetailClick?.invoke(action.dynamicId)
+                            }
+                            DynamicCardMediaAction.None -> Unit
                         }
                     }
                 )
@@ -460,7 +617,9 @@ fun DynamicCardV2(
                     },
                     isCollection = true,
                     collectionTitle = season.title,
-                    transitionName = "video-${seasonArchive.bvid}" // [新增] 共享元素过渡名称
+                    sharedElementKey = com.android.purebilibili.core.ui.transition.videoPlayerSharedElementKey(
+                        seasonArchive.bvid
+                    )
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             } else {
@@ -482,6 +641,7 @@ fun DynamicCardV2(
                         action = DynamicCardPrimaryAction.OpenLive(roomId, title, uname),
                         onVideoClick = onVideoClick,
                         onBangumiClick = onBangumiClick,
+                        onArticleClick = onArticleClick,
                         onDynamicDetailClick = onDynamicDetailClick,
                         onUserClick = onUserClick,
                         onLiveClick = onLiveClick
@@ -763,7 +923,12 @@ fun DynamicCardCompact(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    author?.pub_time ?: "",
+                    author?.let {
+                        resolveDynamicAuthorTimeText(
+                            pubTime = it.pub_time,
+                            pubTs = it.pub_ts
+                        )
+                    }.orEmpty(),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.5f)
                 )

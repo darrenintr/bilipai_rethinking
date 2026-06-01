@@ -80,6 +80,7 @@ internal fun CommandDanmakuOverlay(
     player: Player,
     onFollowClick: () -> Unit,
     onTripleClick: () -> Unit,
+    isFollowing: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val currentPosition by produceState(initialValue = player.currentPosition, key1 = player) {
@@ -104,6 +105,7 @@ internal fun CommandDanmakuOverlay(
                     containerHeight = constraints.maxHeight,
                     onFollowClick = onFollowClick,
                     onTripleClick = onTripleClick,
+                    isFollowing = isFollowing,
                     onDismiss = {
                         dismissedIds = dismissedIds + item.id
                     }
@@ -120,6 +122,7 @@ private fun CommandDanmakuCard(
     containerHeight: Int,
     onFollowClick: () -> Unit,
     onTripleClick: () -> Unit,
+    isFollowing: Boolean,
     onDismiss: () -> Unit
 ) {
     val (xRatio, yRatio) = when (item.type) {
@@ -147,7 +150,12 @@ private fun CommandDanmakuCard(
     ) {
         Box {
             when (item.type) {
-                CommandDanmakuType.ATTENTION -> AttentionCommandCard(item, onFollowClick, onTripleClick)
+                CommandDanmakuType.ATTENTION -> AttentionCommandCard(
+                    item = item,
+                    isFollowing = isFollowing,
+                    onFollowClick = onFollowClick,
+                    onTripleClick = onTripleClick
+                )
                 else -> InfoCommandCard(item)
             }
             CommandDanmakuCloseButton(
@@ -197,6 +205,7 @@ private fun InfoCommandCard(item: CommandDanmakuItem) {
 @Composable
 private fun AttentionCommandCard(
     item: CommandDanmakuItem,
+    isFollowing: Boolean,
     onFollowClick: () -> Unit,
     onTripleClick: () -> Unit
 ) {
@@ -224,13 +233,15 @@ private fun AttentionCommandCard(
         val label = resolveAttentionCommandLabel(item.attentionType)
         Button(
             onClick = {
-                when (item.attentionType) {
-                    1 -> playTripleAction()
-                    2 -> {
-                        onFollowClick()
-                        playTripleAction()
-                    }
-                    else -> onFollowClick()
+                val action = resolveAttentionCommandClickAction(
+                    attentionType = item.attentionType,
+                    isFollowing = isFollowing
+                )
+                if (action.shouldFollow) {
+                    onFollowClick()
+                }
+                if (action.shouldTriple) {
+                    playTripleAction()
                 }
             },
             shape = RoundedCornerShape(999.dp),
@@ -385,6 +396,22 @@ private fun CommandTripleActionIcon(
                 modifier = Modifier.size(17.dp)
             )
         }
+    }
+}
+
+internal data class AttentionCommandClickAction(
+    val shouldFollow: Boolean,
+    val shouldTriple: Boolean
+)
+
+internal fun resolveAttentionCommandClickAction(
+    attentionType: Int,
+    isFollowing: Boolean
+): AttentionCommandClickAction {
+    return when (attentionType) {
+        1 -> AttentionCommandClickAction(shouldFollow = false, shouldTriple = true)
+        2 -> AttentionCommandClickAction(shouldFollow = !isFollowing, shouldTriple = true)
+        else -> AttentionCommandClickAction(shouldFollow = !isFollowing, shouldTriple = false)
     }
 }
 

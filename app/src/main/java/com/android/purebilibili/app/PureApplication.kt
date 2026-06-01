@@ -39,7 +39,10 @@ import com.android.purebilibili.feature.plugin.AdFilterPlugin
 import com.android.purebilibili.feature.plugin.CdnRegionPlugin
 import com.android.purebilibili.feature.plugin.DanmakuEnhancePlugin
 import com.android.purebilibili.feature.plugin.EyeProtectionPlugin
+import com.android.purebilibili.feature.plugin.HomeFeedAnonymizerPlugin
 import com.android.purebilibili.feature.plugin.SponsorBlockPlugin
+import com.android.purebilibili.feature.plugin.dlna.DlnaCastPlugin
+import com.android.purebilibili.feature.plugin.googlecast.GoogleCastPlugin
 import com.android.purebilibili.feature.plugin.TodayWatchPlugin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -101,6 +104,7 @@ class PureApplication : Application(), ImageLoaderFactory, ComponentCallbacks2 {
         
         super.onCreate()
         Logger.init(this)
+        CrashReporter.installGlobalExceptionHandler()
 
         // 启动即确保首页视觉默认值生效：底栏悬浮 + 液态玻璃 + 顶部模糊
         // 冷启动路径不阻塞主线程，迁移改为后台执行。
@@ -153,7 +157,10 @@ class PureApplication : Application(), ImageLoaderFactory, ComponentCallbacks2 {
         PluginManager.register(EyeProtectionPlugin())
         PluginManager.register(TodayWatchPlugin())
         PluginManager.register(CdnRegionPlugin())
-        Logger.d(PureApplicationRuntimeConfig.TAG, " Plugin system initialized with 6 built-in plugins")
+        PluginManager.register(HomeFeedAnonymizerPlugin())
+        PluginManager.register(DlnaCastPlugin())
+        PluginManager.register(GoogleCastPlugin())
+        Logger.d(PureApplicationRuntimeConfig.TAG, " Plugin system initialized with 9 built-in plugins")
 
         com.android.purebilibili.core.plugin.json.JsonPluginManager.initialize(this)
         Logger.d(PureApplicationRuntimeConfig.TAG, " JSON plugin system initialized")

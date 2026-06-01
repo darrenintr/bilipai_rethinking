@@ -14,7 +14,7 @@ class DynamicScreenStatePolicyTest {
     @Test
     fun `horizontal dynamic header reserves top user list height at rest`() {
         assertEquals(
-            148,
+            184,
             resolveDynamicListTopPaddingExtraDp(
                 isHorizontalMode = true,
                 isHorizontalUserListCollapsed = false
@@ -233,6 +233,41 @@ class DynamicScreenStatePolicyTest {
         assertTrue(shouldUseSelectedUserDynamicFeed(selectedTab = 4, selectedUserId = 10001L))
         assertFalse(shouldUseSelectedUserDynamicFeed(selectedTab = 0, selectedUserId = 10001L))
         assertFalse(shouldUseSelectedUserDynamicFeed(selectedTab = 4, selectedUserId = null))
+    }
+
+    @Test
+    fun `non up tab clears selected user highlight`() {
+        assertNull(resolveDynamicSelectedUserForTab(selectedTab = 0, selectedUserId = 10001L))
+        assertNull(resolveDynamicSelectedUserForTab(selectedTab = 2, selectedUserId = 10001L))
+        assertEquals(10001L, resolveDynamicSelectedUserForTab(selectedTab = 4, selectedUserId = 10001L))
+    }
+
+    @Test
+    fun `feed should reset scroll when tab or selected user source changes`() {
+        assertTrue(
+            shouldResetDynamicFeedScrollOnSourceChange(
+                previousTab = 4,
+                nextTab = 0,
+                previousSelectedUserId = 10001L,
+                nextSelectedUserId = null
+            )
+        )
+        assertTrue(
+            shouldResetDynamicFeedScrollOnSourceChange(
+                previousTab = 4,
+                nextTab = 4,
+                previousSelectedUserId = 10001L,
+                nextSelectedUserId = 10002L
+            )
+        )
+        assertFalse(
+            shouldResetDynamicFeedScrollOnSourceChange(
+                previousTab = 0,
+                nextTab = 0,
+                previousSelectedUserId = null,
+                nextSelectedUserId = null
+            )
+        )
     }
 
     @Test

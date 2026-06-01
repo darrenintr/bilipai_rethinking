@@ -47,6 +47,24 @@ internal fun resolveSpaceSearchPlaceholder(scope: SpaceSearchScope): String {
     }
 }
 
+internal fun resolveSpaceSearchBarGridItemIndex(
+    scope: SpaceSearchScope,
+    hasContributionToolbar: Boolean
+): Int? {
+    return when (scope) {
+        SpaceSearchScope.DYNAMIC -> 2
+        SpaceSearchScope.VIDEO -> if (hasContributionToolbar) 3 else 2
+        SpaceSearchScope.NONE -> null
+    }
+}
+
+internal fun shouldEnableSpaceLazyGridSharedTransition(
+    hasSharedTransitionScope: Boolean,
+    hasAnimatedVisibilityScope: Boolean
+): Boolean {
+    return hasSharedTransitionScope && hasAnimatedVisibilityScope
+}
+
 internal fun shouldApplySpaceLoadResult(
     requestMid: Long,
     activeMid: Long,
@@ -77,8 +95,8 @@ internal fun applySpaceSupplementalData(
         series = series,
         createdFavoriteFolders = createdFavoriteFolders,
         collectedFavoriteFolders = collectedFavoriteFolders,
-        seasonArchives = seasonArchives,
-        seriesArchives = seriesArchives,
+        seasonArchives = mergeArchiveMapsByLargestList(state.seasonArchives, seasonArchives),
+        seriesArchives = mergeArchiveMapsByLargestList(state.seriesArchives, seriesArchives),
         contributionTabs = mergedContributionTabs,
         headerState = state.headerState.copy(
             createdFavorites = createdFavoriteFolders,
@@ -96,6 +114,50 @@ internal fun applySpaceSupplementalData(
             it.copy(hasLoaded = hasCollectionsLoaded)
         }
     )
+}
+
+private fun <T> mergeArchiveMapsByLargestList(
+    existing: Map<Long, List<T>>,
+    incoming: Map<Long, List<T>>
+): Map<Long, List<T>> {
+    return (existing.keys + incoming.keys).mapNotNull { id ->
+        val existingItems = existing[id].orEmpty()
+        val incomingItems = incoming[id].orEmpty()
+        val selectedItems = if (incomingItems.size >= existingItems.size) {
+            incomingItems
+        } else {
+            existingItems
+        }
+        if (selectedItems.isNotEmpty()) id to selectedItems else null
+    }.toMap()
+}
+
+internal fun resolveEmbeddedSeasonArchives(
+    seasons: List<SeasonItem>
+): Map<Long, List<SeasonArchiveItem>> {
+    return seasons.mapNotNull { season ->
+        val seasonId = season.meta.season_id
+        val archives = season.archives
+        if (seasonId > 0L && archives.isNotEmpty()) {
+            seasonId to archives
+        } else {
+            null
+        }
+    }.toMap()
+}
+
+internal fun resolveEmbeddedSeriesArchives(
+    series: List<SeriesItem>
+): Map<Long, List<SeriesArchiveItem>> {
+    return series.mapNotNull { seriesItem ->
+        val seriesId = seriesItem.meta.series_id
+        val archives = seriesItem.archives
+        if (seriesId > 0L && archives.isNotEmpty()) {
+            seriesId to archives
+        } else {
+            null
+        }
+    }.toMap()
 }
 
 internal fun mapSeasonArchiveToVideoItem(
@@ -212,6 +274,15 @@ internal fun resolveSpaceContributionVideoGridSpan(
         SpaceContributionVideoLayoutMode.GRID -> 1
         SpaceContributionVideoLayoutMode.SINGLE_COLUMN -> maxLineSpan
     }
+}
+
+internal fun resolveSpaceContributionVideoItemKey(
+    layoutMode: SpaceContributionVideoLayoutMode,
+    bvid: String,
+    aid: Long
+): String {
+    // 布局模式切换会同时改变 span 和内容树，key 随模式变化可避免 LazyGrid 复用旧 lookahead 节点。
+    return "space_video_${layoutMode.name}_${bvid}_${aid}"
 }
 
 internal data class SpaceInitialSeed(

@@ -66,6 +66,9 @@ internal data class SponsorBlockInsightSummary(
     val totalSavedMs: Long,
     val todaySavedMs: Long,
     val uniqueUpCount: Int,
+    val periodStats: List<SponsorBlockPeriodStat>,
+    val topVideo: SponsorBlockTopVideo?,
+    val topUp: SponsorBlockTopUp?,
     val recentRecords: List<SponsorBlockSkipRecord>
 ) {
     val totalSavedText: String
@@ -74,6 +77,29 @@ internal data class SponsorBlockInsightSummary(
     val todaySavedText: String
         get() = formatSponsorBlockSavedDuration(todaySavedMs)
 }
+
+internal data class SponsorBlockPeriodStat(
+    val label: String,
+    val skipCount: Int,
+    val uniqueVideoCount: Int,
+    val savedMs: Long
+) {
+    val savedText: String
+        get() = formatSponsorBlockSavedDuration(savedMs)
+}
+
+internal data class SponsorBlockTopVideo(
+    val title: String,
+    val bvid: String,
+    val skipCount: Int
+)
+
+internal data class SponsorBlockTopUp(
+    val name: String,
+    val mid: Long,
+    val skipCount: Int,
+    val uniqueVideoCount: Int
+)
 
 internal data class SponsorBlockDailySummaryNotification(
     val title: String,
@@ -127,6 +153,7 @@ internal fun buildSponsorBlockSkipRecord(
 internal fun resolveSponsorBlockInsightSummary(
     records: List<SponsorBlockSkipRecord>,
     dayStartMs: Long,
+    nowMs: Long = System.currentTimeMillis(),
     recentLimit: Int = 5
 ): SponsorBlockInsightSummary {
     val sortedRecords = records.sortedByDescending { it.timestampMs }
@@ -144,8 +171,81 @@ internal fun resolveSponsorBlockInsightSummary(
             .filter { it.timestampMs >= dayStartMs }
             .sumOf { it.savedMs },
         uniqueUpCount = uniqueUpKeys.size,
+        periodStats = buildSponsorBlockPeriodStats(records, dayStartMs, nowMs),
+        topVideo = resolveSponsorBlockTopVideo(records),
+        topUp = resolveSponsorBlockTopUp(records),
         recentRecords = sortedRecords.take(recentLimit.coerceAtLeast(1))
     )
+}
+
+internal fun buildSponsorBlockInsightShareText(summary: SponsorBlockInsightSummary): String {
+    val periodText = summary.periodStats.joinToString("\n") { stat ->
+        "${stat.label}: ${stat.skipCount} 次 / ${stat.uniqueVideoCount} 个视频 / 节省 ${stat.savedText}"
+    }
+    val topVideo = summary.topVideo?.let {
+        "最常跳过视频: ${it.title.ifBlank { it.bvid }}（${it.skipCount} 次）"
+    } ?: "最常跳过视频: 暂无"
+    val topUp = summary.topUp?.let {
+        "最常命中 UP: ${it.name.ifBlank { "未知UP" }}（${it.skipCount} 次，${it.uniqueVideoCount} 个视频）"
+    } ?: "最常命中 UP: 暂无"
+    return buildString {
+        appendLine("BiliPai 空降助手统计")
+        appendLine("累计跳过 ${summary.totalSkipCount} 次，节省 ${summary.totalSavedText}")
+        appendLine(periodText)
+        appendLine(topVideo)
+        append(topUp)
+    }
+}
+
+private fun buildSponsorBlockPeriodStats(
+    records: List<SponsorBlockSkipRecord>,
+    dayStartMs: Long,
+    nowMs: Long
+): List<SponsorBlockPeriodStat> {
+    val oneDayMs = 24L * 60L * 60L * 1000L
+    val periods = listOf(
+        "昨天" to (dayStartMs - oneDayMs until dayStartMs),
+        "近一周" to (nowMs - 7L * oneDayMs..nowMs),
+        "近一月" to (nowMs - 30L * oneDayMs..nowMs),
+        "近一年" to (nowMs - 365L * oneDayMs..nowMs)
+    )
+    return periods.map { (label, range) ->
+        val items = records.filter { it.timestampMs in range }
+        SponsorBlockPeriodStat(
+            label = label,
+            skipCount = items.size,
+            uniqueVideoCount = items.map { it.bvid.ifBlank { "cid:${it.cid}" } }.toSet().size,
+            savedMs = items.sumOf { it.savedMs }
+        )
+    }
+}
+
+private fun resolveSponsorBlockTopVideo(records: List<SponsorBlockSkipRecord>): SponsorBlockTopVideo? {
+    return records.groupBy { it.bvid.ifBlank { "cid:${it.cid}" } }
+        .maxByOrNull { (_, items) -> items.size }
+        ?.let { (_, items) ->
+            val representative = items.maxBy { it.timestampMs }
+            SponsorBlockTopVideo(
+                title = representative.videoTitle,
+                bvid = representative.bvid,
+                skipCount = items.size
+            )
+        }
+}
+
+private fun resolveSponsorBlockTopUp(records: List<SponsorBlockSkipRecord>): SponsorBlockTopUp? {
+    return records.groupBy { record ->
+        if (record.upMid > 0L) "mid:${record.upMid}" else "name:${record.upName}"
+    }.maxByOrNull { (_, items) -> items.size }
+        ?.let { (_, items) ->
+            val representative = items.maxBy { it.timestampMs }
+            SponsorBlockTopUp(
+                name = representative.upName,
+                mid = representative.upMid,
+                skipCount = items.size,
+                uniqueVideoCount = items.map { it.bvid.ifBlank { "cid:${it.cid}" } }.toSet().size
+            )
+        }
 }
 
 internal fun buildSponsorBlockDailySummaryNotification(
@@ -163,6 +263,18 @@ internal fun buildSponsorBlockDailySummaryNotification(
     return SponsorBlockDailySummaryNotification(
         title = "空降助手今日汇总",
         body = "$prefix ${todayRecords.size} 次，累计 $savedText"
+    )
+}
+
+internal fun buildSponsorBlockTestNotification(
+    config: SponsorBlockConfig
+): SponsorBlockDailySummaryNotification {
+    val prefix = config.dailySummaryNotificationPrefix.ifBlank {
+        SponsorBlockConfig.DEFAULT_DAILY_SUMMARY_PREFIX
+    }
+    return SponsorBlockDailySummaryNotification(
+        title = "空降助手测试通知",
+        body = "$prefix 1 次，累计 30 秒"
     )
 }
 

@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +70,8 @@ import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.graphics.toArgb
 import com.android.purebilibili.core.ui.rememberAppShareIcon
+import com.android.purebilibili.core.ui.rememberAppLikeFilledIcon
+import com.android.purebilibili.core.ui.rememberAppLikeIcon
 import com.android.purebilibili.core.ui.motion.emphasizedEnterTween
 import com.android.purebilibili.core.ui.motion.emphasizedExitTween
 import com.android.purebilibili.core.ui.motion.expressiveSnapSpring
@@ -76,6 +79,7 @@ import com.android.purebilibili.core.ui.motion.indicatorSpring
 import com.android.purebilibili.core.ui.motion.interactiveSnapSpring
 import com.android.purebilibili.core.ui.motion.softLandingSpring
 import com.android.purebilibili.core.store.SettingsManager
+import com.android.purebilibili.core.util.FormatUtils
 import com.android.purebilibili.core.util.rememberHapticFeedback
 import java.io.File
 
@@ -85,6 +89,8 @@ import java.io.File
 
 internal const val IMAGE_PREVIEW_BACKDROP_TAG = "image_preview_backdrop"
 internal const val IMAGE_PREVIEW_PAGE_TAG = "image_preview_page"
+internal const val IMAGE_PREVIEW_COMMENT_PANEL_TAG = "image_preview_comment_panel"
+internal const val IMAGE_PREVIEW_ORIGINAL_CHIP_TAG = "image_preview_original_chip"
 private const val IMAGE_PREVIEW_SHARE_CACHE_MAX_AGE_MS = 24L * 60L * 60L * 1000L
 
 private data class ImagePreviewOverlayRequest(
@@ -206,6 +212,10 @@ private fun ImagePreviewOverlayContent(
     val scope = rememberCoroutineScope()
     val haptic = rememberHapticFeedback()
     val shareIcon = rememberAppShareIcon()
+    val likeIcon = rememberAppLikeIcon()
+    val likeFilledIcon = rememberAppLikeFilledIcon()
+    val commentContext = textContent?.commentContext
+    val useCommentPreviewChrome = commentContext != null
     var isSaving by remember { mutableStateOf(false) }
     var isSharing by remember { mutableStateOf(false) }
     
@@ -350,6 +360,7 @@ private fun ImagePreviewOverlayContent(
             val constraints = this
             val fullWidth = constraints.maxWidth
             val fullHeight = constraints.maxHeight
+            val fullWidthPx = with(density) { fullWidth.toPx() }
             val fullHeightPx = with(density) { fullHeight.toPx() }
             val maxBlurRadiusPx = with(density) { 18.dp.toPx() }
             
@@ -543,31 +554,50 @@ private fun ImagePreviewOverlayContent(
                             .testTag(IMAGE_PREVIEW_PAGE_TAG)
                             .graphicsLayer {
                                 if (apply3D) {
-                                    //  3D 旋转角度（最大45度）
-                                    val rotationAngle = pageOffset * 45f
-                                    rotationY = rotationAngle
-                                    
-                                    //  设置旋转中心点
-                                    cameraDistance = 12f * density.density
-                                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
-                                        pivotFractionX = if (pageOffset < 0) 1f else 0f,
-                                        pivotFractionY = 0.5f
-                                    )
-                                    
-                                    //  缩放效果
-                                    val scale = 1f - (abs(pageOffset) * 0.1f).coerceIn(0f, 0.15f)
-                                    scaleX = scale
-                                    scaleY = scale
-                                    
-                                    //  透明度渐变
-                                    alpha = 1f - (abs(pageOffset) * 0.3f).coerceIn(0f, 0.5f)
+                                    if (useCommentPreviewChrome) {
+                                        val transform = resolveCommentImagePreviewPageTransform(
+                                            pageOffsetFraction = pageOffset,
+                                            containerWidthPx = fullWidthPx
+                                        )
+                                        rotationY = transform.rotationY
+                                        translationX = transform.translationXPx
+                                        cameraDistance = 8f * density.density
+                                        transformOrigin = TransformOrigin(
+                                            pivotFractionX = transform.pivotFractionX,
+                                            pivotFractionY = 0.5f
+                                        )
+                                        scaleX = transform.scale
+                                        scaleY = transform.scale
+                                        alpha = transform.alpha
+                                    } else {
+                                        //  3D 旋转角度（最大45度）
+                                        val rotationAngle = pageOffset * 45f
+                                        rotationY = rotationAngle
+
+                                        //  设置旋转中心点
+                                        cameraDistance = 12f * density.density
+                                        transformOrigin = TransformOrigin(
+                                            pivotFractionX = if (pageOffset < 0) 1f else 0f,
+                                            pivotFractionY = 0.5f
+                                        )
+
+                                        //  缩放效果
+                                        val scale = 1f - (abs(pageOffset) * 0.1f).coerceIn(0f, 0.15f)
+                                        scaleX = scale
+                                        scaleY = scale
+
+                                        //  透明度渐变
+                                        alpha = 1f - (abs(pageOffset) * 0.3f).coerceIn(0f, 0.5f)
+                                    }
                                 }
                             }
                             .pointerInput(Unit) {
                                 // 阻止点击穿透到关闭手势
                                 detectTapGestures { 
-                                     // 点击图片也关闭
-                                     triggerDismiss()
+                                     if (!useCommentPreviewChrome) {
+                                         // 点击图片也关闭
+                                         triggerDismiss()
+                                     }
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -663,8 +693,10 @@ private fun ImagePreviewOverlayContent(
                                 }
                             },
                             onClick = {
-                                // 点击图片关闭预览
-                                 triggerDismiss()
+                                if (!useCommentPreviewChrome) {
+                                    // 点击图片关闭预览
+                                    triggerDismiss()
+                                }
                             }
                         )
                     }
@@ -700,7 +732,11 @@ private fun ImagePreviewOverlayContent(
                     textVisible = imagePreviewTextVisible
                 )
 
-                if (resolvedText != null && shouldShowResolvedText && textPlacement == ImagePreviewTextPlacement.OVERLAY_BOTTOM) {
+                if (!useCommentPreviewChrome &&
+                    resolvedText != null &&
+                    shouldShowResolvedText &&
+                    textPlacement == ImagePreviewTextPlacement.OVERLAY_BOTTOM
+                ) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -800,7 +836,7 @@ private fun ImagePreviewOverlayContent(
                 }
 
                 //  页码指示器（圆点样式）
-                if (images.size > 1) {
+                if (!useCommentPreviewChrome && images.size > 1) {
                     Row(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -839,7 +875,34 @@ private fun ImagePreviewOverlayContent(
                     }
                 }
                 
+                val chromeOffset = pagerState.currentPageOffsetFraction.coerceIn(-1f, 1f)
+                val chromeModifier = Modifier.graphicsLayer {
+                    rotationZ = -chromeOffset * 2.8f
+                    translationX = with(density) { (-chromeOffset * 10f).dp.toPx() }
+                    transformOrigin = TransformOrigin.Center
+                }
+
                 // 顶部按钮栏（关闭 + 页码 + 下载）
+                if (commentContext != null) {
+                    ImagePreviewCommentTopBar(
+                        label = commentContext.originalSizeLabels.getOrNull(pagerState.currentPage)
+                            ?: resolveCommentImageOriginalSizeLabel(null),
+                        shareIcon = shareIcon,
+                        isSharing = isSharing,
+                        enabled = !isSharing && !isSaving,
+                        onDismiss = { triggerDismiss() },
+                        onShare = { requestShareCurrentImage(currentImageUrl) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .padding(
+                                start = overlayPadding.start,
+                                top = overlayPadding.top,
+                                end = overlayPadding.end
+                            )
+                            .then(chromeModifier)
+                    )
+                } else {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1032,7 +1095,256 @@ private fun ImagePreviewOverlayContent(
                         }
                     }
                 }
+                }
+
+                if (commentContext != null) {
+                    ImagePreviewCommentPanel(
+                        context = commentContext,
+                        likeIcon = likeIcon,
+                        likeFilledIcon = likeFilledIcon,
+                        shareIcon = shareIcon,
+                        isSharing = isSharing,
+                        enabled = !isSharing && !isSaving,
+                        onShare = { requestShareCurrentImage(currentImageUrl) },
+                        onReply = {
+                            commentContext.onReplyClick?.invoke()
+                            triggerDismiss()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(
+                                start = overlayPadding.start,
+                                end = overlayPadding.end,
+                                bottom = overlayPadding.bottom + 12.dp
+                            )
+                            .then(chromeModifier)
+                    )
+                }
             }
+    }
+}
+
+@Composable
+private fun ImagePreviewCommentTopBar(
+    label: String,
+    shareIcon: ImageVector,
+    isSharing: Boolean,
+    enabled: Boolean,
+    onDismiss: () -> Unit,
+    onShare: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier.size(48.dp)
+        ) {
+            Icon(
+                imageVector = CupertinoIcons.Default.Xmark,
+                contentDescription = "关闭",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .testTag(IMAGE_PREVIEW_ORIGINAL_CHIP_TAG)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Color.White.copy(alpha = 0.16f))
+                    .padding(horizontal = 18.dp, vertical = 7.dp)
+            )
+        }
+        IconButton(
+            onClick = onShare,
+            enabled = enabled,
+            modifier = Modifier.size(48.dp)
+        ) {
+            if (isSharing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    imageVector = shareIcon,
+                    contentDescription = "分享图片",
+                    tint = Color.White,
+                    modifier = Modifier.size(23.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImagePreviewCommentPanel(
+    context: ImagePreviewCommentContext,
+    likeIcon: ImageVector,
+    likeFilledIcon: ImageVector,
+    shareIcon: ImageVector,
+    isSharing: Boolean,
+    enabled: Boolean,
+    onShare: () -> Unit,
+    onReply: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var localLiked by remember(context.replyId, context.liked) { mutableStateOf(context.liked) }
+    var localLikeCount by remember(context.replyId, context.likeCount) { mutableIntStateOf(context.likeCount) }
+    val displayLikeCount = remember(localLikeCount) {
+        FormatUtils.formatStat(localLikeCount.coerceAtLeast(0).toLong())
+    }
+
+    Column(
+        modifier = modifier.testTag(IMAGE_PREVIEW_COMMENT_PANEL_TAG),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = context.avatarUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.16f))
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = context.authorName,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                if (context.timeText.isNotBlank()) {
+                    Text(
+                        text = context.timeText,
+                        color = Color.White.copy(alpha = 0.58f),
+                        fontSize = 12.sp,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        if (context.body.isNotBlank()) {
+            Text(
+                text = context.body,
+                color = Color.White.copy(alpha = 0.94f),
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+                maxLines = 3,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .clickable(enabled = context.onReplyClick != null, onClick = onReply)
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = "回复 ${context.authorName}",
+                    color = Color.White.copy(alpha = 0.56f),
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            ImagePreviewCommentActionButton(
+                icon = if (localLiked) likeFilledIcon else likeIcon,
+                label = displayLikeCount,
+                selected = localLiked,
+                enabled = context.onLikeClick != null,
+                onClick = {
+                    context.onLikeClick?.invoke()
+                    if (!localLiked) {
+                        localLiked = true
+                        localLikeCount += 1
+                    } else {
+                        localLiked = false
+                        localLikeCount = (localLikeCount - 1).coerceAtLeast(0)
+                    }
+                }
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            ImagePreviewCommentActionButton(
+                icon = shareIcon,
+                label = "转发",
+                selected = false,
+                enabled = enabled,
+                onClick = onShare,
+                busy = isSharing
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImagePreviewCommentActionButton(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    busy: Boolean = false
+) {
+    Column(
+        modifier = Modifier
+            .size(width = 46.dp, height = 48.dp)
+            .clickable(enabled = enabled && !busy, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                color = Color.White,
+                strokeWidth = 2.dp
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Text(
+            text = label,
+            color = Color.White.copy(alpha = if (enabled) 0.88f else 0.38f),
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1200,13 +1512,18 @@ suspend fun saveImageToGallery(context: android.content.Context, imageUrl: Strin
                     else -> "image/jpeg"
                 }
                 val fileName = "BiliPai_${System.currentTimeMillis()}.$extension"
+
+                if (saveBytesToCustomImageSaveDirectory(context, bytes, fileName, mimeType)) {
+                    Log.d("ImagePreview", "Image saved to custom directory: $fileName")
+                    return@withContext true
+                }
                 
                 // 使用 MediaStore 保存
                 val contentValues = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
                     put(MediaStore.Images.Media.MIME_TYPE, mimeType)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/BiliPai")
+                        put(MediaStore.Images.Media.RELATIVE_PATH, resolveDefaultImageMediaStoreRelativePath())
                         put(MediaStore.Images.Media.IS_PENDING, 1)
                     }
                 }
@@ -1253,13 +1570,28 @@ suspend fun saveImageToGallery(context: android.content.Context, imageUrl: Strin
             val extension = if (isPng) "png" else "jpg"
             val mimeType = if (isPng) "image/png" else "image/jpeg"
             val fileName = "BiliPai_${System.currentTimeMillis()}.$extension"
+            val format = if (isPng) android.graphics.Bitmap.CompressFormat.PNG else android.graphics.Bitmap.CompressFormat.JPEG
+
+            if (
+                saveBitmapToCustomImageSaveDirectory(
+                    context = context,
+                    bitmap = bitmap,
+                    fileName = fileName,
+                    format = format,
+                    quality = 95,
+                    mimeType = mimeType
+                )
+            ) {
+                Log.d("ImagePreview", "Image saved to custom directory: $fileName")
+                return@withContext true
+            }
             
             // 使用 MediaStore 保存图片
             val contentValues = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
                 put(MediaStore.Images.Media.MIME_TYPE, mimeType)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/BiliPai")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, resolveDefaultImageMediaStoreRelativePath())
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }
@@ -1270,7 +1602,6 @@ suspend fun saveImageToGallery(context: android.content.Context, imageUrl: Strin
             ) ?: return@withContext false
             
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                val format = if (isPng) android.graphics.Bitmap.CompressFormat.PNG else android.graphics.Bitmap.CompressFormat.JPEG
                 bitmap.compress(format, 95, outputStream)
             }
             

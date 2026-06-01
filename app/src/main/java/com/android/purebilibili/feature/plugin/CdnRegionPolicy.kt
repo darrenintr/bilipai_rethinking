@@ -23,6 +23,60 @@ data class CdnRewriteResult(
     val rewrittenCount: Int
 )
 
+@Serializable
+data class CdnCandidateHealth(
+    val host: String = "",
+    val firstFrameTimeoutCount: Int = 0,
+    val bufferingCount: Int = 0,
+    val playbackErrorCount: Int = 0,
+    val readyCount: Int = 0,
+    val manualProbeLatencyMs: Long? = null,
+    val manualProbeSpeedKbps: Long? = null,
+    val lastProbeAtMs: Long = 0L,
+    val lastUpdatedAtMs: Long = 0L
+)
+
+enum class CdnHealthEvent {
+    PLAYBACK_READY,
+    FIRST_FRAME_TIMEOUT,
+    AUDIO_TRACK_MISSING,
+    PLAYER_ERROR,
+    BUFFERING
+}
+
+data class CdnProbeLimit(
+    val maxCandidates: Int = 5,
+    val cooldownMs: Long = CDN_MANUAL_PROBE_COOLDOWN_MS
+)
+
+data class CdnProbeCandidate(
+    val url: String,
+    val host: String,
+    val allowed: Boolean,
+    val cooldownRemainingMs: Long
+)
+
+data class CdnLineDiagnostic(
+    val index: Int,
+    val host: String,
+    val statusLabel: String,
+    val latencyMs: Long?,
+    val speedKbps: Long?,
+    val errorCount: Int,
+    val bufferingCount: Int,
+    val lastProbeAtMs: Long,
+    val score: Int
+)
+
+data class CdnHostDiagnostic(
+    val host: String,
+    val statusLabel: String,
+    val latencyMs: Long?,
+    val speedKbps: Long?,
+    val errorCount: Int,
+    val lastProbeAtMs: Long
+)
+
 internal fun selectCdnRegionForLocation(
     location: IpLocationSnapshot,
     catalog: Map<String, List<String>>,
@@ -98,6 +152,150 @@ internal fun rewriteCdnUrlCandidates(
     )
 }
 
+internal fun sortCdnCandidatesByHealth(
+    urls: List<String>,
+    healthByHost: Map<String, CdnCandidateHealth>
+): List<String> {
+    return urls.distinct().mapIndexed { index, url ->
+        val host = hostFromCdnUrl(url)
+        Triple(url, index, scoreCdnCandidate(healthByHost[host]))
+    }.sortedWith(
+        compareByDescending<Triple<String, Int, Int>> { it.third }
+            .thenBy { it.second }
+    ).map { it.first }
+}
+
+internal fun scoreCdnCandidate(health: CdnCandidateHealth?): Int {
+    if (health == null) return 1_000
+    val speedScore = ((health.manualProbeSpeedKbps ?: 0L) / 128L).coerceAtMost(500L).toInt()
+    val latencyPenalty = ((health.manualProbeLatencyMs ?: 0L) / 20L).coerceAtMost(250L).toInt()
+    val readyScore = health.readyCount.coerceAtMost(10) * 25
+    val errorPenalty = health.playbackErrorCount * 220 +
+        health.firstFrameTimeoutCount * 180 +
+        health.bufferingCount * 55
+    return 1_000 + speedScore + readyScore - latencyPenalty - errorPenalty
+}
+
+internal fun recordCdnHealthEvent(
+    current: CdnCandidateHealth,
+    event: CdnHealthEvent,
+    nowMs: Long
+): CdnCandidateHealth {
+    return when (event) {
+        CdnHealthEvent.PLAYBACK_READY -> current.copy(
+            readyCount = current.readyCount + 1,
+            lastUpdatedAtMs = nowMs
+        )
+        CdnHealthEvent.FIRST_FRAME_TIMEOUT -> current.copy(
+            firstFrameTimeoutCount = current.firstFrameTimeoutCount + 1,
+            lastUpdatedAtMs = nowMs
+        )
+        CdnHealthEvent.AUDIO_TRACK_MISSING,
+        CdnHealthEvent.PLAYER_ERROR -> current.copy(
+            playbackErrorCount = current.playbackErrorCount + 1,
+            lastUpdatedAtMs = nowMs
+        )
+        CdnHealthEvent.BUFFERING -> current.copy(
+            bufferingCount = current.bufferingCount + 1,
+            lastUpdatedAtMs = nowMs
+        )
+    }
+}
+
+internal fun recordCdnProbeResult(
+    current: CdnCandidateHealth,
+    latencyMs: Long?,
+    speedKbps: Long?,
+    success: Boolean,
+    nowMs: Long
+): CdnCandidateHealth {
+    val base = current.copy(
+        manualProbeLatencyMs = latencyMs,
+        manualProbeSpeedKbps = speedKbps,
+        lastProbeAtMs = nowMs,
+        lastUpdatedAtMs = nowMs
+    )
+    return if (success) {
+        base.copy(readyCount = base.readyCount + 1)
+    } else {
+        base.copy(playbackErrorCount = base.playbackErrorCount + 1)
+    }
+}
+
+internal fun resolveCdnProbeCandidates(
+    urls: List<String>,
+    healthByHost: Map<String, CdnCandidateHealth>,
+    nowMs: Long,
+    limit: CdnProbeLimit = CdnProbeLimit()
+): List<CdnProbeCandidate> {
+    return urls.distinctBy(::hostFromCdnUrl)
+        .filter { hostFromCdnUrl(it).isNotBlank() }
+        .take(limit.maxCandidates)
+        .map { url ->
+            val host = hostFromCdnUrl(url)
+            val elapsed = nowMs - (healthByHost[host]?.lastProbeAtMs ?: 0L)
+            val cooldownRemaining = (limit.cooldownMs - elapsed).coerceAtLeast(0L)
+            CdnProbeCandidate(
+                url = url,
+                host = host,
+                allowed = cooldownRemaining == 0L,
+                cooldownRemainingMs = cooldownRemaining
+            )
+        }
+}
+
+internal fun buildCdnLineDiagnostics(
+    urls: List<String>,
+    healthByHost: Map<String, CdnCandidateHealth>
+): List<CdnLineDiagnostic> {
+    return urls.distinct().mapIndexed { index, url ->
+        val host = hostFromCdnUrl(url)
+        val health = healthByHost[host]
+        val errorCount = (health?.playbackErrorCount ?: 0) + (health?.firstFrameTimeoutCount ?: 0)
+        CdnLineDiagnostic(
+            index = index,
+            host = host.ifBlank { "未知线路" },
+            statusLabel = resolveCdnHealthStatusLabel(health),
+            latencyMs = health?.manualProbeLatencyMs,
+            speedKbps = health?.manualProbeSpeedKbps,
+            errorCount = errorCount,
+            bufferingCount = health?.bufferingCount ?: 0,
+            lastProbeAtMs = health?.lastProbeAtMs ?: 0L,
+            score = scoreCdnCandidate(health)
+        )
+    }
+}
+
+internal fun buildCdnHostDiagnostics(
+    hosts: List<String>,
+    healthByHost: Map<String, CdnCandidateHealth>
+): List<CdnHostDiagnostic> {
+    return hosts.distinct().map { host ->
+        val health = healthByHost[host]
+        CdnHostDiagnostic(
+            host = host,
+            statusLabel = resolveCdnHealthStatusLabel(health),
+            latencyMs = health?.manualProbeLatencyMs,
+            speedKbps = health?.manualProbeSpeedKbps,
+            errorCount = (health?.playbackErrorCount ?: 0) + (health?.firstFrameTimeoutCount ?: 0),
+            lastProbeAtMs = health?.lastProbeAtMs ?: 0L
+        )
+    }
+}
+
+internal fun resolveCdnHealthStatusLabel(health: CdnCandidateHealth?): String {
+    if (health == null || health.lastUpdatedAtMs <= 0L) return "未检测"
+    val errors = health.playbackErrorCount + health.firstFrameTimeoutCount
+    return when {
+        errors >= 2 -> "不稳定"
+        health.bufferingCount >= 3 -> "易缓冲"
+        health.manualProbeSpeedKbps != null && health.manualProbeSpeedKbps >= 2_048L -> "速度较好"
+        health.manualProbeLatencyMs != null && health.manualProbeLatencyMs <= 250L -> "延迟较低"
+        health.readyCount > 0 -> "可用"
+        else -> "已检测"
+    }
+}
+
 internal fun shouldRefreshCdnIpLocation(
     enabled: Boolean,
     nowMs: Long,
@@ -139,6 +337,7 @@ internal fun hasUsableCdnRegionSelection(
 }
 
 internal const val CDN_REGION_LOCATION_TTL_MS: Long = 24L * 60L * 60L * 1000L
+internal const val CDN_MANUAL_PROBE_COOLDOWN_MS: Long = 10L * 60L * 1000L
 
 internal fun sortCdnRegionHostsForIsp(
     hosts: List<String>,
@@ -175,7 +374,7 @@ private val provinceRegionAliases = mapOf(
     "上海" to "上海",
     "北京" to "北京",
     "天津" to "天津",
-    "重庆" to "重庆",
+    "重庆" to "成都",
     "广东" to "广州",
     "四川" to "成都",
     "陕西" to "西安",
@@ -188,6 +387,7 @@ private val provinceRegionAliases = mapOf(
 )
 
 private val cityRegionAliases = mapOf(
+    "重庆" to "成都",
     "广州" to "广州",
     "深圳" to "深圳",
     "成都" to "成都",
@@ -256,4 +456,8 @@ private fun rewriteBilivideoHost(url: String, newHost: String): String? {
     val query = uri.rawQuery?.let { "?$it" }.orEmpty()
     val fragment = uri.rawFragment?.let { "#$it" }.orEmpty()
     return "$scheme://$userInfo$newHost$port$path$query$fragment"
+}
+
+internal fun hostFromCdnUrl(url: String): String {
+    return runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
 }

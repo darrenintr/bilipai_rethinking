@@ -73,7 +73,43 @@ class UiSkinInstallStore(
                 )
             }
             .sortedBy { it.displayName }
-        return listOf(BuiltInUiSkins.winterCloudInstallRecord) + deduplicatedExternal
+        return deduplicatedExternal
+    }
+
+    fun deleteInstalledPackage(installId: String): Result<Boolean> {
+        return runCatching {
+            val recordFile = installedFile(installId)
+            if (!recordFile.exists()) {
+                return@runCatching false
+            }
+            val installed = json.decodeFromString(InstalledUiSkinPackage.serializer(), recordFile.readText())
+            if (!recordFile.delete()) {
+                throw IllegalArgumentException("皮肤安装记录删除失败")
+            }
+            File(installed.packagePath).delete()
+            assetDir(installed.skinId, installed.packageSha256).deleteRecursively()
+            packageDir(installed.skinId).deleteIfEmpty()
+            File(assetsDir(), installed.skinId.safeUiSkinFileSegment()).deleteIfEmpty()
+            true
+        }
+    }
+
+    fun extractPreviewAssetFiles(
+        preview: UiSkinPackagePreview,
+        packageBytes: ByteArray
+    ): Result<Map<String, String>> {
+        return runCatching {
+            val verifiedPreview = previewPackage(packageBytes).getOrThrow()
+            if (verifiedPreview.packageSha256 != preview.packageSha256) {
+                throw IllegalArgumentException("皮肤包内容与预览 SHA-256 不一致")
+            }
+            val assetFiles = extractDeclaredAssets(
+                preview = preview,
+                packageBytes = packageBytes,
+                assetRoot = previewAssetDir(preview.packageSha256)
+            )
+            assetFiles
+        }
     }
 
     companion object {
@@ -118,11 +154,12 @@ class UiSkinInstallStore(
 
     private fun extractDeclaredAssets(
         preview: UiSkinPackagePreview,
-        packageBytes: ByteArray
+        packageBytes: ByteArray,
+        assetRoot: File = assetDir(preview.manifest.skinId, preview.packageSha256)
     ): Map<String, String> {
         val declaredPaths = preview.assetEntries.mapTo(linkedSetOf()) { it.path }
         if (declaredPaths.isEmpty()) return emptyMap()
-        val assetRoot = assetDir(preview.manifest.skinId, preview.packageSha256)
+        assetRoot.deleteRecursively()
         assetRoot.mkdirs()
         val assetFiles = linkedMapOf<String, String>()
 
@@ -157,11 +194,21 @@ class UiSkinInstallStore(
 
     private fun assetsDir(): File = File(rootDir, "assets")
 
+    private fun previewAssetDir(packageSha256: String): File {
+        return File(File(rootDir, "preview_assets"), packageSha256)
+    }
+
     private fun ensureInsideDirectory(root: File, target: File) {
         val rootPath = root.canonicalFile.toPath()
         val targetPath = target.canonicalFile.toPath()
         if (!targetPath.startsWith(rootPath)) {
             throw IllegalArgumentException("皮肤资源路径越界")
+        }
+    }
+
+    private fun File.deleteIfEmpty() {
+        if (isDirectory && listFiles()?.isEmpty() == true) {
+            delete()
         }
     }
 

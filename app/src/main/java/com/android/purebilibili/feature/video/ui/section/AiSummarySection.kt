@@ -30,6 +30,7 @@ import io.github.alexzhirkevich.cupertino.icons.outlined.*
 fun AiSummaryCard(
     aiSummary: AiSummaryData?,
     onTimestampClick: ((Long) -> Unit)? = null,
+    onCreateNoteDraftClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (!hasAiSummaryContent(aiSummary)) return
@@ -129,6 +130,22 @@ fun AiSummaryCard(
                                     onClick = { onTimestampClick?.invoke(part.timestamp * 1000L) }
                                 )
                             }
+                        }
+                    }
+
+                    if (onCreateNoteDraftClick != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = onCreateNoteDraftClick,
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Icon(
+                                imageVector = CupertinoIcons.Default.Sparkles,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("生成笔记草稿")
                         }
                     }
                 }

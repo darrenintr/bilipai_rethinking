@@ -1,5 +1,6 @@
 package com.android.purebilibili.feature.video.ui.components
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -57,15 +58,23 @@ import com.android.purebilibili.data.model.response.ReplyPicture
 import com.android.purebilibili.data.model.response.ReplySailingCardBg
 import com.android.purebilibili.data.model.response.ReplySailingFan
 import com.android.purebilibili.data.model.response.ReplyUpAction
+import com.android.purebilibili.data.repository.BlockedUpRelationSource
+import com.android.purebilibili.data.repository.BlockedUpRepository
 import com.android.purebilibili.data.repository.VideoRepository
 import com.android.purebilibili.feature.dynamic.components.ImagePreviewTextContent
 import com.android.purebilibili.feature.dynamic.components.ImagePreviewTextPlacement
+import com.android.purebilibili.feature.dynamic.components.ImagePreviewCommentContext
+import com.android.purebilibili.feature.dynamic.components.resolveCommentImageOriginalSizeLabel
 import androidx.compose.ui.layout.ContentScale
 import com.android.purebilibili.core.ui.common.CopySelectionDialog
 import com.android.purebilibili.core.ui.common.copyOnLongPress
 import com.android.purebilibili.core.ui.common.rememberClipboardCopyHandler
+import com.android.purebilibili.core.ui.OfficialVerifyBadge
+import com.android.purebilibili.core.ui.OfficialVerifyBadgeSpec
+import com.android.purebilibili.core.ui.OfficialVerifyBadgeTone
 import com.android.purebilibili.core.ui.rememberAppLikeFilledIcon
 import com.android.purebilibili.core.ui.rememberAppLikeIcon
+import com.android.purebilibili.core.ui.resolveOfficialVerifyBadge
 import androidx.compose.foundation.text.selection.SelectionContainer
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -78,6 +87,8 @@ import kotlinx.coroutines.launch
 
 private val EMOTE_TOKEN_PATTERN = """\[(.*?)\]""".toRegex()
 private const val COMMENT_INLINE_UP_BADGE_ID = "comment_inline_up_badge"
+private const val COMMENT_INLINE_VERIFY_PERSONAL_BADGE_ID = "comment_inline_verify_personal_badge"
+private const val COMMENT_INLINE_VERIFY_ORGANIZATION_BADGE_ID = "comment_inline_verify_organization_badge"
 internal const val COMMENT_INLINE_TOP_BADGE_ID = "comment_inline_top_badge"
 internal const val COMMENT_URL_TAG = "URL"
 internal const val COMMENT_TIMESTAMP_TAG = "TIMESTAMP"
@@ -260,10 +271,22 @@ internal fun resolveReplyLocationText(location: String?): String? {
 
 internal fun buildSubReplyPreviewPrefix(
     userName: String,
-    isUpComment: Boolean
+    isUpComment: Boolean,
+    officialVerifyTone: OfficialVerifyBadgeTone? = null
 ): List<String> {
     return buildList {
         add(userName)
+        when (officialVerifyTone) {
+            OfficialVerifyBadgeTone.PERSONAL -> {
+                add(" ")
+                add("[VERIFY_PERSONAL]")
+            }
+            OfficialVerifyBadgeTone.ORGANIZATION -> {
+                add(" ")
+                add("[VERIFY_ORGANIZATION]")
+            }
+            null -> Unit
+        }
         if (isUpComment) {
             add(" ")
             add("[UP]")
@@ -347,6 +370,81 @@ internal fun buildReplyCommentShareText(item: ReplyItem): String {
             append(url)
         }
     }
+}
+
+internal fun resolveReplyMemberMid(item: ReplyItem): Long {
+    return item.member.mid.toLongOrNull()?.takeIf { it > 0L }
+        ?: item.mid.takeIf { it > 0L }
+        ?: 0L
+}
+
+internal fun shouldSupportReplyShare(item: ReplyItem): Boolean {
+    return item.replyControl?.supportShare ?: true
+}
+
+internal enum class ReplyActionSheetAction {
+    COPY_ALL,
+    FREE_COPY,
+    SAVE,
+    SHARE,
+    REPLY,
+    BLOCK_USER,
+    REPORT,
+    TOGGLE_TOP,
+    DELETE
+}
+
+internal fun buildReplyActionSheetActions(
+    canDelete: Boolean,
+    canReport: Boolean,
+    canShare: Boolean,
+    canBlockUser: Boolean,
+    topActionLabel: String? = null
+): List<ReplyActionSheetAction> {
+    return buildList {
+        add(ReplyActionSheetAction.COPY_ALL)
+        add(ReplyActionSheetAction.FREE_COPY)
+        add(ReplyActionSheetAction.SAVE)
+        if (canShare) {
+            add(ReplyActionSheetAction.SHARE)
+        }
+        add(ReplyActionSheetAction.REPLY)
+        if (canBlockUser) {
+            add(ReplyActionSheetAction.BLOCK_USER)
+        }
+        if (canReport) {
+            add(ReplyActionSheetAction.REPORT)
+        }
+        if (!topActionLabel.isNullOrBlank()) {
+            add(ReplyActionSheetAction.TOGGLE_TOP)
+        }
+        if (canDelete) {
+            add(ReplyActionSheetAction.DELETE)
+        }
+    }
+}
+
+private fun resolveReplyActionSheetLabel(
+    action: ReplyActionSheetAction,
+    topActionLabel: String?
+): String {
+    return when (action) {
+        ReplyActionSheetAction.COPY_ALL -> "复制全部"
+        ReplyActionSheetAction.FREE_COPY -> "自由复制"
+        ReplyActionSheetAction.SAVE -> "保存评论"
+        ReplyActionSheetAction.SHARE -> "分享评论"
+        ReplyActionSheetAction.REPLY -> "回复"
+        ReplyActionSheetAction.BLOCK_USER -> "屏蔽用户"
+        ReplyActionSheetAction.REPORT -> "举报"
+        ReplyActionSheetAction.TOGGLE_TOP -> topActionLabel.orEmpty()
+        ReplyActionSheetAction.DELETE -> "删除"
+    }
+}
+
+private fun isReplyActionDestructive(action: ReplyActionSheetAction): Boolean {
+    return action == ReplyActionSheetAction.REPORT ||
+        action == ReplyActionSheetAction.BLOCK_USER ||
+        action == ReplyActionSheetAction.DELETE
 }
 
 internal fun resolveReplyCommentImageSaveToast(success: Boolean): String {
@@ -717,6 +815,10 @@ internal fun resolveVisibleSubReplies(
     return if (expanded) previewReplies else previewReplies.take(limit)
 }
 
+internal fun resolveInitialSubReplyPreviewExpanded(
+    previewReplyCount: Int
+): Boolean = previewReplyCount > 0
+
 internal fun shouldShowInlineSubReplyToggle(
     previewReplyCount: Int,
     collapsedLimit: Int = COLLAPSED_SUB_REPLY_PREVIEW_LIMIT
@@ -823,11 +925,31 @@ internal fun resolveFanGroupVisualFromMemberAndSailing(
     )
 }
 
-internal fun resolveReplyPreviewTextContent(item: ReplyItem): ImagePreviewTextContent {
+internal fun resolveReplyPreviewTextContent(
+    item: ReplyItem,
+    isLiked: Boolean = item.action == 1,
+    onLikeClick: (() -> Unit)? = null,
+    onReplyClick: (() -> Unit)? = null
+): ImagePreviewTextContent {
+    val originalSizeLabels = item.content.pictures.orEmpty().map { picture ->
+        resolveCommentImageOriginalSizeLabel(picture.imgSize.takeIf { it > 0f })
+    }
     return ImagePreviewTextContent(
         headline = item.member.uname,
         body = item.content.message,
-        placement = ImagePreviewTextPlacement.TOP_BAR
+        placement = ImagePreviewTextPlacement.TOP_BAR,
+        commentContext = ImagePreviewCommentContext(
+            replyId = item.rpid,
+            authorName = item.member.uname,
+            avatarUrl = item.member.avatar,
+            timeText = formatTime(item.ctime),
+            body = item.content.message,
+            originalSizeLabels = originalSizeLabels,
+            likeCount = item.like,
+            liked = isLiked,
+            onLikeClick = onLikeClick,
+            onReplyClick = onReplyClick
+        )
     )
 }
 
@@ -972,7 +1094,20 @@ fun ReplyItemView(
         null
     }
     val piliPlusDecoration = fanGroupVisual
-    var isSubPreviewExpanded by remember(item.rpid) { mutableStateOf(false) }
+    val replyOfficialBadge = remember(item.member.officialVerify) {
+        resolveOfficialVerifyBadge(
+            type = item.member.officialVerify.type,
+            desc = item.member.officialVerify.desc,
+            compact = true
+        )
+    }
+    var isSubPreviewExpanded by remember(item.rpid, item.replies) {
+        mutableStateOf(
+            resolveInitialSubReplyPreviewExpanded(
+                previewReplyCount = item.replies.orEmpty().size
+            )
+        )
+    }
     val visibleSubReplies = remember(item.replies, isSubPreviewExpanded, collapsedSubReplyPreviewLimit) {
         resolveVisibleSubReplies(
             replies = item.replies,
@@ -1002,11 +1137,13 @@ fun ReplyItemView(
         shouldOpenReplyThreadFromRootClick(item)
     }
     val copyToClipboard = rememberClipboardCopyHandler()
+    val blockedUpRepository = remember(context) { BlockedUpRepository(context) }
     var showActionSheet by remember(item.rpid) { mutableStateOf(false) }
     var showFreeCopyDialog by remember(item.rpid) { mutableStateOf(false) }
     var showReportDialog by remember(item.rpid) { mutableStateOf(false) }
     var pendingSaveReply by remember(item.rpid) { mutableStateOf<ReplyItem?>(null) }
     val copyText = remember(item.content.message) { item.content.message.trim() }
+    val replyMemberMid = remember(item.member.mid, item.mid) { resolveReplyMemberMid(item) }
     fun launchSaveReplyCommentImage(reply: ReplyItem) {
         scope.launch {
             val success = saveReplyCommentImageToGallery(context, reply)
@@ -1032,11 +1169,32 @@ fun ReplyItemView(
             storagePermission.request()
         }
     }
+    fun shareReplyComment() {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "分享评论")
+            putExtra(Intent.EXTRA_TEXT, buildReplyCommentShareText(item))
+        }
+        context.startActivity(Intent.createChooser(sendIntent, "分享评论"))
+    }
+    fun blockReplyUser() {
+        scope.launch {
+            val result = blockedUpRepository.blockUpWithBilibiliSync(
+                mid = replyMemberMid,
+                name = item.member.uname,
+                face = item.member.avatar,
+                relationSource = BlockedUpRelationSource.COMMENT
+            )
+            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     if (showActionSheet) {
         ReplyActionSheet(
             canDelete = onDeleteClick != null,
             canReport = onReportClick != null,
+            canShare = shouldSupportReplyShare(item),
+            canBlockUser = replyMemberMid > 0L,
             topActionLabel = if (canToggleTop) resolveReplyTopActionLabel(showTopBadge) else null,
             onDismiss = { showActionSheet = false },
             onCopyAll = {
@@ -1048,8 +1206,14 @@ fun ReplyItemView(
             onSave = {
                 requestSaveReplyCommentImage()
             },
+            onShare = {
+                shareReplyComment()
+            },
             onReply = {
                 onReplyClick?.invoke() ?: onSubClick(item)
+            },
+            onBlockUser = {
+                blockReplyUser()
             },
             onReport = {
                 showReportDialog = true
@@ -1162,6 +1326,13 @@ fun ReplyItemView(
                                     .copyOnLongPress(item.member.uname, "用户名")
                             )
 
+                            if (replyOfficialBadge != null) {
+                                OfficialVerifyBadge(
+                                    badge = replyOfficialBadge,
+                                    compact = true
+                                )
+                            }
+
                             if (item.member.levelInfo.currentLevel > 0) {
                                 LevelTag(
                                     level = item.member.levelInfo.currentLevel,
@@ -1230,7 +1401,12 @@ fun ReplyItemView(
                                     images,
                                     index,
                                     rect,
-                                    resolveReplyPreviewTextContent(item)
+                                    resolveReplyPreviewTextContent(
+                                        item = item,
+                                        isLiked = isLiked,
+                                        onLikeClick = onLikeClick,
+                                        onReplyClick = onReplyClick
+                                    )
                                 )
                             }
                         )
@@ -1316,10 +1492,23 @@ fun ReplyItemView(
                                 }
                             }
 
-                            val prefixTokens = remember(subReply.member.uname, upMid, subReply.mid) {
+                            val subReplyOfficialBadge = remember(subReply.member.officialVerify) {
+                                resolveOfficialVerifyBadge(
+                                    type = subReply.member.officialVerify.type,
+                                    desc = subReply.member.officialVerify.desc,
+                                    compact = true
+                                )
+                            }
+                            val prefixTokens = remember(
+                                subReply.member.uname,
+                                upMid,
+                                subReply.mid,
+                                subReplyOfficialBadge?.tone
+                            ) {
                                 buildSubReplyPreviewPrefix(
                                     userName = subReply.member.uname,
-                                    isUpComment = upMid > 0 && subReply.mid == upMid
+                                    isUpComment = upMid > 0 && subReply.mid == upMid,
+                                    officialVerifyTone = subReplyOfficialBadge?.tone
                                 )
                             }
                             val prefixTextColor = appearance.primaryTextColor.copy(alpha = 0.8f)
@@ -1329,6 +1518,14 @@ fun ReplyItemView(
                                 buildAnnotatedString {
                                     prefixTokens.forEach { token ->
                                         when (token) {
+                                            "[VERIFY_PERSONAL]" -> appendInlineContent(
+                                                COMMENT_INLINE_VERIFY_PERSONAL_BADGE_ID,
+                                                "个人"
+                                            )
+                                            "[VERIFY_ORGANIZATION]" -> appendInlineContent(
+                                                COMMENT_INLINE_VERIFY_ORGANIZATION_BADGE_ID,
+                                                "机构"
+                                            )
                                             "[UP]" -> withStyle(
                                                 SpanStyle(color = upTagColor)
                                             ) {
@@ -1558,10 +1755,19 @@ private fun ReplyVideoReferenceText(
     }
     val upBadgeInlineContent = rememberInlineUpBadgeContent()
     val topBadgeInlineContent = rememberInlineTopBadgeContent()
-    val inlineContent = remember(upBadgeInlineContent, topBadgeInlineContent) {
+    val personalVerifyInlineContent = rememberInlineOfficialVerifyBadgeContent(OfficialVerifyBadgeTone.PERSONAL)
+    val organizationVerifyInlineContent = rememberInlineOfficialVerifyBadgeContent(OfficialVerifyBadgeTone.ORGANIZATION)
+    val inlineContent = remember(
+        upBadgeInlineContent,
+        topBadgeInlineContent,
+        personalVerifyInlineContent,
+        organizationVerifyInlineContent
+    ) {
         mapOf(
             COMMENT_INLINE_UP_BADGE_ID to upBadgeInlineContent,
-            COMMENT_INLINE_TOP_BADGE_ID to topBadgeInlineContent
+            COMMENT_INLINE_TOP_BADGE_ID to topBadgeInlineContent,
+            COMMENT_INLINE_VERIFY_PERSONAL_BADGE_ID to personalVerifyInlineContent,
+            COMMENT_INLINE_VERIFY_ORGANIZATION_BADGE_ID to organizationVerifyInlineContent
         )
     }
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -1675,7 +1881,19 @@ fun RichCommentText(
 
     val upBadgeInlineContent = rememberInlineUpBadgeContent()
     val topBadgeInlineContent = rememberInlineTopBadgeContent()
-    val inlineContent = remember(renderableEmoteKeys, emoteMap, content?.urls, context, urlColor, upBadgeInlineContent, topBadgeInlineContent) {
+    val personalVerifyInlineContent = rememberInlineOfficialVerifyBadgeContent(OfficialVerifyBadgeTone.PERSONAL)
+    val organizationVerifyInlineContent = rememberInlineOfficialVerifyBadgeContent(OfficialVerifyBadgeTone.ORGANIZATION)
+    val inlineContent = remember(
+        renderableEmoteKeys,
+        emoteMap,
+        content?.urls,
+        context,
+        urlColor,
+        upBadgeInlineContent,
+        topBadgeInlineContent,
+        personalVerifyInlineContent,
+        organizationVerifyInlineContent
+    ) {
         buildMap {
             renderableEmoteKeys.forEach { key ->
                 val url = emoteMap[key].orEmpty()
@@ -1720,6 +1938,8 @@ fun RichCommentText(
             }
             put(COMMENT_INLINE_UP_BADGE_ID, upBadgeInlineContent)
             put(COMMENT_INLINE_TOP_BADGE_ID, topBadgeInlineContent)
+            put(COMMENT_INLINE_VERIFY_PERSONAL_BADGE_ID, personalVerifyInlineContent)
+            put(COMMENT_INLINE_VERIFY_ORGANIZATION_BADGE_ID, organizationVerifyInlineContent)
         }
     }
     
@@ -1883,6 +2103,41 @@ private fun rememberInlineUpBadgeContent(): InlineTextContent {
                 contentAlignment = Alignment.Center
             ) {
                 UserUpBadge()
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberInlineOfficialVerifyBadgeContent(
+    tone: OfficialVerifyBadgeTone
+): InlineTextContent {
+    return remember(tone) {
+        InlineTextContent(
+            Placeholder(
+                width = 2.2.em,
+                height = 1.15.em,
+                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+            )
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                OfficialVerifyBadge(
+                    badge = OfficialVerifyBadgeSpec(
+                        text = when (tone) {
+                            OfficialVerifyBadgeTone.PERSONAL -> "个人"
+                            OfficialVerifyBadgeTone.ORGANIZATION -> "机构"
+                        },
+                        contentDescription = when (tone) {
+                            OfficialVerifyBadgeTone.PERSONAL -> "个人认证"
+                            OfficialVerifyBadgeTone.ORGANIZATION -> "机构认证"
+                        },
+                        tone = tone
+                    ),
+                    compact = true
+                )
             }
         }
     }
@@ -2134,16 +2389,29 @@ private fun ReplyTextAction(
 internal fun ReplyActionSheet(
     canDelete: Boolean,
     canReport: Boolean,
+    canShare: Boolean = true,
+    canBlockUser: Boolean = false,
     topActionLabel: String? = null,
     onDismiss: () -> Unit,
     onCopyAll: () -> Unit,
     onFreeCopy: () -> Unit,
     onSave: () -> Unit,
+    onShare: () -> Unit = {},
     onReply: () -> Unit,
+    onBlockUser: () -> Unit = {},
     onReport: () -> Unit,
     onToggleTop: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val actions = remember(canDelete, canReport, canShare, canBlockUser, topActionLabel) {
+        buildReplyActionSheetActions(
+            canDelete = canDelete,
+            canReport = canReport,
+            canShare = canShare,
+            canBlockUser = canBlockUser,
+            topActionLabel = topActionLabel
+        )
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -2151,59 +2419,22 @@ internal fun ReplyActionSheet(
                 .navigationBarsPadding()
                 .padding(bottom = 12.dp)
         ) {
-            ReplyActionSheetItem(
-                label = "复制全部",
-                onClick = {
-                    onCopyAll()
-                    onDismiss()
-                }
-            )
-            ReplyActionSheetItem(
-                label = "自由复制",
-                onClick = {
-                    onFreeCopy()
-                    onDismiss()
-                }
-            )
-            ReplyActionSheetItem(
-                label = "保存评论",
-                onClick = {
-                    onSave()
-                    onDismiss()
-                }
-            )
-            ReplyActionSheetItem(
-                label = "回复",
-                onClick = {
-                    onReply()
-                    onDismiss()
-                }
-            )
-            if (canReport) {
+            actions.forEach { action ->
                 ReplyActionSheetItem(
-                    label = "举报",
-                    isDestructive = true,
+                    label = resolveReplyActionSheetLabel(action, topActionLabel),
+                    isDestructive = isReplyActionDestructive(action),
                     onClick = {
-                        onReport()
-                        onDismiss()
-                    }
-                )
-            }
-            if (!topActionLabel.isNullOrBlank()) {
-                ReplyActionSheetItem(
-                    label = topActionLabel,
-                    onClick = {
-                        onToggleTop()
-                        onDismiss()
-                    }
-                )
-            }
-            if (canDelete) {
-                ReplyActionSheetItem(
-                    label = "删除",
-                    isDestructive = true,
-                    onClick = {
-                        onDelete()
+                        when (action) {
+                            ReplyActionSheetAction.COPY_ALL -> onCopyAll()
+                            ReplyActionSheetAction.FREE_COPY -> onFreeCopy()
+                            ReplyActionSheetAction.SAVE -> onSave()
+                            ReplyActionSheetAction.SHARE -> onShare()
+                            ReplyActionSheetAction.REPLY -> onReply()
+                            ReplyActionSheetAction.BLOCK_USER -> onBlockUser()
+                            ReplyActionSheetAction.REPORT -> onReport()
+                            ReplyActionSheetAction.TOGGLE_TOP -> onToggleTop()
+                            ReplyActionSheetAction.DELETE -> onDelete()
+                        }
                         onDismiss()
                     }
                 )

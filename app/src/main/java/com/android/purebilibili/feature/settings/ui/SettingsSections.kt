@@ -206,6 +206,7 @@ internal data class SettingsRootCategoryActions(
     val onSettingsShareClick: () -> Unit,
     val onWebDavBackupClick: () -> Unit,
     val onDownloadPathClick: () -> Unit,
+    val onImageSavePathClick: () -> Unit,
     val onClearCacheClick: () -> Unit,
     val onGithubClick: () -> Unit,
     val onTelegramClick: () -> Unit,
@@ -223,6 +224,7 @@ internal data class SettingsRootCategoryActions(
     val onTipsClick: () -> Unit,
     val onOpenLinksClick: () -> Unit,
     val onPrivacyModeChange: (Boolean) -> Unit,
+    val onPrivacyContentAuthenticationChange: (Boolean) -> Unit,
     val onCrashTrackingChange: (Boolean) -> Unit,
     val onAnalyticsChange: (Boolean) -> Unit,
     val onEasterEggChange: (Boolean) -> Unit,
@@ -236,10 +238,12 @@ internal data class SettingsRootCategoryActions(
 
 internal data class SettingsRootCategoryState(
     val privacyModeEnabled: Boolean,
+    val privacyContentAuthenticationEnabled: Boolean,
     val crashTrackingEnabled: Boolean,
     val analyticsEnabled: Boolean,
     val pluginCount: Int,
     val customDownloadPath: String?,
+    val customImageSavePath: String?,
     val cacheSize: String,
     val versionName: String,
     val easterEggEnabled: Boolean,
@@ -298,6 +302,11 @@ internal fun SettingsRootCategoryContent(
 ) {
     Column {
         when (category) {
+            SettingsRootCategory.SOCIAL_SUPPORT -> FollowAuthorSection(
+                onTelegramClick = actions.onTelegramClick,
+                onTwitterClick = actions.onTwitterClick,
+                onDonateClick = actions.onDonateClick
+            )
             SettingsRootCategory.INTERFACE_THEME -> SettingsSceneShortcutSection(
                 shortcuts = listOf(
                     SettingsSceneShortcut(
@@ -381,15 +390,19 @@ internal fun SettingsRootCategoryContent(
             )
             SettingsRootCategory.DATA_BACKUP -> DataStorageSection(
                 customDownloadPath = state.customDownloadPath,
+                customImageSavePath = state.customImageSavePath,
                 cacheSize = state.cacheSize,
                 onSettingsShareClick = actions.onSettingsShareClick,
                 onWebDavBackupClick = actions.onWebDavBackupClick,
                 onDownloadPathClick = actions.onDownloadPathClick,
+                onImageSavePathClick = actions.onImageSavePathClick,
                 onClearCacheClick = actions.onClearCacheClick
             )
             SettingsRootCategory.PRIVACY_PERMISSION -> PrivacySection(
                 privacyModeEnabled = state.privacyModeEnabled,
+                privacyContentAuthenticationEnabled = state.privacyContentAuthenticationEnabled,
                 onPrivacyModeChange = actions.onPrivacyModeChange,
+                onPrivacyContentAuthenticationChange = actions.onPrivacyContentAuthenticationChange,
                 onPermissionClick = actions.onPermissionClick,
                 onBlockedListClick = actions.onBlockedListClick
             )
@@ -416,18 +429,6 @@ internal fun SettingsRootCategoryContent(
                 )
             }
             SettingsRootCategory.ABOUT_SUPPORT -> {
-                ReleaseChannelPinnedCard(
-                    onGithubClick = actions.onGithubClick,
-                    onTelegramClick = actions.onTelegramClick,
-                    onDisclaimerClick = actions.onDisclaimerClick
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                FollowAuthorSection(
-                    onTelegramClick = actions.onTelegramClick,
-                    onTwitterClick = actions.onTwitterClick,
-                    onDonateClick = actions.onDonateClick
-                )
-                Spacer(modifier = Modifier.height(12.dp))
                 AboutSection(
                     versionName = state.versionName,
                     easterEggEnabled = state.easterEggEnabled,
@@ -454,6 +455,12 @@ internal fun SettingsRootCategoryContent(
                     buildFingerprintSubtitle = state.buildFingerprintSubtitle,
                     versionClickCount = state.versionClickCount,
                     versionClickThreshold = state.versionClickThreshold
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                ReleaseChannelPinnedCard(
+                    onGithubClick = actions.onGithubClick,
+                    onTelegramClick = actions.onTelegramClick,
+                    onDisclaimerClick = actions.onDisclaimerClick
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 SupportToolsSection(
@@ -592,10 +599,10 @@ fun SettingsSubpageEntrySection(
     val privacyTint = rememberSettingsEntryTint(SettingsEntryTintRole.TERTIARY, iOSPurple, uiPreset)
     val developerTint = rememberSettingsEntryTint(SettingsEntryTintRole.SECONDARY, iOSTeal, uiPreset)
     val aboutTint = rememberSettingsEntryTint(SettingsEntryTintRole.TERTIARY, iOSOrange, uiPreset)
-    val contentAndStorageIcon = rememberAppCollectionIcon()
-    val privacyIcon = rememberAppLockIcon()
-    val developerVisual = rememberSettingsEntryVisual(SettingsSearchTarget.PLUGINS, uiPreset)
-    val aboutIcon = rememberAppInfoIcon()
+    val contentAndStorageIcon = rememberSettingsSemanticIcon(SettingsIconRole.DATA_BACKUP, uiPreset)
+    val privacyIcon = rememberSettingsSemanticIcon(SettingsIconRole.PRIVACY_PERMISSION, uiPreset)
+    val developerVisual = rememberSettingsEntryVisual(SettingsSearchTarget.DIAGNOSTICS, uiPreset)
+    val aboutIcon = rememberSettingsSemanticIcon(SettingsIconRole.ABOUT_SUPPORT, uiPreset)
     SettingsCardGroup {
         SettingClickableItem(
             icon = contentAndStorageIcon,
@@ -648,10 +655,10 @@ fun FeedApiSection(
     val uiPreset = LocalUiPreset.current
     val feedTint = rememberSettingsEntryTint(SettingsEntryTintRole.TERTIARY, iOSOrange, uiPreset)
     val incrementalRefreshTint = rememberSettingsEntryTint(SettingsEntryTintRole.SECONDARY, iOSGreen, uiPreset)
-    val feedIcon = rememberAppDynamicIcon()
-    val refreshIcon = rememberAppRefreshIcon()
-    val visibilityIcon = rememberAppVisibilityOffIcon()
-    val previewTextIcon = CupertinoIcons.Outlined.Eye
+    val feedIcon = rememberSettingsSemanticIcon(SettingsIconRole.FEED_API, uiPreset)
+    val refreshIcon = rememberSettingsSemanticIcon(SettingsIconRole.REFRESH_COUNT, uiPreset)
+    val visibilityIcon = rememberSettingsSemanticIcon(SettingsIconRole.DYNAMIC_TAB_VISIBILITY, uiPreset)
+    val previewTextIcon = rememberSettingsSemanticIcon(SettingsIconRole.DYNAMIC_PREVIEW_TEXT, uiPreset)
     SettingsCardGroup {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -933,7 +940,9 @@ internal fun resolveHomeRefreshSliderSteps(): Int {
 @Composable
 fun PrivacySection(
     privacyModeEnabled: Boolean,
+    privacyContentAuthenticationEnabled: Boolean,
     onPrivacyModeChange: (Boolean) -> Unit,
+    onPrivacyContentAuthenticationChange: (Boolean) -> Unit,
     onPermissionClick: () -> Unit,
     onBlockedListClick: () -> Unit // [New]
 ) {
@@ -941,16 +950,29 @@ fun PrivacySection(
     val privacyModeTint = rememberSettingsEntryTint(SettingsEntryTintRole.TERTIARY, iOSPurple, uiPreset)
     val permissionVisual = rememberSettingsEntryVisual(SettingsSearchTarget.PERMISSION, uiPreset)
     val blockedListVisual = rememberSettingsEntryVisual(SettingsSearchTarget.BLOCKED_LIST, uiPreset)
-    val visibilityOffIcon = rememberAppVisibilityOffIcon()
+    val visibilityOffIcon = rememberSettingsSemanticIcon(SettingsIconRole.PRIVACY_PERMISSION, uiPreset)
+    val contentAuthenticationIcon = rememberSettingsSemanticIcon(
+        SettingsIconRole.PRIVACY_CONTENT_AUTHENTICATION,
+        uiPreset
+    )
 
     SettingsCardGroup {
         SettingSwitchItem(
             icon = visibilityOffIcon,
-            title = "隐私无痕模式",
+            title = "不记录历史",
             subtitle = "启用后不记录播放历史和搜索历史",
             checked = privacyModeEnabled,
             onCheckedChange = onPrivacyModeChange,
             iconTint = privacyModeTint
+        )
+        SettingsDivider(startIndent = 66.dp)
+        SettingSwitchItem(
+            icon = contentAuthenticationIcon,
+            title = "进入隐私内容时验证",
+            subtitle = "进入收藏、历史等页面时使用指纹、人脸或锁屏密码",
+            checked = privacyContentAuthenticationEnabled,
+            onCheckedChange = onPrivacyContentAuthenticationChange,
+            iconTint = permissionVisual.iconTint
         )
         SettingsDivider(startIndent = 66.dp)
         SettingClickableItem(
@@ -976,16 +998,19 @@ fun PrivacySection(
 @Composable
 fun DataStorageSection(
     customDownloadPath: String?,
+    customImageSavePath: String?,
     cacheSize: String,
     onSettingsShareClick: () -> Unit,
     onWebDavBackupClick: () -> Unit,
     onDownloadPathClick: () -> Unit,
+    onImageSavePathClick: () -> Unit,
     onClearCacheClick: () -> Unit
 ) {
     val uiPreset = LocalUiPreset.current
     val settingsShareVisual = rememberSettingsEntryVisual(SettingsSearchTarget.SETTINGS_SHARE, uiPreset)
     val webDavVisual = rememberSettingsEntryVisual(SettingsSearchTarget.WEBDAV_BACKUP, uiPreset)
     val downloadPathVisual = rememberSettingsEntryVisual(SettingsSearchTarget.DOWNLOAD_PATH, uiPreset)
+    val imageSavePathVisual = rememberSettingsEntryVisual(SettingsSearchTarget.IMAGE_SAVE_PATH, uiPreset)
     val clearCacheVisual = rememberSettingsEntryVisual(SettingsSearchTarget.CLEAR_CACHE, uiPreset)
 
     SettingsCardGroup {
@@ -1018,6 +1043,15 @@ fun DataStorageSection(
         )
         SettingsDivider(startIndent = 66.dp)
         SettingClickableItem(
+            icon = imageSavePathVisual.icon,
+            iconPainter = imageSavePathVisual.iconResId?.let { painterResource(id = it) },
+            title = "图片保存位置",
+            value = if (customImageSavePath != null) "已选择目录" else "默认",
+            onClick = onImageSavePathClick,
+            iconTint = imageSavePathVisual.iconTint
+        )
+        SettingsDivider(startIndent = 66.dp)
+        SettingClickableItem(
             icon = clearCacheVisual.icon,
             iconPainter = clearCacheVisual.iconResId?.let { painterResource(id = it) },
             title = "清除缓存",
@@ -1043,8 +1077,8 @@ fun DeveloperSection(
     val analyticsTint = rememberSettingsEntryTint(SettingsEntryTintRole.PRIMARY, iOSBlue, uiPreset)
     val pluginsVisual = rememberSettingsEntryVisual(SettingsSearchTarget.PLUGINS, uiPreset)
     val exportLogsVisual = rememberSettingsEntryVisual(SettingsSearchTarget.EXPORT_LOGS, uiPreset)
-    val crashTrackingIcon = rememberAppWarningIcon()
-    val analyticsIcon = rememberAppAnalyticsIcon()
+    val crashTrackingIcon = rememberSettingsSemanticIcon(SettingsIconRole.CRASH_TRACKING, uiPreset)
+    val analyticsIcon = rememberSettingsSemanticIcon(SettingsIconRole.ANALYTICS, uiPreset)
 
     SettingsCardGroup {
         SettingSwitchItem(
@@ -1122,12 +1156,12 @@ fun AboutSection(
     val checkUpdateVisual = rememberSettingsEntryVisual(SettingsSearchTarget.CHECK_UPDATE, uiPreset)
     val releaseNotesVisual = rememberSettingsEntryVisual(SettingsSearchTarget.VIEW_RELEASE_NOTES, uiPreset)
     val replayOnboardingVisual = rememberSettingsEntryVisual(SettingsSearchTarget.REPLAY_ONBOARDING, uiPreset)
-    val notificationIcon = rememberAppNotificationIcon()
-    val infoIcon = rememberAppInfoIcon()
-    val sparklesIcon = rememberAppSparklesIcon()
-    val verificationIcon = rememberAppWarningIcon()
-    val buildSourceIcon = CupertinoIcons.Default.Tag
-    val buildFingerprintIcon = rememberAppLockIcon()
+    val notificationIcon = rememberSettingsSemanticIcon(SettingsIconRole.AUTO_CHECK_UPDATE, uiPreset)
+    val infoIcon = rememberSettingsSemanticIcon(SettingsIconRole.ABOUT_SUPPORT, uiPreset)
+    val sparklesIcon = rememberSettingsSemanticIcon(SettingsIconRole.EASTER_EGG, uiPreset)
+    val verificationIcon = rememberSettingsSemanticIcon(SettingsIconRole.BUILD_VERIFICATION, uiPreset)
+    val buildSourceIcon = rememberSettingsSemanticIcon(SettingsIconRole.BUILD_SOURCE, uiPreset)
+    val buildFingerprintIcon = rememberSettingsSemanticIcon(SettingsIconRole.BUILD_FINGERPRINT, uiPreset)
 
     val safeThreshold = versionClickThreshold.coerceAtLeast(1)
     val normalizedClickCount = versionClickCount.coerceAtLeast(0)

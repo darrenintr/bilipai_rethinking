@@ -21,6 +21,14 @@ internal fun resolveDownloadCleanupTargets(
         add(File(directory, "${taskId}_cover.jpg").absolutePath)
         task.filePath?.takeIf { it.isNotBlank() }?.let(::add)
         task.localCoverPath?.takeIf { it.isNotBlank() }?.let(::add)
+        task.localDanmakuMetadataPath?.takeIf { it.isNotBlank() }?.let(::add)
+        task.localDanmakuSegmentPaths.filter { it.isNotBlank() }.forEach(::add)
+        task.assets.mapNotNull { it.filePath?.takeIf(String::isNotBlank) }.forEach(::add)
+        task.assets.mapNotNull { it.tempPath?.takeIf(String::isNotBlank) }.forEach(::add)
+        directory.listFiles { file ->
+            file.name.startsWith("${taskId}_") &&
+                (file.name.endsWith(".part") || file.name.contains(".part.chunk"))
+        }?.forEach { add(it.absolutePath) }
     }
     return DownloadCleanupTargets(
         filePaths = filePaths,

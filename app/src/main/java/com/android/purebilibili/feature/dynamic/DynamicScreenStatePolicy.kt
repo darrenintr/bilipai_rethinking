@@ -4,14 +4,18 @@ import com.android.purebilibili.core.util.appendDistinctByKey
 import com.android.purebilibili.core.util.prependDistinctByKey
 import com.android.purebilibili.data.model.response.DynamicItem
 
+private const val DynamicTopBarReservedHeightDp = 60
+private const val DynamicHorizontalExpandedHeaderReservedHeightDp = 184
+
 internal fun resolveDynamicListTopPaddingExtraDp(
     isHorizontalMode: Boolean,
     isHorizontalUserListCollapsed: Boolean = false
 ): Int {
     return when {
-        isHorizontalMode && !isHorizontalUserListCollapsed -> 148
-        isHorizontalMode -> 60
-        else -> 60
+        // 横向关注列表展开时，头像下方可能同时有直播标记和 UP 名称两行。
+        isHorizontalMode && !isHorizontalUserListCollapsed -> DynamicHorizontalExpandedHeaderReservedHeightDp
+        isHorizontalMode -> DynamicTopBarReservedHeightDp
+        else -> DynamicTopBarReservedHeightDp
     }
 }
 
@@ -36,6 +40,22 @@ internal fun shouldUseSelectedUserDynamicFeed(
     selectedUserId: Long?
 ): Boolean {
     return selectedTab == 4 && selectedUserId != null
+}
+
+internal fun resolveDynamicSelectedUserForTab(
+    selectedTab: Int,
+    selectedUserId: Long?
+): Long? {
+    return selectedUserId.takeIf { selectedTab == 4 }
+}
+
+internal fun shouldResetDynamicFeedScrollOnSourceChange(
+    previousTab: Int,
+    nextTab: Int,
+    previousSelectedUserId: Long?,
+    nextSelectedUserId: Long?
+): Boolean {
+    return previousTab != nextTab || previousSelectedUserId != nextSelectedUserId
 }
 
 internal fun resolveDynamicTabAfterUserSelection(

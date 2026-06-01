@@ -1,5 +1,8 @@
 package com.android.purebilibili.feature.live
 
+import com.android.purebilibili.data.model.response.LivePlayUrlData
+import com.android.purebilibili.data.model.response.Playurl
+import com.android.purebilibili.data.model.response.PlayurlInfo
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -7,13 +10,18 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.math.roundToInt
 
+private val liveRealtimeJson = Json {
+    ignoreUnknownKeys = true
+}
+
 internal sealed interface LiveRealtimeAction {
     data object Ignore : LiveRealtimeAction
-    data object RefreshPlayback : LiveRealtimeAction
+    data class RefreshPlayback(val playUrlData: LivePlayUrlData? = null) : LiveRealtimeAction
     data class RoomUnavailable(val liveStatus: Int, val message: String) : LiveRealtimeAction
     data class RoomBlocked(val message: String) : LiveRealtimeAction
     data class UpdateWatchedText(val text: String) : LiveRealtimeAction
@@ -49,7 +57,7 @@ internal fun resolveLiveRealtimeAction(
             val title = json.obj("data")?.string("title").orEmpty()
             if (title.isBlank()) LiveRealtimeAction.Ignore else LiveRealtimeAction.UpdateRoomTitle(title)
         }
-        cmd == "PLAYURL_RELOAD" || cmd == "LIVE" -> LiveRealtimeAction.RefreshPlayback
+        cmd == "PLAYURL_RELOAD" || cmd == "LIVE" -> LiveRealtimeAction.RefreshPlayback(parseReloadPlayUrl(json))
         cmd == "PREPARING" -> LiveRealtimeAction.RoomUnavailable(0, "主播暂未开播")
         cmd == "CUT_OFF" || cmd == "CUT_OFF_V2" || cmd == "WARNING" -> {
             LiveRealtimeAction.RoomBlocked(resolveBlockingMessage(json, cmd))
@@ -133,9 +141,30 @@ private fun parseLiveSuperChat(json: JsonObject): LiveRealtimeAction {
         superChatPrice = data.int("price").takeIf { it > 0 }?.let { "¥$it" }.orEmpty(),
         superChatBackgroundColor = parseLiveRealtimeColor(
             data["background_bottom_color"] ?: data["background_color"]
-        )
+        ),
+        superChatToken = data.string("token"),
+        superChatReportTs = data.long("ts").takeIf { it > 0L } ?: data.long("start_time")
     )
     return LiveRealtimeAction.EmitSuperChat(item, id)
+}
+
+private fun parseReloadPlayUrl(json: JsonObject): LivePlayUrlData? {
+    val playurl = json.obj("data")?.obj("playurl") ?: return null
+    val parsedPlayurl = runCatching {
+        liveRealtimeJson.decodeFromJsonElement<Playurl>(playurl)
+    }.getOrNull() ?: return null
+    return LivePlayUrlData(
+        playurl_info = PlayurlInfo(playurl = parsedPlayurl),
+        quality_description = parsedPlayurl.gQnDesc,
+        current_quality = parsedPlayurl.stream
+            ?.firstOrNull()
+            ?.format
+            ?.firstOrNull()
+            ?.codec
+            ?.firstOrNull()
+            ?.currentQn
+            ?: 0
+    )
 }
 
 private fun parseSuperChatDelete(json: JsonObject): LiveRealtimeAction {

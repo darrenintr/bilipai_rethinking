@@ -3,6 +3,7 @@
 package com.android.purebilibili.feature.settings
 
 import android.os.Build
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,10 +31,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.android.purebilibili.R
@@ -52,11 +56,19 @@ import com.android.purebilibili.core.ui.blur.shouldAllowHomeChromeLiquidGlass
 import com.android.purebilibili.core.ui.globalWallpaperAwareChromeColor
 import com.android.purebilibili.core.ui.rememberAppBackIcon
 import com.android.purebilibili.core.ui.rememberAppSparklesIcon
+import com.android.purebilibili.core.util.HapticType
 import com.android.purebilibili.core.util.LocalWindowSizeClass
+import com.android.purebilibili.core.util.rememberHapticFeedback
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import com.android.purebilibili.core.ui.components.*
-import com.android.purebilibili.core.ui.animation.staggeredEntrance
+import com.android.purebilibili.core.ui.animation.EntranceGroup
+import com.android.purebilibili.core.ui.animation.entrance
+import com.github.skydoves.colorpicker.compose.BrightnessSlider
+import com.github.skydoves.colorpicker.compose.HsvColorPicker
+import com.github.skydoves.colorpicker.compose.HueSlider
+import com.github.skydoves.colorpicker.compose.SaturationSlider
+import com.github.skydoves.colorpicker.compose.rememberColorPickerController
 import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar as MiuixSmallTopAppBar
 
@@ -226,11 +238,7 @@ fun AppearanceSettingsContent(
     val listState = rememberLazyListState()
     val focusRequest by SettingsSearchFocusController.request.collectAsState()
     // Animation Trigger
-    var isVisible by remember { mutableStateOf(false) }
     val displayModeTint = rememberAdaptiveSemanticIconTint(iOSBlue)
-    LaunchedEffect(Unit) {
-        isVisible = true
-    }
 
     val configuration = LocalConfiguration.current
     val displayMetricsSnapshot = LocalDisplayMetricsSnapshot.current
@@ -247,9 +255,6 @@ fun AppearanceSettingsContent(
         resolveDeviceUiProfile(
             widthSizeClass = windowSizeClass.widthSizeClass
         )
-    }
-    val effectiveMotionTier = remember(deviceUiProfile.motionTier) {
-        resolveSettingsEntranceMotionTier(deviceUiProfile.motionTier)
     }
     val scope = rememberCoroutineScope()
     val themeSectionTitle = stringResource(R.string.appearance_theme_color_section)
@@ -372,12 +377,6 @@ fun AppearanceSettingsContent(
     val compactVideoStatsOnCover by SettingsManager
         .getCompactVideoStatsOnCover(context)
         .collectAsState(initial = true)
-    val homeCoverGlassBadgesVisible by SettingsManager
-        .getHomeCoverGlassBadgesVisible(context)
-        .collectAsState(initial = true)
-    val homeInfoGlassBadgesVisible by SettingsManager
-        .getHomeInfoGlassBadgesVisible(context)
-        .collectAsState(initial = true)
     val dedicatedHomeWallpaperUri by SettingsManager
         .getHomeWallpaperUri(context)
         .collectAsState(initial = "")
@@ -425,9 +424,15 @@ fun AppearanceSettingsContent(
         .getShowOnlineCount(context)
         .collectAsState(initial = false)
     val isLiquidGlassAvailable = shouldAllowHomeChromeLiquidGlass(Build.VERSION.SDK_INT)
-    val showMd3DynamicColorControl =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val showThemeColorPicker = !state.dynamicColor
+    val showThemeColorPicker = state.md3ColorSource == Md3ColorSource.CUSTOM
+    var showMd3ColorPickerDialog by remember { mutableStateOf(false) }
+    val md3ColorSourceOptions = remember { resolveMd3ColorSourceOptions() }
+    val selectedMd3ColorSourceLabel = md3ColorSourceOptions
+        .firstOrNull { it.value == state.md3ColorSource }
+        ?.label ?: state.md3ColorSource.label
+    val selectedCustomThemeColor = remember(state.md3CustomColorHex) {
+        parseMd3CustomColorHex(state.md3CustomColorHex)
+    }
     val colorStyleOptions = remember { resolveColorStyleOptions() }
     val colorSpecOptions = remember { resolveColorSpecOptions() }
     val selectedColorStyleLabel = colorStyleOptions
@@ -454,6 +459,7 @@ fun AppearanceSettingsContent(
             }
     }
 
+    EntranceGroup {
     LazyColumn(
         state = listState,
         modifier = modifier
@@ -464,12 +470,12 @@ fun AppearanceSettingsContent(
         
         //  主题与颜色
         item { 
-            Box(modifier = Modifier.staggeredEntrance(0, isVisible, motionTier = effectiveMotionTier)) {
+            Box(modifier = Modifier.entrance()) {
                 IOSSectionTitle(themeSectionTitle) 
             }
         }
         item {
-            Box(modifier = Modifier.staggeredEntrance(1, isVisible, motionTier = effectiveMotionTier)) {
+            Box(modifier = Modifier.entrance()) {
                 IOSGroup {
                     // 主题模式选择 (横向卡片)
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -503,8 +509,8 @@ fun AppearanceSettingsContent(
 
                                 Spacer(modifier = Modifier.height(16.dp))
                                 IOSDivider()
-                                IOSSwitchItem(
-                                    icon = CupertinoIcons.Default.Drop,
+	                             IOSSwitchItem(
+	                                icon = rememberSettingsSemanticIcon(SettingsIconRole.ANDROID_LIQUID_GLASS),
                                     title = "安卓原生液态玻璃",
                                     subtitle = if (isLiquidGlassAvailable) {
                                         "全局启用顶部、底栏和评论区复用的液态分段控件"
@@ -577,22 +583,46 @@ fun AppearanceSettingsContent(
                         IOSDivider()
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // 动态取色开关
-                        if (showMd3DynamicColorControl) {
-                             IOSSwitchItem(
-                                icon = CupertinoIcons.Default.PaintbrushPointed,
-                                title = "动态取色（Material You）",
-                                subtitle = "跟随系统壁纸变换应用主题色",
-                                checked = state.dynamicColor,
-                                onCheckedChange = { viewModel.toggleDynamicColor(it) },
-                                iconTint = iOSPink
-                            )
+                        IOSSlidingSegmentedSetting(
+                            title = "MD3 颜色来源：$selectedMd3ColorSourceLabel",
+                            subtitle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                "可跟随系统壁纸，也可使用自定义主题色"
+                            } else {
+                                "当前系统不支持 Monet 壁纸取色，可使用自定义主题色"
+                            },
+                            options = md3ColorSourceOptions,
+                            selectedValue = state.md3ColorSource,
+                            onSelectionChange = viewModel::setMd3ColorSource
+                        )
+
+                        AnimatedVisibility(
+                            visible = state.md3ColorSource == Md3ColorSource.FOLLOW_WALLPAPER,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(modifier = Modifier.padding(top = 12.dp)) {
+                                DynamicColorPreview()
+                            }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         IOSDivider()
-                        ThemePresetDropdownSetting(
-                            icon = CupertinoIcons.Default.Sparkles,
+                        IOSClickableItem(
+                            icon = rememberSettingsSemanticIcon(SettingsIconRole.COLOR_STYLE),
+                            title = "自定义 MD3 颜色",
+                            subtitle = if (state.md3ColorSource == Md3ColorSource.CUSTOM) {
+                                "使用 HSV 取色器或 HEX 输入精确选择"
+                            } else {
+                                "当前跟随系统壁纸；确认后切换为自定义颜色"
+                            },
+                            value = state.md3CustomColorHex,
+                            onClick = { showMd3ColorPickerDialog = true },
+                            iconTint = selectedCustomThemeColor
+                        )
+
+                        IOSDivider()
+	                        ThemePresetDropdownSetting(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.COLOR_STYLE),
                             title = "色彩风格",
                             selectedLabel = selectedColorStyleLabel,
                             options = colorStyleOptions,
@@ -601,8 +631,8 @@ fun AppearanceSettingsContent(
                         )
 
                         IOSDivider()
-                        ThemePresetDropdownSetting(
-                            icon = CupertinoIcons.Default.WandAndStars,
+	                        ThemePresetDropdownSetting(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.COLOR_SPEC),
                             title = "色彩标准",
                             selectedLabel = selectedColorSpecLabel,
                             options = colorSpecOptions,
@@ -635,14 +665,14 @@ fun AppearanceSettingsContent(
                                         .background(
                                             brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                                                 colors = listOf(
-                                                    ThemeColors[state.themeColorIndex].copy(alpha = 0.15f),
-                                                    ThemeColors[state.themeColorIndex].copy(alpha = 0.05f)
+                                                    selectedCustomThemeColor.copy(alpha = 0.15f),
+                                                    selectedCustomThemeColor.copy(alpha = 0.05f)
                                                 )
                                             )
                                         )
                                         .border(
                                             width = 1.dp,
-                                            color = ThemeColors[state.themeColorIndex].copy(alpha = 0.3f),
+                                            color = selectedCustomThemeColor.copy(alpha = 0.3f),
                                             shape = RoundedCornerShape(20.dp)
                                         ),
                                     contentAlignment = Alignment.Center
@@ -656,8 +686,8 @@ fun AppearanceSettingsContent(
                                                 .background(
                                                     brush = androidx.compose.ui.graphics.Brush.linearGradient(
                                                         colors = listOf(
-                                                            ThemeColors[state.themeColorIndex],
-                                                            ThemeColors[state.themeColorIndex].copy(alpha = 0.8f)
+                                                            selectedCustomThemeColor,
+                                                            selectedCustomThemeColor.copy(alpha = 0.8f)
                                                         )
                                                     ),
                                                     shape = RoundedCornerShape(16.dp)
@@ -674,12 +704,12 @@ fun AppearanceSettingsContent(
                                         
                                         // 当前选中颜色名称
                                         Text(
-                                            text = ThemeColorNames.getOrElse(state.themeColorIndex) { "自定义" },
+                                            text = state.md3CustomColorHex,
                                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            text = "正在预览当前主题色",
+                                            text = "正在预览自定义 MD3 主题色",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -700,7 +730,7 @@ fun AppearanceSettingsContent(
                                         ) {
                                             rowColors.forEach { color ->
                                                 val index = ThemeColors.indexOf(color)
-                                                val isSelected = state.themeColorIndex == index
+                                                val isSelected = selectedCustomThemeColor == color
                                                 
                                                 Column(
                                                     modifier = Modifier.weight(1f),
@@ -749,8 +779,9 @@ fun AppearanceSettingsContent(
                                                                     end = androidx.compose.ui.geometry.Offset(100f, 100f)
                                                                 )
                                                             )
-                                                            .clickable { 
+                                                            .clickable {
                                                                 viewModel.setThemeColorIndex(index)
+                                                                viewModel.setMd3CustomColorHex(formatMd3CustomColorHex(color))
                                                             },
                                                         contentAlignment = Alignment.Center
                                                     ) {
@@ -797,12 +828,12 @@ fun AppearanceSettingsContent(
         }
 
         item {
-            Box(modifier = Modifier.staggeredEntrance(2, isVisible, motionTier = effectiveMotionTier)) {
+            Box(modifier = Modifier.entrance()) {
                 IOSSectionTitle("显示与排版")
             }
         }
         item {
-            Box(modifier = Modifier.staggeredEntrance(3, isVisible, motionTier = effectiveMotionTier)) {
+            Box(modifier = Modifier.entrance()) {
                 IOSGroup {
                     Column(modifier = Modifier.padding(16.dp)) {
                         IOSSlidingSegmentedSetting(
@@ -817,8 +848,8 @@ fun AppearanceSettingsContent(
 
                         Spacer(modifier = Modifier.height(16.dp))
                         IOSDivider()
-                        IOSClickableItem(
-                            icon = CupertinoIcons.Default.DocText,
+	                        IOSClickableItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.FONT_FILE),
                             title = "应用字体",
                             subtitle = if (state.appFontDisplayName.isBlank()) {
                                 "使用系统默认字体，或从本地导入 .ttf / .otf / .ttc"
@@ -839,8 +870,8 @@ fun AppearanceSettingsContent(
                         ) {
                             Column {
                                 IOSDivider()
-                                IOSClickableItem(
-                                    icon = CupertinoIcons.Default.ArrowCounterclockwise,
+	                                IOSClickableItem(
+	                                    icon = rememberSettingsSemanticIcon(SettingsIconRole.REPLAY_ONBOARDING),
                                     title = "恢复默认字体",
                                     subtitle = "移除已导入字体文件，立即回到系统字体",
                                     onClick = {
@@ -872,8 +903,8 @@ fun AppearanceSettingsContent(
                         IOSDivider()
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.PaintbrushPointed,
+	                        IOSSwitchItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.DISPLAY_STYLE),
                             title = "应用内 DPI 覆盖",
                             subtitle = resolveDpiOverrideSubtitle(
                                 systemDensityDpi = displayMetricsSnapshot.systemDensityDpi,
@@ -920,12 +951,12 @@ fun AppearanceSettingsContent(
         
         //  启动画面
         item { 
-            Box(modifier = Modifier.staggeredEntrance(2, isVisible, motionTier = effectiveMotionTier)) {
+            Box(modifier = Modifier.entrance()) {
                 IOSSectionTitle("启动画面") 
             }
         }
         item {
-            Box(modifier = Modifier.staggeredEntrance(3, isVisible, motionTier = effectiveMotionTier)) {
+            Box(modifier = Modifier.entrance()) {
                 IOSGroup {
                     val isSplashEnabled by com.android.purebilibili.core.store.SettingsManager.isSplashEnabled(context).collectAsState(initial = false)
                     val splashRandomEnabled by com.android.purebilibili.core.store.SettingsManager.getSplashRandomEnabled(context).collectAsState(initial = false)
@@ -938,8 +969,8 @@ fun AppearanceSettingsContent(
                     }
                     
                     // 开关项
-                    IOSSwitchItem(
-                        icon = CupertinoIcons.Default.Photo,
+	                    IOSSwitchItem(
+	                        icon = rememberSettingsSemanticIcon(SettingsIconRole.SPLASH_WALLPAPER),
                         title = "使用开屏壁纸",
                         subtitle = "应用启动时显示官方或相册壁纸",
                         checked = isSplashEnabled,
@@ -948,8 +979,8 @@ fun AppearanceSettingsContent(
                     )
 
                     IOSDivider()
-                    IOSSwitchItem(
-                        icon = CupertinoIcons.Default.Shuffle,
+	                    IOSSwitchItem(
+	                        icon = rememberSettingsSemanticIcon(SettingsIconRole.RANDOM_WALLPAPER),
                         title = "随机展示开屏壁纸",
                         subtitle = "启动时从可见官方壁纸中随机展示",
                         checked = splashRandomEnabled,
@@ -1022,8 +1053,8 @@ fun AppearanceSettingsContent(
                     }
 
                     IOSDivider()
-                    IOSSwitchItem(
-                        icon = CupertinoIcons.Default.WandAndStars,
+	                    IOSSwitchItem(
+	                        icon = rememberSettingsSemanticIcon(SettingsIconRole.ANIMATION),
                         title = "开屏图标遮罩动画",
                         subtitle = "关闭后不保留图标页，不播放遮罩和飞出动画",
                         checked = splashIconAnimationEnabled,
@@ -1119,16 +1150,16 @@ fun AppearanceSettingsContent(
         
         //  个性化
         item { 
-            Box(modifier = Modifier.staggeredEntrance(4, isVisible, motionTier = effectiveMotionTier)) {
+            Box(modifier = Modifier.entrance()) {
                 IOSSectionTitle("个性化") 
             }
         }
         item {
-            Box(modifier = Modifier.staggeredEntrance(5, isVisible, motionTier = effectiveMotionTier)) {
+            Box(modifier = Modifier.entrance()) {
                 IOSGroup {
                     // 图标设置
-                    IOSClickableItem(
-                        icon = CupertinoIcons.Default.SquareStack3dUp,
+	                    IOSClickableItem(
+	                        icon = rememberSettingsSemanticIcon(SettingsIconRole.APP_ICON),
                         title = "应用图标",
                         value = when(state.appIcon) {
                             // 🎀 二次元少女系列
@@ -1151,8 +1182,8 @@ fun AppearanceSettingsContent(
                     )
                     IOSDivider()
                     // 动画设置
-                    IOSClickableItem(
-                        icon = CupertinoIcons.Default.WandAndStars,
+	                    IOSClickableItem(
+	                        icon = rememberSettingsSemanticIcon(SettingsIconRole.ANIMATION),
                         title = "动画与效果",
                         value = if (state.cardAnimationEnabled) "已开启" else "已关闭",
                         onClick = onNavigateToAnimationSettings,
@@ -1160,8 +1191,8 @@ fun AppearanceSettingsContent(
                     )
 
                     IOSDivider()
-                    IOSSwitchItem(
-                        icon = CupertinoIcons.Default.MagnifyingGlass,
+	                    IOSSwitchItem(
+	                        icon = rememberSettingsSemanticIcon(SettingsIconRole.OPEN_LINKS),
                         title = "底栏搜索入口",
                         subtitle = "在悬浮底栏右侧显示搜索入口",
                         checked = state.bottomBarSearchEnabled,
@@ -1181,8 +1212,8 @@ fun AppearanceSettingsContent(
 
                     IOSDivider()
                     // 触感反馈
-                    IOSSwitchItem(
-                        icon = CupertinoIcons.Default.HandTap,
+	                    IOSSwitchItem(
+	                        icon = rememberSettingsSemanticIcon(SettingsIconRole.FULLSCREEN_GESTURE),
                         title = "触感反馈",
                         checked = state.hapticFeedbackEnabled,
                         onCheckedChange = { viewModel.toggleHapticFeedback(it) },
@@ -1194,12 +1225,12 @@ fun AppearanceSettingsContent(
 
             //  首页展示 - 抽屉式选择
             item { 
-                Box(modifier = Modifier.staggeredEntrance(6, isVisible, motionTier = effectiveMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSSectionTitle("首页展示") 
                 }
             }
             item {
-                Box(modifier = Modifier.staggeredEntrance(7, isVisible, motionTier = effectiveMotionTier)) {
+                Box(modifier = Modifier.entrance()) {
                     IOSGroup {
                         val displayMode = state.displayMode
                         var isExpanded by remember { mutableStateOf(false) }
@@ -1228,8 +1259,8 @@ fun AppearanceSettingsContent(
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    CupertinoIcons.Default.SquareOnSquare,
+	                                Icon(
+	                                    rememberSettingsSemanticIcon(SettingsIconRole.DISPLAY_STYLE),
                                     contentDescription = null,
                                     tint = displayModeTint,
                                     modifier = Modifier.size(24.dp)
@@ -1312,7 +1343,7 @@ fun AppearanceSettingsContent(
                         
                         IOSDivider(modifier = Modifier.padding(start = 16.dp))
                         IOSSwitchItem(
-                            icon = CupertinoIcons.Default.SquareOnSquare,
+                            icon = rememberSettingsSemanticIcon(SettingsIconRole.HOME_CARD_STATS_COMPACT),
                             title = "统计信息贴封面（紧凑）",
                             subtitle = if (compactVideoStatsOnCover) {
                                 "播放量和评论数显示在封面底部，缩小卡片间距"
@@ -1330,25 +1361,7 @@ fun AppearanceSettingsContent(
 
                         IOSDivider(modifier = Modifier.padding(start = 16.dp))
                         IOSSwitchItem(
-                            icon = CupertinoIcons.Default.PlayCircle,
-                            title = "封面玻璃样式",
-                            subtitle = if (homeCoverGlassBadgesVisible) {
-                                "封面的播放量、评论量、时长和竖屏标记使用玻璃胶囊"
-                            } else {
-                                "封面信息继续显示，但不使用玻璃胶囊"
-                            },
-                            checked = homeCoverGlassBadgesVisible,
-                            onCheckedChange = {
-                                scope.launch {
-                                    SettingsManager.setHomeCoverGlassBadgesVisible(context, it)
-                                }
-                            },
-                            iconTint = com.android.purebilibili.core.theme.iOSOrange
-                        )
-
-                        IOSDivider(modifier = Modifier.padding(start = 16.dp))
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.Clock,
+                            icon = rememberSettingsSemanticIcon(SettingsIconRole.VIDEO_DURATION_BADGES),
                             title = "首页视频时长",
                             subtitle = if (homeVideoDurationBadgesVisible) {
                                 "推荐视频封面右下角显示时长"
@@ -1362,24 +1375,6 @@ fun AppearanceSettingsContent(
                                 }
                             },
                             iconTint = com.android.purebilibili.core.theme.iOSGreen
-                        )
-
-                        IOSDivider(modifier = Modifier.padding(start = 16.dp))
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.Tag,
-                            title = "信息区玻璃样式",
-                            subtitle = if (homeInfoGlassBadgesVisible) {
-                                "已关注和次级统计使用玻璃标签"
-                            } else {
-                                "信息区信息继续显示，但不使用玻璃标签"
-                            },
-                            checked = homeInfoGlassBadgesVisible,
-                            onCheckedChange = {
-                                scope.launch {
-                                    SettingsManager.setHomeInfoGlassBadgesVisible(context, it)
-                                }
-                            },
-                            iconTint = com.android.purebilibili.core.theme.iOSPurple
                         )
 
                         IOSDivider(modifier = Modifier.padding(start = 16.dp))
@@ -1412,8 +1407,8 @@ fun AppearanceSettingsContent(
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(
-                                            CupertinoIcons.Default.Photo,
+	                                        Icon(
+	                                            rememberSettingsSemanticIcon(SettingsIconRole.HOME_WALLPAPER),
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(24.dp)
@@ -1499,8 +1494,8 @@ fun AppearanceSettingsContent(
                         }
 
                         IOSDivider(modifier = Modifier.padding(start = 16.dp))
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.PersonCropCircleBadgePlus,
+	                        IOSSwitchItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.HOME_UP_BADGES),
                             title = "UP主标识",
                             subtitle = if (homeUpBadgesVisible) {
                                 "首页和相关推荐显示 UP 标识"
@@ -1517,8 +1512,8 @@ fun AppearanceSettingsContent(
                         )
 
                         IOSDivider(modifier = Modifier.padding(start = 16.dp))
-                        IOSSwitchItem(
-                            icon = CupertinoIcons.Default.ChartBar,
+	                        IOSSwitchItem(
+	                            icon = rememberSettingsSemanticIcon(SettingsIconRole.ONLINE_COUNT),
                             title = "卡片与视频页观看人数",
                             subtitle = if (showOnlineCount) {
                                 "首页、搜索等视频卡片和视频页显示“xx人正在看”"
@@ -1634,6 +1629,259 @@ fun AppearanceSettingsContent(
             }
         
 
+    }
+    }
+
+    if (showMd3ColorPickerDialog) {
+        Md3CustomColorPickerDialog(
+            initialHex = state.md3CustomColorHex,
+            onDismiss = { showMd3ColorPickerDialog = false },
+            onConfirm = { hex ->
+                viewModel.setMd3ColorSource(Md3ColorSource.CUSTOM)
+                viewModel.setMd3CustomColorHex(hex)
+                showMd3ColorPickerDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun Md3CustomColorPickerDialog(
+    initialHex: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    val controller = rememberColorPickerController()
+    val haptic = rememberHapticFeedback()
+    var pendingHex by remember(initialHex) { mutableStateOf(normalizeMd3CustomColorHex(initialHex)) }
+    var lastSelectionHapticAtMs by remember { mutableLongStateOf(0L) }
+    val pendingColor = remember(pendingHex) { parseMd3CustomColorHex(pendingHex) }
+    val invalidInput = normalizeMd3CustomColorHex(pendingHex) != pendingHex.uppercase()
+    val sliderPositions = remember(pendingColor) { resolveMd3ColorPickerSliderPositions(pendingColor) }
+
+    fun emitSelectionHapticIfNeeded() {
+        val nowMs = SystemClock.elapsedRealtime()
+        if (shouldEmitMd3ColorPickerSelectionHaptic(lastSelectionHapticAtMs, nowMs)) {
+            haptic(HapticType.SELECTION)
+            lastSelectionHapticAtMs = nowMs
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    haptic(HapticType.LIGHT)
+                    onConfirm(normalizeMd3CustomColorHex(pendingHex))
+                }
+            ) {
+                Text("确认")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    haptic(HapticType.LIGHT)
+                    onDismiss()
+                }
+            ) {
+                Text("取消")
+            }
+        },
+        title = { Text("自定义 MD3 颜色") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(pendingColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = normalizeMd3CustomColorHex(pendingHex),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (pendingColor.luminance() < 0.5f) Color.White else Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                HsvColorPicker(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp),
+                    controller = controller,
+                    initialColor = pendingColor,
+                    onStart = { emitSelectionHapticIfNeeded() },
+                    onColorChanged = { envelope ->
+                        if (envelope.fromUser) {
+                            val nextHex = formatMd3CustomColorHex(envelope.color)
+                            if (nextHex != pendingHex) {
+                                pendingHex = nextHex
+                                emitSelectionHapticIfNeeded()
+                            }
+                        }
+                    }
+                )
+
+                Md3ColorPickerSliderFrame(position = sliderPositions.hue) {
+                    HueSlider(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(resolveMd3ColorPickerSliderLayout().trackHeight),
+                        controller = controller,
+                        wheelRadius = 0.dp,
+                        wheelAlpha = 0f,
+                        onStart = { emitSelectionHapticIfNeeded() }
+                    )
+                }
+                Md3ColorPickerSliderFrame(position = sliderPositions.saturation) {
+                    SaturationSlider(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(resolveMd3ColorPickerSliderLayout().trackHeight),
+                        controller = controller,
+                        wheelRadius = 0.dp,
+                        wheelAlpha = 0f,
+                        onStart = { emitSelectionHapticIfNeeded() }
+                    )
+                }
+                Md3ColorPickerSliderFrame(position = sliderPositions.brightness) {
+                    BrightnessSlider(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(resolveMd3ColorPickerSliderLayout().trackHeight),
+                        controller = controller,
+                        wheelRadius = 0.dp,
+                        wheelAlpha = 0f,
+                        onStart = { emitSelectionHapticIfNeeded() }
+                    )
+                }
+
+                OutlinedTextField(
+                    value = pendingHex,
+                    onValueChange = { pendingHex = it.uppercase().take(9) },
+                    label = { Text("HEX") },
+                    singleLine = true,
+                    isError = invalidInput,
+                    supportingText = {
+                        if (invalidInput) {
+                            Text("请输入 #RRGGBB 格式")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(ThemeColors.size) { index ->
+                        val color = ThemeColors[index]
+                        val hex = formatMd3CustomColorHex(color)
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (normalizeMd3CustomColorHex(pendingHex) == hex) 2.dp else 1.dp,
+                                    color = if (normalizeMd3CustomColorHex(pendingHex) == hex) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    },
+                                    shape = CircleShape
+                                )
+                                .clickable {
+                                    pendingHex = hex
+                                    haptic(HapticType.SELECTION)
+                                }
+                        )
+                    }
+                }
+            }
+        }
+    )
+}
+
+internal data class Md3ColorPickerSliderLayout(
+    val trackHeight: Dp,
+    val frameHeight: Dp,
+    val thumbRadius: Dp,
+    val horizontalPadding: Dp
+)
+
+internal fun resolveMd3ColorPickerSliderLayout(): Md3ColorPickerSliderLayout =
+    Md3ColorPickerSliderLayout(
+        trackHeight = 28.dp,
+        frameHeight = 36.dp,
+        thumbRadius = 14.dp,
+        horizontalPadding = 14.dp
+    )
+
+private const val MD3_COLOR_PICKER_HAPTIC_MIN_INTERVAL_MS = 72L
+
+internal fun shouldEmitMd3ColorPickerSelectionHaptic(
+    lastFeedbackAtMs: Long,
+    nowMs: Long,
+    minIntervalMs: Long = MD3_COLOR_PICKER_HAPTIC_MIN_INTERVAL_MS
+): Boolean {
+    return lastFeedbackAtMs <= 0L || nowMs - lastFeedbackAtMs >= minIntervalMs
+}
+
+private data class Md3ColorPickerSliderPositions(
+    val hue: Float,
+    val saturation: Float,
+    val brightness: Float
+)
+
+private fun resolveMd3ColorPickerSliderPositions(color: Color): Md3ColorPickerSliderPositions {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+    return Md3ColorPickerSliderPositions(
+        hue = (hsv[0] / 360f).coerceIn(0f, 1f),
+        saturation = hsv[1].coerceIn(0f, 1f),
+        brightness = hsv[2].coerceIn(0f, 1f)
+    )
+}
+
+@Composable
+private fun Md3ColorPickerSliderFrame(
+    position: Float,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val layout = resolveMd3ColorPickerSliderLayout()
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(layout.frameHeight)
+    ) {
+        val thumbDiameter = layout.thumbRadius * 2
+        val thumbTravelWidth = if (maxWidth > thumbDiameter) maxWidth - thumbDiameter else 0.dp
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = layout.horizontalPadding)
+                .fillMaxWidth()
+                .height(layout.trackHeight)
+        ) {
+            content()
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = thumbTravelWidth * position.coerceIn(0f, 1f))
+                .size(thumbDiameter)
+                .background(Color.White, CircleShape)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f),
+                    shape = CircleShape
+                )
+        )
     }
 }
 

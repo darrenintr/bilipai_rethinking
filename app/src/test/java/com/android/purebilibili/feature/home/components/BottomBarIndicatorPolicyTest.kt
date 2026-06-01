@@ -116,8 +116,8 @@ class BottomBarIndicatorPolicyTest {
     }
 
     @Test
-    fun `transitioning bottom pager disables hidden refraction capture`() {
-        assertFalse(
+    fun `transitioning bottom pager keeps hidden refraction capture during tap pulse`() {
+        assertTrue(
             shouldRenderBottomBarRefractionCapture(
                 glassEnabled = true,
                 hasBackdrop = true,
@@ -125,6 +125,16 @@ class BottomBarIndicatorPolicyTest {
                 isTransitionRunning = true,
                 isFeedScrollInProgress = false,
                 isBottomBarInteractionActive = true
+            )
+        )
+        assertFalse(
+            shouldRenderBottomBarRefractionCapture(
+                glassEnabled = true,
+                hasBackdrop = true,
+                captureProgress = 1f,
+                isTransitionRunning = true,
+                isFeedScrollInProgress = false,
+                isBottomBarInteractionActive = false
             )
         )
         assertTrue(
@@ -159,6 +169,50 @@ class BottomBarIndicatorPolicyTest {
                 isBottomBarInteractionActive = true
             )
         )
+    }
+
+    @Test
+    fun `transitioning bottom pager allows indicator backdrop only for click pulse`() {
+        assertTrue(
+            shouldRenderBottomBarIndicatorBackdrop(
+                glassEnabled = true,
+                hasContentBackdrop = true,
+                indicatorProgress = 1f,
+                isTransitionRunning = true,
+                isBottomBarInteractionActive = true,
+                allowTransitionIndicatorPulse = true
+            )
+        )
+        assertTrue(
+            shouldRenderBottomBarRefractionCapture(
+                glassEnabled = true,
+                hasBackdrop = true,
+                captureProgress = 1f,
+                isTransitionRunning = true,
+                isBottomBarInteractionActive = true
+            )
+        )
+    }
+
+    @Test
+    fun `indicator click settle pulse reuses indicator layer transform scale`() {
+        val pressed = resolveBottomBarIndicatorLayerTransform(
+            motionProgress = 1f,
+            velocityItemsPerSecond = 0f,
+            isDragging = false,
+            dragScaleProgress = 1f
+        )
+        val settled = resolveBottomBarIndicatorLayerTransform(
+            motionProgress = 0f,
+            velocityItemsPerSecond = 0f,
+            isDragging = false,
+            dragScaleProgress = 0f
+        )
+
+        assertTrue(pressed.scaleX >= 1.35f)
+        assertEquals(pressed.scaleX, pressed.scaleY)
+        assertEquals(1f, settled.scaleX)
+        assertEquals(1f, settled.scaleY)
     }
 
     @Test
@@ -434,7 +488,8 @@ class BottomBarIndicatorPolicyTest {
             0.72f,
             resolveBottomBarIndicatorGlowAlpha(
                 glassEnabled = true,
-                pressProgress = 0.72f
+                pressProgress = 0.72f,
+                motionProgress = 0f
             ),
             0.001f
         )
@@ -442,7 +497,8 @@ class BottomBarIndicatorPolicyTest {
             1f,
             resolveBottomBarIndicatorGlowAlpha(
                 glassEnabled = true,
-                pressProgress = 1.4f
+                pressProgress = 1.4f,
+                motionProgress = 0f
             ),
             0.001f
         )
@@ -450,7 +506,80 @@ class BottomBarIndicatorPolicyTest {
             0f,
             resolveBottomBarIndicatorGlowAlpha(
                 glassEnabled = false,
-                pressProgress = 1f
+                pressProgress = 1f,
+                motionProgress = 1f
+            ),
+            0.001f
+        )
+    }
+
+    @Test
+    fun `indicator glow follows drag motion even without press progress`() {
+        assertEquals(
+            0.64f,
+            resolveBottomBarIndicatorGlowAlpha(
+                glassEnabled = true,
+                pressProgress = 0f,
+                motionProgress = 0.64f
+            ),
+            0.001f
+        )
+    }
+
+    @Test
+    fun `shell highlight follows indicator motion while dragging`() {
+        assertEquals(
+            0.86f,
+            resolveBottomBarShellHighlightAlpha(
+                glassEnabled = true,
+                pressProgress = 0.12f,
+                motionProgress = 0.86f
+            ),
+            0.001f
+        )
+        assertEquals(
+            0.72f,
+            resolveBottomBarShellHighlightAlpha(
+                glassEnabled = true,
+                pressProgress = 0.72f,
+                motionProgress = 0.18f
+            ),
+            0.001f
+        )
+    }
+
+    @Test
+    fun `shell highlight keeps a floor while dragging so it stays pinned`() {
+        // 慢拖时 press/motion 都低,但拖拽中高光应保持可见(跟手)
+        assertEquals(
+            0.6f,
+            resolveBottomBarShellHighlightAlpha(
+                glassEnabled = true,
+                pressProgress = 0.1f,
+                motionProgress = 0.2f,
+                isDragging = true
+            ),
+            0.001f
+        )
+        // 非拖拽时无地板,沿用 max(press, motion)
+        assertEquals(
+            0.2f,
+            resolveBottomBarShellHighlightAlpha(
+                glassEnabled = true,
+                pressProgress = 0.1f,
+                motionProgress = 0.2f,
+                isDragging = false
+            ),
+            0.001f
+        )
+        // 高 motion 不被地板压低
+        assertEquals(
+            0.9f,
+            resolveBottomBarShellHighlightAlpha(
+                glassEnabled = true,
+                pressProgress = 0f,
+                motionProgress = 0.9f,
+                isDragging = true
             ),
             0.001f
         )
@@ -484,6 +613,11 @@ class BottomBarIndicatorPolicyTest {
             highlightModifierSource.indexOf("drawContent()") <
                 highlightModifierSource.indexOf("Brush.radialGradient(")
         )
+        assertFalse(
+            highlightModifierSource.contains("RuntimeShader"),
+            "低版本系统会在 materialize modifier 时解析 RuntimeShader 类，交互高光不能直接引用它"
+        )
+        assertFalse(source.contains("import android.graphics.RuntimeShader"))
     }
 
     @Test
@@ -527,8 +661,8 @@ class BottomBarIndicatorPolicyTest {
             motionSpec = resolveBottomBarMotionSpec(BottomBarMotionProfile.ANDROID_NATIVE_FLOATING)
         )
 
-        assertTrue(transform.scaleX > 1.5f)
-        assertTrue(transform.scaleY > 1.5f)
+        assertEquals(88f / 56f, transform.scaleX, 0.001f)
+        assertEquals(88f / 56f, transform.scaleY, 0.001f)
     }
 
     @Test
@@ -554,8 +688,8 @@ class BottomBarIndicatorPolicyTest {
 
         assertEquals(full.scaleX, partial.scaleX, 0.001f)
         assertEquals(full.scaleY, partial.scaleY, 0.001f)
-        assertTrue(partial.scaleX > 1.5f)
-        assertTrue(partial.scaleY > 1.5f)
+        assertEquals(88f / 56f, partial.scaleX, 0.001f)
+        assertEquals(88f / 56f, partial.scaleY, 0.001f)
         assertTrue(deformed.scaleX > partial.scaleX)
         assertTrue(deformed.scaleY < partial.scaleY)
     }
@@ -598,15 +732,49 @@ class BottomBarIndicatorPolicyTest {
     }
 
     @Test
-    fun `settle rebound transform is subtle and returns to neutral`() {
+    fun `indicator velocity deformation follows KernelSU constants without changing drag scale target`() {
+        val baseScale = 88f / 56f
+        val transform = resolveBottomBarIndicatorLayerTransform(
+            motionProgress = 1f,
+            velocityItemsPerSecond = 2f,
+            isDragging = true,
+            dragScaleProgress = 1f,
+            motionSpec = resolveBottomBarMotionSpec(BottomBarMotionProfile.ANDROID_NATIVE_FLOATING)
+        )
+
+        assertEquals(baseScale / (1f - ((2f / 10f) * 0.75f)), transform.scaleX, 0.001f)
+        assertEquals(baseScale * (1f - ((2f / 10f) * 0.25f)), transform.scaleY, 0.001f)
+    }
+
+    @Test
+    fun `indicator drag scale uses KernelSU separate axis springs`() {
+        val source = listOf(
+            java.io.File("app/src/main/java/com/android/purebilibili/feature/home/components/BottomBar.kt"),
+            java.io.File("src/main/java/com/android/purebilibili/feature/home/components/BottomBar.kt")
+        ).first { it.exists() }.readText()
+
+        assertTrue(source.contains("rememberKernelSuIndicatorDragScaleTransform("))
+        assertTrue(source.contains("scaleX.animateTo("))
+        assertTrue(source.contains("scaleY.animateTo("))
+        assertTrue(source.contains("dampingRatio = 0.6f"))
+        assertTrue(source.contains("dampingRatio = 0.7f"))
+        assertTrue(source.contains("target = if (active) BOTTOM_BAR_INDICATOR_DRAG_SCALE_TARGET else 1f"))
+    }
+
+    @Test
+    fun `settle rebound transform expands on both axes and returns to neutral`() {
         val compressed = resolveBottomBarSettleReboundTransform(progress = 0.1f)
         val rebound = resolveBottomBarSettleReboundTransform(progress = 0.46f)
         val idle = resolveBottomBarSettleReboundTransform(progress = 1f)
 
         assertTrue(compressed.scaleX < 1f)
-        assertTrue(compressed.scaleX >= 0.97f)
+        assertTrue(compressed.scaleX >= 0.96f)
+        assertTrue(compressed.scaleY > 1f)
+        assertTrue(compressed.scaleY <= 1.03f)
         assertTrue(rebound.scaleX > 1f)
-        assertTrue(rebound.scaleX <= 1.06f)
+        assertTrue(rebound.scaleX <= 1.10f)
+        assertTrue(rebound.scaleY > 1f)
+        assertTrue(rebound.scaleY <= 1.09f)
         assertEquals(1f, idle.scaleX, 0.001f)
         assertEquals(1f, idle.scaleY, 0.001f)
     }
@@ -840,6 +1008,23 @@ class BottomBarIndicatorPolicyTest {
 
         assertTrue(resolveBottomBarItemMotionScale(dynamic, motionProgress = 1f) > 1f)
         assertTrue(resolveBottomBarItemMotionScale(home, motionProgress = 1f) > 1f)
+    }
+
+    @Test
+    fun `sampled item scale follows press progress even before indicator covers the tab`() {
+        val notCoveredScale = resolveBottomBarSampledItemMotionScale(
+            coverage = 0f,
+            motionProgress = 1f,
+            pressProgress = 1f
+        )
+        val partiallyCoveredScale = resolveBottomBarSampledItemMotionScale(
+            coverage = 0.25f,
+            motionProgress = 1f,
+            pressProgress = 1f
+        )
+
+        assertEquals(1.2f, notCoveredScale, 0.001f)
+        assertEquals(1.2f, partiallyCoveredScale, 0.001f)
     }
 
     @Test

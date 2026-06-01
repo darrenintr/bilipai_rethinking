@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,15 +66,20 @@ import androidx.media3.ui.PlayerView
 import com.android.purebilibili.core.util.Logger
 import com.android.purebilibili.core.util.AnalyticsHelper
 import com.android.purebilibili.core.util.CrashReporter
+import com.android.purebilibili.core.store.DanmakuSettings
 import com.android.purebilibili.core.store.DanmakuSettingsScope
 import com.android.purebilibili.core.store.SettingsManager
+import com.android.purebilibili.core.store.resolveDanmakuSettingsScope
 import com.android.purebilibili.core.util.LocalWindowSizeClass
 import com.android.purebilibili.data.model.response.LiveQuality
 import com.android.purebilibili.data.repository.LiveRedPocketInfo
 import com.android.purebilibili.feature.live.components.LandscapeChatOverlay
 import com.android.purebilibili.feature.live.components.LiveChatSection
 import com.android.purebilibili.feature.live.components.LiveContributionRankSheet
+import com.android.purebilibili.feature.live.components.LiveDmBlockSheet
+import com.android.purebilibili.feature.live.components.LiveEmoticonSheet
 import com.android.purebilibili.feature.live.components.LivePlayerControls
+import com.android.purebilibili.feature.live.components.LiveReportDialog
 import com.android.purebilibili.feature.live.components.LiveSendDanmakuSheet
 import com.android.purebilibili.feature.live.components.LiveSuperChatSection
 import com.android.purebilibili.feature.home.components.BottomBarLiquidSegmentedControl
@@ -85,6 +91,7 @@ import com.android.purebilibili.feature.video.ui.section.rebindPlayerSurfaceIfNe
 import com.android.purebilibili.feature.video.ui.section.shouldKickPlaybackAfterSurfaceRecovery
 import com.android.purebilibili.feature.video.ui.overlay.LiveDanmakuOverlay
 import com.android.purebilibili.feature.video.ui.components.VideoAspectRatio
+import com.android.purebilibili.feature.video.ui.components.resolveVideoViewportLayout
 import io.github.alexzhirkevich.cupertino.CupertinoActivityIndicator
 import io.github.alexzhirkevich.cupertino.icons.CupertinoIcons
 import io.github.alexzhirkevich.cupertino.icons.outlined.Checkmark
@@ -140,6 +147,8 @@ fun LivePlayerScreen(
     var showShutdownTimerDialog by remember { mutableStateOf(false) }
     var showContributionRankSheet by remember { mutableStateOf(false) }
     var showSendDanmakuSheet by remember { mutableStateOf(false) }
+    var showEmoticonSheet by remember { mutableStateOf(false) }
+    var reportTarget by remember { mutableStateOf<LiveDanmakuItem?>(null) }
     var isFullscreen by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(true) }
     var isInteractionPanelVisible by remember {
@@ -160,6 +169,9 @@ fun LivePlayerScreen(
     val successState = uiState as? LivePlayerState.Success
     val isLiveAudioOnly = successState?.isAudioOnly == true
     val superChatItems by viewModel.superChatItems.collectAsState()
+    val replyTarget by viewModel.replyTarget.collectAsState()
+    val emoticonPackages by viewModel.emoticonPackages.collectAsState()
+    val shieldInfo by viewModel.shieldInfo.collectAsState()
     val roomInfo = successState?.roomInfo ?: RoomInfo()
     val anchorInfo = successState?.anchorInfo ?: AnchorInfo()
     val isPortraitLive = roomInfo.isPortrait
@@ -183,6 +195,13 @@ fun LivePlayerScreen(
         isFullscreen = isFullscreen,
         isPortraitLive = isPortraitLive
     )
+    val liveDanmakuSettingsScope = remember(isLandscape) {
+        resolveDanmakuSettingsScope(isLandscape = isLandscape)
+    }
+    val liveDanmakuSettings by SettingsManager
+        .getDanmakuSettings(context, liveDanmakuSettingsScope)
+        .collectAsState(initial = DanmakuSettings())
+    val liveDanmakuDisplayArea = liveDanmakuSettings.displayArea
     val portraitOverlayMetrics = remember(configuration.screenHeightDp) {
         resolveLivePortraitOverlayMetrics(configuration.screenHeightDp)
     }
@@ -337,6 +356,16 @@ fun LivePlayerScreen(
         } catch (e: Exception) {
             isPipRequested = false
             Logger.e(TAG, "Enter live PiP failed", e)
+        }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is LivePlayerEvent.Toast -> {
+                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
     
@@ -549,6 +578,7 @@ fun LivePlayerScreen(
                     )
                     if (shouldPausePlayback) {
                         exoPlayer.pause()
+                        viewModel.pauseLiveHeartbeat()
                         CrashReporter.markLivePlaybackStage("lifecycle_pause")
                     } else {
                         CrashReporter.markLivePlaybackStage("lifecycle_pause_keep_playing")
@@ -586,6 +616,7 @@ fun LivePlayerScreen(
                         exoPlayer.play()
                         Logger.d(TAG, "▶️ ON_RESUME live playback kicked after surface recovery")
                     }
+                    viewModel.resumeLiveHeartbeatIfNeeded()
                     CrashReporter.markLivePlaybackStage("lifecycle_resume")
                 }
                 else -> {}
@@ -606,6 +637,7 @@ fun LivePlayerScreen(
             }
             activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            viewModel.pauseLiveHeartbeat()
         }
     }
     
@@ -649,7 +681,7 @@ fun LivePlayerScreen(
                     if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                         with(sharedTransitionScope) {
                             Modifier.sharedElement(
-                                sharedContentState = rememberSharedContentState(key = "live_cover_$roomId"),
+                                sharedContentState = rememberSharedContentState(key = com.android.purebilibili.core.ui.transition.liveCoverSharedElementKey(roomId)),
                                 animatedVisibilityScope = animatedVisibilityScope
                             )
                         }
@@ -657,30 +689,53 @@ fun LivePlayerScreen(
                 )
         ) {
             // Video View
-            AndroidView(
-                factory = { ctx ->
-                    val livePlayerView = if (useTextureSurfaceForLivePlayer) {
-                        LayoutInflater.from(ctx)
-                            .inflate(com.android.purebilibili.R.layout.view_player_texture, null, false) as PlayerView
-                    } else {
-                        PlayerView(ctx)
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                val density = LocalDensity.current
+                val viewportAspectRatio = videoAspectRatio
+                val viewportLayout = remember(maxWidth, maxHeight, viewportAspectRatio) {
+                    with(density) {
+                        resolveVideoViewportLayout(
+                            containerWidth = maxWidth.roundToPx(),
+                            containerHeight = maxHeight.roundToPx(),
+                            aspectRatio = viewportAspectRatio
+                        )
                     }
-                    livePlayerView.apply {
-                        player = if (shouldBindLivePlayerViewForAudioOnly(isLiveAudioOnly)) exoPlayer else null
-                        useController = false
-                        resizeMode = videoAspectRatio.playerResizeMode
-                        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                    }
-                },
-                update = { playerView ->
-                    playerView.player = if (shouldBindLivePlayerViewForAudioOnly(isLiveAudioOnly)) exoPlayer else null
-                    if (playerView.resizeMode != videoAspectRatio.playerResizeMode) {
-                        playerView.resizeMode = videoAspectRatio.playerResizeMode
-                    }
-                    playerViewRef = playerView
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+                }
+                val viewportModifier = with(density) {
+                    Modifier.size(
+                        width = viewportLayout.width.toDp(),
+                        height = viewportLayout.height.toDp()
+                    )
+                }
+
+                AndroidView(
+                    factory = { ctx ->
+                        val livePlayerView = if (useTextureSurfaceForLivePlayer) {
+                            LayoutInflater.from(ctx)
+                                .inflate(com.android.purebilibili.R.layout.view_player_texture, null, false) as PlayerView
+                        } else {
+                            PlayerView(ctx)
+                        }
+                        livePlayerView.apply {
+                            player = if (shouldBindLivePlayerViewForAudioOnly(isLiveAudioOnly)) exoPlayer else null
+                            useController = false
+                            resizeMode = viewportAspectRatio.playerResizeMode
+                            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                        }
+                    },
+                    update = { playerView ->
+                        playerView.player = if (shouldBindLivePlayerViewForAudioOnly(isLiveAudioOnly)) exoPlayer else null
+                        if (playerView.resizeMode != viewportAspectRatio.playerResizeMode) {
+                            playerView.resizeMode = viewportAspectRatio.playerResizeMode
+                        }
+                        playerViewRef = playerView
+                    },
+                    modifier = viewportModifier
+                )
+            }
             
             // Danmaku Overlay (Only render if enabled)
             val successState = uiState as? LivePlayerState.Success
@@ -691,6 +746,7 @@ fun LivePlayerScreen(
             ) {
                 LiveDanmakuOverlay(
                     danmakuFlow = viewModel.danmakuFlow,
+                    displayArea = liveDanmakuDisplayArea,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
@@ -732,6 +788,7 @@ fun LivePlayerScreen(
                 onToggleBackgroundPlayback = { toggleBackgroundPlayback() },
                 onOpenShutdownTimer = { showShutdownTimerDialog = true },
                 onOpenPlayerInfo = { showPlayerInfoDialog = true },
+                onOpenSend = { showSendDanmakuSheet = true },
                 videoFitDesc = videoAspectRatio.displayName,
                 onVideoFitClick = { showVideoFitMenu = true },
                 currentQualityDesc = currentQualityDesc,
@@ -798,23 +855,23 @@ fun LivePlayerScreen(
             onToggleDanmaku = { viewModel.toggleDanmaku() },
             onLike = { count -> viewModel.clickLike(count) },
             onOpenEmote = {
-                Toast.makeText(context, "可输入表情关键词发送", Toast.LENGTH_SHORT).show()
+                showEmoticonSheet = true
             },
             onUserClick = onUserClick,
             onAtUser = { item ->
-                Toast.makeText(context, "@${item.uname}", Toast.LENGTH_SHORT).show()
+                viewModel.setReplyTarget(item)
+                showSendDanmakuSheet = true
             },
             onBlockUser = { item ->
                 if (item.uid > 0L) {
                     viewModel.shieldUser(item.uid)
-                    Toast.makeText(context, "已屏蔽该发送者", Toast.LENGTH_SHORT).show()
                 } else {
                     val keyword = item.uname.ifBlank { item.text }
                     if (keyword.isNotBlank()) addLiveBlockKeyword(keyword)
                 }
             },
-            onReportDanmaku = {
-                Toast.makeText(context, "已记录举报入口，后续将接入直播举报接口", Toast.LENGTH_SHORT).show()
+            onReportDanmaku = { item ->
+                reportTarget = item
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -1095,8 +1152,14 @@ fun LivePlayerScreen(
         LiveDanmakuSettingsDialog(
             danmakuEnabled = successState?.isDanmakuEnabled ?: true,
             chatVisible = isInteractionPanelVisible,
+            displayArea = liveDanmakuDisplayArea,
             onToggleDanmaku = { viewModel.toggleDanmaku() },
             onToggleChat = { isInteractionPanelVisible = !isInteractionPanelVisible },
+            onDisplayAreaSelected = { area ->
+                coroutineScope.launch {
+                    SettingsManager.setDanmakuArea(context, area, liveDanmakuSettingsScope)
+                }
+            },
             onOpenBlock = {
                 showDanmakuSettingsDialog = false
                 showBlockDialog = true
@@ -1106,12 +1169,36 @@ fun LivePlayerScreen(
     }
 
     if (showBlockDialog) {
-        LiveDanmakuBlockDialog(
-            onConfirm = { keyword ->
-                addLiveBlockKeyword(keyword)
-                showBlockDialog = false
-            },
+        LiveDmBlockSheet(
+            shieldInfo = shieldInfo,
+            isLoggedIn = com.android.purebilibili.core.store.TokenManager.midCache != null,
+            onAddKeyword = { keyword -> viewModel.addShieldKeyword(keyword) },
+            onDeleteKeyword = { keyword -> viewModel.deleteShieldKeyword(keyword) },
+            onUnblockUser = { user -> viewModel.unshieldUser(user.uid) },
+            onSetRule = { type, level -> viewModel.setSilentRule(type, level) },
             onDismiss = { showBlockDialog = false }
+        )
+    }
+
+    reportTarget?.let { target ->
+        LiveReportDialog(
+            target = target,
+            onDismiss = { reportTarget = null },
+            onReport = { reason ->
+                viewModel.reportDanmaku(target, reason)
+                reportTarget = null
+            }
+        )
+    }
+
+    if (showEmoticonSheet) {
+        LiveEmoticonSheet(
+            packages = emoticonPackages,
+            onSelected = { item ->
+                viewModel.sendEmoticon(item)
+                showEmoticonSheet = false
+            },
+            onDismiss = { showEmoticonSheet = false }
         )
     }
 
@@ -1156,11 +1243,16 @@ fun LivePlayerScreen(
 
     if (showSendDanmakuSheet) {
         LiveSendDanmakuSheet(
-            onDismiss = { showSendDanmakuSheet = false },
+            onDismiss = {
+                showSendDanmakuSheet = false
+                viewModel.clearReplyTarget()
+            },
             onSend = { message ->
                 viewModel.sendDanmaku(message)
                 showSendDanmakuSheet = false
-            }
+            },
+            permission = successState?.danmakuPermission ?: com.android.purebilibili.data.repository.LiveDanmakuPermission(),
+            replyTarget = replyTarget
         )
     }
 }
@@ -1647,8 +1739,10 @@ private fun LiveVideoFitMenu(
 private fun LiveDanmakuSettingsDialog(
     danmakuEnabled: Boolean,
     chatVisible: Boolean,
+    displayArea: Float,
     onToggleDanmaku: () -> Unit,
     onToggleChat: () -> Unit,
+    onDisplayAreaSelected: (Float) -> Unit,
     onOpenBlock: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1666,6 +1760,10 @@ private fun LiveDanmakuSettingsDialog(
                     title = "互动区",
                     checked = chatVisible,
                     onCheckedChange = { onToggleChat() }
+                )
+                LiveDanmakuAreaSelector(
+                    currentArea = displayArea,
+                    onAreaSelected = onDisplayAreaSelected
                 )
                 Surface(
                     onClick = onOpenBlock,
@@ -1688,6 +1786,93 @@ private fun LiveDanmakuSettingsDialog(
             TextButton(onClick = onDismiss) { Text("完成") }
         }
     )
+}
+
+@Composable
+private fun LiveDanmakuAreaSelector(
+    currentArea: Float,
+    onAreaSelected: (Float) -> Unit
+) {
+    data class LiveDanmakuAreaOption(
+        val value: Float,
+        val label: String,
+        val subtitle: String
+    )
+
+    val title = "弹幕区域"
+    val options = remember {
+        listOf(
+            LiveDanmakuAreaOption(0.25f, "1/4", "顶部"),
+            LiveDanmakuAreaOption(0.5f, "1/2", "半屏"),
+            LiveDanmakuAreaOption(0.75f, "3/4", "大部"),
+            LiveDanmakuAreaOption(1.0f, "全屏", "铺满")
+        )
+    }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                options.forEach { option ->
+                    val selected = kotlin.math.abs(currentArea - option.value) < 0.05f
+                    Surface(
+                        onClick = { onAreaSelected(option.value) },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+                        },
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (selected) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f)
+                            }
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = option.label,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                }
+                            )
+                            Text(
+                                text = option.subtitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

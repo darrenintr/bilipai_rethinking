@@ -29,7 +29,7 @@ enum class CommentSortMode(val apiMode: Int, val label: String) {
     }
 }
 
-private const val SUB_REPLY_FIRST_PAGE_SIZE = 20
+private const val SUB_REPLY_PAGE_SIZE = 20
 
 // 评论状态
 data class CommentUiState(
@@ -84,6 +84,7 @@ data class SubReplyUiState(
     val grpcNextOffset: String? = null,
     val baseGrpcNextOffset: String? = null,
     val conversationAnchor: ReplyItem? = null,
+    val targetReplyId: Long = 0,
     // [新增] 消散动画状态
     val dissolvingIds: Set<Long> = emptySet()
 )
@@ -127,6 +128,23 @@ internal fun resolveSubReplyPageEnd(
         return false
     }
     return cursorIsEnd || fetchedReplyCount <= 0
+}
+
+internal fun resolveRoutedCommentRootReply(
+    loadedReplies: List<ReplyItem>,
+    remoteData: ReplyData?,
+    rootReplyId: Long
+): ReplyItem? {
+    if (rootReplyId <= 0L) return null
+    return loadedReplies.firstOrNull { it.rpid == rootReplyId }
+        ?: remoteData?.root?.takeIf { it.rpid == rootReplyId }
+}
+
+internal fun shouldStartRoutedSubReplyOpen(
+    rootReplyId: Long,
+    currentAid: Long
+): Boolean {
+    return rootReplyId > 0L && currentAid > 0L
 }
 
 class VideoCommentViewModel : ViewModel() {
@@ -330,10 +348,11 @@ class VideoCommentViewModel : ViewModel() {
 
     // --- 二级评论逻辑 ---
 
-    fun openSubReply(rootReply: ReplyItem) {
+    fun openSubReply(rootReply: ReplyItem, targetReplyId: Long = 0L) {
         _subReplyState.value = SubReplyUiState(
             visible = true,
             rootReply = rootReply,
+            targetReplyId = targetReplyId.takeIf { it != rootReply.rpid } ?: 0L,
             totalCount = resolveSubReplyLoadedTotalCount(
                 rootReply = rootReply,
                 loadedReplyCount = rootReply.replies.orEmpty().size,
@@ -344,6 +363,88 @@ class VideoCommentViewModel : ViewModel() {
             upMid = _commentState.value.upMid  // [修复] 使用正确的 UP 主 mid
         )
         loadSubReplies(rootReply.oid, rootReply.rpid, 1)
+    }
+
+    fun openSubReplyFromRoute(rootReplyId: Long, targetReplyId: Long = 0L): Boolean {
+        if (!shouldStartRoutedSubReplyOpen(rootReplyId, currentAid)) return false
+
+        resolveRoutedCommentRootReply(
+            loadedReplies = allReplies.ifEmpty { _commentState.value.replies },
+            remoteData = null,
+            rootReplyId = rootReplyId
+        )?.let { rootReply ->
+            openSubReply(rootReply, targetReplyId)
+            return true
+        }
+
+        val routeAid = currentAid
+        _subReplyState.value = _subReplyState.value.copy(
+            visible = false,
+            isLoading = true,
+            error = null,
+            targetReplyId = targetReplyId.takeIf { it != rootReplyId } ?: 0L
+        )
+
+        viewModelScope.launch {
+            CommentRepository.getSubCommentsForSubject(
+                oid = routeAid,
+                type = 1,
+                rootId = rootReplyId,
+                page = 1,
+                ps = SUB_REPLY_PAGE_SIZE,
+                preferRestPaging = true
+            ).onSuccess { data ->
+                val rootReply = resolveRoutedCommentRootReply(
+                    loadedReplies = emptyList(),
+                    remoteData = data,
+                    rootReplyId = rootReplyId
+                )
+                if (rootReply == null) {
+                    _subReplyState.value = _subReplyState.value.copy(
+                        isLoading = false,
+                        error = "回复可能已被删除或不可见"
+                    )
+                    return@onSuccess
+                }
+
+                val items = data.replies.orEmpty()
+                val remoteTotalCount = resolveSubReplyRemoteTotalCount(data)
+                val totalCount = resolveSubReplyLoadedTotalCount(
+                    rootReply = rootReply,
+                    loadedReplyCount = items.size,
+                    remoteReplyCount = remoteTotalCount
+                )
+                val isEnd = resolveSubReplyPageEnd(
+                    cursorIsEnd = data.cursor.isEnd,
+                    fetchedReplyCount = items.size,
+                    loadedReplyCount = items.size,
+                    remoteReplyCount = remoteTotalCount
+                )
+                val nextOffset = data.grpcNextOffset.takeIf { it.isNotBlank() }
+                _subReplyState.value = SubReplyUiState(
+                    visible = true,
+                    rootReply = rootReply,
+                    items = items,
+                    baseItems = items,
+                    totalCount = totalCount,
+                    isLoading = false,
+                    page = 1,
+                    basePage = 1,
+                    isEnd = isEnd,
+                    baseIsEnd = isEnd,
+                    upMid = _commentState.value.upMid,
+                    grpcNextOffset = nextOffset,
+                    baseGrpcNextOffset = nextOffset,
+                    targetReplyId = targetReplyId.takeIf { it != rootReplyId } ?: 0L
+                )
+            }.onFailure { error ->
+                _subReplyState.value = _subReplyState.value.copy(
+                    isLoading = false,
+                    error = error.message ?: "回复加载失败"
+                )
+            }
+        }
+        return true
     }
 
     fun closeSubReply() {
@@ -490,8 +591,9 @@ class VideoCommentViewModel : ViewModel() {
                 type = 1,
                 rootId = rootId,
                 page = page,
-                ps = SUB_REPLY_FIRST_PAGE_SIZE,
-                paginationOffset = _subReplyState.value.grpcNextOffset
+                ps = SUB_REPLY_PAGE_SIZE,
+                paginationOffset = _subReplyState.value.grpcNextOffset,
+                preferRestPaging = true
             )
             result.onSuccess { data ->
                 val current = _subReplyState.value

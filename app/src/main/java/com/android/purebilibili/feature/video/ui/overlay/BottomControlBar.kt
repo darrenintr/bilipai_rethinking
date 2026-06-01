@@ -46,6 +46,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.android.purebilibili.core.util.FormatUtils
 import com.android.purebilibili.data.model.response.SponsorProgressMarker
+import com.android.purebilibili.feature.video.progress.PbpRidgeDensity
 import com.android.purebilibili.feature.video.progress.PbpRidgeSample
 import com.android.purebilibili.feature.video.ui.components.SeekPreviewBubble
 import com.android.purebilibili.feature.video.ui.components.SeekPreviewBubblePlacement
@@ -1272,6 +1273,19 @@ fun VideoProgressBar(
                     )
                 }
 
+                fun resolveRidgeY(
+                    baselineY: Float,
+                    ridgeHeightPx: Float,
+                    sample: PbpRidgeSample
+                ): Float {
+                    val visualIntensity = when (sample.density) {
+                        PbpRidgeDensity.QUIET -> sample.intensity * 0.78f
+                        PbpRidgeDensity.NORMAL -> sample.intensity
+                        PbpRidgeDensity.HOT -> sample.intensity * 1.14f
+                    }.coerceIn(0f, 1f)
+                    return baselineY - ridgeHeightPx * visualIntensity
+                }
+
                 if (pbpRidgeSamples.size >= 2 && size.width > 0f) {
                     val ridgeHeightPx = (size.height * 0.42f).coerceAtMost(18.dp.toPx())
                     val baselineY = centerY
@@ -1279,7 +1293,7 @@ fun VideoProgressBar(
                         moveTo(0f, baselineY)
                         pbpRidgeSamples.forEach { sample ->
                             val x = size.width * sample.fraction.coerceIn(0f, 1f)
-                            val y = baselineY - ridgeHeightPx * sample.intensity.coerceIn(0f, 1f)
+                            val y = resolveRidgeY(baselineY, ridgeHeightPx, sample)
                             lineTo(x, y)
                         }
                         lineTo(size.width, baselineY)
@@ -1288,7 +1302,7 @@ fun VideoProgressBar(
                     val ridgeLinePath = Path().apply {
                         pbpRidgeSamples.forEachIndexed { index, sample ->
                             val x = size.width * sample.fraction.coerceIn(0f, 1f)
-                            val y = baselineY - ridgeHeightPx * sample.intensity.coerceIn(0f, 1f)
+                            val y = resolveRidgeY(baselineY, ridgeHeightPx, sample)
                             if (index == 0) moveTo(x, y) else lineTo(x, y)
                         }
                     }
@@ -1313,6 +1327,23 @@ fun VideoProgressBar(
                         color = primaryColor.copy(alpha = 0.46f),
                         style = Stroke(width = trackHeightPx * 0.9f, cap = StrokeCap.Round)
                     )
+                    pbpRidgeSamples.zipWithNext().forEach { (start, end) ->
+                        if (start.density == PbpRidgeDensity.HOT || end.density == PbpRidgeDensity.HOT) {
+                            drawLine(
+                                color = primaryColor.copy(alpha = 0.68f),
+                                start = Offset(
+                                    x = size.width * start.fraction.coerceIn(0f, 1f),
+                                    y = resolveRidgeY(baselineY, ridgeHeightPx, start)
+                                ),
+                                end = Offset(
+                                    x = size.width * end.fraction.coerceIn(0f, 1f),
+                                    y = resolveRidgeY(baselineY, ridgeHeightPx, end)
+                                ),
+                                strokeWidth = trackHeightPx * 1.25f,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                    }
                 }
 
                 drawTrack(size.width, Color.White.copy(alpha = 0.24f))

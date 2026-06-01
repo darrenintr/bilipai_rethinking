@@ -1092,11 +1092,11 @@ object VideoRepository {
         )?.data
     }
 
-    suspend fun getTvCastPlayUrl(
+    suspend fun getTvCastPlayData(
         aid: Long,
         cid: Long,
         qn: Int
-    ): String? = withContext(Dispatchers.IO) {
+    ): PlayUrlData? = withContext(Dispatchers.IO) {
         if (aid <= 0L || cid <= 0L) return@withContext null
 
         try {
@@ -1115,12 +1115,18 @@ object VideoRepository {
                 )
                 return@withContext null
             }
-            extractTvCastPlayableUrl(response.data)
+            response.data
         } catch (e: Exception) {
             com.android.purebilibili.core.util.Logger.w("VideoRepo", " tvPlayUrl exception: ${e.message}")
             null
         }
     }
+
+    suspend fun getTvCastPlayUrl(
+        aid: Long,
+        cid: Long,
+        qn: Int
+    ): String? = extractTvCastPlayableUrl(getTvCastPlayData(aid, cid, qn))
 
 
     private data class PlayUrlFetchResult(

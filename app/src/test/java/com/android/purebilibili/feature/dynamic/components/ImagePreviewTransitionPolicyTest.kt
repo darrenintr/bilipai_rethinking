@@ -85,19 +85,6 @@ class ImagePreviewTransitionPolicyTest {
     }
 
     @Test
-    fun resolvePredictiveBackAnimationProgress_isInverseOfGestureProgress() {
-        assertEquals(1f, resolvePredictiveBackAnimationProgress(0f))
-        assertEquals(0.5f, resolvePredictiveBackAnimationProgress(0.5f))
-        assertEquals(0f, resolvePredictiveBackAnimationProgress(1f))
-    }
-
-    @Test
-    fun resolvePredictiveBackAnimationProgress_clampsOutOfRangeInput() {
-        assertEquals(1f, resolvePredictiveBackAnimationProgress(-0.3f))
-        assertEquals(0f, resolvePredictiveBackAnimationProgress(1.6f))
-    }
-
-    @Test
     fun resolveImagePreviewDismissTransform_returnsIdentityWithoutSourceRect() {
         val transform = resolveImagePreviewDismissTransform(
             transitionProgress = 0.3f,

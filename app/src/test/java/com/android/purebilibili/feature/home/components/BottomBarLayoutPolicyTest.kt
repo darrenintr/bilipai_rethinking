@@ -67,6 +67,25 @@ class BottomBarLayoutPolicyTest {
     }
 
     @Test
+    fun `kernelsu item slot width matches indicator geometry on crowded phones`() {
+        val slotWidth = resolveKernelSuBottomBarItemSlotWidth(
+            dockWidth = 353.dp,
+            horizontalPadding = 4.dp,
+            itemCount = 5
+        )
+
+        assertEquals(69.dp, slotWidth)
+        assertEquals(
+            314.5.dp,
+            resolveKernelSuBottomBarItemCenterX(
+                itemIndex = 4,
+                itemWidth = slotWidth,
+                horizontalPadding = 4.dp
+            )
+        )
+    }
+
+    @Test
     fun `kernelsu search entry shares safe floating width while collapsed`() {
         val layout = resolveKernelSuBottomBarSearchLayout(
             containerWidth = 393.dp,
@@ -109,6 +128,30 @@ class BottomBarLayoutPolicyTest {
     fun `kernelsu expanded home icon matches compact search icon size`() {
         assertEquals(28.dp, resolveKernelSuExpandedHomeIconSize())
         assertEquals(0.92f, resolveKernelSuExpandedHomeIconScale(), 0.001f)
+    }
+
+    @Test
+    fun `bottom bar refraction capture follows full visible bar while search is enabled`() {
+        val captureWidth = resolveBottomBarRefractionCaptureWidth(
+            dockWidth = 279.dp,
+            launchAdjustedSearchGap = 10.dp,
+            searchWidth = 64.dp,
+            searchEnabled = true
+        )
+
+        assertEquals(353.dp, captureWidth)
+    }
+
+    @Test
+    fun `bottom bar refraction capture matches dock width without search`() {
+        val captureWidth = resolveBottomBarRefractionCaptureWidth(
+            dockWidth = 353.dp,
+            launchAdjustedSearchGap = 10.dp,
+            searchWidth = 64.dp,
+            searchEnabled = false
+        )
+
+        assertEquals(353.dp, captureWidth)
     }
 
     @Test

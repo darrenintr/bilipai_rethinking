@@ -104,6 +104,13 @@ class VideoInfoDisplayPolicyTest {
     }
 
     @Test
+    fun videoNoteEntryShownOnlyForLoadedVideoWithAid() {
+        assertTrue(shouldShowVideoNoteEntry(isVideoLoaded = true, aid = 123L))
+        assertFalse(shouldShowVideoNoteEntry(isVideoLoaded = false, aid = 123L))
+        assertFalse(shouldShowVideoNoteEntry(isVideoLoaded = true, aid = 0L))
+    }
+
+    @Test
     fun inlineOwnerIdentityShownOnlyWhenLeadingAvatarHidden() {
         assertTrue(shouldShowInlineOwnerIdentity(showOwnerAvatar = false))
         assertFalse(shouldShowInlineOwnerIdentity(showOwnerAvatar = true))

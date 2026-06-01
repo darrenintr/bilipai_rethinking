@@ -23,6 +23,9 @@ class BangumiIndexFilterCatalogTest {
             listOf(
                 BangumiIndexFilterGroupKey.ORDER,
                 BangumiIndexFilterGroupKey.STYLE,
+                BangumiIndexFilterGroupKey.SEASON_VERSION,
+                BangumiIndexFilterGroupKey.SPOKEN_LANGUAGE,
+                BangumiIndexFilterGroupKey.COPYRIGHT,
                 BangumiIndexFilterGroupKey.PRODUCER,
                 BangumiIndexFilterGroupKey.YEAR,
                 BangumiIndexFilterGroupKey.SEASON_STATUS
@@ -32,6 +35,9 @@ class BangumiIndexFilterCatalogTest {
         assertTrue(groups.first { it.key == BangumiIndexFilterGroupKey.STYLE }.options.any { it.label == "历史" && it.styleId == 25 })
         assertTrue(groups.first { it.key == BangumiIndexFilterGroupKey.PRODUCER }.options.any { it.label == "BBC" && it.producerId == 1 })
         assertTrue(groups.first { it.key == BangumiIndexFilterGroupKey.SEASON_STATUS }.options.any { it.label == "大会员" && it.seasonStatus == "4,6" })
+        assertTrue(groups.first { it.key == BangumiIndexFilterGroupKey.SEASON_VERSION }.options.any { it.label == "正片" && it.seasonVersion == 1 })
+        assertTrue(groups.first { it.key == BangumiIndexFilterGroupKey.SPOKEN_LANGUAGE }.options.any { it.label == "中文配音" && it.spokenLanguageType == 2 })
+        assertTrue(groups.first { it.key == BangumiIndexFilterGroupKey.COPYRIGHT }.options.any { it.label == "独家" && it.copyright == "3" })
     }
 
     @Test
@@ -58,6 +64,7 @@ class BangumiIndexFilterCatalogTest {
         assertTrue(groups.any { it.key == BangumiIndexFilterGroupKey.YEAR })
         assertTrue(groups.none { it.key == BangumiIndexFilterGroupKey.PRODUCER })
         assertTrue(groups.none { it.key == BangumiIndexFilterGroupKey.SEASON_STATUS })
+        assertTrue(groups.any { it.key == BangumiIndexFilterGroupKey.SEASON_MONTH })
     }
 
     @Test
@@ -74,6 +81,6 @@ class BangumiIndexFilterCatalogTest {
 
         assertEquals(25, updated.styleId)
         assertEquals(4, updated.producerId)
-        assertEquals("3|-1|25|4|-1|-1|3|0", resolveBangumiIndexFilterKey(BangumiType.DOCUMENTARY.value, updated))
+        assertEquals("3|-1|25|4|-1|-1|3|0|-1|-1|-1|-1", resolveBangumiIndexFilterKey(BangumiType.DOCUMENTARY.value, updated))
     }
 }

@@ -2,8 +2,38 @@ package com.android.purebilibili.feature.video.ui.overlay
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PortraitInteractionBarLayoutPolicyTest {
+
+    @Test
+    fun portraitTriplePress_startsOnlyAfterLongPressConfirmation() {
+        assertFalse(shouldStartPortraitTriplePress(longPressConfirmed = false))
+        assertTrue(shouldStartPortraitTriplePress(longPressConfirmed = true))
+    }
+
+    @Test
+    fun portraitTriplePressRelease_cancelsOnlyIncompleteProgress() {
+        assertTrue(
+            shouldCancelPortraitTriplePressOnRelease(
+                isTriplePressing = true,
+                tripleCompleted = false
+            )
+        )
+        assertFalse(
+            shouldCancelPortraitTriplePressOnRelease(
+                isTriplePressing = true,
+                tripleCompleted = true
+            )
+        )
+        assertFalse(
+            shouldCancelPortraitTriplePressOnRelease(
+                isTriplePressing = false,
+                tripleCompleted = false
+            )
+        )
+    }
 
     @Test
     fun compactPhone_usesDenseInteractionRail() {

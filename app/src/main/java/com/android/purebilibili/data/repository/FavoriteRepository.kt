@@ -87,6 +87,27 @@ object FavoriteRepository {
         }
     }
 
+    suspend fun getFavoriteSeasonList(
+        seasonId: Long,
+        pn: Int
+    ): Result<FavoriteResourceData> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = api.getFavoriteSeasonList(
+                    seasonId = seasonId,
+                    pn = pn
+                )
+                if (response.code == 0 && response.data != null) {
+                    Result.success(response.data)
+                } else {
+                    Result.failure(Exception(response.message))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
     suspend fun cleanInvalidResources(mediaId: Long): Result<Boolean> {
         return withContext(Dispatchers.IO) {
             try {

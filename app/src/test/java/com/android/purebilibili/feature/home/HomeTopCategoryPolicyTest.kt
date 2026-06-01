@@ -28,6 +28,25 @@ class HomeTopCategoryPolicyTest {
     }
 
     @Test
+    fun `top tab entries include partition as sixth default page`() {
+        assertEquals(
+            listOf(
+                HomeTopTabEntry.Category(HomeCategory.RECOMMEND),
+                HomeTopTabEntry.Category(HomeCategory.FOLLOW),
+                HomeTopTabEntry.Category(HomeCategory.POPULAR),
+                HomeTopTabEntry.Category(HomeCategory.LIVE),
+                HomeTopTabEntry.Category(HomeCategory.GAME),
+                HomeTopTabEntry.Partition
+            ),
+            resolveHomeTopTabEntries()
+        )
+        assertEquals(
+            listOf("RECOMMEND", "FOLLOW", "POPULAR", "LIVE", "GAME", "PARTITION"),
+            resolveDefaultHomeTopTabIds()
+        )
+    }
+
+    @Test
     fun `top categories should keep compact count for header readability`() {
         assertEquals(5, resolveHomeTopCategories().size)
     }
@@ -42,7 +61,16 @@ class HomeTopCategoryPolicyTest {
     }
 
     @Test
-    fun `custom order and visibility should be applied with recommend pinned`() {
+    fun `tab entry key and label should support partition`() {
+        val entries = resolveHomeTopTabEntries()
+
+        assertEquals(HomeTopTabEntry.Partition, resolveHomeTopTabEntryOrNull(entries, 5))
+        assertEquals(HomeCategory.entries.size, resolveHomeTopTabEntryKey(entries, 5))
+        assertEquals("分区", resolveHomeTopTabEntryLabel(HomeTopTabEntry.Partition))
+    }
+
+    @Test
+    fun `custom order and visibility should be applied without recommend pinning`() {
         val categories = resolveHomeTopCategories(
             customOrderIds = listOf("LIVE", "TECH", "RECOMMEND", "FOLLOW"),
             visibleIds = setOf("LIVE", "TECH", "FOLLOW")
@@ -50,12 +78,47 @@ class HomeTopCategoryPolicyTest {
 
         assertEquals(
             listOf(
-                HomeCategory.RECOMMEND,
                 HomeCategory.LIVE,
                 HomeCategory.TECH,
                 HomeCategory.FOLLOW
             ),
             categories
+        )
+    }
+
+    @Test
+    fun `custom top tab entries should allow partition or any category first`() {
+        val entries = resolveHomeTopTabEntries(
+            customOrderIds = listOf("PARTITION", "LIVE", "RECOMMEND"),
+            visibleIds = setOf("PARTITION", "LIVE")
+        )
+
+        assertEquals(
+            listOf(
+                HomeTopTabEntry.Partition,
+                HomeTopTabEntry.Category(HomeCategory.LIVE)
+            ),
+            entries
+        )
+    }
+
+    @Test
+    fun `legacy default top tab settings should migrate to inline partition entry`() {
+        val entries = resolveHomeTopTabEntries(
+            customOrderIds = listOf("RECOMMEND", "FOLLOW", "POPULAR", "LIVE", "GAME"),
+            visibleIds = setOf("RECOMMEND", "FOLLOW", "POPULAR", "LIVE", "GAME")
+        )
+
+        assertEquals(
+            listOf(
+                HomeTopTabEntry.Category(HomeCategory.RECOMMEND),
+                HomeTopTabEntry.Category(HomeCategory.FOLLOW),
+                HomeTopTabEntry.Category(HomeCategory.POPULAR),
+                HomeTopTabEntry.Category(HomeCategory.LIVE),
+                HomeTopTabEntry.Category(HomeCategory.GAME),
+                HomeTopTabEntry.Partition
+            ),
+            entries
         )
     }
 

@@ -79,6 +79,18 @@ class BlockedUpImportPolicyTest {
     }
 
     @Test
+    fun `blocked list remote source maps comment area to re src 15`() {
+        assertEquals(
+            11,
+            resolveBlockedUpRelationReSrc(BlockedUpRelationSource.PROFILE)
+        )
+        assertEquals(
+            15,
+            resolveBlockedUpRelationReSrc(BlockedUpRelationSource.COMMENT)
+        )
+    }
+
+    @Test
     fun `metadata refresh message reports updated deleted and failed counts`() {
         assertEquals(
             "已刷新 2 个用户资料，1 个账号疑似已注销",

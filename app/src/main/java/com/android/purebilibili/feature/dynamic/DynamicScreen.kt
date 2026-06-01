@@ -110,6 +110,7 @@ val LocalDynamicScrollChannel = compositionLocalOf<Channel<Unit>?> { null }
 @Composable
 fun DynamicScreen(
     viewModel: DynamicViewModel = viewModel(),
+    isCurrentPage: Boolean = true,
     onVideoClick: (String) -> Unit,
     onBangumiClick: (Long, Long) -> Unit = { _, _ -> },
     onDynamicDetailClick: (String) -> Unit = {},
@@ -176,6 +177,12 @@ fun DynamicScreen(
     val dynamicChromeBackdrop = rememberLayerBackdrop()
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(viewModel, isCurrentPage) {
+        if (isCurrentPage) {
+            viewModel.activateStartupLoads()
+        }
+    }
+
     val density = LocalDensity.current
     val statusBarHeight = WindowInsets.statusBars.getTop(density).let { with(density) { it.toDp() } }
     val dynamicListBottomPadding = resolveBottomSafeAreaPadding(
@@ -207,6 +214,24 @@ fun DynamicScreen(
         if (selectedTab != activeSelectedTab) {
             viewModel.setSelectedTab(activeSelectedTab)
         }
+    }
+    var previousFeedTab by remember { mutableIntStateOf(activeSelectedTab) }
+    var previousFeedSelectedUserId by remember {
+        mutableStateOf(selectedUserId.takeIf { isSelectedUserTabActive })
+    }
+    LaunchedEffect(activeSelectedTab, selectedUserId, isSelectedUserTabActive) {
+        val activeUserId = selectedUserId.takeIf { isSelectedUserTabActive }
+        if (shouldResetDynamicFeedScrollOnSourceChange(
+                previousTab = previousFeedTab,
+                nextTab = activeSelectedTab,
+                previousSelectedUserId = previousFeedSelectedUserId,
+                nextSelectedUserId = activeUserId
+            )
+        ) {
+            listState.scrollToItem(0)
+        }
+        previousFeedTab = activeSelectedTab
+        previousFeedSelectedUserId = activeUserId
     }
     val handleUserSelection = remember(selectedUserId, activeSelectedTab, isUserTabVisible, onUserClick) {
         { clickedUserId: Long? ->
@@ -562,6 +587,11 @@ fun DynamicScreen(
                                                     android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                                                 }
                                             },
+                                            onDeleteClick = { action ->
+                                                viewModel.deleteDynamic(action) { _, msg ->
+                                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
                                             likedDynamics = likedDynamics,
                                             modifier = Modifier
                                                 .then(dynamicTabSwipeModifier)
@@ -651,6 +681,11 @@ fun DynamicScreen(
                                          },
                                          onWatchLaterClick = { aid ->
                                              viewModel.addToWatchLater(aid) { _, msg ->
+                                                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                             }
+                                         },
+                                         onDeleteClick = { action ->
+                                             viewModel.deleteDynamic(action) { _, msg ->
                                                  android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                                              }
                                          },
@@ -773,10 +808,11 @@ fun DynamicScreen(
     showRepostDialog?.let { dynamicId ->
         RepostDialog(
             onDismiss = { showRepostDialog = null },
-            onRepost = { content ->
+            onRepost = { content: String, onComplete: (Boolean) -> Unit ->
                 viewModel.repostDynamic(dynamicId, content) { success, msg ->
                     android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                     if (success) showRepostDialog = null
+                    onComplete(success)
                 }
             }
         )
@@ -870,6 +906,7 @@ private fun DynamicList(
     onRepostClick: (String) -> Unit = {},
     onLikeClick: (String) -> Unit = {},
     onWatchLaterClick: (Long) -> Unit = {},
+    onDeleteClick: (DynamicDeleteAction) -> Unit = {},
     likedDynamics: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
@@ -886,6 +923,7 @@ private fun DynamicList(
             onRepostClick = onRepostClick,
             onLikeClick = onLikeClick,
             onWatchLaterClick = onWatchLaterClick,
+            onDeleteClick = onDeleteClick,
             isLiked = likedDynamics.contains(item.id_str)
         )
     }
@@ -1065,9 +1103,9 @@ private fun HorizontalUserList(
                 val isSelected = selectedUserId == user.uid
                 var showMenu by remember { mutableStateOf(false) }
                 val displayName = if (user.isHidden) {
-                    "${user.name.take(4)}(隐)"
+                    "${user.name}(隐)"
                 } else {
-                    user.name.take(4)
+                    user.name
                 }
 
                 Box {
@@ -1109,13 +1147,16 @@ private fun HorizontalUserList(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            displayName,  // 最多显示4个字符
+                            displayName,
                             fontSize = 11.sp,
                             color = if (isSelected)
                                 MaterialTheme.colorScheme.primary
                             else
                                 MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.width(64.dp)
                         )
                     }
 

@@ -75,10 +75,36 @@ class SettingsSearchPolicyTest {
     }
 
     @Test
+    fun queryByRetiredHomeGlassBadges_returnsNoSettingsResult() {
+        val results = resolveSettingsSearchResults("封面玻璃样式") +
+            resolveSettingsSearchResults("信息区玻璃样式")
+
+        assertTrue(
+            results.none {
+                it.target == SettingsSearchTarget.APPEARANCE &&
+                    it.focusId == SettingsSearchFocusIds.APPEARANCE_HOME
+            }
+        )
+    }
+
+    @Test
     fun queryByMd3Alias_hitsAppearanceEntry() {
         val results = resolveSettingsSearchResults("md3")
 
         assertTrue(results.any { it.target == SettingsSearchTarget.APPEARANCE })
+    }
+
+    @Test
+    fun queryByCustomMd3Color_focusesAppearanceThemeSection() {
+        val results = resolveSettingsSearchResults("自定义md3颜色")
+
+        assertEquals("自定义 MD3 颜色", results.firstOrNull()?.title)
+        assertTrue(
+            results.any {
+                it.target == SettingsSearchTarget.APPEARANCE &&
+                    it.focusId == SettingsSearchFocusIds.APPEARANCE_THEME
+            }
+        )
     }
 
     @Test
@@ -125,10 +151,17 @@ class SettingsSearchPolicyTest {
     }
 
     @Test
-    fun queryByPredictiveBack_hitsAppearanceEntry() {
+    fun queryByRemovedBackPreview_noLongerHitsSettingsEntry() {
         val results = resolveSettingsSearchResults("预测性返回")
 
-        assertTrue(results.any { it.target == SettingsSearchTarget.APPEARANCE })
+        assertTrue(results.none { it.target == SettingsSearchTarget.ANIMATION })
+    }
+
+    @Test
+    fun queryByRemovedBackPreviewAlias_noLongerHitsSettingsEntry() {
+        val results = resolveSettingsSearchResults("预测性返回预览")
+
+        assertTrue(results.none { it.target == SettingsSearchTarget.ANIMATION })
     }
 
     @Test
@@ -175,15 +208,22 @@ class SettingsSearchPolicyTest {
     }
 
     @Test
-    fun queryBySubReplyBlur_hitsInteractionCommentEntry() {
-        val results = resolveSettingsSearchResults("楼中楼模糊")
+    fun queryByVideoNote_hitsPlaybackInteractionEntry() {
+        val results = resolveSettingsSearchResults("默认折叠视频笔记")
 
         assertTrue(
             results.any {
-                it.target == SettingsSearchTarget.INTERACTION_COMMENT ||
-                    it.target == SettingsSearchTarget.PLAYBACK
+                it.target == SettingsSearchTarget.PLAYBACK &&
+                    it.focusId == SettingsSearchFocusIds.PLAYBACK_INTERACTION
             }
         )
+    }
+
+    @Test
+    fun queryBySubReplyBlur_returnsNoRemovedBlurSetting() {
+        val results = resolveSettingsSearchResults("楼中楼模糊")
+
+        assertTrue(results.isEmpty())
     }
 
     @Test
@@ -273,6 +313,13 @@ class SettingsSearchPolicyTest {
     }
 
     @Test
+    fun queryByImageSaveLocation_hitsImageSavePathEntry() {
+        val results = resolveSettingsSearchResults("图片保存位置")
+
+        assertTrue(results.any { it.target == SettingsSearchTarget.IMAGE_SAVE_PATH })
+    }
+
+    @Test
     fun queryByAppScreenshotGesture_hitsPlaybackEntry() {
         val results = resolveSettingsSearchResults("应用内干净截图")
 
@@ -318,13 +365,14 @@ class SettingsSearchPolicyTest {
     }
 
     @Test
-    fun queryByAutoCollapse_hitsTopTabManagementEntry() {
-        val result = resolveSettingsSearchResults("自动收缩").firstOrNull {
-            it.target == SettingsSearchTarget.BOTTOM_BAR && it.title == "顶部标签管理"
+    fun queryByHomeTopRightMessage_hitsTopTabManagementEntry() {
+        val result = resolveSettingsSearchResults("首页右上角消息").firstOrNull {
+            it.target == SettingsSearchTarget.BOTTOM_BAR &&
+                it.focusId == SettingsSearchFocusIds.BOTTOM_BAR_TOP_TABS
         }
 
-        assertEquals("显示/隐藏、排序、自动收缩", result?.subtitle)
-        assertEquals("导航设置", result?.section)
+        assertEquals("顶部标签管理", result?.title)
+        assertEquals("显示/隐藏、排序、右上角入口", result?.subtitle)
     }
 
     @Test

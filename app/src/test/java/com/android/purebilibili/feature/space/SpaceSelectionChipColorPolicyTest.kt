@@ -83,16 +83,4 @@ class SpaceSelectionChipColorPolicyTest {
         assertEquals(scheme.onPrimary, unfollowed.textColor)
     }
 
-    @Test
-    fun `official tag uses theme aware tertiary container`() {
-        val scheme = darkColorScheme(
-            tertiaryContainer = Color(0xFF4A3420),
-            onTertiaryContainer = Color(0xFFFFDCC4)
-        )
-
-        val colors = resolveSpaceOfficialTagColors(scheme)
-
-        assertEquals(scheme.tertiaryContainer, colors.backgroundColor)
-        assertEquals(scheme.onTertiaryContainer, colors.textColor)
-    }
 }

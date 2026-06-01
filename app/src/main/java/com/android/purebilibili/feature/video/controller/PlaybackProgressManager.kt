@@ -124,11 +124,9 @@ class PlaybackProgressManager {
             Logger.d(TAG, "Retrieved position for $key: ${position}ms")
             return position
         }
-        return if (cid > 0L) {
-            getCachedPosition(bvid, cid = 0L)
-        } else {
-            0L
-        }
+        // cid 精确查询用于分 P/明确页面恢复，不能回退到 bvid 级进度，
+        // 否则切到未看过的分 P 会继承上一分 P 刚保存的位置。
+        return 0L
     }
 
     fun getCachedPosition(bvid: String): Long {
