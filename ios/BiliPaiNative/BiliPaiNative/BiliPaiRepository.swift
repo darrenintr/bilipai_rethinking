@@ -2,9 +2,11 @@ import Foundation
 
 final class BiliPaiRepository {
     private let apiClient: BilibiliAPIClient
+    private let bundled: BundledFeedService
 
-    init(apiClient: BilibiliAPIClient) {
+    init(apiClient: BilibiliAPIClient, bundled: BundledFeedService = BundledFeedService()) {
         self.apiClient = apiClient
+        self.bundled = bundled
     }
 
     /// Fetch a single page of feed items.
@@ -28,29 +30,76 @@ final class BiliPaiRepository {
                 } catch {
                     // Recommendations are personalization-sensitive; popular videos are the public fallback.
                 }
-                return try await apiClient.popularVideos(page: page)
+                do {
+                    let popular = try await apiClient.popularVideos(page: page)
+                    if !popular.isEmpty { return popular }
+                } catch {
+                    // Both recommend and popular failed. The page-1 fallback
+                    // surfaces a small bundled sample set so the user has
+                    // something to look at while pull-to-refresh retries;
+                    // pagination is a no-op on bundled data.
+                    if page == 1 {
+                        return bundled.samples(for: .recommend)
+                    }
+                    throw error
+                }
+                return bundled.samples(for: .recommend)
             }
-            return try await apiClient.popularVideos(page: page)
+            do {
+                return try await apiClient.popularVideos(page: page)
+            } catch {
+                if page == 1 { return bundled.samples(for: .popular) }
+                throw error
+            }
         case .follow:
             return []
         case .popular:
             switch popularSubCategory {
             case .comprehensive:
-                return try await apiClient.popularVideos(page: page)
+                do {
+                    return try await apiClient.popularVideos(page: page)
+                } catch {
+                    if page == 1 { return bundled.samples(for: .popular) }
+                    throw error
+                }
             case .ranking:
-                return try await apiClient.rankingVideos()
+                do {
+                    return try await apiClient.rankingVideos()
+                } catch {
+                    return bundled.samples(for: .popular)
+                }
             case .weekly:
-                return try await apiClient.weeklyMustWatchVideos()
+                do {
+                    return try await apiClient.weeklyMustWatchVideos()
+                } catch {
+                    return bundled.samples(for: .popular)
+                }
             case .precious:
-                return try await apiClient.preciousVideos()
+                do {
+                    return try await apiClient.preciousVideos()
+                } catch {
+                    return bundled.samples(for: .popular)
+                }
             }
         case .live:
             return []
         case .anime, .game, .knowledge, .tech:
             guard let tid = category.regionTid else { return [] }
-            return try await apiClient.regionVideos(tid: tid, page: page)
+            do {
+                return try await apiClient.regionVideos(tid: tid, page: page)
+            } catch {
+                if page == 1 { return bundled.samples(for: category) }
+                throw error
+            }
         case .search:
-            return try await apiClient.searchVideos(keyword: searchQuery, page: page)
+            do {
+                return try await apiClient.searchVideos(keyword: searchQuery, page: page)
+            } catch {
+                if page == 1 && !searchQuery.isEmpty {
+                    return bundled.samples(for: .search)
+                }
+                throw error
+            }
         }
     }
 

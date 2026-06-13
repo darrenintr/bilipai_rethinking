@@ -7,8 +7,27 @@ final class BilibiliAPIClient {
     private let session: URLSession
     private let decoder: JSONDecoder
 
-    init(session: URLSession = .shared) {
-        self.session = session
+    init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            // The default `URLSession.shared` returns immediately with
+            // `NSURLErrorNotConnectedToInternet` on a weak link and never
+            // retries. For the BiliPai public feeds that is the dominant
+            // failure mode on first launch. A 15 s request / 60 s resource
+            // timeout with `waitsForConnectivity = true` lets the request
+            // ride out brief network drops without failing the whole feed.
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 15
+            config.timeoutIntervalForResource = 60
+            config.waitsForConnectivity = true
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
+            config.httpAdditionalHeaders = [
+                "User-Agent": "Mozilla/5.0 BiliPai-iOS/0.1",
+                "Referer": "https://www.bilibili.com"
+            ]
+            self.session = URLSession(configuration: config)
+        }
         self.decoder = JSONDecoder()
     }
 
@@ -200,11 +219,34 @@ final class BilibiliAPIClient {
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
         request.setValue("Mozilla/5.0 BiliPai-iOS/0.1", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            // Log the failure for the device console (Xcode → Window → Devices
+            // and Simulators → Open Console). Pull-to-refresh still works
+            // after this, but without the log the user has no way to know
+            // whether the failure is a connectivity blip, a DNS issue, or a
+            // Bilibili-side rate limit.
+            NSLog("BiliPai: GET \(url.absoluteString) failed: \(error.localizedDescription)")
+            throw error
+        }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            NSLog("BiliPai: GET \(url.absoluteString) returned HTTP \(status)")
             throw BilibiliAPIError.http
         }
-        return try decoder.decode(T.self, from: data)
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            // The decoder failures we have seen are almost always one
+            // missing/renamed field in a single video DTO, not a structural
+            // change. Log the body so the next debugging session has the
+            // raw JSON to work with.
+            NSLog("BiliPai: decode failed for \(url.absoluteString): \(error)\n  body: \(String(data: data.prefix(512), encoding: .utf8) ?? "<binary>")")
+            throw error
+        }
     }
 }
 

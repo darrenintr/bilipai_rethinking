@@ -13,6 +13,10 @@ final class HomeViewModel: ObservableObject {
     @Published var isLoadingMore = false
     @Published var hasMore = true
     @Published var errorMessage: String?
+    /// True when the feed is showing the offline bundled sample set. We
+    /// expose this so the home view can render an "离线样例" caption and
+    /// so the pagination footer can offer a "重新加载" action.
+    @Published var isShowingBundledFallback = false
 
     private var page = 1
     /// The maximum number of items the upstream endpoint will return in one
@@ -26,6 +30,7 @@ final class HomeViewModel: ObservableObject {
         isLoadingMore = false
         hasMore = true
         errorMessage = nil
+        isShowingBundledFallback = false
         await loadPage(repository: repository, replacing: true)
         isLoading = false
     }
@@ -40,6 +45,33 @@ final class HomeViewModel: ObservableObject {
         isLoadingMore = true
         page += 1
         await loadPage(repository: repository, replacing: false)
+        isLoadingMore = false
+    }
+
+    /// "Next batch" action. The user has reached the bottom of the feed and
+    /// tapped the footer button — we always increment the page and try
+    /// again, even when the previous response was short. The Bilibili
+    /// `popular` endpoint sometimes returns a 12-item page followed by
+    /// another full 20-item page, so giving up on a short response is
+    /// wrong. When even the retry returns nothing we drop into the
+    /// bundled fallback so the user always has somewhere to scroll.
+    func loadNextBatch(repository: BiliPaiRepository) async {
+        guard !isLoading, !isLoadingMore else { return }
+        guard category != .follow, category != .live else { return }
+        isLoadingMore = true
+        page += 1
+        await loadPage(repository: repository, replacing: false)
+        // If the upstream endpoint ran out of pages, top the list up with
+        // the bundled sample set (offset by the current page so the
+        // deduping by `bvid` does not collapse the rotation). The footer
+        // remains visible so the user can keep tapping "换一批" to cycle
+        // through the bundled set — that is the "infinite scroll" promise
+        // we make when the public endpoints are unreachable.
+        if videos.isEmpty || (!isShowingBundledFallback && errorMessage != nil) {
+            videos.append(contentsOf: BundledFeedService().samples(for: category))
+            isShowingBundledFallback = true
+            hasMore = true
+        }
         isLoadingMore = false
     }
 
@@ -70,10 +102,12 @@ final class HomeViewModel: ObservableObject {
                 liveRooms = []
                 errorMessage = "登录后查看关注动态、关注直播和个人推荐。"
                 hasMore = false
+                isShowingBundledFallback = false
             } else if category == .live {
                 liveRooms = try await repository.liveRooms()
                 videos = []
                 hasMore = false
+                isShowingBundledFallback = false
             } else {
                 let next = try await repository.feed(
                     category: category,
@@ -84,14 +118,25 @@ final class HomeViewModel: ObservableObject {
                 if replacing {
                     videos = next
                 } else {
-                    videos.append(contentsOf: next)
+                    // Dedupe appended items by `bvid` so a "load next batch"
+                    // gesture on a wrapped-around feed does not double up
+                    // the same video twice in a row.
+                    let existing = Set(videos.map(\.bvid))
+                    let fresh = next.filter { !existing.contains($0.bvid) }
+                    videos.append(contentsOf: fresh)
                 }
                 liveRooms = []
-                // Bilibili endpoints do not return an explicit cursor; we infer
-                // that the list is exhausted when the server returns fewer
-                // items than a full page, or when the category does not
-                // support pagination at all.
-                hasMore = categorySupportsPagination && next.count >= pageSize
+                // The repository is responsible for telling us when the
+                // response came from the bundled offline sample set. When
+                // it has, we keep `hasMore = false` so the footer surfaces
+                // the "重新加载" button instead of a phantom next page.
+                let fromBundled = page == 1 && next.allSatisfy { video in
+                    BundledFeedService.knownBVids.contains(video.bvid)
+                }
+                isShowingBundledFallback = fromBundled
+                hasMore = fromBundled
+                    ? true
+                    : categorySupportsPagination && next.count >= pageSize
             }
         } catch {
             if replacing {

@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct ProfileSettingsView: View {
-    @AppStorage("bilipai.themeMode") private var themeMode = "system"
+    @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
     @AppStorage("bilipai.danmakuEnabled") private var danmakuEnabled = true
     @AppStorage("bilipai.backgroundAudio") private var backgroundAudio = false
     @AppStorage("bilipai.todayWatch") private var todayWatch = true
@@ -25,9 +26,14 @@ struct ProfileSettingsView: View {
 
             Section("外观") {
                 Picker("主题", selection: $themeMode) {
-                    Text("跟随系统").tag("system")
-                    Text("浅色").tag("light")
-                    Text("深色").tag("dark")
+                    ForEach(ThemeMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                Picker("界面设计", selection: $materialDesign) {
+                    ForEach(MaterialDesign.allCases) { design in
+                        Text(design.title).tag(design)
+                    }
                 }
                 PluginRow(title: "iOS 预设", subtitle: "对齐 Android 版默认 UiPreset.IOS", symbol: "iphone")
                 PluginRow(title: "Bili 粉强调色", subtitle: "保留 BiliPai 的粉色主色", symbol: "paintpalette")

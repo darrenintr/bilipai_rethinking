@@ -6,6 +6,7 @@ struct RootView: View {
     @EnvironmentObject private var router: AppRouter
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     var body: some View {
         Group {
@@ -26,7 +27,28 @@ struct RootView: View {
         .onOpenURL { url in
             handle(url)
         }
+        .modifier(LiquidGlassTabBarModifier(materialDesign: materialDesign))
     }
+}
+
+/// Applies the iOS 26 `.toolbarBackground(.glass, for: .tabBar)` material
+/// only when the user has picked the Liquid Glass preset. On older OS
+/// versions the modifier is a no-op so the build still compiles against
+/// the iOS 26 deployment target.
+private struct LiquidGlassTabBarModifier: ViewModifier {
+    let materialDesign: MaterialDesign
+
+    func body(content: Content) -> some View {
+        switch materialDesign {
+        case .material3:
+            content
+        case .liquidGlass:
+            content
+                .toolbarBackground(.glass, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
+        }
+    }
+}
 
     private func handle(_ url: URL) {
         guard url.scheme == "bilipai" else { return }

@@ -5,6 +5,7 @@ struct HomeView: View {
 
     @EnvironmentObject private var router: AppRouter
     @StateObject private var model = HomeViewModel()
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12)]
 
@@ -18,6 +19,11 @@ struct HomeView: View {
                 }
                 if let error = model.errorMessage {
                     ErrorBanner(message: error)
+                }
+                if model.isShowingBundledFallback {
+                    HomeOfflineBanner {
+                        Task { await model.load(repository: repository) }
+                    }
                 }
                 if model.isLoading && model.videos.isEmpty && model.liveRooms.isEmpty {
                     ProgressView()
@@ -109,7 +115,7 @@ struct HomeView: View {
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 44)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+        .bilipaiPillSurface(materialDesign)
     }
 
     private var categoryStrip: some View {
@@ -168,12 +174,40 @@ struct HomeView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 8)
-        } else if !model.hasMore && model.videos.count > 0 && model.category != .live && model.category != .follow {
-            Text("— 没有更多了 —")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 12)
+        } else if model.videos.count > 0 && model.category != .live && model.category != .follow {
+            // Replace the "— 没有更多了 —" caption with a real action. The
+            // user can either pull-to-refresh, tap the "换一批" button to
+            // re-request the next page (works when the upstream endpoint
+            // sometimes returned a short page), or tap "重新加载" when the
+            // current list is the bundled offline sample set.
+            VStack(spacing: 10) {
+                if model.isShowingBundledFallback {
+                    Text("当前展示离线样例数据")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await model.load(repository: repository) }
+                    } label: {
+                        Label("刷新", systemImage: "arrow.clockwise")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button {
+                        Task { await model.loadNextBatch(repository: repository) }
+                    } label: {
+                        Label("换一批", systemImage: "infinity")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 12)
         }
     }
 
@@ -184,6 +218,31 @@ struct HomeView: View {
         let threshold = max(0, model.videos.count - 4)
         guard currentIndex >= threshold else { return }
         Task { await model.loadMore(repository: repository) }
+    }
+}
+
+private struct HomeOfflineBanner: View {
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "wifi.slash")
+                .font(.title3)
+                .foregroundStyle(BiliPaiTheme.biliPink)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("网络异常 · 当前为离线样例")
+                    .font(.subheadline.weight(.semibold))
+                Text("下拉或点“重新加载”即可拉取 Bilibili 公共内容源。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("重新加载", action: onRetry)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(12)
+        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
     }
 }
 

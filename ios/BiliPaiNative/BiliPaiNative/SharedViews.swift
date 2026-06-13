@@ -4,6 +4,14 @@ struct VideoCard: View {
     let video: BiliVideo
     let action: () -> Void
 
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+
+    /// Reserved height for the title block (two lines of `.subheadline`).
+    /// Pinning this so all cards in the same grid row have an identical total
+    /// height — otherwise a card with a one-line title would render shorter
+    /// than its two-line neighbour, knocking the next row out of alignment.
+    private static let titleBlockHeight: CGFloat = 40
+
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
@@ -22,7 +30,8 @@ struct VideoCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                    .frame(minHeight: Self.titleBlockHeight, alignment: .topLeading)
                 Text(video.ownerName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -34,8 +43,9 @@ struct VideoCard: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(10)
-            .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+            .bilipaiCardSurface(materialDesign)
         }
         .buttonStyle(.plain)
     }
@@ -43,6 +53,11 @@ struct VideoCard: View {
 
 struct LiveRoomCard: View {
     let room: BiliLiveRoom
+
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+
+    /// See `VideoCard.titleBlockHeight` for why this is pinned.
+    private static let titleBlockHeight: CGFloat = 40
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -60,15 +75,19 @@ struct LiveRoomCard: View {
             Text(room.title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(minHeight: Self.titleBlockHeight, alignment: .topLeading)
             Text("\(room.hostName) - \(room.areaName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
             Text("\(room.viewerCount.compactCount) watching")
                 .font(.caption2)
                 .foregroundStyle(BiliPaiTheme.biliPink)
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(10)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+        .bilipaiCardSurface(materialDesign)
     }
 }
 

@@ -8,6 +8,54 @@ enum BiliPaiTheme {
     static let cardBackground = Color(uiColor: .secondarySystemGroupedBackground)
 }
 
+/// User-facing light/dark preference. Stored as a raw string in
+/// `@AppStorage` so the value survives app upgrades even if we add new
+/// cases. Mapped to SwiftUI's `ColorScheme?` at the root.
+enum ThemeMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: "跟随系统"
+        case .light: "浅色"
+        case .dark: "深色"
+        }
+    }
+
+    /// The SwiftUI `ColorScheme?` value for `.preferredColorScheme(...)`.
+    /// `nil` means "follow the system" (matches the `.system` case).
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+/// User-facing design language. `.material3` keeps the current
+/// `.secondarySystemGroupedBackground` surfaces and the `.thinMaterial`
+/// search bar. `.liquidGlass` swaps the same surfaces for the iOS 26+
+/// `.glassEffect(...)` material so users on iOS 26+ can preview the new
+/// look without a separate app build.
+enum MaterialDesign: String, CaseIterable, Identifiable {
+    case material3
+    case liquidGlass
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .material3: "Material 3"
+        case .liquidGlass: "Liquid Glass"
+        }
+    }
+}
+
 extension Int {
     var compactCount: String {
         if self >= 1_000_000 {
@@ -27,3 +75,4 @@ extension Int {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
+

@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct BiliPaiNativeApp: App {
     @StateObject private var router = AppRouter()
+    @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
 
     init() {
         PlayerAudioSession.activate()
@@ -14,6 +15,7 @@ struct BiliPaiNativeApp: App {
             RootView(repository: BiliPaiRepository(apiClient: BilibiliAPIClient()))
                 .environmentObject(router)
                 .tint(BiliPaiTheme.biliPink)
+                .preferredColorScheme(themeMode.colorScheme)
         }
     }
 }
