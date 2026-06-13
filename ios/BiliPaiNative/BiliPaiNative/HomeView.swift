@@ -41,17 +41,20 @@ struct HomeView: View {
                 .refreshable {
                     await model.load(repository: repository)
                     withAnimation(.easeOut(duration: 0.25)) {
-                        model.scrollPositionID = "feedTop"
                         proxy.scrollTo("feedTop", anchor: .top)
                     }
                 }
                 .onChange(of: model.category) { _, _ in
-                    model.scrollPositionID = "feedTop"
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("feedTop", anchor: .top)
+                    }
                     Task { await model.load(repository: repository) }
                 }
                 .onChange(of: model.popularSubCategory) { _, _ in
                     guard model.category == .popular else { return }
-                    model.scrollPositionID = "feedTop"
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("feedTop", anchor: .top)
+                    }
                     Task { await model.load(repository: repository) }
                 }
                 .onChange(of: router.pendingSearchQuery) { _, query in
@@ -108,7 +111,6 @@ struct HomeView: View {
                             LiveRoomCard(room: room)
                         }
                     }
-                    .scrollTargetLayout()
                 } else if model.videos.isEmpty {
                     HomeEmptyState(
                         category: model.category,
@@ -131,14 +133,11 @@ struct HomeView: View {
                             }
                         }
                     }
-                    .scrollTargetLayout()
                     paginationFooter
                 }
             }
             .padding(16)
-            .scrollTargetLayout()
         }
-        .scrollPosition(id: $model.scrollPositionID)
     }
 
     private var searchBar: some View {

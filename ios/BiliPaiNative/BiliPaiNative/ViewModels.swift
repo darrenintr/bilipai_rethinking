@@ -13,7 +13,6 @@ final class HomeViewModel: ObservableObject {
     @Published var isLoadingMore = false
     @Published var hasMore = true
     @Published var errorMessage: String?
-    @Published var scrollPositionID: String? = "feedTop"
     /// True when the feed is showing the offline bundled sample set. We
     /// expose this so the home view can render an "离线样例" caption and
     /// so the pagination footer can offer a "重新加载" action.
@@ -39,7 +38,6 @@ final class HomeViewModel: ObservableObject {
         // = true even after the live API returns, and the user would see
         // the bundled list for a beat before the new data overwrites it.
         isShowingBundledFallback = false
-        scrollPositionID = "feedTop"
         await loadPage(repository: repository, replacing: true, requestID: requestID)
         guard isCurrentRequest(requestID) else { return }
         isLoading = false
