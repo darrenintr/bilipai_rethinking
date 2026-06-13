@@ -35,6 +35,7 @@
 		10000000000000000000011A /* LoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021B /* LoginSheet.swift */; };
 		10000000000000000000011B /* AccountContentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021C /* AccountContentViews.swift */; };
 		10000000000000000000011C /* ReplyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021D /* ReplyListView.swift */; };
+		10000000000000000000011D /* VLCPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021E /* VLCPlayerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -68,6 +69,7 @@
 		10000000000000000000021B /* LoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginSheet.swift; sourceTree = "<group>"; };
 		10000000000000000000021C /* AccountContentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountContentViews.swift; sourceTree = "<group>"; };
 		10000000000000000000021D /* ReplyListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyListView.swift; sourceTree = "<group>"; };
+		10000000000000000000021E /* VLCPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCPlayerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,6 +113,7 @@
 				10000000000000000000020F /* BiliPaiAppIntents.swift */,
 				100000000000000000000210 /* Info.plist */,
 				100000000000000000000211 /* PlayerView.swift */,
+				10000000000000000000021E /* VLCPlayerView.swift */,
 				100000000000000000000212 /* Assets.xcassets */,
 				100000000000000000000213 /* DesignModifier.swift */,
 				100000000000000000000214 /* BundledFeedService.swift */,
@@ -245,6 +248,7 @@
 				10000000000000000000011A /* LoginSheet.swift in Sources */,
 				10000000000000000000011B /* AccountContentViews.swift in Sources */,
 				10000000000000000000011C /* ReplyListView.swift in Sources */,
+				10000000000000000000011D /* VLCPlayerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

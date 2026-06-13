@@ -1,4 +1,3 @@
-import AVKit
 import SwiftUI
 
 struct VideoDetailView: View {
@@ -38,13 +37,8 @@ struct VideoDetailView: View {
             model.teardown()
         }
         .fullScreenCover(isPresented: $isFullscreenPresented) {
-            if let player = model.player {
-                FullscreenPlayerView(video: model.detail, player: player)
-                    .onDisappear {
-                        // Pause once the user leaves fullscreen so the inline
-                        // player is the one driving playback.
-                        player.pause()
-                    }
+            if let playback = model.playback {
+                FullscreenPlayerView(video: model.detail, playback: playback)
             }
         }
     }
@@ -52,10 +46,10 @@ struct VideoDetailView: View {
     @ViewBuilder
     private var playerSurface: some View {
         ZStack(alignment: .topLeading) {
-            if let player = model.player {
-                PlayerView(player: player)
-                    .onAppear { player.play() }
-                    .onDisappear { player.pause() }
+            if let playback = model.playback {
+                PlayerView(playback: playback)
+                    .onAppear { model.isPlaying = true }
+                    .onDisappear { model.isPlaying = false }
 
                 fullscreenButton
                     .padding(10)
@@ -147,15 +141,12 @@ struct VideoDetailView: View {
                 .toggleStyle(.button)
             Menu {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
-                    Button("\(speed, specifier: "%.2g")x") {
+                    Button(String(format: "%.2gx", speed)) {
                         model.playbackSpeed = Float(speed)
-                        if let player = model.player, player.timeControlStatus == .playing {
-                            player.rate = Float(speed)
-                        }
                     }
                 }
             } label: {
-                Label("\(Double(model.playbackSpeed), specifier: "%.2g")x", systemImage: "speedometer")
+                Label(String(format: "%.2gx", Double(model.playbackSpeed)), systemImage: "speedometer")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

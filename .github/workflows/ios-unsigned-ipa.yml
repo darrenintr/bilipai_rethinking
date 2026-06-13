@@ -15,28 +15,51 @@ permissions:
 jobs:
   build-unsigned-ipa:
     name: Build unsigned IPA
-    runs-on: macos-latest
+    # `macos-15` ships Xcode 16.x as the default toolchain, which matches the
+    # minimum-deployment target of iOS 18.0 in BiliPaiNative.xcodeproj. Pin
+    # explicitly so a future runner upgrade does not silently swap in a
+    # toolchain that drops iOS 18 support.
+    runs-on: macos-15
+    env:
+      PROJECT_PATH: ios/BiliPaiNative/BiliPaiNative.xcodeproj
+      SCHEME: BiliPaiNative
+      CONFIGURATION: Release
+      DERIVED_DATA: build/ios-derived-data
+      IPA_DIST_DIR: build/ios-unsigned-ipa
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Show Xcode version
+      - name: Show Xcode toolchain
         run: |
           xcodebuild -version
           xcodebuild -showsdks
+          sw_vers
+
+      - name: Verify project + scheme exist
+        # Fail fast with a clear message if the iOS-native project layout
+        # has drifted (renamed scheme, moved .xcodeproj, etc.) before
+        # kicking off the long build. `.xcodeproj` is a directory bundle,
+        # not a file, so we use `-d` (or `-e`) rather than `-f`.
+        run: |
+          set -euo pipefail
+          test -d "$PROJECT_PATH" || { echo "::error::Missing $PROJECT_PATH"; exit 1; }
+          xcodebuild -list -project "$PROJECT_PATH"
+          # `xcodebuild -list -json` emits `schemes` as a list of plain
+          # strings (not dicts), so we just do an `in` check.
+          xcodebuild -list -project "$PROJECT_PATH" -json \
+            | python3 -c "import json,sys; schemes=json.load(sys.stdin)['project']['schemes']; assert '$SCHEME' in schemes, f'Scheme $SCHEME not found in {schemes}'; print('Scheme $SCHEME present')"
 
       - name: Build device app without signing
         run: |
           set -euo pipefail
 
-          PROJECT_PATH="${GITHUB_WORKSPACE}/ios/BiliPaiNative/BiliPaiNative.xcodeproj"
-          DERIVED_DATA="${GITHUB_WORKSPACE}/build/ios-derived-data"
-
           xcodebuild \
             -project "$PROJECT_PATH" \
-            -scheme BiliPaiNative \
-            -configuration Release \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath "$DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -47,32 +70,45 @@ jobs:
         run: |
           set -euo pipefail
 
-          DERIVED_DATA="${GITHUB_WORKSPACE}/build/ios-derived-data"
-          DIST_DIR="${GITHUB_WORKSPACE}/build/ios-unsigned-ipa"
-          APP_PATH="$(find "$DERIVED_DATA/Build/Products/Release-iphoneos" -maxdepth 1 -name 'BiliPaiNative.app' -type d | head -n 1)"
-
-          if [ -z "$APP_PATH" ]; then
-            echo "BiliPaiNative.app was not found in Release-iphoneos output."
+          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/$CONFIGURATION-iphoneos"
+          if [ ! -d "$PRODUCTS_DIR" ]; then
+            echo "::error::Products directory $PRODUCTS_DIR does not exist."
+            echo "::group::DerivedData products tree"
+            find "$DERIVED_DATA/Build/Products" -maxdepth 3 -print 2>/dev/null || true
+            echo "::endgroup::"
             exit 1
           fi
 
-          rm -rf "$DIST_DIR"
-          mkdir -p "$DIST_DIR/Payload"
-          cp -R "$APP_PATH" "$DIST_DIR/Payload/"
+          # NOTE: the `-name` pattern MUST be in double quotes so the
+          # shell expands `$SCHEME` — single quotes would pass the
+          # literal `${SCHEME}.app` to find and match nothing.
+          APP_PATH="$(find "$PRODUCTS_DIR" -maxdepth 1 -name "${SCHEME}.app" -type d | head -n 1)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::$SCHEME.app was not found in $PRODUCTS_DIR."
+            echo "::group::Contents of $PRODUCTS_DIR"
+            ls -la "$PRODUCTS_DIR"
+            echo "::endgroup::"
+            exit 1
+          fi
+
+          rm -rf "$IPA_DIST_DIR"
+          mkdir -p "$IPA_DIST_DIR/Payload"
+          cp -R "$APP_PATH" "$IPA_DIST_DIR/Payload/"
 
           (
-            cd "$DIST_DIR"
-            /usr/bin/zip -qry BiliPaiNative-unsigned.ipa Payload
-            shasum -a 256 BiliPaiNative-unsigned.ipa > checksums.txt
+            cd "$IPA_DIST_DIR"
+            /usr/bin/zip -qry "${SCHEME}-unsigned.ipa" Payload
+            shasum -a 256 "${SCHEME}-unsigned.ipa" > checksums.txt
           )
 
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BiliPaiNative-unsigned-ipa
+          name: ${{ env.SCHEME }}-unsigned-ipa
           path: |
-            build/ios-unsigned-ipa/BiliPaiNative-unsigned.ipa
-            build/ios-unsigned-ipa/checksums.txt
+            ${{ env.IPA_DIST_DIR }}/${{ env.SCHEME }}-unsigned.ipa
+            ${{ env.IPA_DIST_DIR }}/checksums.txt
           retention-days: 7
           if-no-files-found: error
 
@@ -84,14 +120,14 @@ jobs:
           name: "BiliPai Native iOS v0.1 Build ${{ github.run_number }}"
           body: |
             BiliPai Native iOS build generated by GitHub Actions.
-            
+
             **Commit:** ${{ github.sha }}
             **Build Number:** ${{ github.run_number }}
-            
+
             This is an unsigned IPA. You can install it using TrollStore or by self-signing it with tools like AltStore or Sideloadly.
           prerelease: true
           files: |
-            build/ios-unsigned-ipa/BiliPaiNative-unsigned.ipa
-            build/ios-unsigned-ipa/checksums.txt
+            ${{ env.IPA_DIST_DIR }}/${{ env.SCHEME }}-unsigned.ipa
+            ${{ env.IPA_DIST_DIR }}/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

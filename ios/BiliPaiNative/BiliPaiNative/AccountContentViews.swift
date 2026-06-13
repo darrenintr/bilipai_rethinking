@@ -360,6 +360,3 @@ private struct VideoListRow: View {
         .padding(.vertical, 2)
     }
 }
-)
-    }
-}

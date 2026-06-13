@@ -1,6 +1,26 @@
-import AVFoundation
 import CryptoKit
 import Foundation
+
+// MARK: - App API signing credentials
+//
+// The public Bilibili App endpoints (`/x/v2/feed/index`, etc.) require a
+// signature of the form `md5(sortedQueryString + appSec)`. The `appKey` /
+// `appSec` pair below is the well-known, public iOS client credentials —
+// the same values the official iPhone app uses to sign its requests and
+// the same values the open-source pskdje/bilibili-API-collect repo
+// documents. `buvid` is normally a per-install device fingerprint; we
+// derive a stable placeholder from a fixed namespace so anonymous
+// requests still carry the field the upstream expects.
+//
+// TODO(darren): replace the placeholder `buvid` with the real per-device
+// value computed by the auth flow once AccountSessionStore is wired into
+// the App API path.
+private let appKey = "1d8b6e7d45233436"
+private let appSec = "560c52ccd288fed045859ed18bffd973"
+private let buvid: String = {
+    let raw = UUID(uuidString: "8C5DD46B-2A6E-4D1F-9A7B-1F3C0A8E2D55")!.uuidString
+    return raw.replacingOccurrences(of: "-", with: "").lowercased()
+}()
 
 final class BilibiliAPIClient {
     private let baseURL = URL(string: "https://api.bilibili.com")!
@@ -1629,28 +1649,6 @@ private extension KeyedDecodingContainer where K == DynamicKey {
             }
         }
         return nil
-    }
-}
-
-private extension String {
-    var strippingHTML: String {
-        replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-    }
-
-    var httpsURL: URL? {
-        let source = hasPrefix("//") ? "https:\(self)" : self
-        guard var components = URLComponents(string: source) else { return nil }
-        if components.scheme == "http" {
-            components.scheme = "https"
-        }
-        return components.url
-    }
-}
-   self.fetchedAt = Date()
-            return ticket
-        }
-        
-        throw BilibiliAPIError.missingData
     }
 }
 

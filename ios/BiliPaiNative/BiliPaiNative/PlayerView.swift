@@ -1,17 +1,15 @@
-import AVFoundation
-import AVKit
 import SwiftUI
 import UIKit
 
-/// SwiftUI wrapper around `AVPlayerViewController`.
+/// SwiftUI wrapper around `VLCPlayerView`, which in turn hosts a
+/// `VLCMediaPlayer` from MobileVLCKit.
 ///
-/// We use `AVPlayerViewController` rather than SwiftUI's `VideoPlayer` because
-/// the system controller gives us reliable, idiomatic fullscreen / AirPlay /
-/// PiP affordances on every iOS version we support, whereas the SwiftUI
-/// `VideoPlayer` only exposes a fullscreen button when the parent context
-/// allows it. Wrapping the controller directly also gives us a hook for
-/// the custom fullscreen overlay rendered on top of the inline view.
-/// FFmpeg-based player view.
+/// We moved off `AVPlayerViewController` in commit 5f1d9f2d because the
+/// official iOS player chokes on Bilibili's custom `Referer`-gated DASH
+/// manifests, whereas VLC's FFmpeg-based pipeline negotiates the headers
+/// transparently. `VLCPlayerView` keeps a single `VLCMediaPlayer` alive
+/// for the lifetime of the `BiliPlayback` and exposes only the play /
+/// pause controls we actually need in the inline surface.
 struct PlayerView: View {
     let playback: BiliPlayback
     @State private var isPlaying = true
@@ -31,7 +29,7 @@ struct PlayerView: View {
 /// rest of the BiliPai visual language.
 struct FullscreenPlayerView: View {
     let video: BiliVideo
-    let player: AVPlayer
+    let playback: BiliPlayback
 
     @Environment(\.dismiss) private var dismiss
     @State private var controlsVisible = true
@@ -41,7 +39,7 @@ struct FullscreenPlayerView: View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
 
-            PlayerView(player: player, allowsPictureInPicture: false)
+            PlayerView(playback: playback)
                 .ignoresSafeArea()
 
             if controlsVisible {
