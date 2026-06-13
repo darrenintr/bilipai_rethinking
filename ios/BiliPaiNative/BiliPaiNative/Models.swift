@@ -73,13 +73,13 @@ struct BiliVideo: Identifiable, Hashable, Codable {
     let bvid: String
     let aid: Int
     let cid: Int
-    let title: String
+    var title: String
     let ownerName: String
     let coverURL: URL?
     let duration: Int
-    let viewCount: Int
-    let danmakuCount: Int
-    let likeCount: Int
+    var viewCount: Int
+    var danmakuCount: Int
+    var likeCount: Int
     let description: String
 }
 

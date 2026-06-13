@@ -25,18 +25,11 @@ struct BundledFeedService {
         "BV1wK4y1Q7Yy"
     ]
 
-    enum Seed: CaseIterable {
-        case recommend, popular, anime, game, knowledge, tech, search
-    }
-
     func samples(for category: HomeCategory) -> [BiliVideo] {
-        samples(for: seed(for: category))
-    }
-
-    func samples(for seed: Seed) -> [BiliVideo] {
-        switch seed {
+        let base = baseSamples()
+        switch category {
         case .recommend, .popular:
-            return baseSamples().enumerated().map { offset, video in
+            return base.enumerated().map { offset, video in
                 var copy = video
                 copy.viewCount = max(copy.viewCount, 100_000 + offset * 12_000)
                 copy.likeCount = max(copy.likeCount, 8_000 + offset * 950)
@@ -44,24 +37,13 @@ struct BundledFeedService {
                 return copy
             }
         case .anime, .game, .knowledge, .tech, .search:
-            return baseSamples().map { video in
+            return base.map { video in
                 var copy = video
                 copy.title = "[离线样例] " + video.title
                 return copy
             }
-        }
-    }
-
-    private func seed(for category: HomeCategory) -> Seed {
-        switch category {
-        case .recommend: return .recommend
-        case .popular: return .popular
-        case .anime: return .anime
-        case .game: return .game
-        case .knowledge: return .knowledge
-        case .tech: return .tech
-        case .search: return .search
-        case .follow, .live: return .recommend
+        case .follow, .live:
+            return base
         }
     }
 

@@ -3,54 +3,40 @@ import SwiftUI
 extension View {
     /// Render a card-like surface using the user's chosen material design.
     ///
-    /// `.material3` keeps the existing `BiliPaiTheme.cardBackground`
-    /// (a `secondarySystemGroupedBackground` rounded rectangle). The
-    /// `.liquidGlass` case replaces it with the iOS 26+
-    /// `.glassEffect(.regular, in: .rect(cornerRadius:))` modifier so the
-    /// surface picks up the new frosted / refractive material.
+    /// Both `.material3` and `.liquidGlass` map to the same `cardBackground`
+    /// surface today because the iOS 26 `.glassEffect(...)` API is not in
+    /// the iOS 18.5 SDK that ships with the current Xcode release used by
+    /// the unsigned-IPA workflow. When the project migrates to the iOS 26
+    /// SDK the `.liquidGlass` branch can swap `.cardBackground` for
+    /// `.glassEffect(.regular, in: .rect(cornerRadius:))` directly — the
+    /// picker / @AppStorage plumbing does not have to change.
     @ViewBuilder
     func bilipaiCardSurface(
         _ design: MaterialDesign,
         cornerRadius: CGFloat = BiliPaiTheme.cardRadius
     ) -> some View {
+        // The `design` parameter is intentionally accepted but currently
+        // ignored — the Liquid Glass preset resolves to the same surface
+        // until the iOS 26 SDK is in the toolchain. Keeping the parameter
+        // means callers do not have to change when the real branch lands.
         switch design {
-        case .material3:
+        case .material3, .liquidGlass:
             self.background(
                 BiliPaiTheme.cardBackground,
                 in: RoundedRectangle(cornerRadius: cornerRadius)
             )
-        case .liquidGlass:
-            if #available(iOS 26.0, *) {
-                self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
-            } else {
-                // iOS 17 / 18 fallback: a thin material with the same
-                // corner radius is the closest visual approximation that
-                // compiles against the current SDK. Users on iOS 26+
-                // still get the real Liquid Glass material.
-                self.background(
-                    .thinMaterial,
-                    in: RoundedRectangle(cornerRadius: cornerRadius)
-                )
-            }
         }
     }
 
     /// Same as `bilipaiCardSurface(_:)` but for the search bar and other
-    /// pill-shaped controls. The default corner radius is the full pill
-    /// (`Capsule`).
+    /// pill-shaped controls.
     @ViewBuilder
     func bilipaiPillSurface(
         _ design: MaterialDesign
     ) -> some View {
         switch design {
-        case .material3:
+        case .material3, .liquidGlass:
             self.background(.thinMaterial, in: Capsule())
-        case .liquidGlass:
-            if #available(iOS 26.0, *) {
-                self.glassEffect(.regular, in: .capsule)
-            } else {
-                self.background(.thinMaterial, in: Capsule())
-            }
         }
     }
 }

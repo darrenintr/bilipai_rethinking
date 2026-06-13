@@ -29,35 +29,6 @@ struct RootView: View {
         }
         .modifier(LiquidGlassTabBarModifier(materialDesign: materialDesign))
     }
-}
-
-/// Applies the iOS 26 `.toolbarBackground(.glass, for: .tabBar)` material
-/// only when the user has picked the Liquid Glass preset. On older OS
-/// versions the modifier falls back to a `.regularMaterial` so the build
-/// still compiles against the iOS 18 deployment target.
-private struct LiquidGlassTabBarModifier: ViewModifier {
-    let materialDesign: MaterialDesign
-
-    func body(content: Content) -> some View {
-        switch materialDesign {
-        case .material3:
-            content
-        case .liquidGlass:
-            if #available(iOS 26.0, *) {
-                content
-                    .toolbarBackground(.glass, for: .tabBar)
-                    .toolbarBackground(.visible, for: .tabBar)
-            } else {
-                // iOS 17 / 18 fallback. The exact `.glass` material is
-                // unavailable; `.regularMaterial` is the closest we can
-                // get without bleeding Liquid Glass into the public SDK.
-                content
-                    .toolbarBackground(.regularMaterial, for: .tabBar)
-                    .toolbarBackground(.visible, for: .tabBar)
-            }
-        }
-    }
-}
 
     private func handle(_ url: URL) {
         guard url.scheme == "bilipai" else { return }
@@ -152,6 +123,32 @@ private struct PadRootView: View {
             LiveRoomsView(repository: repository)
         case .profile:
             ProfileSettingsView()
+        }
+    }
+}
+
+/// Placeholder for the iOS 26 `.toolbarBackground(.glass, for: .tabBar)`
+/// Liquid Glass material. The `.glass` symbol is only available in the
+/// iOS 26 SDK which the unsigned-IPA workflow's Xcode 16 does not ship
+/// with, so this modifier is a no-op for now. When the project migrates
+/// to the iOS 26 SDK, replace the `body` with:
+/// ```
+/// switch materialDesign {
+/// case .material3: content
+/// case .liquidGlass:
+///     if #available(iOS 26.0, *) {
+///         content.toolbarBackground(.glass, for: .tabBar)
+///     }
+/// }
+/// ```
+private struct LiquidGlassTabBarModifier: ViewModifier {
+    let materialDesign: MaterialDesign
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch materialDesign {
+        case .material3, .liquidGlass:
+            content
         }
     }
 }
