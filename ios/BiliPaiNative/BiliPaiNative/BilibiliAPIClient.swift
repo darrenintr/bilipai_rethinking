@@ -533,6 +533,14 @@ final class BilibiliAPIClient {
             // The app API is stricter about UA.
             request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
         }
+        
+        // Remove Web-specific cache-busting for App API if present
+        if baseURL.host?.contains("app.bilibili.com") == true {
+            if var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false) {
+                components.queryItems?.removeAll(where: { $0.name == "_t" || $0.name == "_r" })
+                request.url = components.url
+            }
+        }
 
         // Inject the active account's cookies. The `comments` endpoint
         // returns `code: -352 风控` without a SESSDATA cookie, so this

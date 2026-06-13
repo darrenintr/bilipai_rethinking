@@ -163,19 +163,22 @@ final class HomeViewModel: ObservableObject {
                     BundledFeedService.knownBVids.contains(video.bvid)
                 }
                 isShowingBundledFallback = fromBundled
+                
+                // App API usually returns ~10 items. Web API returns 20.
+                let threshold = category == .recommend ? 8 : pageSize
                 hasMore = fromBundled
                     ? true
-                    : categorySupportsPagination && next.count >= pageSize
+                    : categorySupportsPagination && next.count >= threshold
             }
         } catch {
             guard isCurrentRequest(requestID) else { return }
-            // Clear any stale `videos` so the user does not see a previous
-            // batch (e.g. the bundled offline sample set) sitting under
-            // the error banner. Without this, once the user tapped
-            // "查看离线样例" in a prior session, every subsequent failed
-            // pull-to-refresh would re-render the same MIT / WWDC /
-            // Planet Earth entries from cache, masking the actual failure
-            // and looking like "pull-to-refresh is broken".
+            
+            // Ignore cancellation errors - they are usually intentional (e.g. new request started)
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                return
+            }
+            
             if replacing {
                 videos = []
                 liveRooms = []
