@@ -775,9 +775,9 @@ private struct DynamicCardDTO: Decodable {
 
         let modules = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("modules"))
         let author = try? modules?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("module_author"))
-        authorName = author??.decodeString(keys: ["name"]) ?? "Bilibili"
-        authorAvatarURL = author??.decodeString(keys: ["face"])?.httpsURL
-        let pubTs = author??.decodeInt64(keys: ["pub_ts"]) ?? 0
+        authorName = author?.decodeString(keys: ["name"]) ?? "Bilibili"
+        authorAvatarURL = author?.decodeString(keys: ["face"])?.httpsURL
+        let pubTs = author?.decodeInt64(keys: ["pub_ts"]) ?? 0
         timeLabel = pubTs > 0 ? Self.relativeTimeLabel(from: pubTs) : "刚刚"
 
         let moduleDynamic = try? modules?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("module_dynamic"))
@@ -786,9 +786,9 @@ private struct DynamicCardDTO: Decodable {
         let archive = try? major?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("archive"))
         let opus = try? major?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("opus"))
 
-        let descText = desc??.decodeString(keys: ["text"])?.strippingHTML ?? ""
-        let archiveTitle = archive??.decodeString(keys: ["title"])?.strippingHTML ?? ""
-        let opusSummary = opus??.decodeString(keys: ["summary", "title"])?.strippingHTML ?? ""
+        let descText = desc?.decodeString(keys: ["text"])?.strippingHTML ?? ""
+        let archiveTitle = archive?.decodeString(keys: ["title"])?.strippingHTML ?? ""
+        let opusSummary = opus?.decodeString(keys: ["summary", "title"])?.strippingHTML ?? ""
         text = [descText, opusSummary, archiveTitle].first(where: { !$0.isEmpty }) ?? ""
 
         if let archive {
@@ -806,9 +806,9 @@ private struct DynamicCardDTO: Decodable {
                 ownerName: authorName,
                 coverURL: coverURL,
                 duration: duration,
-                viewCount: stat??.decodeInt(keys: ["play", "view"]) ?? 0,
-                danmakuCount: stat??.decodeInt(keys: ["danmaku"]) ?? 0,
-                likeCount: stat??.decodeInt(keys: ["like"]) ?? 0,
+                viewCount: stat?.decodeInt(keys: ["play", "view"]) ?? 0,
+                danmakuCount: stat?.decodeInt(keys: ["danmaku"]) ?? 0,
+                likeCount: stat?.decodeInt(keys: ["like"]) ?? 0,
                 description: descText
             )
         } else {
@@ -907,9 +907,9 @@ private struct HistoryItemDTO: Decodable {
         viewedAt = container.decodeInt64(keys: ["view_at"]) ?? 0
         stat = try? container.decode(VideoStatsDTO.self, forKey: DynamicKey("stat"))
         let history = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("history"))
-        historyBVID = history??.decodeString(keys: ["bvid"]) ?? ""
-        historyCID = history??.decodeInt(keys: ["cid"]) ?? 0
-        historyOID = history??.decodeInt64(keys: ["oid"]) ?? 0
+        historyBVID = history?.decodeString(keys: ["bvid"]) ?? ""
+        historyCID = history?.decodeInt(keys: ["cid"]) ?? 0
+        historyOID = history?.decodeInt64(keys: ["oid"]) ?? 0
     }
 }
 
@@ -955,7 +955,7 @@ private struct FavoriteFolderDTO: Decodable {
         coverURL = (container.decodeString(keys: ["cover"]) ?? "").httpsURL
         mediaCount = container.decodeInt(keys: ["media_count"]) ?? 0
         let upper = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("upper"))
-        ownerName = upper??.decodeString(keys: ["name"]) ?? ""
+        ownerName = upper?.decodeString(keys: ["name"]) ?? ""
     }
 }
 
@@ -1014,7 +1014,7 @@ private struct FavoriteMediaDTO: Decodable {
         progress = container.decodeInt(keys: ["progress"]) ?? 0
         viewedAt = container.decodeInt64(keys: ["view_at"]) ?? 0
         let upper = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("upper"))
-        ownerName = upper??.decodeString(keys: ["name"]) ?? "Unknown"
+        ownerName = upper?.decodeString(keys: ["name"]) ?? "Unknown"
         let cntInfo = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("cnt_info"))
         stat = cntInfo.map { nested in
             VideoStatsDTO(
@@ -1024,7 +1024,7 @@ private struct FavoriteMediaDTO: Decodable {
             )
         }
         let ugc = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("ugc"))
-        cid = ugc??.decodeInt(keys: ["first_cid"]) ?? 0
+        cid = ugc?.decodeInt(keys: ["first_cid"]) ?? 0
     }
 }
 
@@ -1067,7 +1067,7 @@ private struct WatchLaterItemDTO: Decodable {
         coverURL = (container.decodeString(keys: ["pic"]) ?? "").httpsURL
         duration = container.decodeInt(keys: ["duration"]) ?? 0
         let owner = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("owner"))
-        ownerName = owner??.decodeString(keys: ["name"]) ?? "Unknown"
+        ownerName = owner?.decodeString(keys: ["name"]) ?? "Unknown"
         stat = try? container.decode(VideoStatsDTO.self, forKey: DynamicKey("stat"))
     }
 }
