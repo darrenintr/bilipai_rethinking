@@ -1622,17 +1622,3 @@ private extension String {
         return components.url
     }
 }
-ivate extension String {
-    var strippingHTML: String {
-        replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-    }
-
-    var httpsURL: URL? {
-        let source = hasPrefix("//") ? "https:\(self)" : self
-        guard var components = URLComponents(string: source) else { return nil }
-        if components.scheme == "http" {
-            components.scheme = "https"
-        }
-        return components.url
-    }
-}
