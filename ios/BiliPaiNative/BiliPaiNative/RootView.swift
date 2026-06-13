@@ -59,19 +59,19 @@ private struct PhoneRootView: View {
         NavigationStack(path: $router.path) {
             TabView(selection: $router.selectedTab) {
                 HomeView(repository: repository)
-                    .tabItem { Label("Home", systemImage: "house") }
+                    .tabItem { Label(MainTab.home.title, systemImage: MainTab.home.symbolName) }
                     .tag(MainTab.home)
 
                 DynamicFeedView(repository: repository)
-                    .tabItem { Label("Dynamic", systemImage: "rectangle.stack") }
+                    .tabItem { Label(MainTab.dynamic.title, systemImage: MainTab.dynamic.symbolName) }
                     .tag(MainTab.dynamic)
 
                 LiveRoomsView(repository: repository)
-                    .tabItem { Label("Live", systemImage: "play.tv") }
+                    .tabItem { Label(MainTab.live.title, systemImage: MainTab.live.symbolName) }
                     .tag(MainTab.live)
 
                 ProfileSettingsView()
-                    .tabItem { Label("Mine", systemImage: "person.crop.circle") }
+                    .tabItem { Label(MainTab.profile.title, systemImage: MainTab.profile.symbolName) }
                     .tag(MainTab.profile)
             }
             .navigationDestination(for: BiliVideo.self) { video in

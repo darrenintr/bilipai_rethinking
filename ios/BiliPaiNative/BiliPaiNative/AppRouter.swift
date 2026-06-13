@@ -12,13 +12,13 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .home:
-            return "Home"
+            return "首页"
         case .dynamic:
-            return "Dynamic"
+            return "动态"
         case .live:
-            return "Live"
+            return "直播"
         case .profile:
-            return "Mine"
+            return "我的"
         }
     }
 

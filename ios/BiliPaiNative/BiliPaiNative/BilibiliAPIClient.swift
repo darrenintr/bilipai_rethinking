@@ -26,13 +26,67 @@ final class BilibiliAPIClient {
         return payload.value?.videos.map(\.model) ?? []
     }
 
-    func popularVideos() async throws -> [BiliVideo] {
+    func popularVideos(page: Int = 1) async throws -> [BiliVideo] {
         let payload: APIResponse<VideoListPayload> = try await get(
             baseURL: baseURL,
             path: "/x/web-interface/popular",
             queryItems: [
                 URLQueryItem(name: "ps", value: "20"),
-                URLQueryItem(name: "pn", value: "1")
+                URLQueryItem(name: "pn", value: "\(page)")
+            ]
+        )
+        try payload.requireOK()
+        return payload.value?.videos.map(\.model) ?? []
+    }
+
+    func rankingVideos() async throws -> [BiliVideo] {
+        let payload: APIResponse<VideoListPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/ranking/v2",
+            queryItems: [
+                URLQueryItem(name: "rid", value: "0"),
+                URLQueryItem(name: "type", value: "all")
+            ]
+        )
+        try payload.requireOK()
+        return payload.value?.videos.map(\.model) ?? []
+    }
+
+    func preciousVideos() async throws -> [BiliVideo] {
+        let payload: APIResponse<VideoListPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/popular/precious",
+            queryItems: []
+        )
+        try payload.requireOK()
+        return payload.value?.videos.map(\.model) ?? []
+    }
+
+    func weeklyMustWatchVideos() async throws -> [BiliVideo] {
+        let listPayload: APIResponse<WeeklySeriesListPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/popular/series/list",
+            queryItems: []
+        )
+        try listPayload.requireOK()
+        let latestNumber = listPayload.value?.list.map(\.number).max() ?? 1
+        let payload: APIResponse<VideoListPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/popular/series/one",
+            queryItems: [URLQueryItem(name: "number", value: "\(latestNumber)")]
+        )
+        try payload.requireOK()
+        return payload.value?.videos.map(\.model) ?? []
+    }
+
+    func regionVideos(tid: Int, page: Int = 1) async throws -> [BiliVideo] {
+        let payload: APIResponse<VideoListPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/dynamic/region",
+            queryItems: [
+                URLQueryItem(name: "rid", value: "\(tid)"),
+                URLQueryItem(name: "pn", value: "\(page)"),
+                URLQueryItem(name: "ps", value: "30")
             ]
         )
         try payload.requireOK()
@@ -89,11 +143,11 @@ final class BilibiliAPIClient {
     func liveRooms() async throws -> [BiliLiveRoom] {
         let payload: APIResponse<LiveRoomPayload> = try await get(
             baseURL: liveBaseURL,
-            path: "/xlive/web-interface/v1/second/getList",
+            path: "/room/v3/area/getRoomList",
             queryItems: [
-                URLQueryItem(name: "platform", value: "web"),
                 URLQueryItem(name: "parent_area_id", value: "0"),
                 URLQueryItem(name: "area_id", value: "0"),
+                URLQueryItem(name: "page_size", value: "30"),
                 URLQueryItem(name: "sort_type", value: "online"),
                 URLQueryItem(name: "page", value: "1")
             ]
@@ -169,10 +223,19 @@ private struct VideoListPayload: Decodable {
     let item: [VideoDTO]?
     let list: [VideoDTO]?
     let result: [VideoDTO]?
+    let archives: [VideoDTO]?
 
     var videos: [VideoDTO] {
-        item ?? list ?? result ?? []
+        item ?? list ?? result ?? archives ?? []
     }
+}
+
+private struct WeeklySeriesListPayload: Decodable {
+    let list: [WeeklySeriesPeriod]
+}
+
+private struct WeeklySeriesPeriod: Decodable {
+    let number: Int
 }
 
 private struct VideoDTO: Decodable {
@@ -276,23 +339,14 @@ private struct LiveRoomDTO: Decodable {
         )
     }
 
-    enum CodingKeys: String, CodingKey {
-        case roomid
-        case title
-        case uname
-        case areaName = "area_name"
-        case coverURL = "cover"
-        case online
-    }
-
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        roomid = try container.decode(Int.self, forKey: .roomid)
-        title = try container.decode(String.self, forKey: .title)
-        uname = try container.decode(String.self, forKey: .uname)
-        areaName = try container.decode(String.self, forKey: .areaName)
-        coverURL = try container.decodeIfPresent(String.self, forKey: .coverURL)?.httpsURL
-        online = try container.decode(Int.self, forKey: .online)
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        roomid = container.decodeInt(keys: ["roomid"]) ?? 0
+        title = container.decodeString(keys: ["title"]) ?? "直播间"
+        uname = container.decodeString(keys: ["uname"]) ?? "Unknown"
+        areaName = container.decodeString(keys: ["area_name", "area_v2_name", "parent_name"]) ?? ""
+        coverURL = container.decodeString(keys: ["cover", "user_cover", "system_cover", "show_cover"])?.httpsURL
+        online = container.decodeInt(keys: ["online"]) ?? 0
     }
 }
 

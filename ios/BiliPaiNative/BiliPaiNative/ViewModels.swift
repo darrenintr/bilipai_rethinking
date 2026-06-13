@@ -4,8 +4,10 @@ import Foundation
 @MainActor
 final class HomeViewModel: ObservableObject {
     @Published var category: HomeCategory = .recommend
+    @Published var popularSubCategory: PopularSubCategory = .comprehensive
     @Published var searchQuery = ""
     @Published var videos: [BiliVideo] = []
+    @Published var liveRooms: [BiliLiveRoom] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 
@@ -13,9 +15,23 @@ final class HomeViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         do {
-            videos = try await repository.feed(category: category, searchQuery: searchQuery)
+            if category == .follow {
+                videos = []
+                liveRooms = []
+                errorMessage = "登录后查看关注动态、关注直播和个人推荐。"
+            } else if category == .live {
+                liveRooms = try await repository.liveRooms()
+                videos = []
+            } else {
+                videos = try await repository.feed(
+                    category: category,
+                    searchQuery: searchQuery,
+                    popularSubCategory: popularSubCategory
+                )
+                liveRooms = []
+            }
         } catch {
-            errorMessage = "Could not load videos. Pull to retry."
+            errorMessage = "内容加载失败，下拉重试。"
         }
         isLoading = false
     }

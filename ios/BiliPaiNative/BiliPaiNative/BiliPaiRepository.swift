@@ -7,7 +7,11 @@ final class BiliPaiRepository {
         self.apiClient = apiClient
     }
 
-    func feed(category: HomeCategory, searchQuery: String) async throws -> [BiliVideo] {
+    func feed(
+        category: HomeCategory,
+        searchQuery: String,
+        popularSubCategory: PopularSubCategory
+    ) async throws -> [BiliVideo] {
         switch category {
         case .recommend:
             do {
@@ -17,8 +21,24 @@ final class BiliPaiRepository {
                 // Recommendations are personalization-sensitive; popular videos are the public fallback.
             }
             return try await apiClient.popularVideos()
+        case .follow:
+            return []
         case .popular:
-            return try await apiClient.popularVideos()
+            switch popularSubCategory {
+            case .comprehensive:
+                return try await apiClient.popularVideos()
+            case .ranking:
+                return try await apiClient.rankingVideos()
+            case .weekly:
+                return try await apiClient.weeklyMustWatchVideos()
+            case .precious:
+                return try await apiClient.preciousVideos()
+            }
+        case .live:
+            return []
+        case .anime, .game, .knowledge, .tech:
+            guard let tid = category.regionTid else { return [] }
+            return try await apiClient.regionVideos(tid: tid)
         case .search:
             return try await apiClient.searchVideos(keyword: searchQuery)
         }

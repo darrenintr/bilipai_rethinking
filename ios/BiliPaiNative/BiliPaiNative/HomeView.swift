@@ -13,12 +13,21 @@ struct HomeView: View {
             LazyVStack(spacing: 14) {
                 searchBar
                 categoryStrip
+                if model.category == .popular {
+                    popularSubCategoryStrip
+                }
                 if let error = model.errorMessage {
                     ErrorBanner(message: error)
                 }
-                if model.isLoading && model.videos.isEmpty {
+                if model.isLoading && model.videos.isEmpty && model.liveRooms.isEmpty {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 180)
+                } else if model.category == .live && !model.liveRooms.isEmpty {
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(model.liveRooms) { room in
+                            LiveRoomCard(room: room)
+                        }
+                    }
                 } else if model.videos.isEmpty {
                     HomeEmptyState(
                         category: model.category,
@@ -26,7 +35,9 @@ struct HomeView: View {
                         hasError: model.errorMessage != nil
                     )
                 } else {
-                    TodayWatchCard(videos: Array(model.videos.prefix(4)))
+                    if model.category == .recommend {
+                        TodayWatchCard(videos: Array(model.videos.prefix(4)))
+                    }
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(model.videos) { video in
                             VideoCard(video: video) {
@@ -63,6 +74,10 @@ struct HomeView: View {
         .onChange(of: model.category) { _, _ in
             Task { await model.load(repository: repository) }
         }
+        .onChange(of: model.popularSubCategory) { _, _ in
+            guard model.category == .popular else { return }
+            Task { await model.load(repository: repository) }
+        }
         .onChange(of: router.pendingSearchQuery) { _, query in
             Task { await model.applyIntentSearch(query, repository: repository) }
         }
@@ -72,7 +87,7 @@ struct HomeView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Search Bilibili videos", text: $model.searchQuery)
+            TextField("搜索 Bilibili 视频", text: $model.searchQuery)
                 .textInputAutocapitalization(.never)
                 .submitLabel(.search)
                 .onSubmit {
@@ -96,7 +111,7 @@ struct HomeView: View {
     private var categoryStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(HomeCategory.allCases) { category in
+                ForEach(HomeCategory.androidTabs) { category in
                     Button {
                         model.category = category
                     } label: {
@@ -107,6 +122,28 @@ struct HomeView: View {
                             .background(
                                 model.category == category ? BiliPaiTheme.biliPink.opacity(0.16) : Color(uiColor: .tertiarySystemGroupedBackground),
                                 in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var popularSubCategoryStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(PopularSubCategory.allCases) { subCategory in
+                    Button {
+                        model.popularSubCategory = subCategory
+                    } label: {
+                        Text(subCategory.title)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                model.popularSubCategory == subCategory ? BiliPaiTheme.biliPink.opacity(0.18) : Color(uiColor: .tertiarySystemGroupedBackground),
+                                in: Capsule()
                             )
                     }
                     .buttonStyle(.plain)
@@ -132,24 +169,34 @@ private struct HomeEmptyState: View {
     }
 
     private var title: String {
-        if hasError { return "Videos unavailable" }
+        if hasError { return "内容加载失败" }
+        if category == .follow { return "关注内容需要登录" }
+        if category == .live { return "暂无直播间" }
         if category == .search && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Search Bilibili"
+            return "搜索 Bilibili"
         }
-        return "No videos found"
+        return "暂无视频"
     }
 
     private var systemImage: String {
+        if category == .follow { return "person.2" }
+        if category == .live { return "play.tv" }
         if category == .search { return "magnifyingglass" }
         return "play.rectangle"
     }
 
     private var description: String {
-        if hasError { return "Pull to retry the public Bilibili feed." }
-        if category == .search && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Enter a keyword above to load public Bilibili videos."
+        if hasError { return "下拉重试 Bilibili 公共内容源。" }
+        if category == .follow {
+            return "Android 版这里显示关注动态；iOS 端需要接入账号 Cookie 后才能 1:1 读取。"
         }
-        return "Try another keyword or switch to the popular feed."
+        if category == .live {
+            return "下拉刷新 Bilibili 公共直播列表。"
+        }
+        if category == .search && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "输入关键词后加载 Bilibili 公共搜索结果。"
+        }
+        return "换个关键词，或切换到热门、排行榜、分区内容。"
     }
 }
 
@@ -160,10 +207,10 @@ private struct TodayWatchCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Today Watch", systemImage: "sparkles")
+                Label("今日看什么", systemImage: "sparkles")
                     .font(.headline)
                 Spacer()
-                Text("Local queue")
+                Text("今晚轻松看")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(BiliPaiTheme.biliPink)
             }
@@ -181,7 +228,7 @@ private struct TodayWatchCard: View {
                                     Text(video.title)
                                         .font(.subheadline.weight(.semibold))
                                         .lineLimit(2)
-                                    Text("Relax or learn based on recent viewing")
+                                    Text("基于最近播放的本地推荐位")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(2)

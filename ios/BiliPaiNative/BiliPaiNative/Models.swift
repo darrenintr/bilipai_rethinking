@@ -2,16 +2,67 @@ import Foundation
 
 enum HomeCategory: String, CaseIterable, Identifiable {
     case recommend
+    case follow
     case popular
+    case live
+    case anime
+    case game
+    case knowledge
+    case tech
     case search
+
+    var id: String { rawValue }
+
+    static let androidTabs: [HomeCategory] = [
+        .recommend,
+        .follow,
+        .popular,
+        .live,
+        .anime,
+        .game,
+        .knowledge,
+        .tech
+    ]
+
+    var title: String {
+        switch self {
+        case .recommend: "推荐"
+        case .follow: "关注"
+        case .popular: "热门"
+        case .live: "直播"
+        case .anime: "追番"
+        case .game: "游戏"
+        case .knowledge: "知识"
+        case .tech: "科技"
+        case .search: "搜索"
+        }
+    }
+
+    var regionTid: Int? {
+        switch self {
+        case .anime: 13
+        case .game: 4
+        case .knowledge: 36
+        case .tech: 188
+        default: nil
+        }
+    }
+}
+
+enum PopularSubCategory: String, CaseIterable, Identifiable {
+    case comprehensive
+    case ranking
+    case weekly
+    case precious
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .recommend: "Recommend"
-        case .popular: "Popular"
-        case .search: "Search"
+        case .comprehensive: "综合热门"
+        case .ranking: "排行榜"
+        case .weekly: "每周必看"
+        case .precious: "入站必刷"
         }
     }
 }
