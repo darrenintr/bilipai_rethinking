@@ -41,6 +41,9 @@ final class AppRouter: ObservableObject {
     @Published var selectedTab: MainTab = .home
     @Published var path = NavigationPath()
     @Published var pendingSearchQuery = ""
+    /// Set to `true` to present the login sheet. The sheet sets it back
+    /// to `false` when it dismisses itself.
+    @Published var isLoginSheetPresented = false
 
     func open(_ tab: MainTab) {
         selectedTab = tab
@@ -56,6 +59,11 @@ final class AppRouter: ObservableObject {
         pendingSearchQuery = query
         selectedTab = .home
         path.removeLast(path.count)
+    }
+
+    func openLogin() {
+        selectedTab = .profile
+        isLoginSheetPresented = true
     }
 
     func consumePendingIntentRoute() {
@@ -81,6 +89,8 @@ final class AppRouter: ObservableObject {
                 likeCount: 0,
                 description: ""
             ))
+        case .login:
+            openLogin()
         }
     }
 }

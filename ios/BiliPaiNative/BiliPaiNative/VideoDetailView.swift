@@ -87,7 +87,7 @@ struct VideoDetailView: View {
             // control panel below stays as a "coming soon" hint.
         }
         .aspectRatio(16 / 9, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+        .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 
     private var fullscreenButton: some View {
@@ -150,7 +150,7 @@ struct VideoDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 
     private var commentPreview: some View {
@@ -189,7 +189,7 @@ struct VideoDetailView: View {
             }
         }
         .padding(14)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 }
 
@@ -249,13 +249,13 @@ private struct CommentSkeletonRows: View {
                         .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                         .frame(width: 36, height: 36)
                     VStack(alignment: .leading, spacing: 8) {
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle)
                             .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                             .frame(width: 120, height: 12)
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle)
                             .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                             .frame(height: 12)
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle)
                             .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                             .frame(width: 210, height: 12)
                     }

@@ -3,7 +3,18 @@ import SwiftUI
 enum BiliPaiTheme {
     static let biliPink = Color(red: 250 / 255, green: 114 / 255, blue: 152 / 255)
     static let biliPinkDim = Color(red: 230 / 255, green: 104 / 255, blue: 140 / 255)
-    static let cardRadius: CGFloat = 8
+    /// Default card / sheet / banner corner radius. Increased from 8
+    /// → 18 so the iOS UI reads as rounder and matches the "more
+    /// rounded" user-facing direction.
+    static let cardRadius: CGFloat = 18
+    /// Tight pill radius for inline chips, badges, search bar caps.
+    static let pillRadius: CGFloat = 12
+    /// Soft hero radius for big surfaces (login QR card, full-screen
+    /// modals). Continuous corners are applied at the call sites.
+    static let heroRadius: CGFloat = 28
+    /// Default shape style for rounded rectangles. Use this at every
+    /// `RoundedRectangle(cornerRadius:style:)` site for consistency.
+    static let cornerStyle: RoundedCornerStyle = .continuous
     static let pageBackground = Color(uiColor: .systemGroupedBackground)
     static let cardBackground = Color(uiColor: .secondarySystemGroupedBackground)
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 final class BiliPaiRepository {
-    private let apiClient: BilibiliAPIClient
+    let apiClient: BilibiliAPIClient
     private let bundled: BundledFeedService
 
     init(apiClient: BilibiliAPIClient, bundled: BundledFeedService = BundledFeedService()) {

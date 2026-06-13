@@ -22,7 +22,7 @@ struct LiveRoomsView: View {
                         description: Text(model.errorMessage == nil ? "Pull to refresh the public live list." : "Bilibili did not return a public live-room list for this request.")
                     )
                     .frame(maxWidth: .infinity, minHeight: 260)
-                    .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+                    .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
                 } else {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(model.rooms) { room in

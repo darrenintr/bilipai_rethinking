@@ -23,20 +23,24 @@ extension View {
         case .material3, .liquidGlass:
             self.background(
                 BiliPaiTheme.cardBackground,
-                in: RoundedRectangle(cornerRadius: cornerRadius)
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: BiliPaiTheme.cornerStyle)
             )
         }
     }
 
     /// Same as `bilipaiCardSurface(_:)` but for the search bar and other
-    /// pill-shaped controls.
+    /// pill-shaped controls. Uses the new `pillRadius` (12) cap so the
+    /// pill reads as rounder than the card surfaces.
     @ViewBuilder
     func bilipaiPillSurface(
         _ design: MaterialDesign
     ) -> some View {
         switch design {
         case .material3, .liquidGlass:
-            self.background(.thinMaterial, in: Capsule())
+            self.background(
+                .thinMaterial,
+                in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle)
+            )
         }
     }
 }

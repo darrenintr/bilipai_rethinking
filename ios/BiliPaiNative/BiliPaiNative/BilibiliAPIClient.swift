@@ -6,6 +6,12 @@ final class BilibiliAPIClient {
     private let liveBaseURL = URL(string: "https://api.live.bilibili.com")!
     private let session: URLSession
     private let decoder: JSONDecoder
+    /// Closure that returns the active account's `Cookie:` header, or
+    /// `nil` when the user is signed out. The `BilibiliAPIClient` does
+    /// not own the `AuthStore` so it stays decoupled from auth state —
+    /// the closure is re-evaluated on every request, so switching
+    /// accounts in `ProfileSettingsView` immediately takes effect.
+    var cookieProvider: (() -> String?)?
 
     init(session: URLSession? = nil) {
         if let session {
@@ -209,15 +215,37 @@ final class BilibiliAPIClient {
         path: String,
         queryItems: [URLQueryItem]
     ) async throws -> T {
+        // Cache-bust every public-endpoint request. URLSession's shared
+        // cache is shared across the app, and Bilibili returns
+        // `Cache-Control: max-age=...` on the popular / recommend endpoints
+        // — without the timestamp the second pull-to-refresh returns the
+        // same `pn=1` payload from disk and the user sees the same batch.
+        var items = queryItems
+        items.append(URLQueryItem(name: "_t", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
-        components.queryItems = queryItems
+        components.queryItems = items
         guard let url = components.url else {
             throw BilibiliAPIError.invalidURL
         }
 
         var request = URLRequest(url: url)
+        // Belt-and-braces: even with the cache-busting query, force the
+        // request itself to skip the URL cache. The session-level
+        // `requestCachePolicy` is `.reloadIgnoringLocalCacheData` already,
+        // but Bilibili also has its own CDN-side cache that the timestamp
+        // parameter is the only reliable way to defeat.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
         request.setValue("Mozilla/5.0 BiliPai-iOS/0.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        // Inject the active account's cookies. The `comments` endpoint
+        // returns `code: -352 风控` without a SESSDATA cookie, so this
+        // is the line that makes the comments list load for signed-in
+        // users. For signed-out users the closure returns nil and we
+        // send the request anonymously (the public feeds work fine).
+        if let cookie = cookieProvider?() {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
 
         let data: Data
         let response: URLResponse

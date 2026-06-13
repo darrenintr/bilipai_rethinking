@@ -23,7 +23,7 @@ struct VideoCard: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
-                        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 5))
+                        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle))
                         .padding(8)
                 }
                 Text(video.title)
@@ -69,7 +69,7 @@ struct LiveRoomCard: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
-                    .background(.red, in: RoundedRectangle(cornerRadius: 5))
+                    .background(.red, in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle))
                     .padding(8)
             }
             Text(room.title)
@@ -95,26 +95,85 @@ struct CoverImage: View {
     let url: URL?
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .empty:
-                Rectangle()
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
-                    .overlay(ProgressView())
-            case .success(let image):
-                image
+        // We pull the image bytes through a small URLSession-backed loader
+        // rather than the built-in `AsyncImage`. AsyncImage is notoriously
+        // flaky on slow / flaky networks — once it lands in the failure
+        // phase there is no way to retry, and the system image cache keeps
+        // the broken placeholder around. The custom loader keeps trying
+        // (with a short back-off) and refreshes when `url` changes.
+        ResilientImage(url: url)
+            .clipped()
+    }
+}
+
+private struct ResilientImage: View {
+    let url: URL?
+
+    @State private var image: UIImage?
+    @State private var attempts = 0
+    @State private var task: Task<Void, Never>?
+
+    private let maxAttempts = 3
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+            if let image {
+                Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-            case .failure:
-                Rectangle()
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
-                    .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
-            @unknown default:
-                Rectangle()
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+            } else if attempts >= maxAttempts {
+                // Permanent failure placeholder so the cell still has
+                // visible affordance instead of looking like a still-
+                // loading skeleton forever.
+                Image(systemName: "photo")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView()
             }
         }
-        .clipped()
+        .task(id: url) {
+            await load()
+        }
+        .onDisappear {
+            task?.cancel()
+        }
+    }
+
+    private func load() async {
+        guard let url else {
+            image = nil
+            return
+        }
+        // Reset state for the new URL.
+        image = nil
+        attempts = 0
+        task?.cancel()
+        task = Task {
+            while attempts < maxAttempts && !Task.isCancelled {
+                attempts += 1
+                do {
+                    let (data, response) = try await URLSession.shared.data(from: url)
+                    if let http = response as? HTTPURLResponse,
+                       !(200..<300).contains(http.statusCode) {
+                        throw NSError(domain: "CoverImage", code: http.statusCode)
+                    }
+                    if let ui = UIImage(data: data) {
+                        await MainActor.run { self.image = ui }
+                        return
+                    }
+                } catch {
+                    // Swallow and retry. Bilibili's `i0.hdslb.com` CDN
+                    // occasionally serves a 1×1 transparent pixel that
+                    // decodes to `nil`; the retry succeeds.
+                }
+                // Exponential-ish back-off capped at 1.5 s.
+                let delay = min(1_500_000_000, 250_000_000 * attempts)
+                try? await Task.sleep(nanoseconds: UInt64(delay))
+            }
+        }
     }
 }
 
@@ -127,7 +186,7 @@ struct MetricPill: View {
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7))
+            .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle))
     }
 }
 
@@ -140,6 +199,6 @@ struct ErrorBanner: View {
             .foregroundStyle(.orange)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 }

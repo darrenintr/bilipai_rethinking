@@ -4,18 +4,41 @@ import SwiftUI
 @main
 struct BiliPaiNativeApp: App {
     @StateObject private var router = AppRouter()
+    @StateObject private var authStore = AuthStore()
     @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
+
+    private let repository: BiliPaiRepository
 
     init() {
         PlayerAudioSession.activate()
+        // Build the API client + repository with a cookie provider that
+        // reads the live `AuthStore` on every request. We can't capture
+        // `self.authStore` here because it isn't constructed yet — the
+        // `wireAuth(_:)` call below re-binds the closure after the
+        // `StateObject` is up.
+        let client = BilibiliAPIClient()
+        let repo = BiliPaiRepository(apiClient: client)
+        client.cookieProvider = nil // re-bound in onAppear below
+        self.repository = repo
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView(repository: BiliPaiRepository(apiClient: BilibiliAPIClient()))
+            RootView(repository: repository)
                 .environmentObject(router)
+                .environmentObject(authStore)
                 .tint(BiliPaiTheme.biliPink)
                 .preferredColorScheme(themeMode.colorScheme)
+                .onAppear {
+                    // Now that `authStore` exists as an `@StateObject`,
+                    // we can read `activeAccount.cookieHeader` lazily on
+                    // each API call.
+                    if let client = repository.apiClient {
+                        client.cookieProvider = { [weak authStore] in
+                            authStore?.activeAccount?.cookieHeader
+                        }
+                    }
+                }
         }
     }
 }

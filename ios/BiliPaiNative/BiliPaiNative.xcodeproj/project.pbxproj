@@ -26,6 +26,13 @@
 		100000000000000000000111 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000212 /* Assets.xcassets */; };
 		100000000000000000000112 /* DesignModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000213 /* DesignModifier.swift */; };
 		100000000000000000000113 /* BundledFeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000214 /* BundledFeedService.swift */; };
+		100000000000000000000114 /* StoredAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000215 /* StoredAccount.swift */; };
+		100000000000000000000115 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000216 /* KeychainStore.swift */; };
+		100000000000000000000116 /* AccountSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000217 /* AccountSessionStore.swift */; };
+		100000000000000000000117 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000218 /* AuthStore.swift */; };
+		100000000000000000000118 /* BilibiliAuthAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000219 /* BilibiliAuthAPI.swift */; };
+		100000000000000000000119 /* LoginViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021A /* LoginViewModel.swift */; };
+		10000000000000000000011A /* LoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021B /* LoginSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +57,13 @@
 		100000000000000000000212 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		100000000000000000000213 /* DesignModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignModifier.swift; sourceTree = "<group>"; };
 		100000000000000000000214 /* BundledFeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledFeedService.swift; sourceTree = "<group>"; };
+		100000000000000000000215 /* StoredAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredAccount.swift; sourceTree = "<group>"; };
+		100000000000000000000216 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		100000000000000000000217 /* AccountSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSessionStore.swift; sourceTree = "<group>"; };
+		100000000000000000000218 /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+		100000000000000000000219 /* BilibiliAuthAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BilibiliAuthAPI.swift; sourceTree = "<group>"; };
+		10000000000000000000021A /* LoginViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewModel.swift; sourceTree = "<group>"; };
+		10000000000000000000021B /* LoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,8 +108,31 @@
 				100000000000000000000212 /* Assets.xcassets */,
 				100000000000000000000213 /* DesignModifier.swift */,
 				100000000000000000000214 /* BundledFeedService.swift */,
+				100000000000000000000404 /* Auth */,
+				100000000000000000000405 /* Login */,
 			);
 			path = BiliPaiNative;
+			sourceTree = "<group>";
+		};
+		100000000000000000000404 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000215 /* StoredAccount.swift */,
+				100000000000000000000216 /* KeychainStore.swift */,
+				100000000000000000000217 /* AccountSessionStore.swift */,
+				100000000000000000000218 /* AuthStore.swift */,
+				100000000000000000000219 /* BilibiliAuthAPI.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		100000000000000000000405 /* Login */ = {
+			isa = PBXGroup;
+			children = (
+				10000000000000000000021A /* LoginViewModel.swift */,
+				10000000000000000000021B /* LoginSheet.swift */,
+			);
+			path = Login;
 			sourceTree = "<group>";
 		};
 		100000000000000000000403 /* Products */ = {
@@ -193,6 +230,13 @@
 				100000000000000000000110 /* PlayerView.swift in Sources */,
 				100000000000000000000112 /* DesignModifier.swift in Sources */,
 				100000000000000000000113 /* BundledFeedService.swift in Sources */,
+				100000000000000000000114 /* StoredAccount.swift in Sources */,
+				100000000000000000000115 /* KeychainStore.swift in Sources */,
+				100000000000000000000116 /* AccountSessionStore.swift in Sources */,
+				100000000000000000000117 /* AuthStore.swift in Sources */,
+				100000000000000000000118 /* BilibiliAuthAPI.swift in Sources */,
+				100000000000000000000119 /* LoginViewModel.swift in Sources */,
+				10000000000000000000011A /* LoginSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

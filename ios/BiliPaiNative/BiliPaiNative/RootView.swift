@@ -27,6 +27,9 @@ struct RootView: View {
         .onOpenURL { url in
             handle(url)
         }
+        .sheet(isPresented: $router.isLoginSheetPresented) {
+            LoginSheet()
+        }
         .modifier(LiquidGlassTabBarModifier(materialDesign: materialDesign))
     }
 
@@ -47,6 +50,8 @@ struct RootView: View {
                 .first(where: { $0.name == "q" })?
                 .value ?? ""
             router.openSearch(query)
+        case "login":
+            router.openLogin()
         default:
             break
         }

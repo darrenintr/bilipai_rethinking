@@ -7,6 +7,9 @@ struct ProfileSettingsView: View {
     @AppStorage("bilipai.backgroundAudio") private var backgroundAudio = false
     @AppStorage("bilipai.todayWatch") private var todayWatch = true
 
+    @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
+
     var body: some View {
         List {
             Section {
@@ -56,16 +59,63 @@ struct ProfileSettingsView: View {
         .navigationTitle("我的")
     }
 
+    @ViewBuilder
     private var profileHeader: some View {
+        if let account = authStore.activeAccount {
+            signedInHeader(account: account)
+        } else {
+            signedOutHeader
+        }
+    }
+
+    private var signedOutHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Circle()
+                    .fill(BiliPaiTheme.biliPink)
+                    .frame(width: 62, height: 62)
+                    .overlay(Text("BP").font(.title3.weight(.black)).foregroundStyle(.white))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("未登录")
+                        .font(.title2.weight(.bold))
+                    Text("登录后同步历史、收藏、关注和稍后再看")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Button {
+                router.openLogin()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "qrcode.viewfinder")
+                    Text("登录 Bilibili 账号")
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle)
+                        .fill(BiliPaiTheme.biliPink.opacity(0.12))
+                )
+                .foregroundStyle(BiliPaiTheme.biliPink)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func signedInHeader(account: StoredAccount) -> some View {
         HStack(spacing: 14) {
-            Circle()
-                .fill(BiliPaiTheme.biliPink)
-                .frame(width: 62, height: 62)
-                .overlay(Text("BP").font(.title3.weight(.black)).foregroundStyle(.white))
+            avatar(for: account)
             VStack(alignment: .leading, spacing: 5) {
-                Text("未登录")
+                Text(account.name)
                     .font(.title2.weight(.bold))
-                Text("登录后同步历史、收藏、关注和稍后再看")
+                Text("UID: \(account.mid)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 16) {
@@ -75,8 +125,38 @@ struct ProfileSettingsView: View {
                 }
                 .padding(.top, 2)
             }
+            Spacer()
+            Menu {
+                Button(role: .destructive) {
+                    authStore.signOut()
+                } label: {
+                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private func avatar(for account: StoredAccount) -> some View {
+        if let url = account.faceURL {
+            ResilientImage(url: url)
+                .frame(width: 62, height: 62)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(BiliPaiTheme.biliPink)
+                .frame(width: 62, height: 62)
+                .overlay(
+                    Text(String(account.name.prefix(1)))
+                        .font(.title3.weight(.black))
+                        .foregroundStyle(.white)
+                )
+        }
     }
 }
 
@@ -108,7 +188,7 @@ private struct ProfileQuickActionGrid: View {
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, minHeight: 92)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
             }
         }
         .padding(.vertical, 4)

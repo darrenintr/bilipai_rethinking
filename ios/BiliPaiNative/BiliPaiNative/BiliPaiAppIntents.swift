@@ -210,6 +210,7 @@ enum IntentRoute {
     case tab(MainTab)
     case search(String)
     case video(BiliPaiVideoEntity)
+    case login
 }
 
 enum IntentRouteStore {
@@ -224,6 +225,8 @@ enum IntentRouteStore {
             payload = IntentRoutePayload(kind: "search", tab: nil, query: query, video: nil)
         case .video(let entity):
             payload = IntentRoutePayload(kind: "video", tab: nil, query: nil, video: BiliPaiVideoRecord(entity: entity))
+        case .login:
+            payload = IntentRoutePayload(kind: "login", tab: nil, query: nil, video: nil)
         }
         let data = try? JSONEncoder().encode(payload)
         UserDefaults.standard.set(data, forKey: pendingRouteKey)
@@ -240,6 +243,8 @@ enum IntentRouteStore {
             return payload.query.map(IntentRoute.search)
         case "video":
             return payload.video.map { .video($0.entity) }
+        case "login":
+            return .login
         default:
             return nil
         }

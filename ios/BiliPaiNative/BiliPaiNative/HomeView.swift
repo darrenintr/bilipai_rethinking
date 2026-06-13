@@ -131,7 +131,7 @@ struct HomeView: View {
                             .padding(.vertical, 9)
                             .background(
                                 model.category == category ? BiliPaiTheme.biliPink.opacity(0.16) : Color(uiColor: .tertiarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius)
+                                in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle)
                             )
                     }
                     .buttonStyle(.plain)
@@ -242,7 +242,7 @@ private struct HomeOfflineBanner: View {
                 .controlSize(.small)
         }
         .padding(12)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 }
 
@@ -258,7 +258,7 @@ private struct HomeEmptyState: View {
             description: Text(description)
         )
         .frame(maxWidth: .infinity, minHeight: 260)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 
     private var title: String {
@@ -316,7 +316,7 @@ private struct TodayWatchCard: View {
                             HStack(spacing: 10) {
                                 CoverImage(url: video.coverURL)
                                     .frame(width: 110, height: 70)
-                                    .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+                                    .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(video.title)
                                         .font(.subheadline.weight(.semibold))
@@ -335,6 +335,6 @@ private struct TodayWatchCard: View {
             }
         }
         .padding(14)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 }
