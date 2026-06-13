@@ -29,6 +29,8 @@ final class HomeViewModel: ObservableObject {
     func load(repository: BiliPaiRepository) async {
         let requestID = beginNewRequestGeneration()
         page = 1
+        videos = [] // Clear immediately for visual feedback
+        liveRooms = []
         isLoading = true
         isLoadingMore = false
         hasMore = true

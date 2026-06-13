@@ -812,7 +812,8 @@ private struct AppFeedItemDTO: Decodable {
     let cardType: String
     let cardGoto: String
     let param: String
-    let cover: URL?
+    let cover: String?
+    let pic: String?
     let title: String
     let uri: String
     let playerArgs: AppPlayerArgs?
@@ -823,6 +824,7 @@ private struct AppFeedItemDTO: Decodable {
         case cardGoto = "card_goto"
         case param
         case cover
+        case pic
         case title
         case uri
         case playerArgs = "player_args"
@@ -844,12 +846,16 @@ private struct AppFeedItemDTO: Decodable {
         // We also allow 'bangumi' if we can map it.
         guard cardGoto == "av" || cardGoto == "bangumi" else { return nil }
         
-        let coverHTTPS = cover?.absoluteString.replacingOccurrences(of: "http://", with: "https://")
+        // Use 'cover' or 'pic' whichever is available.
+        let rawCover = cover ?? pic
+        let coverHTTPS = rawCover?.replacingOccurrences(of: "http://", with: "https://")
         let finalCover = coverHTTPS != nil ? URL(string: coverHTTPS!) : nil
+        
+        let aidValue = playerArgs?.aid ?? Int(param) ?? 0
         
         return BiliVideo(
             bvid: "", // Will be fetched on demand in detail(for:) if needed
-            aid: playerArgs?.aid ?? Int(param) ?? 0,
+            aid: aidValue,
             cid: playerArgs?.cid ?? 0,
             title: title,
             ownerName: descButton?.text ?? "Bilibili",

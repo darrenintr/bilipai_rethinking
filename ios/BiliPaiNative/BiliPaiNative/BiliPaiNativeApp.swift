@@ -62,6 +62,8 @@ final class Logger: ObservableObject {
     
     func export() -> URL? {
         let allLogs = logs.joined(separator: "\n")
+        if allLogs.isEmpty { return nil }
+        
         let fileName = "BiliPai_Logs_\(Int(Date().timeIntervalSince1970)).txt"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         
@@ -69,9 +71,14 @@ final class Logger: ObservableObject {
             try allLogs.write(to: tempURL, atomically: true, encoding: .utf8)
             return tempURL
         } catch {
-            log("Failed to export logs: \(error.localizedDescription)")
+            print("Failed to export logs: \(error.localizedDescription)")
             return nil
         }
+    }
+    
+    func copyToClipboard() {
+        let allLogs = logs.joined(separator: "\n")
+        UIPasteboard.general.string = allLogs
     }
 }
 

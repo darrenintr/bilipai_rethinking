@@ -62,11 +62,19 @@ struct ProfileSettingsView: View {
                     if let url = Logger.shared.export() {
                         logExportURL = url
                         showShareSheet = true
+                    } else {
+                        Logger.shared.copyToClipboard()
+                        showLogCopyAlert = true
                     }
                 } label: {
                     PluginRow(title: "导出运行日志", subtitle: "用于反馈问题与调试", symbol: "doc.text.magnifyingglass")
                 }
                 .buttonStyle(.plain)
+                .alert("日志已复制到剪貼板", isPresented: $showLogCopyAlert) {
+                    Button("確定", role: .cancel) { }
+                } message: {
+                    Text("無法生成文件，已將日誌內容複製到剪貼板，請直接貼上發送。")
+                }
                 
                 Link(destination: URL(string: "https://github.com/darrenintr/bilipai_rethinking")!) {
                     PluginRow(title: "GitHub 仓库", subtitle: "开源项目地址", symbol: "link")
@@ -83,6 +91,7 @@ struct ProfileSettingsView: View {
     }
 
     @State private var showShareSheet = false
+    @State private var showLogCopyAlert = false
     @State private var logExportURL: URL? = nil
 
     @ViewBuilder
