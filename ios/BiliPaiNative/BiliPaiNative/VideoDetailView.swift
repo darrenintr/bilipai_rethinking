@@ -115,7 +115,17 @@ struct VideoDetailView: View {
                 MetricPill(systemImage: "clock.fill", text: model.detail.duration.mmss)
             }
             if let error = model.errorMessage {
-                ErrorBanner(message: error)
+                VStack(alignment: .leading, spacing: 8) {
+                    ErrorBanner(message: error)
+                    Button {
+                        Task { await model.load(repository: repository) }
+                    } label: {
+                        Label("重试播放", systemImage: "arrow.clockwise")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
             }
             if !model.detail.description.isEmpty {
                 Text(model.detail.description)
@@ -181,7 +191,7 @@ struct VideoDetailView: View {
                 .frame(maxWidth: .infinity, minHeight: 150)
             } else {
                 ForEach(Array(model.comments.enumerated()), id: \.element.id) { index, comment in
-                    CommentRow(comment: comment)
+                    CommentRow(comment: comment, video: model.detail)
                         .onAppear {
                             if index >= max(0, model.comments.count - 5) {
                                 Task { await model.loadMoreComments(repository: repository) }
@@ -207,59 +217,70 @@ struct VideoDetailView: View {
 
 private struct CommentRow: View {
     let comment: BiliComment
+    let video: BiliVideo
+    @EnvironmentObject private var router: AppRouter
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            AsyncImage(url: comment.avatarURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                default:
-                    Circle()
-                        .fill(BiliPaiTheme.biliPink.opacity(0.18))
-                        .overlay(Image(systemName: "person.fill").foregroundStyle(BiliPaiTheme.biliPink))
-                }
+        Button {
+            if comment.replyCount > 0 {
+                router.openReplies(video: video, root: comment)
             }
-            .frame(width: 36, height: 36)
-            .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(comment.authorName)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Spacer()
-                    if comment.likeCount > 0 {
-                        Label(comment.likeCount.compactCount, systemImage: "hand.thumbsup")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                AsyncImage(url: comment.avatarURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        Circle()
+                            .fill(BiliPaiTheme.biliPink.opacity(0.18))
+                            .overlay(Image(systemName: "person.fill").foregroundStyle(BiliPaiTheme.biliPink))
                     }
                 }
-                Text(comment.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !comment.replies.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(comment.replies) { reply in
-                            NestedReplyRow(comment: reply)
-                        }
-                        if comment.replyCount > comment.replies.count {
-                            Text("还有 \(comment.replyCount - comment.replies.count) 条回复未展开")
-                                .font(.caption)
-                                .foregroundStyle(BiliPaiTheme.biliPink)
+                .frame(width: 36, height: 36)
+                .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(comment.authorName)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer()
+                        if comment.likeCount > 0 {
+                            Label(comment.likeCount.compactCount, systemImage: "hand.thumbsup")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .padding(.top, 2)
-                } else if comment.replyCount > 0 {
-                    Text("\(comment.replyCount) replies")
-                        .font(.caption)
-                        .foregroundStyle(BiliPaiTheme.biliPink)
+                    Text(comment.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                    if !comment.replies.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(comment.replies) { reply in
+                                NestedReplyRow(comment: reply)
+                            }
+                            if comment.replyCount > comment.replies.count {
+                                Text("查看全部 \(comment.replyCount) 条回复 >")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(BiliPaiTheme.biliPink)
+                                    .padding(.top, 2)
+                            }
+                        }
+                        .padding(.top, 2)
+                    } else if comment.replyCount > 0 {
+                        Text("查看全部 \(comment.replyCount) 条回复 >")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(BiliPaiTheme.biliPink)
+                    }
                 }
             }
         }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
     }
 }

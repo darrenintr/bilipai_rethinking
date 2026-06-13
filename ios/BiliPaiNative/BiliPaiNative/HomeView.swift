@@ -34,7 +34,9 @@ struct HomeView: View {
                     }
                 }
                 .task {
-                    await model.load(repository: repository)
+                    if model.videos.isEmpty && model.liveRooms.isEmpty {
+                        await model.load(repository: repository)
+                    }
                 }
                 .refreshable {
                     await model.load(repository: repository)
@@ -125,9 +127,6 @@ struct HomeView: View {
                             }
                             .id(video.id)
                             .onAppear {
-                                if model.scrollPositionID != video.id {
-                                    model.scrollPositionID = video.id
-                                }
                                 triggerLoadMoreIfNeeded(currentIndex: index)
                             }
                         }

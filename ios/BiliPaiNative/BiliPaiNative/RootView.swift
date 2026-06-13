@@ -87,6 +87,9 @@ private struct PhoneRootView: View {
             .navigationDestination(for: ProfileRoute.self) { route in
                 profileRouteView(route, repository: repository)
             }
+            .navigationDestination(for: ReplyRoute.self) { route in
+                ReplyListView(video: route.video, rootComment: route.rootComment, repository: repository)
+            }
         }
     }
 }
@@ -118,6 +121,9 @@ private struct PadRootView: View {
                     }
                     .navigationDestination(for: ProfileRoute.self) { route in
                         profileRouteView(route, repository: repository)
+                    }
+                    .navigationDestination(for: ReplyRoute.self) { route in
+                        ReplyListView(video: route.video, rootComment: route.rootComment, repository: repository)
                     }
             }
         }

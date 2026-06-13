@@ -366,7 +366,7 @@ final class VideoDetailViewModel: ObservableObject {
     }
 
     private func configure(item: AVPlayerItem) {
-        item.preferredForwardBufferDuration = 8
+        item.preferredForwardBufferDuration = 30
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
     }
 
@@ -374,7 +374,7 @@ final class VideoDetailViewModel: ObservableObject {
         player.automaticallyWaitsToMinimizeStalling = false
         player.allowsExternalPlayback = true
         player.appliesMediaSelectionCriteriaAutomatically = true
-        player.currentItem?.preferredForwardBufferDuration = 8
+        player.currentItem?.preferredForwardBufferDuration = 30
         player.rate = playbackSpeed
     }
 
@@ -522,5 +522,55 @@ final class LiveViewModel: ObservableObject {
             errorMessage = "Could not load live rooms."
         }
         isLoading = false
+    }
+}
+
+@MainActor
+final class ReplyListViewModel: ObservableObject {
+    @Published var replies: [BiliComment] = []
+    @Published var isLoading = false
+    @Published var isLoadingMore = false
+    @Published var hasMore = false
+    @Published var errorMessage: String?
+    @Published var totalCount = 0
+
+    private var page = 1
+    private let video: BiliVideo
+    private let rootComment: BiliComment
+
+    init(video: BiliVideo, rootComment: BiliComment) {
+        self.video = video
+        self.rootComment = rootComment
+    }
+
+    func load(repository: BiliPaiRepository) async {
+        page = 1
+        isLoading = true
+        errorMessage = nil
+        do {
+            let pageResult = try await repository.repliesPage(for: video, root: rootComment.id, page: page)
+            replies = pageResult.items
+            hasMore = !pageResult.isEnd
+            totalCount = pageResult.totalCount
+        } catch {
+            errorMessage = "无法加载回复。"
+        }
+        isLoading = false
+    }
+
+    func loadMore(repository: BiliPaiRepository) async {
+        guard !isLoading, !isLoadingMore, hasMore else { return }
+        isLoadingMore = true
+        page += 1
+        do {
+            let pageResult = try await repository.repliesPage(for: video, root: rootComment.id, page: page)
+            let seen = Set(replies.map(\.id))
+            replies.append(contentsOf: pageResult.items.filter { !seen.contains($0.id) })
+            hasMore = !pageResult.isEnd
+            totalCount = max(totalCount, pageResult.totalCount)
+        } catch {
+            page -= 1
+        }
+        isLoadingMore = false
     }
 }

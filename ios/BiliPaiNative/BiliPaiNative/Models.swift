@@ -161,3 +161,8 @@ struct FavoriteFolderVideosPage: Hashable {
     let videos: [BiliVideo]
     let hasMore: Bool
 }
+
+struct ReplyRoute: Hashable {
+    let video: BiliVideo
+    let rootComment: BiliComment
+}

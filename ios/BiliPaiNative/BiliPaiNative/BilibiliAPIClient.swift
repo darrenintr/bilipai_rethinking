@@ -354,6 +354,28 @@ final class BilibiliAPIClient {
         )
     }
 
+    func repliesPage(aid: Int, rpid: Int, pn: Int = 1, pageSize: Int = 20) async throws -> CommentPage {
+        let payload: APIResponse<CommentPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/v2/reply/reply",
+            queryItems: [
+                URLQueryItem(name: "type", value: "1"),
+                URLQueryItem(name: "oid", value: "\(aid)"),
+                URLQueryItem(name: "root", value: "\(rpid)"),
+                URLQueryItem(name: "pn", value: "\(pn)"),
+                URLQueryItem(name: "ps", value: "\(pageSize)")
+            ]
+        )
+        try payload.requireOK()
+        let items = payload.value?.replies?.items.map(\.model) ?? []
+        return CommentPage(
+            items: items,
+            next: (payload.value?.cursor?.isEnd ?? true) ? nil : pn + 1,
+            isEnd: payload.value?.cursor?.isEnd ?? true,
+            totalCount: payload.value?.cursor?.allCount ?? 0
+        )
+    }
+
     private func get<T: Decodable>(
         baseURL: URL,
         path: String,

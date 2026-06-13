@@ -61,6 +61,10 @@ final class AppRouter: ObservableObject {
         path.append(video)
     }
 
+    func openReplies(video: BiliVideo, root: BiliComment) {
+        path.append(ReplyRoute(video: video, rootComment: root))
+    }
+
     func open(_ route: ProfileRoute) {
         path.append(route)
     }
