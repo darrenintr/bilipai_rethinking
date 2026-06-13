@@ -22,7 +22,8 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "feed_version", value: "V8")
             ]
         )
-        return payload.data?.videos.map(\.model) ?? []
+        try payload.requireOK()
+        return payload.value?.videos.map(\.model) ?? []
     }
 
     func popularVideos() async throws -> [BiliVideo] {
@@ -34,7 +35,8 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "pn", value: "1")
             ]
         )
-        return payload.data?.videos.map(\.model) ?? []
+        try payload.requireOK()
+        return payload.value?.videos.map(\.model) ?? []
     }
 
     func searchVideos(keyword: String) async throws -> [BiliVideo] {
@@ -48,7 +50,8 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "page", value: "1")
             ]
         )
-        return payload.data?.videos.map(\.model) ?? []
+        try payload.requireOK()
+        return payload.value?.videos.map(\.model) ?? []
     }
 
     func videoDetail(bvid: String) async throws -> BiliVideo {
@@ -57,7 +60,8 @@ final class BilibiliAPIClient {
             path: "/x/web-interface/view",
             queryItems: [URLQueryItem(name: "bvid", value: bvid)]
         )
-        guard let detail = payload.data?.model else {
+        try payload.requireOK()
+        guard let detail = payload.value?.model else {
             throw BilibiliAPIError.missingData
         }
         return detail
@@ -71,11 +75,12 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "bvid", value: bvid),
                 URLQueryItem(name: "cid", value: "\(cid)"),
                 URLQueryItem(name: "qn", value: "64"),
-                URLQueryItem(name: "fnval", value: "16"),
+                URLQueryItem(name: "fnval", value: "0"),
                 URLQueryItem(name: "fourk", value: "1")
             ]
         )
-        guard let url = payload.data?.bestURL else {
+        try payload.requireOK()
+        guard let url = payload.value?.bestURL else {
             throw BilibiliAPIError.missingData
         }
         return BiliPlayback(url: url, referer: URL(string: "https://www.bilibili.com/video/\(bvid)")!)
@@ -93,7 +98,8 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "page", value: "1")
             ]
         )
-        return payload.data?.list.map(\.model) ?? []
+        try payload.requireOK()
+        return payload.value?.list.map(\.model) ?? []
     }
 
     func comments(aid: Int) async throws -> [BiliComment] {
@@ -108,7 +114,8 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "ps", value: "20")
             ]
         )
-        return payload.data?.replies?.map(\.model) ?? []
+        try payload.requireOK()
+        return payload.value?.replies?.map(\.model) ?? []
     }
 
     private func get<T: Decodable>(
@@ -137,6 +144,7 @@ final class BilibiliAPIClient {
 enum BilibiliAPIError: Error {
     case invalidURL
     case http
+    case api(String)
     case missingData
 }
 
@@ -145,6 +153,16 @@ private struct APIResponse<T: Decodable>: Decodable {
     let message: String?
     let data: T?
     let result: T?
+
+    var value: T? {
+        data ?? result
+    }
+
+    func requireOK() throws {
+        if let code, code != 0 {
+            throw BilibiliAPIError.api(message ?? "Bilibili API returned code \(code)")
+        }
+    }
 }
 
 private struct VideoListPayload: Decodable {
@@ -192,7 +210,7 @@ private struct VideoDTO: Decodable {
         aid = container.decodeInt(keys: ["aid", "id"]) ?? 0
         cid = container.decodeInt(keys: ["cid"]) ?? 0
         title = container.decodeString(keys: ["title"])?.strippingHTML ?? "Untitled"
-        coverURL = URL(string: container.decodeString(keys: ["pic", "cover"]) ?? "")
+        coverURL = container.decodeString(keys: ["pic", "cover"])?.httpsURL
         duration = container.decodeInt(keys: ["duration"]) ?? 0
         description = container.decodeString(keys: ["desc", "description"]) ?? ""
 
@@ -265,6 +283,16 @@ private struct LiveRoomDTO: Decodable {
         case areaName = "area_name"
         case coverURL = "cover"
         case online
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        roomid = try container.decode(Int.self, forKey: .roomid)
+        title = try container.decode(String.self, forKey: .title)
+        uname = try container.decode(String.self, forKey: .uname)
+        areaName = try container.decode(String.self, forKey: .areaName)
+        coverURL = try container.decodeIfPresent(String.self, forKey: .coverURL)?.httpsURL
+        online = try container.decode(Int.self, forKey: .online)
     }
 }
 
@@ -351,5 +379,14 @@ private extension KeyedDecodingContainer where K == DynamicKey {
 private extension String {
     var strippingHTML: String {
         replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    }
+
+    var httpsURL: URL? {
+        let source = hasPrefix("//") ? "https:\(self)" : self
+        guard var components = URLComponents(string: source) else { return nil }
+        if components.scheme == "http" {
+            components.scheme = "https"
+        }
+        return components.url
     }
 }

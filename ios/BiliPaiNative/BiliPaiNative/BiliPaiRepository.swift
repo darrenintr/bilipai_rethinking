@@ -10,8 +10,12 @@ final class BiliPaiRepository {
     func feed(category: HomeCategory, searchQuery: String) async throws -> [BiliVideo] {
         switch category {
         case .recommend:
-            let videos = try await apiClient.recommendedVideos()
-            if !videos.isEmpty { return videos }
+            do {
+                let videos = try await apiClient.recommendedVideos()
+                if !videos.isEmpty { return videos }
+            } catch {
+                // Recommendations are personalization-sensitive; popular videos are the public fallback.
+            }
             return try await apiClient.popularVideos()
         case .popular:
             return try await apiClient.popularVideos()

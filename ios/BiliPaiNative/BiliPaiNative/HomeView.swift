@@ -19,6 +19,12 @@ struct HomeView: View {
                 if model.isLoading && model.videos.isEmpty {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 180)
+                } else if model.videos.isEmpty {
+                    HomeEmptyState(
+                        category: model.category,
+                        searchQuery: model.searchQuery,
+                        hasError: model.errorMessage != nil
+                    )
                 } else {
                     TodayWatchCard(videos: Array(model.videos.prefix(4)))
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -107,6 +113,43 @@ struct HomeView: View {
                 }
             }
         }
+    }
+}
+
+private struct HomeEmptyState: View {
+    let category: HomeCategory
+    let searchQuery: String
+    let hasError: Bool
+
+    var body: some View {
+        ContentUnavailableView(
+            title,
+            systemImage: systemImage,
+            description: Text(description)
+        )
+        .frame(maxWidth: .infinity, minHeight: 260)
+        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+    }
+
+    private var title: String {
+        if hasError { return "Videos unavailable" }
+        if category == .search && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Search Bilibili"
+        }
+        return "No videos found"
+    }
+
+    private var systemImage: String {
+        if category == .search { return "magnifyingglass" }
+        return "play.rectangle"
+    }
+
+    private var description: String {
+        if hasError { return "Pull to retry the public Bilibili feed." }
+        if category == .search && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Enter a keyword above to load public Bilibili videos."
+        }
+        return "Try another keyword or switch to the popular feed."
     }
 }
 
