@@ -39,7 +39,7 @@ final class BilibiliAPIClient {
         self.decoder = JSONDecoder()
     }
 
-    func recommendedVideos() async throws -> [BiliVideo] {
+    func recommendedVideos(freshIndex: Int = 0) async throws -> [BiliVideo] {
         // The canonical path per the pskdje/bilibili-API-collect docs is
         // `/x/web-interface/wbi/index/top/feed/rcmd` (note the `wbi`
         // segment). The shorter non-wbi path is the legacy alias and
@@ -52,8 +52,10 @@ final class BilibiliAPIClient {
             queryItems: [
                 URLQueryItem(name: "ps", value: "20"),
                 URLQueryItem(name: "fresh_type", value: "4"),
+                URLQueryItem(name: "fresh_idx", value: "\(freshIndex)"),
                 URLQueryItem(name: "feed_version", value: "V8"),
-                URLQueryItem(name: "web_location", value: "1430650")
+                URLQueryItem(name: "web_location", value: "1430650"),
+                URLQueryItem(name: "y_num", value: "\(freshIndex)")
             ],
             signWithWBI: true
         )
@@ -207,23 +209,121 @@ final class BilibiliAPIClient {
         return payload.value?.list.map(\.model) ?? []
     }
 
-    func comments(aid: Int) async throws -> [BiliComment] {
-        guard aid > 0 else { return [] }
+    func dynamicFeed(type: String = "all", offset: String = "") async throws -> DynamicFeedPage {
+        let payload: APIResponse<DynamicFeedPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/polymer/web-dynamic/v1/feed/all",
+            queryItems: [
+                URLQueryItem(name: "type", value: type),
+                URLQueryItem(name: "offset", value: offset),
+                URLQueryItem(name: "page", value: "1"),
+                URLQueryItem(name: "features", value: "itemOpusStyle,listOnlyfans,opusBigCover,commentsNewVersion,onlyfansVote,onlyfansAssetsV2,decorationCard,forwardListHidden,ugcDelete"),
+                URLQueryItem(name: "timezone_offset", value: "-480"),
+                URLQueryItem(name: "platform", value: "web"),
+                URLQueryItem(name: "web_location", value: "333.1365")
+            ]
+        )
+        try payload.requireOK()
+        let data = payload.value
+        return DynamicFeedPage(
+            items: data?.items.compactMap(\.post).filter { !$0.id.isEmpty } ?? [],
+            nextOffset: data?.offset ?? "",
+            hasMore: data?.hasMore ?? false
+        )
+    }
+
+    func history(cursor: HistoryCursorState? = nil, pageSize: Int = 30) async throws -> HistoryPageResult {
+        var queryItems = [URLQueryItem(name: "ps", value: "\(pageSize)")]
+        if let cursor {
+            if cursor.max > 0 {
+                queryItems.append(URLQueryItem(name: "max", value: "\(cursor.max)"))
+            }
+            if cursor.viewAt > 0 {
+                queryItems.append(URLQueryItem(name: "view_at", value: "\(cursor.viewAt)"))
+            }
+            if !cursor.business.isEmpty {
+                queryItems.append(URLQueryItem(name: "business", value: cursor.business))
+            }
+        }
+        let payload: APIResponse<HistoryPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/history/cursor",
+            queryItems: queryItems
+        )
+        try payload.requireOK()
+        let data = payload.value
+        return HistoryPageResult(
+            items: data?.items.compactMap(\.entry) ?? [],
+            nextCursor: data?.cursor?.cursorState
+        )
+    }
+
+    func watchLaterVideos() async throws -> [BiliVideo] {
+        let payload: APIResponse<WatchLaterPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/v2/history/toview",
+            queryItems: []
+        )
+        try payload.requireOK()
+        return payload.value?.list.compactMap(\.video) ?? []
+    }
+
+    func favoriteFolders(mid: Int64) async throws -> [FavoriteFolderSummary] {
+        let payload: APIResponse<FavoriteFoldersPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/v3/fav/folder/created/list-all",
+            queryItems: [
+                URLQueryItem(name: "up_mid", value: "\(mid)")
+            ]
+        )
+        try payload.requireOK()
+        return payload.value?.list.compactMap(\.folder) ?? []
+    }
+
+    func favoriteVideos(mediaID: Int64, page: Int = 1) async throws -> FavoriteFolderVideosPage {
+        let payload: APIResponse<FavoriteResourcesPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/v3/fav/resource/list",
+            queryItems: [
+                URLQueryItem(name: "media_id", value: "\(mediaID)"),
+                URLQueryItem(name: "pn", value: "\(page)"),
+                URLQueryItem(name: "ps", value: "20"),
+                URLQueryItem(name: "platform", value: "web")
+            ]
+        )
+        try payload.requireOK()
+        let info = payload.value?.info
+        let medias = payload.value?.medias.compactMap(\.video) ?? []
+        return FavoriteFolderVideosPage(
+            title: info?.title ?? "收藏夹",
+            videos: medias,
+            hasMore: payload.value?.hasMore ?? false
+        )
+    }
+
+    func commentsPage(aid: Int, next: Int? = nil, pageSize: Int = 20) async throws -> CommentPage {
+        guard aid > 0 else {
+            return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
+        }
         // The current canonical path is `/x/v2/reply/wbi/main`. The
         // payload shape changed alongside it: pinned/UP主置顶 replies
         // now live under `data.upper.top` (an object keyed by rpid),
         // not the legacy `data.top_replies` array. We decode both
         // shapes so an old cache or a flaky CDN edge that still serves
         // the legacy field does not produce an empty list.
+        var queryItems = [
+            URLQueryItem(name: "type", value: "1"),
+            URLQueryItem(name: "oid", value: "\(aid)"),
+            URLQueryItem(name: "mode", value: "3"),
+            URLQueryItem(name: "ps", value: "\(pageSize)")
+        ]
+        if let next {
+            queryItems.append(URLQueryItem(name: "next", value: "\(next)"))
+        }
         let payload: APIResponse<CommentPayload> = try await get(
             baseURL: baseURL,
             path: "/x/v2/reply/wbi/main",
-            queryItems: [
-                URLQueryItem(name: "type", value: "1"),
-                URLQueryItem(name: "oid", value: "\(aid)"),
-                URLQueryItem(name: "mode", value: "3"),
-                URLQueryItem(name: "ps", value: "20")
-            ],
+            queryItems: queryItems,
             signWithWBI: true
         )
         try payload.requireOK()
@@ -242,7 +342,12 @@ final class BilibiliAPIClient {
                 merged.append(model)
             }
         }
-        return merged
+        return CommentPage(
+            items: merged,
+            next: payload.value?.cursor?.next,
+            isEnd: payload.value?.cursor?.isEnd ?? true,
+            totalCount: payload.value?.cursor?.allCount ?? merged.count
+        )
     }
 
     private func get<T: Decodable>(
@@ -629,6 +734,363 @@ private struct LiveRoomDTO: Decodable {
     }
 }
 
+private struct DynamicFeedPayload: Decodable {
+    let items: [DynamicCardDTO]
+    let offset: String
+    let hasMore: Bool
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        items = (try? container.decode([DynamicCardDTO].self, forKey: DynamicKey("items"))) ?? []
+        offset = container.decodeString(keys: ["offset"]) ?? ""
+        hasMore = container.decodeBool(keys: ["has_more"]) ?? false
+    }
+}
+
+private struct DynamicCardDTO: Decodable {
+    let id: String
+    let visible: Bool
+    let authorName: String
+    let authorAvatarURL: URL?
+    let text: String
+    let attachedVideo: BiliVideo?
+    let timeLabel: String
+
+    var post: DynamicPost? {
+        guard visible else { return nil }
+        return DynamicPost(
+            id: id,
+            author: authorName,
+            authorAvatarURL: authorAvatarURL,
+            text: text,
+            timeLabel: timeLabel,
+            attachedVideo: attachedVideo
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        id = container.decodeString(keys: ["id_str"]) ?? UUID().uuidString
+        visible = container.decodeBool(keys: ["visible"]) ?? true
+
+        let modules = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("modules"))
+        let author = try? modules?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("module_author"))
+        authorName = author??.decodeString(keys: ["name"]) ?? "Bilibili"
+        authorAvatarURL = author??.decodeString(keys: ["face"])?.httpsURL
+        let pubTs = author??.decodeInt64(keys: ["pub_ts"]) ?? 0
+        timeLabel = pubTs > 0 ? Self.relativeTimeLabel(from: pubTs) : "刚刚"
+
+        let moduleDynamic = try? modules?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("module_dynamic"))
+        let desc = try? moduleDynamic?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("desc"))
+        let major = try? moduleDynamic?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("major"))
+        let archive = try? major?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("archive"))
+        let opus = try? major?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("opus"))
+
+        let descText = desc??.decodeString(keys: ["text"])?.strippingHTML ?? ""
+        let archiveTitle = archive??.decodeString(keys: ["title"])?.strippingHTML ?? ""
+        let opusSummary = opus??.decodeString(keys: ["summary", "title"])?.strippingHTML ?? ""
+        text = [descText, opusSummary, archiveTitle].first(where: { !$0.isEmpty }) ?? ""
+
+        if let archive {
+            let bvid = archive.decodeString(keys: ["bvid"]) ?? ""
+            let aid = archive.decodeInt(keys: ["aid", "id"]) ?? 0
+            let cid = archive.decodeInt(keys: ["cid"]) ?? 0
+            let coverURL = archive.decodeString(keys: ["cover"])?.httpsURL
+            let duration = archive.decodeInt(keys: ["duration"]) ?? 0
+            let stat = try? archive.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("stat"))
+            attachedVideo = BiliVideo(
+                bvid: bvid,
+                aid: aid,
+                cid: cid,
+                title: archiveTitle.isEmpty ? "视频动态" : archiveTitle,
+                ownerName: authorName,
+                coverURL: coverURL,
+                duration: duration,
+                viewCount: stat??.decodeInt(keys: ["play", "view"]) ?? 0,
+                danmakuCount: stat??.decodeInt(keys: ["danmaku"]) ?? 0,
+                likeCount: stat??.decodeInt(keys: ["like"]) ?? 0,
+                description: descText
+            )
+        } else {
+            attachedVideo = nil
+        }
+    }
+
+    private static func relativeTimeLabel(from timestamp: Int64) -> String {
+        let delta = max(0, Int(Date().timeIntervalSince1970) - Int(timestamp))
+        switch delta {
+        case ..<60:
+            return "刚刚"
+        case ..<3600:
+            return "\(max(1, delta / 60)) 分钟前"
+        case ..<86_400:
+            return "\(max(1, delta / 3600)) 小时前"
+        default:
+            return "\(max(1, delta / 86_400)) 天前"
+        }
+    }
+}
+
+private struct HistoryPayload: Decodable {
+    let items: [HistoryItemDTO]
+    let cursor: HistoryCursorDTO?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        items = (try? container.decode([HistoryItemDTO].self, forKey: DynamicKey("list"))) ?? []
+        cursor = try? container.decode(HistoryCursorDTO.self, forKey: DynamicKey("cursor"))
+    }
+}
+
+private struct HistoryCursorDTO: Decodable {
+    let max: Int64
+    let viewAt: Int64
+    let business: String
+
+    enum CodingKeys: String, CodingKey {
+        case max
+        case viewAt = "view_at"
+        case business
+    }
+
+    var cursorState: HistoryCursorState? {
+        guard max > 0 || viewAt > 0 || !business.isEmpty else { return nil }
+        return HistoryCursorState(max: max, viewAt: viewAt, business: business)
+    }
+}
+
+private struct HistoryItemDTO: Decodable {
+    let title: String
+    let coverURL: URL?
+    let ownerName: String
+    let ownerFaceURL: URL?
+    let ownerMID: Int64
+    let duration: Int
+    let progress: Int
+    let viewedAt: Int64
+    let stat: VideoStatsDTO?
+    let historyBVID: String
+    let historyCID: Int
+    let historyOID: Int64
+
+    var entry: HistoryEntry {
+        let video = BiliVideo(
+            bvid: historyBVID,
+            aid: Int(historyOID),
+            cid: historyCID,
+            title: title,
+            ownerName: ownerName,
+            coverURL: coverURL,
+            duration: duration,
+            viewCount: stat?.view ?? 0,
+            danmakuCount: stat?.danmaku ?? 0,
+            likeCount: stat?.like ?? 0,
+            description: ""
+        )
+        return HistoryEntry(
+            id: historyBVID.isEmpty ? "\(historyOID):\(viewedAt)" : historyBVID,
+            video: video,
+            viewedAt: viewedAt,
+            progress: progress
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        title = container.decodeString(keys: ["title"]) ?? "Untitled"
+        coverURL = (container.decodeString(keys: ["cover", "pic"]) ?? "").httpsURL
+        ownerName = container.decodeString(keys: ["author_name"]) ?? "Unknown"
+        ownerFaceURL = (container.decodeString(keys: ["author_face"]) ?? "").httpsURL
+        ownerMID = container.decodeInt64(keys: ["author_mid"]) ?? 0
+        duration = container.decodeInt(keys: ["duration"]) ?? 0
+        progress = container.decodeInt(keys: ["progress"]) ?? -1
+        viewedAt = container.decodeInt64(keys: ["view_at"]) ?? 0
+        stat = try? container.decode(VideoStatsDTO.self, forKey: DynamicKey("stat"))
+        let history = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("history"))
+        historyBVID = history??.decodeString(keys: ["bvid"]) ?? ""
+        historyCID = history??.decodeInt(keys: ["cid"]) ?? 0
+        historyOID = history??.decodeInt64(keys: ["oid"]) ?? 0
+    }
+}
+
+private struct FavoriteFoldersPayload: Decodable {
+    let list: [FavoriteFolderDTO]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        list = (try? container.decode([FavoriteFolderDTO].self, forKey: DynamicKey("list"))) ?? []
+    }
+}
+
+private struct FavoriteFolderDTO: Decodable {
+    let id: Int64
+    let title: String
+    let coverURL: URL?
+    let mediaCount: Int
+    let ownerName: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case fid
+        case title
+        case cover
+        case mediaCount = "media_count"
+        case upper
+    }
+
+    var folder: FavoriteFolderSummary {
+        FavoriteFolderSummary(
+            id: id,
+            title: title,
+            coverURL: coverURL,
+            mediaCount: mediaCount,
+            ownerName: ownerName
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        id = Int64(container.decodeInt(keys: ["id", "fid"]) ?? 0)
+        title = container.decodeString(keys: ["title"]) ?? "收藏夹"
+        coverURL = (container.decodeString(keys: ["cover"]) ?? "").httpsURL
+        mediaCount = container.decodeInt(keys: ["media_count"]) ?? 0
+        let upper = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("upper"))
+        ownerName = upper??.decodeString(keys: ["name"]) ?? ""
+    }
+}
+
+private struct FavoriteResourcesPayload: Decodable {
+    let info: FavoriteInfoDTO?
+    let medias: [FavoriteMediaDTO]
+    let hasMore: Bool
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        info = try? container.decode(FavoriteInfoDTO.self, forKey: DynamicKey("info"))
+        medias = (try? container.decode([FavoriteMediaDTO].self, forKey: DynamicKey("medias"))) ?? []
+        hasMore = container.decodeBool(keys: ["has_more"]) ?? false
+    }
+}
+
+private struct FavoriteInfoDTO: Decodable {
+    let title: String
+}
+
+private struct FavoriteMediaDTO: Decodable {
+    let id: Int64
+    let bvid: String
+    let title: String
+    let coverURL: URL?
+    let duration: Int
+    let progress: Int
+    let viewedAt: Int64
+    let ownerName: String
+    let stat: VideoStatsDTO?
+    let cid: Int
+
+    var video: BiliVideo {
+        BiliVideo(
+            bvid: bvid,
+            aid: Int(id),
+            cid: cid,
+            title: title,
+            ownerName: ownerName,
+            coverURL: coverURL,
+            duration: duration,
+            viewCount: stat?.view ?? 0,
+            danmakuCount: stat?.danmaku ?? 0,
+            likeCount: stat?.like ?? 0,
+            description: ""
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        id = Int64(container.decodeInt(keys: ["id"]) ?? 0)
+        bvid = container.decodeString(keys: ["bvid", "bv_id"]) ?? ""
+        title = container.decodeString(keys: ["title"])?.strippingHTML ?? "Untitled"
+        coverURL = (container.decodeString(keys: ["cover"]) ?? "").httpsURL
+        duration = container.decodeInt(keys: ["duration"]) ?? 0
+        progress = container.decodeInt(keys: ["progress"]) ?? 0
+        viewedAt = container.decodeInt64(keys: ["view_at"]) ?? 0
+        let upper = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("upper"))
+        ownerName = upper??.decodeString(keys: ["name"]) ?? "Unknown"
+        let cntInfo = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("cnt_info"))
+        stat = cntInfo.map { nested in
+            VideoStatsDTO(
+                view: nested.decodeInt(keys: ["play"]) ?? 0,
+                danmaku: nested.decodeInt(keys: ["danmaku"]) ?? 0,
+                like: nested.decodeInt(keys: ["collect"]) ?? 0
+            )
+        }
+        let ugc = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("ugc"))
+        cid = ugc??.decodeInt(keys: ["first_cid"]) ?? 0
+    }
+}
+
+private struct WatchLaterPayload: Decodable {
+    let list: [WatchLaterItemDTO]
+}
+
+private struct WatchLaterItemDTO: Decodable {
+    let aid: Int64
+    let bvid: String
+    let cid: Int
+    let title: String
+    let coverURL: URL?
+    let duration: Int
+    let ownerName: String
+    let stat: VideoStatsDTO?
+
+    var video: BiliVideo {
+        BiliVideo(
+            bvid: bvid,
+            aid: Int(aid),
+            cid: cid,
+            title: title,
+            ownerName: ownerName,
+            coverURL: coverURL,
+            duration: duration,
+            viewCount: stat?.view ?? 0,
+            danmakuCount: stat?.danmaku ?? 0,
+            likeCount: stat?.like ?? 0,
+            description: ""
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        aid = Int64(container.decodeInt(keys: ["aid"]) ?? 0)
+        bvid = container.decodeString(keys: ["bvid"]) ?? ""
+        cid = container.decodeInt(keys: ["cid"]) ?? 0
+        title = container.decodeString(keys: ["title"]) ?? "Untitled"
+        coverURL = (container.decodeString(keys: ["pic"]) ?? "").httpsURL
+        duration = container.decodeInt(keys: ["duration"]) ?? 0
+        let owner = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("owner"))
+        ownerName = owner??.decodeString(keys: ["name"]) ?? "Unknown"
+        stat = try? container.decode(VideoStatsDTO.self, forKey: DynamicKey("stat"))
+    }
+}
+
+private struct VideoStatsDTO: Decodable {
+    let view: Int
+    let danmaku: Int
+    let like: Int
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        view = container.decodeInt(keys: ["view", "play"]) ?? 0
+        danmaku = container.decodeInt(keys: ["danmaku"]) ?? 0
+        like = container.decodeInt(keys: ["like", "favorite", "collect"]) ?? 0
+    }
+
+    init(view: Int, danmaku: Int, like: Int) {
+        self.view = view
+        self.danmaku = danmaku
+        self.like = like
+    }
+}
+
 private struct CommentPayload: Decodable {
     let replies: LenientCommentArray?
     /// Legacy field — kept for the occasional cache that still serves
@@ -638,22 +1100,38 @@ private struct CommentPayload: Decodable {
     /// New (WBI) shape: pinned/UP主置顶 replies nested under
     /// `data.upper.top` as a dict keyed by `rpid`.
     let upperTop: PinnedCommentDict?
+    let cursor: CommentCursorDTO?
 
     enum CodingKeys: String, CodingKey {
         case replies
         case topReplies = "top_replies"
         case upper
+        case cursor
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         replies = try container.decodeIfPresent(LenientCommentArray.self, forKey: .replies)
         topReplies = try container.decodeIfPresent(LenientCommentArray.self, forKey: .topReplies)
+        cursor = try? container.decode(CommentCursorDTO.self, forKey: .cursor)
         if let upper = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: .upper) {
             upperTop = try? upper.decode(PinnedCommentDict.self, forKey: DynamicKey("top"))
         } else {
             upperTop = nil
         }
+    }
+}
+
+private struct CommentCursorDTO: Decodable {
+    let next: Int?
+    let isEnd: Bool
+    let allCount: Int
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        next = container.decodeInt(keys: ["next"])
+        isEnd = container.decodeBool(keys: ["is_end"]) ?? true
+        allCount = container.decodeInt(keys: ["all_count"]) ?? 0
     }
 }
 
@@ -805,6 +1283,43 @@ private extension KeyedDecodingContainer where K == DynamicKey {
             }
             if let string = try? decode(String.self, forKey: DynamicKey(key)), let value = Int(string) {
                 return value
+            }
+        }
+        return nil
+    }
+
+    func decodeInt64(keys: [String]) -> Int64? {
+        for key in keys {
+            if let value = try? decode(Int64.self, forKey: DynamicKey(key)) {
+                return value
+            }
+            if let value = try? decode(Int.self, forKey: DynamicKey(key)) {
+                return Int64(value)
+            }
+            if let string = try? decode(String.self, forKey: DynamicKey(key)), let value = Int64(string) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    func decodeBool(keys: [String]) -> Bool? {
+        for key in keys {
+            if let value = try? decode(Bool.self, forKey: DynamicKey(key)) {
+                return value
+            }
+            if let value = try? decode(Int.self, forKey: DynamicKey(key)) {
+                return value != 0
+            }
+            if let string = try? decode(String.self, forKey: DynamicKey(key)) {
+                switch string.lowercased() {
+                case "1", "true":
+                    return true
+                case "0", "false":
+                    return false
+                default:
+                    break
+                }
             }
         }
         return nil

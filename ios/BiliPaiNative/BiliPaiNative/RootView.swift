@@ -77,7 +77,7 @@ private struct PhoneRootView: View {
                     .tabItem { Label(MainTab.live.title, systemImage: MainTab.live.symbolName) }
                     .tag(MainTab.live)
 
-                ProfileSettingsView()
+                ProfileSettingsView(repository: repository)
                     .tabItem { Label(MainTab.profile.title, systemImage: MainTab.profile.symbolName) }
                     .tag(MainTab.profile)
             }
@@ -127,7 +127,7 @@ private struct PadRootView: View {
         case .live:
             LiveRoomsView(repository: repository)
         case .profile:
-            ProfileSettingsView()
+            ProfileSettingsView(repository: repository)
         }
     }
 }

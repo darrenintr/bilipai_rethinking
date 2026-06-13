@@ -163,7 +163,7 @@ struct VideoDetailView: View {
                     ProgressView()
                         .controlSize(.small)
                 } else if !model.comments.isEmpty {
-                    Text("\(model.comments.count)")
+                    Text("\(max(model.comments.count, model.commentsTotalCount))")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -180,10 +180,22 @@ struct VideoDetailView: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 150)
             } else {
-                ForEach(model.comments) { comment in
+                ForEach(Array(model.comments.enumerated()), id: \.element.id) { index, comment in
                     CommentRow(comment: comment)
+                        .onAppear {
+                            if index >= max(0, model.comments.count - 5) {
+                                Task { await model.loadMoreComments(repository: repository) }
+                            }
+                        }
                     if comment.id != model.comments.last?.id {
                         Divider()
+                    }
+                }
+                if model.commentsLoadingMore {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
                     }
                 }
             }

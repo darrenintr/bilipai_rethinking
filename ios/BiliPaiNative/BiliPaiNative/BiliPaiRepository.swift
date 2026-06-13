@@ -25,7 +25,8 @@ final class BiliPaiRepository {
         category: HomeCategory,
         searchQuery: String,
         popularSubCategory: PopularSubCategory,
-        page: Int = 1
+        page: Int = 1,
+        recommendFreshIndex: Int = 0
     ) async throws -> [BiliVideo] {
         switch category {
         case .recommend:
@@ -39,7 +40,7 @@ final class BiliPaiRepository {
                 // *which* endpoint we landed on — they just want a fresh
                 // feed on screen.
                 do {
-                    let videos = try await apiClient.recommendedVideos()
+                    let videos = try await apiClient.recommendedVideos(freshIndex: recommendFreshIndex)
                     if !videos.isEmpty { return videos }
                 } catch {
                     // Network or 风控 failure on rcmd — fall through.
@@ -109,15 +110,15 @@ final class BiliPaiRepository {
         try await apiClient.liveRooms()
     }
 
-    func comments(for video: BiliVideo) async throws -> [BiliComment] {
+    func commentsPage(for video: BiliVideo, next: Int? = nil) async throws -> CommentPage {
         let aid = video.aid
         if aid > 0 {
-            return try await apiClient.comments(aid: aid)
+            return try await apiClient.commentsPage(aid: aid, next: next)
         }
         if !video.bvid.isEmpty {
             let detail = try await apiClient.videoDetail(bvid: video.bvid)
             if detail.aid > 0 {
-                return try await apiClient.comments(aid: detail.aid)
+                return try await apiClient.commentsPage(aid: detail.aid, next: next)
             }
         }
         // Neither the feed entry nor the video-detail fallback produced an
@@ -127,21 +128,23 @@ final class BiliPaiRepository {
         throw BilibiliAPIError.missingIdentity
     }
 
-    func dynamicPosts() -> [DynamicPost] {
-        let recent = IntentRecentVideoStore.recentVideos().first
-        return [
-            DynamicPost(
-                author: "BiliPai",
-                text: "The iOS client is using public Bilibili endpoints for feed, search, detail, and playback URL discovery.",
-                timeLabel: "Now",
-                attachedVideo: recent?.video
-            ),
-            DynamicPost(
-                author: "Player",
-                text: "The production port keeps player business rules in services and leaves SwiftUI focused on state and layout.",
-                timeLabel: "Today",
-                attachedVideo: nil
-            )
-        ]
+    func dynamicFeed(offset: String = "") async throws -> DynamicFeedPage {
+        try await apiClient.dynamicFeed(offset: offset)
+    }
+
+    func history(cursor: HistoryCursorState? = nil) async throws -> HistoryPageResult {
+        try await apiClient.history(cursor: cursor)
+    }
+
+    func watchLaterVideos() async throws -> [BiliVideo] {
+        try await apiClient.watchLaterVideos()
+    }
+
+    func favoriteFolders(mid: Int64) async throws -> [FavoriteFolderSummary] {
+        try await apiClient.favoriteFolders(mid: mid)
+    }
+
+    func favoriteVideos(mediaID: Int64, page: Int = 1) async throws -> FavoriteFolderVideosPage {
+        try await apiClient.favoriteVideos(mediaID: mediaID, page: page)
     }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ProfileSettingsView: View {
+    let repository: BiliPaiRepository
     @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
     @AppStorage("bilipai.danmakuEnabled") private var danmakuEnabled = true
@@ -18,13 +19,13 @@ struct ProfileSettingsView: View {
 
             Section("常用入口") {
                 ProfileQuickActionGrid(items: [
-                    .init(title: "历史记录", subtitle: "History", symbol: "clock.arrow.circlepath"),
-                    .init(title: "我的收藏", subtitle: "Favorite", symbol: "star"),
-                    .init(title: "稍后再看", subtitle: "Watch later", symbol: "clock.badge.checkmark"),
+                    .init(title: "历史记录", subtitle: "History", symbol: "clock.arrow.circlepath", destination: .history),
+                    .init(title: "我的收藏", subtitle: "Favorite", symbol: "star", destination: .favorites),
+                    .init(title: "稍后再看", subtitle: "Watch later", symbol: "clock.badge.checkmark", destination: .watchLater),
                     .init(title: "离线缓存", subtitle: "Downloads", symbol: "arrow.down.circle"),
                     .init(title: "消息中心", subtitle: "Inbox", symbol: "tray"),
                     .init(title: "追番追剧", subtitle: "Bangumi", symbol: "play.square.stack")
-                ])
+                ], repository: repository)
             }
 
             Section("外观") {
@@ -161,37 +162,77 @@ struct ProfileSettingsView: View {
 }
 
 private struct ProfileQuickAction: Identifiable {
+    enum Destination {
+        case history
+        case favorites
+        case watchLater
+    }
+
     let id = UUID()
     let title: String
     let subtitle: String
     let symbol: String
+    var destination: Destination? = nil
 }
 
 private struct ProfileQuickActionGrid: View {
     let items: [ProfileQuickAction]
+    let repository: BiliPaiRepository
+    @EnvironmentObject private var authStore: AuthStore
     private let columns = [GridItem(.adaptive(minimum: 96), spacing: 10)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 10) {
             ForEach(items) { item in
-                VStack(spacing: 8) {
-                    Image(systemName: item.symbol)
-                        .font(.title3)
-                        .foregroundStyle(BiliPaiTheme.biliPink)
-                        .frame(width: 32, height: 32)
-                    Text(item.title)
-                        .font(.footnote.weight(.semibold))
-                        .lineLimit(1)
-                    Text(item.subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                if let destination = destinationView(for: item) {
+                    NavigationLink {
+                        destination
+                    } label: {
+                        quickActionCard(item)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    quickActionCard(item)
                 }
-                .frame(maxWidth: .infinity, minHeight: 92)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
             }
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func quickActionCard(_ item: ProfileQuickAction) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: item.symbol)
+                .font(.title3)
+                .foregroundStyle(BiliPaiTheme.biliPink)
+                .frame(width: 32, height: 32)
+            Text(item.title)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+            Text(item.subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, minHeight: 92)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+    }
+
+    private func destinationView(for item: ProfileQuickAction) -> AnyView? {
+        guard authStore.activeAccount != nil else { return nil }
+        switch item.destination {
+        case .history:
+            return AnyView(HistoryListView(repository: repository))
+        case .favorites:
+            if let mid = authStore.activeAccount?.mid {
+                return AnyView(FavoriteFoldersView(repository: repository, mid: mid))
+            }
+            return nil
+        case .watchLater:
+            return AnyView(WatchLaterListView(repository: repository))
+        case nil:
+            return nil
+        }
     }
 }
 

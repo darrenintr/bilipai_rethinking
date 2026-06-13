@@ -20,6 +20,7 @@ final class HomeViewModel: ObservableObject {
 
     private var page = 1
     private var requestGeneration: UInt64 = 0
+    private var recommendFreshIndex = 0
     /// The maximum number of items the upstream endpoint will return in one
     /// request. Once we get fewer than this many results we know we are at
     /// the end of the feed.
@@ -131,9 +132,13 @@ final class HomeViewModel: ObservableObject {
                     category: category,
                     searchQuery: searchQuery,
                     popularSubCategory: popularSubCategory,
-                    page: page
+                    page: page,
+                    recommendFreshIndex: replacing && category == .recommend ? recommendFreshIndex : 0
                 )
                 guard isCurrentRequest(requestID) else { return }
+                if replacing && category == .recommend {
+                    recommendFreshIndex += 1
+                }
                 if replacing {
                     videos = next
                 } else {
@@ -200,13 +205,17 @@ final class VideoDetailViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var comments: [BiliComment] = []
     @Published var commentsLoading = false
+    @Published var commentsLoadingMore = false
     @Published var commentsErrorMessage: String?
+    @Published var commentsHasMore = false
+    @Published var commentsTotalCount = 0
     @Published var danmakuEnabled = true
     @Published var audioModeEnabled = false
     @Published var playbackSpeed: Float = 1
 
     private var failureObserver: NSObjectProtocol?
     private var rateObserver: NSObjectProtocol?
+    private var nextCommentCursor: Int?
 
     init(video: BiliVideo) {
         self.detail = video
@@ -302,15 +311,39 @@ final class VideoDetailViewModel: ObservableObject {
     private func loadComments(repository: BiliPaiRepository) async {
         commentsLoading = true
         commentsErrorMessage = nil
+        nextCommentCursor = nil
+        commentsHasMore = false
+        commentsTotalCount = 0
         do {
-            comments = try await repository.comments(for: detail)
+            let page = try await repository.commentsPage(for: detail)
+            comments = page.items
+            nextCommentCursor = page.next
+            commentsHasMore = !page.isEnd && page.next != nil
+            commentsTotalCount = page.totalCount
         } catch BilibiliAPIError.missingIdentity {
             commentsErrorMessage = "评论不可用"
             comments = []
         } catch {
             commentsErrorMessage = "Could not load public comments."
+            comments = []
         }
         commentsLoading = false
+    }
+
+    func loadMoreComments(repository: BiliPaiRepository) async {
+        guard !commentsLoading, !commentsLoadingMore, commentsHasMore, let nextCommentCursor else { return }
+        commentsLoadingMore = true
+        defer { commentsLoadingMore = false }
+        do {
+            let page = try await repository.commentsPage(for: detail, next: nextCommentCursor)
+            let seen = Set(comments.map(\.id))
+            comments.append(contentsOf: page.items.filter { !seen.contains($0.id) })
+            self.nextCommentCursor = page.next
+            commentsHasMore = !page.isEnd && page.next != nil
+            commentsTotalCount = max(commentsTotalCount, page.totalCount)
+        } catch {
+            commentsErrorMessage = "Could not load more comments."
+        }
     }
 }
 

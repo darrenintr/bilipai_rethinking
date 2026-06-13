@@ -106,10 +106,56 @@ struct BiliComment: Identifiable, Hashable {
     let replyCount: Int
 }
 
+struct CommentPage: Hashable {
+    let items: [BiliComment]
+    let next: Int?
+    let isEnd: Bool
+    let totalCount: Int
+}
+
 struct DynamicPost: Identifiable, Hashable {
-    let id = UUID()
+    let id: String
     let author: String
+    let authorAvatarURL: URL?
     let text: String
     let timeLabel: String
     let attachedVideo: BiliVideo?
+}
+
+struct DynamicFeedPage: Hashable {
+    let items: [DynamicPost]
+    let nextOffset: String
+    let hasMore: Bool
+}
+
+struct HistoryCursorState: Hashable {
+    let max: Int64
+    let viewAt: Int64
+    let business: String
+}
+
+struct HistoryEntry: Identifiable, Hashable {
+    let id: String
+    let video: BiliVideo
+    let viewedAt: Int64
+    let progress: Int
+}
+
+struct HistoryPageResult: Hashable {
+    let items: [HistoryEntry]
+    let nextCursor: HistoryCursorState?
+}
+
+struct FavoriteFolderSummary: Identifiable, Hashable {
+    let id: Int64
+    let title: String
+    let coverURL: URL?
+    let mediaCount: Int
+    let ownerName: String
+}
+
+struct FavoriteFolderVideosPage: Hashable {
+    let title: String
+    let videos: [BiliVideo]
+    let hasMore: Bool
 }
