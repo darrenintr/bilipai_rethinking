@@ -61,18 +61,18 @@ final class HomeViewModel: ObservableObject {
         isLoadingMore = true
         page += 1
         await loadPage(repository: repository, replacing: false)
-        // If the upstream endpoint ran out of pages, top the list up with
-        // the bundled sample set (offset by the current page so the
-        // deduping by `bvid` does not collapse the rotation). The footer
-        // remains visible so the user can keep tapping "换一批" to cycle
-        // through the bundled set — that is the "infinite scroll" promise
-        // we make when the public endpoints are unreachable.
-        if videos.isEmpty || (!isShowingBundledFallback && errorMessage != nil) {
-            videos.append(contentsOf: BundledFeedService().samples(for: category))
-            isShowingBundledFallback = true
-            hasMore = true
-        }
         isLoadingMore = false
+    }
+
+    /// Explicit offline-mode toggle. The user has tapped the "查看离线样例"
+    /// button on the error banner and wants to see the bundled sample set
+    /// until the public endpoint comes back. Pull-to-refresh still goes
+    /// through `load(...)` and re-tries the live API.
+    func showBundledFallback(repository: BiliPaiRepository) {
+        errorMessage = nil
+        videos = repository.bundledFeed(for: category)
+        isShowingBundledFallback = true
+        hasMore = true
     }
 
     private var categorySupportsPagination: Bool {

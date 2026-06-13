@@ -15,6 +15,12 @@ final class BiliPaiRepository {
     /// upstream endpoint. The categorisation-only feeds (follow, live) ignore
     /// `page` because the iOS client does not have a paginated public source
     /// for them.
+    ///
+    /// When every public endpoint fails we surface the error rather than
+    /// silently substituting the bundled sample set — silently swapping in
+    /// a 6-item static list on every refresh hides connectivity and
+    /// `风控` issues from the user. The bundled set is still available via
+    /// `bundled.samples(for:)` for explicit offline-mode use.
     func feed(
         category: HomeCategory,
         searchQuery: String,
@@ -28,79 +34,45 @@ final class BiliPaiRepository {
                     let videos = try await apiClient.recommendedVideos()
                     if !videos.isEmpty { return videos }
                 } catch {
-                    // Recommendations are personalization-sensitive; popular videos are the public fallback.
+                    // The recommend endpoint is personalization-sensitive and
+                    // may return empty for anonymous users. Fall through to
+                    // popular, which is the public feed.
                 }
-                do {
-                    let popular = try await apiClient.popularVideos(page: page)
-                    if !popular.isEmpty { return popular }
-                } catch {
-                    // Both recommend and popular failed. The page-1 fallback
-                    // surfaces a small bundled sample set so the user has
-                    // something to look at while pull-to-refresh retries;
-                    // pagination is a no-op on bundled data.
-                    if page == 1 {
-                        return bundled.samples(for: .recommend)
-                    }
-                    throw error
-                }
-                return bundled.samples(for: .recommend)
+                let popular = try await apiClient.popularVideos(page: page)
+                if !popular.isEmpty { return popular }
+                throw BilibiliAPIError.missingData
             }
-            do {
-                return try await apiClient.popularVideos(page: page)
-            } catch {
-                if page == 1 { return bundled.samples(for: .popular) }
-                throw error
-            }
+            return try await apiClient.popularVideos(page: page)
         case .follow:
             return []
         case .popular:
             switch popularSubCategory {
             case .comprehensive:
-                do {
-                    return try await apiClient.popularVideos(page: page)
-                } catch {
-                    if page == 1 { return bundled.samples(for: .popular) }
-                    throw error
-                }
+                return try await apiClient.popularVideos(page: page)
             case .ranking:
-                do {
-                    return try await apiClient.rankingVideos()
-                } catch {
-                    return bundled.samples(for: .popular)
-                }
+                return try await apiClient.rankingVideos()
             case .weekly:
-                do {
-                    return try await apiClient.weeklyMustWatchVideos()
-                } catch {
-                    return bundled.samples(for: .popular)
-                }
+                return try await apiClient.weeklyMustWatchVideos()
             case .precious:
-                do {
-                    return try await apiClient.preciousVideos()
-                } catch {
-                    return bundled.samples(for: .popular)
-                }
+                return try await apiClient.preciousVideos()
             }
         case .live:
             return []
         case .anime, .game, .knowledge, .tech:
             guard let tid = category.regionTid else { return [] }
-            do {
-                return try await apiClient.regionVideos(tid: tid, page: page)
-            } catch {
-                if page == 1 { return bundled.samples(for: category) }
-                throw error
-            }
+            return try await apiClient.regionVideos(tid: tid, page: page)
         case .search:
-            do {
-                return try await apiClient.searchVideos(keyword: searchQuery, page: page)
-            } catch {
-                if page == 1 && !searchQuery.isEmpty {
-                    return bundled.samples(for: .search)
-                }
-                throw error
-            }
+            return try await apiClient.searchVideos(keyword: searchQuery, page: page)
         }
+    }
+
+    /// Explicit offline-mode entry point: returns the bundled sample
+    /// set without touching the network. The home view calls this
+    /// only after the user taps "查看离线样例" on the error banner;
+    /// pull-to-refresh goes through `feed(...)` and never falls
+    /// through here.
+    func bundledFeed(for category: HomeCategory) -> [BiliVideo] {
+        bundled.samples(for: category)
     }
 
     func detail(for video: BiliVideo) async throws -> BiliVideo {

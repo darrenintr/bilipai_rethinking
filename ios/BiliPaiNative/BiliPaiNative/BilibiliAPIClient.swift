@@ -313,6 +313,39 @@ private struct VideoListPayload: Decodable {
     let result: [VideoDTO]?
     let archives: [VideoDTO]?
 
+    /// Tolerant decoder: walks the response looking for a known list
+    /// key (`item` / `list` / `result` / `archives`) and decodes each
+    /// video *individually*. Any single malformed item is dropped
+    /// instead of failing the whole page — a strict `try decoder.decode`
+    /// of `[VideoDTO]` would crash the entire feed on one bad row.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        self.item = Self.decodeTolerant(in: container, key: "item")
+        self.list = Self.decodeTolerant(in: container, key: "list")
+        self.result = Self.decodeTolerant(in: container, key: "result")
+        self.archives = Self.decodeTolerant(in: container, key: "archives")
+    }
+
+    /// Decodes an array of `VideoDTO` by falling back to a per-item
+    /// pass when the strict decode throws. Returns `nil` when the
+    /// key is absent (mirrors the previous `[VideoDTO]?` behaviour).
+    private static func decodeTolerant(
+        in container: KeyedDecodingContainer<DynamicKey>,
+        key: String
+    ) -> [VideoDTO]? {
+        guard container.contains(DynamicKey(key)) else { return nil }
+        if let strict = try? container.decode([VideoDTO].self, forKey: DynamicKey(key)) {
+            return strict
+        }
+        // Per-item fallback: decode each element independently. Bad
+        // entries are silently dropped — losing a single row is much
+        // better than losing the whole page.
+        if let lenient = try? container.decode([FailableDecodable<VideoDTO>].self, forKey: DynamicKey(key)) {
+            return lenient.compactMap(\.value)
+        }
+        return nil
+    }
+
     var videos: [VideoDTO] {
         item ?? list ?? result ?? archives ?? []
     }

@@ -132,28 +132,23 @@ private struct PadRootView: View {
     }
 }
 
-/// Placeholder for the iOS 26 `.toolbarBackground(.glass, for: .tabBar)`
-/// Liquid Glass material. The `.glass` symbol is only available in the
-/// iOS 26 SDK which the unsigned-IPA workflow's Xcode 16 does not ship
-/// with, so this modifier is a no-op for now. When the project migrates
-/// to the iOS 26 SDK, replace the `body` with:
-/// ```
-/// switch materialDesign {
-/// case .material3: content
-/// case .liquidGlass:
-///     if #available(iOS 26.0, *) {
-///         content.toolbarBackground(.glass, for: .tabBar)
-///     }
-/// }
-/// ```
+/// Liquid Glass material for the iOS 18 toolchain. The `.glass` symbol
+/// in `.toolbarBackground(.glass, for: .tabBar)` is iOS 26 only and
+/// the unsigned-IPA workflow ships with Xcode 16 (iOS 18.5 SDK). For
+/// the Liquid Glass preset we use the next-best approximation: a
+/// `.ultraThinMaterial` tab bar background with a hairline top edge.
 private struct LiquidGlassTabBarModifier: ViewModifier {
     let materialDesign: MaterialDesign
 
     @ViewBuilder
     func body(content: Content) -> some View {
         switch materialDesign {
-        case .material3, .liquidGlass:
+        case .material3:
             content
+        case .liquidGlass:
+            content
+                .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
         }
     }
 }
