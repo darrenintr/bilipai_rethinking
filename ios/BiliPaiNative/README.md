@@ -27,3 +27,10 @@ open BiliPaiNative.xcodeproj
 ```
 
 Then select the `BiliPaiNative` scheme and an iPhone or iPad simulator.
+
+Build unsigned IPA on GitHub Actions:
+
+1. Open the `iOS Unsigned IPA` workflow in GitHub Actions.
+2. Run it manually, or push a change under `ios/BiliPaiNative/`.
+3. Download the `BiliPaiNative-unsigned-ipa` artifact.
+4. Re-sign and install `BiliPaiNative-unsigned.ipa` with your sideloading tool.

@@ -1,0 +1,75 @@
+name: iOS Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/ios-unsigned-ipa.yml'
+      - 'ios/BiliPaiNative/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-unsigned-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Build device app without signing
+        run: |
+          set -euo pipefail
+
+          PROJECT_PATH="${GITHUB_WORKSPACE}/ios/BiliPaiNative/BiliPaiNative.xcodeproj"
+          DERIVED_DATA="${GITHUB_WORKSPACE}/build/ios-derived-data"
+
+          xcodebuild \
+            -project "$PROJECT_PATH" \
+            -target BiliPaiNative \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+
+          DERIVED_DATA="${GITHUB_WORKSPACE}/build/ios-derived-data"
+          DIST_DIR="${GITHUB_WORKSPACE}/build/ios-unsigned-ipa"
+          APP_PATH="$(find "$DERIVED_DATA/Build/Products/Release-iphoneos" -maxdepth 1 -name 'BiliPaiNative.app' -type d | head -n 1)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "BiliPaiNative.app was not found in Release-iphoneos output."
+            exit 1
+          fi
+
+          rm -rf "$DIST_DIR"
+          mkdir -p "$DIST_DIR/Payload"
+          cp -R "$APP_PATH" "$DIST_DIR/Payload/"
+
+          (
+            cd "$DIST_DIR"
+            /usr/bin/zip -qry BiliPaiNative-unsigned.ipa Payload
+            shasum -a 256 BiliPaiNative-unsigned.ipa > checksums.txt
+          )
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiliPaiNative-unsigned-ipa
+          path: |
+            build/ios-unsigned-ipa/BiliPaiNative-unsigned.ipa
+            build/ios-unsigned-ipa/checksums.txt
+          retention-days: 7
+          if-no-files-found: error
