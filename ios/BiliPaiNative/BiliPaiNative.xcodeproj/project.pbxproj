@@ -22,6 +22,7 @@
 		10000000000000000000010D /* ProfileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020D /* ProfileSettingsView.swift */; };
 		10000000000000000000010E /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020E /* SharedViews.swift */; };
 		10000000000000000000010F /* BiliPaiAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020F /* BiliPaiAppIntents.swift */; };
+		100000000000000000000110 /* PlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000211 /* PlayerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +43,7 @@
 		10000000000000000000020E /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
 		10000000000000000000020F /* BiliPaiAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiliPaiAppIntents.swift; sourceTree = "<group>"; };
 		100000000000000000000210 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		100000000000000000000211 /* PlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,6 +84,7 @@
 				10000000000000000000020E /* SharedViews.swift */,
 				10000000000000000000020F /* BiliPaiAppIntents.swift */,
 				100000000000000000000210 /* Info.plist */,
+				100000000000000000000211 /* PlayerView.swift */,
 			);
 			path = BiliPaiNative;
 			sourceTree = "<group>";
@@ -177,6 +180,7 @@
 				10000000000000000000010D /* ProfileSettingsView.swift in Sources */,
 				10000000000000000000010E /* SharedViews.swift in Sources */,
 				10000000000000000000010F /* BiliPaiAppIntents.swift in Sources */,
+				100000000000000000000110 /* PlayerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

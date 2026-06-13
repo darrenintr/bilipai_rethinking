@@ -6,6 +6,7 @@ struct VideoDetailView: View {
     let repository: BiliPaiRepository
 
     @StateObject private var model: VideoDetailViewModel
+    @State private var isFullscreenPresented = false
 
     init(video: BiliVideo, repository: BiliPaiRepository) {
         self.video = video
@@ -29,15 +30,35 @@ struct VideoDetailView: View {
         .task {
             await model.load(repository: repository)
         }
+        .onDisappear {
+            // Free the asset and observers as soon as the screen is gone so we
+            // do not hold a decoded video in memory while the user scrolls
+            // around the home grid.
+            isFullscreenPresented = false
+            model.teardown()
+        }
+        .fullScreenCover(isPresented: $isFullscreenPresented) {
+            if let player = model.player {
+                FullscreenPlayerView(video: model.detail, player: player)
+                    .onDisappear {
+                        // Pause once the user leaves fullscreen so the inline
+                        // player is the one driving playback.
+                        player.pause()
+                    }
+            }
+        }
     }
 
     @ViewBuilder
     private var playerSurface: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             if let player = model.player {
-                VideoPlayer(player: player)
+                PlayerView(player: player)
                     .onAppear { player.play() }
                     .onDisappear { player.pause() }
+
+                fullscreenButton
+                    .padding(10)
             } else {
                 CoverImage(url: model.detail.coverURL)
                     .overlay {
@@ -59,18 +80,31 @@ struct VideoDetailView: View {
                     }
             }
 
-            if model.danmakuEnabled {
+            if model.danmakuEnabled, model.player != nil {
                 Text("Danmaku preview layer")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(8)
                     .background(.black.opacity(0.38), in: Capsule())
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(14)
             }
         }
         .aspectRatio(16 / 9, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
+    }
+
+    private var fullscreenButton: some View {
+        Button {
+            isFullscreenPresented = true
+        } label: {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(9)
+                .background(.black.opacity(0.5), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Enter fullscreen")
     }
 
     private var titleBlock: some View {
@@ -104,7 +138,9 @@ struct VideoDetailView: View {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
                     Button("\(speed, specifier: "%.2g")x") {
                         model.playbackSpeed = Float(speed)
-                        model.player?.rate = model.player?.timeControlStatus == .playing ? Float(speed) : 0
+                        if let player = model.player, player.timeControlStatus == .playing {
+                            player.rate = Float(speed)
+                        }
                     }
                 }
             } label: {

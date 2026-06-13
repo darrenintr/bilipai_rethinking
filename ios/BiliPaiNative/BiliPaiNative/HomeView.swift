@@ -39,12 +39,16 @@ struct HomeView: View {
                         TodayWatchCard(videos: Array(model.videos.prefix(4)))
                     }
                     LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(model.videos) { video in
+                        ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
                             VideoCard(video: video) {
                                 router.openVideo(video)
                             }
+                            .onAppear {
+                                triggerLoadMoreIfNeeded(currentIndex: index)
+                            }
                         }
                     }
+                    paginationFooter
                 }
             }
             .padding(16)
@@ -150,6 +154,36 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var paginationFooter: some View {
+        if model.isLoadingMore {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("加载更多…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
+        } else if !model.hasMore && model.videos.count > 0 && model.category != .live && model.category != .follow {
+            Text("— 没有更多了 —")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 12)
+        }
+    }
+
+    private func triggerLoadMoreIfNeeded(currentIndex: Int) {
+        // Pre-fetch when the user gets within the last four visible cells of
+        // the loaded page. Anything tighter makes the bottom of the grid feel
+        // empty for a moment; anything looser wastes requests.
+        let threshold = max(0, model.videos.count - 4)
+        guard currentIndex >= threshold else { return }
+        Task { await model.loadMore(repository: repository) }
     }
 }
 

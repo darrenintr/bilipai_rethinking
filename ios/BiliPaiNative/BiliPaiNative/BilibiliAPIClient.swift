@@ -93,7 +93,7 @@ final class BilibiliAPIClient {
         return payload.value?.videos.map(\.model) ?? []
     }
 
-    func searchVideos(keyword: String) async throws -> [BiliVideo] {
+    func searchVideos(keyword: String, page: Int = 1) async throws -> [BiliVideo] {
         guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         let payload: APIResponse<VideoListPayload> = try await get(
             baseURL: baseURL,
@@ -101,7 +101,7 @@ final class BilibiliAPIClient {
             queryItems: [
                 URLQueryItem(name: "search_type", value: "video"),
                 URLQueryItem(name: "keyword", value: keyword),
-                URLQueryItem(name: "page", value: "1")
+                URLQueryItem(name: "page", value: "\(page)")
             ]
         )
         try payload.requireOK()

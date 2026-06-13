@@ -7,26 +7,36 @@ final class BiliPaiRepository {
         self.apiClient = apiClient
     }
 
+    /// Fetch a single page of feed items.
+    ///
+    /// The supported categories accept a `page` query parameter on the
+    /// upstream endpoint. The categorisation-only feeds (follow, live) ignore
+    /// `page` because the iOS client does not have a paginated public source
+    /// for them.
     func feed(
         category: HomeCategory,
         searchQuery: String,
-        popularSubCategory: PopularSubCategory
+        popularSubCategory: PopularSubCategory,
+        page: Int = 1
     ) async throws -> [BiliVideo] {
         switch category {
         case .recommend:
-            do {
-                let videos = try await apiClient.recommendedVideos()
-                if !videos.isEmpty { return videos }
-            } catch {
-                // Recommendations are personalization-sensitive; popular videos are the public fallback.
+            if page == 1 {
+                do {
+                    let videos = try await apiClient.recommendedVideos()
+                    if !videos.isEmpty { return videos }
+                } catch {
+                    // Recommendations are personalization-sensitive; popular videos are the public fallback.
+                }
+                return try await apiClient.popularVideos(page: page)
             }
-            return try await apiClient.popularVideos()
+            return try await apiClient.popularVideos(page: page)
         case .follow:
             return []
         case .popular:
             switch popularSubCategory {
             case .comprehensive:
-                return try await apiClient.popularVideos()
+                return try await apiClient.popularVideos(page: page)
             case .ranking:
                 return try await apiClient.rankingVideos()
             case .weekly:
@@ -38,9 +48,9 @@ final class BiliPaiRepository {
             return []
         case .anime, .game, .knowledge, .tech:
             guard let tid = category.regionTid else { return [] }
-            return try await apiClient.regionVideos(tid: tid)
+            return try await apiClient.regionVideos(tid: tid, page: page)
         case .search:
-            return try await apiClient.searchVideos(keyword: searchQuery)
+            return try await apiClient.searchVideos(keyword: searchQuery, page: page)
         }
     }
 
