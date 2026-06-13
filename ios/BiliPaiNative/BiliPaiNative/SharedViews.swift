@@ -152,14 +152,19 @@ struct ResilientImage: View {
         attempts = 0
         task?.cancel()
         task = Task {
-            while attempts < maxAttempts && !Task.isCancelled {
-                attempts += 1
-                do {
-                    let (data, response) = try await URLSession.shared.data(from: url)
-                    if let http = response as? HTTPURLResponse,
-                       !(200..<300).contains(http.statusCode) {
-                        throw NSError(domain: "CoverImage", code: http.statusCode)
-                    }
+        while attempts < maxAttempts && !Task.isCancelled {
+        attempts += 1
+        do {
+            var request = URLRequest(url: url)
+            request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse,
+               !(200..<300).contains(http.statusCode) {
+                throw NSError(domain: "CoverImage", code: http.statusCode)
+            }
+
                     if let ui = UIImage(data: data) {
                         await MainActor.run { self.image = ui }
                         return

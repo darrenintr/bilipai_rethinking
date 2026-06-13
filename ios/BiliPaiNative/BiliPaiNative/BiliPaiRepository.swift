@@ -27,24 +27,21 @@ final class BiliPaiRepository: ObservableObject {
         searchQuery: String,
         popularSubCategory: PopularSubCategory,
         page: Int = 1,
-        recommendFreshIndex: Int = 0
+        recommendFreshIndex: Int = 0,
+        isRefresh: Bool = true
     ) async throws -> [BiliVideo] {
         switch category {
         case .recommend:
             if page == 1 {
-                // The recommend endpoint is personalization-sensitive and
-                // may return empty for anonymous iOS clients (Bilibili's
-                // 风控 layer is stricter on the iOS UA). When that
-                // happens we fall through to the public popular / ranking
-                // / weekly endpoints in turn. Whichever returns data
-                // first wins. The user is not interested in knowing
-                // *which* endpoint we landed on — they just want a fresh
-                // feed on screen.
                 do {
-                    let videos = try await apiClient.recommendedVideos(freshIndex: recommendFreshIndex)
+                    let videos = try await apiClient.appRecommendedVideos(freshIndex: recommendFreshIndex, isRefresh: isRefresh)
                     if !videos.isEmpty { return videos }
                 } catch {
-                    // Network or 风控 failure on rcmd — fall through.
+                    bpLog("App API rcmd failed: \(error)")
+                }
+                // Fallback to web-side recommend if logged in but App API failed
+                if let webRcmd = try? await apiClient.recommendedVideos(freshIndex: recommendFreshIndex), !webRcmd.isEmpty {
+                    return webRcmd
                 }
                 if let popular = try? await apiClient.popularVideos(page: page), !popular.isEmpty {
                     return popular
@@ -55,9 +52,6 @@ final class BiliPaiRepository: ObservableObject {
                 if let weekly = try? await apiClient.weeklyMustWatchVideos(), !weekly.isEmpty {
                     return weekly
                 }
-                // Every endpoint returned empty. The view-model will
-                // surface this as an honest "暂无视频" state instead of
-                // a silent bundled fallback.
                 return []
             }
             return try await apiClient.popularVideos(page: page)
