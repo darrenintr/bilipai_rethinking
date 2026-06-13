@@ -34,6 +34,7 @@
 		100000000000000000000119 /* LoginViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021A /* LoginViewModel.swift */; };
 		10000000000000000000011A /* LoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021B /* LoginSheet.swift */; };
 		10000000000000000000011B /* AccountContentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021C /* AccountContentViews.swift */; };
+		10000000000000000000011C /* ReplyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021D /* ReplyListView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -66,6 +67,7 @@
 		10000000000000000000021A /* LoginViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewModel.swift; sourceTree = "<group>"; };
 		10000000000000000000021B /* LoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginSheet.swift; sourceTree = "<group>"; };
 		10000000000000000000021C /* AccountContentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountContentViews.swift; sourceTree = "<group>"; };
+		10000000000000000000021D /* ReplyListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyListView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,6 +106,7 @@
 				10000000000000000000020C /* LiveRoomsView.swift */,
 				10000000000000000000020D /* ProfileSettingsView.swift */,
 				10000000000000000000020E /* SharedViews.swift */,
+				10000000000000000000021D /* ReplyListView.swift */,
 				10000000000000000000021C /* AccountContentViews.swift */,
 				10000000000000000000020F /* BiliPaiAppIntents.swift */,
 				100000000000000000000210 /* Info.plist */,
@@ -241,6 +244,7 @@
 				100000000000000000000119 /* LoginViewModel.swift in Sources */,
 				10000000000000000000011A /* LoginSheet.swift in Sources */,
 				10000000000000000000011B /* AccountContentViews.swift in Sources */,
+				10000000000000000000011C /* ReplyListView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
