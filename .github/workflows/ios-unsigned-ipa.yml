@@ -32,7 +32,7 @@ jobs:
 
           xcodebuild \
             -project "$PROJECT_PATH" \
-            -target BiliPaiNative \
+            -scheme BiliPaiNative \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath "$DERIVED_DATA" \
