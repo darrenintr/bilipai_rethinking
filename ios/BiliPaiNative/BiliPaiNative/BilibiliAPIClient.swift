@@ -38,13 +38,20 @@ final class BilibiliAPIClient {
     }
 
     func recommendedVideos() async throws -> [BiliVideo] {
+        // The canonical path per the pskdje/bilibili-API-collect docs is
+        // `/x/web-interface/wbi/index/top/feed/rcmd` (note the `wbi`
+        // segment). The shorter non-wbi path is the legacy alias and
+        // Bilibili 風控 is stricter on it for anonymous iOS clients —
+        // hits it returns 200 with an empty `item` array, which the
+        // user sees as "same batch on every pull-to-refresh".
         let payload: APIResponse<VideoListPayload> = try await get(
             baseURL: baseURL,
-            path: "/x/web-interface/index/top/feed/rcmd",
+            path: "/x/web-interface/wbi/index/top/feed/rcmd",
             queryItems: [
                 URLQueryItem(name: "ps", value: "20"),
                 URLQueryItem(name: "fresh_type", value: "4"),
-                URLQueryItem(name: "feed_version", value: "V8")
+                URLQueryItem(name: "feed_version", value: "V8"),
+                URLQueryItem(name: "web_location", value: "1430650")
             ]
         )
         try payload.requireOK()
@@ -147,15 +154,26 @@ final class BilibiliAPIClient {
     }
 
     func playbackURL(bvid: String, cid: Int) async throws -> BiliPlayback {
+        // The current canonical path is `/x/player/wbi/playurl` — the
+        // non-wbi alias is being phased out. `fnval=1` requests the MP4
+        // stream (DASH); `fnval=0` was the legacy FLV-only flag and the
+        // endpoint now returns an empty `durl` array with that value,
+        // which is why every video was previously failing the
+        // `bestURL` check and falling through to "Playback is
+        // unavailable". `gaia_source=view-card` is the same hint the
+        // web player sends — Bilibili loosens the 1080P gate slightly
+        // for this source.
         let payload: APIResponse<PlayURLPayload> = try await get(
             baseURL: baseURL,
-            path: "/x/player/playurl",
+            path: "/x/player/wbi/playurl",
             queryItems: [
                 URLQueryItem(name: "bvid", value: bvid),
                 URLQueryItem(name: "cid", value: "\(cid)"),
                 URLQueryItem(name: "qn", value: "64"),
-                URLQueryItem(name: "fnval", value: "0"),
-                URLQueryItem(name: "fourk", value: "1")
+                URLQueryItem(name: "fnval", value: "1"),
+                URLQueryItem(name: "fnver", value: "0"),
+                URLQueryItem(name: "fourk", value: "1"),
+                URLQueryItem(name: "gaia_source", value: "view-card")
             ]
         )
         try payload.requireOK()
@@ -183,9 +201,15 @@ final class BilibiliAPIClient {
 
     func comments(aid: Int) async throws -> [BiliComment] {
         guard aid > 0 else { return [] }
+        // The current canonical path is `/x/v2/reply/wbi/main`. The
+        // payload shape changed alongside it: pinned/UP主置顶 replies
+        // now live under `data.upper.top` (an object keyed by rpid),
+        // not the legacy `data.top_replies` array. We decode both
+        // shapes so an old cache or a flaky CDN edge that still serves
+        // the legacy field does not produce an empty list.
         let payload: APIResponse<CommentPayload> = try await get(
             baseURL: baseURL,
-            path: "/x/v2/reply/main",
+            path: "/x/v2/reply/wbi/main",
             queryItems: [
                 URLQueryItem(name: "type", value: "1"),
                 URLQueryItem(name: "oid", value: "\(aid)"),
@@ -194,15 +218,17 @@ final class BilibiliAPIClient {
             ]
         )
         try payload.requireOK()
-        // Pinned comments arrive under `top_replies`; regular replies under
-        // `replies`. Bilibili sometimes sends a thread where every visible
-        // comment is pinned — without merging we'd show an empty list.
-        let pinned = payload.value?.topReplies?.items ?? []
+        // Pinned comments arrive under `upper.top`; regular replies under
+        // `replies`. The legacy `top_replies` array is read defensively
+        // for caches that still serve it. Bilibili sometimes sends a
+        // thread where every visible comment is pinned — without
+        // merging we'd show an empty list.
+        let pinned = payload.value?.upperTop?.values.map(\.model) ?? []
+        let legacyPinned = payload.value?.topReplies?.items ?? []
         let regular = payload.value?.replies?.items ?? []
         var seen = Set<Int>()
         var merged: [BiliComment] = []
-        for dto in pinned + regular {
-            let model = dto.model
+        for model in pinned + legacyPinned + regular {
             if seen.insert(model.id).inserted {
                 merged.append(model)
             }
@@ -473,11 +499,41 @@ private struct LiveRoomDTO: Decodable {
 
 private struct CommentPayload: Decodable {
     let replies: LenientCommentArray?
+    /// Legacy field — kept for the occasional cache that still serves
+    /// the old `top_replies` array shape. New WBI responses deliver
+    /// pinned comments under `upper.top` (a dict keyed by rpid) instead.
     let topReplies: LenientCommentArray?
+    /// New (WBI) shape: pinned/UP主置顶 replies nested under
+    /// `data.upper.top` as a dict keyed by `rpid`.
+    let upperTop: PinnedCommentDict?
 
     enum CodingKeys: String, CodingKey {
         case replies
         case topReplies = "top_replies"
+        case upper
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        replies = try container.decodeIfPresent(LenientCommentArray.self, forKey: .replies)
+        topReplies = try container.decodeIfPresent(LenientCommentArray.self, forKey: .topReplies)
+        if let upper = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: .upper) {
+            upperTop = try? upper.decode(PinnedCommentDict.self, forKey: DynamicKey("top"))
+        } else {
+            upperTop = nil
+        }
+    }
+}
+
+/// `data.upper.top` is a dict keyed by `rpid` on the WBI endpoint, not
+/// an array. Each value is a full `CommentDTO`.
+private struct PinnedCommentDict: Decodable {
+    let values: [CommentDTO]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode([String: FailableDecodable<CommentDTO>].self)
+        values = raw.values.compactMap(\.value)
     }
 }
 

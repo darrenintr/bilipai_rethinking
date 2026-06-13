@@ -30,17 +30,33 @@ final class BiliPaiRepository {
         switch category {
         case .recommend:
             if page == 1 {
+                // The recommend endpoint is personalization-sensitive and
+                // may return empty for anonymous iOS clients (Bilibili's
+                // 风控 layer is stricter on the iOS UA). When that
+                // happens we fall through to the public popular / ranking
+                // / weekly endpoints in turn. Whichever returns data
+                // first wins. The user is not interested in knowing
+                // *which* endpoint we landed on — they just want a fresh
+                // feed on screen.
                 do {
                     let videos = try await apiClient.recommendedVideos()
                     if !videos.isEmpty { return videos }
                 } catch {
-                    // The recommend endpoint is personalization-sensitive and
-                    // may return empty for anonymous users. Fall through to
-                    // popular, which is the public feed.
+                    // Network or 风控 failure on rcmd — fall through.
                 }
-                let popular = try await apiClient.popularVideos(page: page)
-                if !popular.isEmpty { return popular }
-                throw BilibiliAPIError.missingData
+                if let popular = try? await apiClient.popularVideos(page: page), !popular.isEmpty {
+                    return popular
+                }
+                if let ranking = try? await apiClient.rankingVideos(), !ranking.isEmpty {
+                    return ranking
+                }
+                if let weekly = try? await apiClient.weeklyMustWatchVideos(), !weekly.isEmpty {
+                    return weekly
+                }
+                // Every endpoint returned empty. The view-model will
+                // surface this as an honest "暂无视频" state instead of
+                // a silent bundled fallback.
+                return []
             }
             return try await apiClient.popularVideos(page: page)
         case .follow:

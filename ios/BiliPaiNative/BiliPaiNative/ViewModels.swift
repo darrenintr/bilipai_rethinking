@@ -30,6 +30,10 @@ final class HomeViewModel: ObservableObject {
         isLoadingMore = false
         hasMore = true
         errorMessage = nil
+        // Always clear the bundled-fallback flag on a fresh load. Otherwise
+        // a previous tap on "查看离线样例" would keep `isShowingBundledFallback`
+        // = true even after the live API returns, and the user would see
+        // the bundled list for a beat before the new data overwrites it.
         isShowingBundledFallback = false
         await loadPage(repository: repository, replacing: true)
         isLoading = false
@@ -128,8 +132,10 @@ final class HomeViewModel: ObservableObject {
                 liveRooms = []
                 // The repository is responsible for telling us when the
                 // response came from the bundled offline sample set. When
-                // it has, we keep `hasMore = false` so the footer surfaces
-                // the "重新加载" button instead of a phantom next page.
+                // it has, we keep `hasMore = true` so the footer surfaces
+                // the "重新加载" / "换一批" action instead of a phantom next
+                // page. Otherwise `hasMore` follows the pageSize heuristic
+                // so we know whether to keep paginating.
                 let fromBundled = page == 1 && next.allSatisfy { video in
                     BundledFeedService.knownBVids.contains(video.bvid)
                 }
@@ -139,7 +145,17 @@ final class HomeViewModel: ObservableObject {
                     : categorySupportsPagination && next.count >= pageSize
             }
         } catch {
+            // Clear any stale `videos` so the user does not see a previous
+            // batch (e.g. the bundled offline sample set) sitting under
+            // the error banner. Without this, once the user tapped
+            // "查看离线样例" in a prior session, every subsequent failed
+            // pull-to-refresh would re-render the same MIT / WWDC /
+            // Planet Earth entries from cache, masking the actual failure
+            // and looking like "pull-to-refresh is broken".
             if replacing {
+                videos = []
+                liveRooms = []
+                isShowingBundledFallback = false
                 errorMessage = "内容加载失败，下拉重试。"
             } else {
                 // Roll back the page bump so the next pull-to-refresh does not
