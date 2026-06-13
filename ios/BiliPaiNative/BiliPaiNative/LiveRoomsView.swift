@@ -19,7 +19,7 @@ struct LiveRoomsView: View {
                     ContentUnavailableView(
                         model.errorMessage == nil ? "No live rooms found" : "Live rooms unavailable",
                         systemImage: "play.tv",
-                        description: Text(model.errorMessage == nil ? "Pull to refresh the public live list." : "Bilibili did not return a public live-room list for this request.")
+                        description: Text(model.errorMessage == nil ? "Wait for more rooms to appear." : "Bilibili did not return a public live-room list for this request.")
                     )
                     .frame(maxWidth: .infinity, minHeight: 260)
                     .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
@@ -36,9 +36,6 @@ struct LiveRoomsView: View {
         .background(BiliPaiTheme.pageBackground)
         .navigationTitle("Live")
         .task {
-            await model.load(repository: repository)
-        }
-        .refreshable {
             await model.load(repository: repository)
         }
     }
