@@ -142,6 +142,26 @@ final class BiliPaiRepository {
         throw BilibiliAPIError.missingIdentity
     }
 
+    func postComment(for video: BiliVideo, message: String, root: Int? = nil, parent: Int? = nil) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.postComment(aid: aid, message: message, root: root, parent: parent)
+    }
+
+    func likeComment(for video: BiliVideo, rpid: Int, action: Int) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.likeComment(aid: aid, rpid: rpid, action: action)
+    }
+
+    func hateComment(for video: BiliVideo, rpid: Int, action: Int) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.hateComment(aid: aid, rpid: rpid, action: action)
+    }
+
+    func reportComment(for video: BiliVideo, rpid: Int, reason: Int, content: String? = nil) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.reportComment(aid: aid, rpid: rpid, reason: reason, content: content)
+    }
+
     func dynamicFeed(offset: String = "") async throws -> DynamicFeedPage {
         try await apiClient.dynamicFeed(offset: offset)
     }

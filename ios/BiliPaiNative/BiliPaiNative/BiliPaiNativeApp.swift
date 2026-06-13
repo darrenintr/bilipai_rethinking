@@ -55,7 +55,7 @@ enum PlayerAudioSession {
             // Audio session failures are non-fatal for the UI shell — log and
             // continue. The player will still attempt playback, it just may
             // not produce sound on first run.
-            NSLog("BiliPai: failed to activate audio session: \(error)")
+            bpLog("failed to activate audio session: \(error)")
         }
     }
 }

@@ -15,44 +15,53 @@ struct ReplyListView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Root comment as a header
-                VStack(alignment: .leading, spacing: 12) {
-                    CommentHeader(comment: rootComment)
-                    Divider()
-                    Text("全部回复 (\(model.totalCount))")
-                        .font(.headline)
-                        .padding(.top, 4)
-                }
-                .padding(16)
-                .background(BiliPaiTheme.cardBackground)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Root comment as a header
+                    VStack(alignment: .leading, spacing: 12) {
+                        CommentHeader(comment: rootComment)
+                            .environmentObject(model)
+                            .environmentObject(repository)
+                        Divider()
+                        Text("全部回复 (\(model.totalCount))")
+                            .font(.headline)
+                            .padding(.top, 4)
+                    }
+                    .padding(16)
+                    .background(BiliPaiTheme.cardBackground)
 
-                // Replies list
-                LazyVStack(spacing: 0) {
-                    if model.isLoading && model.replies.isEmpty {
-                        ProgressView()
-                            .padding()
-                    } else {
-                        ForEach(Array(model.replies.enumerated()), id: \.element.id) { index, reply in
-                            ReplyItemRow(comment: reply)
-                                .onAppear {
-                                    if index >= max(0, model.replies.count - 5) {
-                                        Task { await model.loadMore(repository: repository) }
+                    // Replies list
+                    LazyVStack(spacing: 0) {
+                        if model.isLoading && model.replies.isEmpty {
+                            ProgressView()
+                                .padding()
+                        } else {
+                            ForEach(Array(model.replies.enumerated()), id: \.element.id) { index, reply in
+                                ReplyItemRow(comment: reply, repository: repository, model: model)
+                                    .onAppear {
+                                        if index >= max(0, model.replies.count - 5) {
+                                            Task { await model.loadMore(repository: repository) }
+                                        }
                                     }
-                                }
-                            Divider()
-                                .padding(.leading, 62)
+                                Divider()
+                                    .padding(.leading, 62)
+                            }
+                        }
+
+                        if model.isLoadingMore {
+                            ProgressView()
+                                .padding()
                         }
                     }
-
-                    if model.isLoadingMore {
-                        ProgressView()
-                            .padding()
-                    }
+                    .background(BiliPaiTheme.cardBackground)
                 }
-                .background(BiliPaiTheme.cardBackground)
             }
+            
+            commentInputField
+                .padding()
+                .background(BiliPaiTheme.cardBackground)
+                .overlay(Divider(), alignment: .top)
         }
         .background(BiliPaiTheme.pageBackground)
         .navigationTitle("回复详情")
@@ -61,10 +70,42 @@ struct ReplyListView: View {
             await model.load(repository: repository)
         }
     }
+
+    @State private var newReplyText = ""
+    @State private var isSubmitting = false
+
+    private var commentInputField: some View {
+        HStack(spacing: 12) {
+            TextField("发表你的回复…", text: $newReplyText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(isSubmitting)
+
+            Button {
+                isSubmitting = true
+                Task {
+                    if await model.submitReply(repository: repository, message: newReplyText) {
+                        newReplyText = ""
+                    }
+                    isSubmitting = false
+                }
+            } label: {
+                if isSubmitting {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("回复")
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(newReplyText.isEmpty || isSubmitting)
+        }
+    }
 }
 
 private struct CommentHeader: View {
     let comment: BiliComment
+    @EnvironmentObject var model: ReplyListViewModel
+    @EnvironmentObject var repository: BiliPaiRepository
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -76,11 +117,14 @@ private struct CommentHeader: View {
                     Text(comment.authorName)
                         .font(.subheadline.weight(.bold))
                     Spacer()
-                    if comment.likeCount > 0 {
+                    Button {
+                        Task { await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like") }
+                    } label: {
                         Label(comment.likeCount.compactCount, systemImage: "hand.thumbsup")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .buttonStyle(.plain)
                 }
                 Text(comment.message)
                     .font(.body)
@@ -92,6 +136,8 @@ private struct CommentHeader: View {
 
 private struct ReplyItemRow: View {
     let comment: BiliComment
+    let repository: BiliPaiRepository
+    let model: ReplyListViewModel
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -103,11 +149,14 @@ private struct ReplyItemRow: View {
                     Text(comment.authorName)
                         .font(.caption.weight(.bold))
                     Spacer()
-                    if comment.likeCount > 0 {
+                    Button {
+                        Task { await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like") }
+                    } label: {
                         Label(comment.likeCount.compactCount, systemImage: "hand.thumbsup")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .buttonStyle(.plain)
                 }
                 Text(comment.message)
                     .font(.subheadline)

@@ -56,9 +56,34 @@ struct ProfileSettingsView: View {
                 PluginRow(title: "AdFilter", subtitle: "首页过滤与洞察入口", symbol: "eye.slash")
                 PluginRow(title: "Danmaku Plus", subtitle: "弹幕增强设置入口", symbol: "text.bubble")
             }
+
+            Section("系统与诊断") {
+                Button {
+                    if let url = Logger.shared.export() {
+                        logExportURL = url
+                        showShareSheet = true
+                    }
+                } label: {
+                    PluginRow(title: "导出运行日志", subtitle: "用于反馈问题与调试", symbol: "doc.text.magnifyingglass")
+                }
+                .buttonStyle(.plain)
+                
+                Link(destination: URL(string: "https://github.com/darrenintr/bilipai_rethinking")!) {
+                    PluginRow(title: "GitHub 仓库", subtitle: "开源项目地址", symbol: "link")
+                }
+                .buttonStyle(.plain)
+            }
         }
         .navigationTitle("我的")
+        .sheet(isPresented: $showShareSheet) {
+            if let url = logExportURL {
+                ShareSheet(activityItems: [url])
+            }
+        }
     }
+
+    @State private var showShareSheet = false
+    @State private var logExportURL: URL? = nil
 
     @ViewBuilder
     private var profileHeader: some View {

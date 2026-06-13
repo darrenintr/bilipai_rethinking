@@ -37,7 +37,7 @@ final class AccountSessionStore {
         do {
             return try decoder.decode([StoredAccount].self, from: data)
         } catch {
-            NSLog("BiliPai: account list decode failed: \(error)")
+            bpLog("account list decode failed: \(error)")
             return []
         }
     }
@@ -98,7 +98,7 @@ final class AccountSessionStore {
             try keychain.writeData(data, account: Self.accountsAccount)
             defaults.set(data, forKey: Self.accountsDefaultsKey)
         } catch {
-            NSLog("BiliPai: account list persist failed: \(error)")
+            bpLog("account list persist failed: \(error)")
         }
         if let activeMid, let raw = "\(activeMid)".data(using: .utf8) {
             try? keychain.writeData(raw, account: Self.activeMidAccount)

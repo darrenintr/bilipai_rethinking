@@ -190,8 +190,11 @@ struct VideoDetailView: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 150)
             } else {
+                commentInputField
+                    .padding(.bottom, 8)
+
                 ForEach(Array(model.comments.enumerated()), id: \.element.id) { index, comment in
-                    CommentRow(comment: comment, video: model.detail)
+                    CommentRow(comment: comment, video: model.detail, repository: repository, model: model)
                         .onAppear {
                             if index >= max(0, model.comments.count - 5) {
                                 Task { await model.loadMoreComments(repository: repository) }
@@ -213,74 +216,112 @@ struct VideoDetailView: View {
         .padding(14)
         .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
+
+    @State private var newCommentText = ""
+    @State private var isSubmittingComment = false
+
+    private var commentInputField: some View {
+        HStack(spacing: 12) {
+            TextField("说点什么…", text: $newCommentText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(isSubmittingComment)
+
+            Button {
+                isSubmittingComment = true
+                Task {
+                    if await model.submitComment(repository: repository, message: newCommentText) {
+                        newCommentText = ""
+                    }
+                    isSubmittingComment = false
+                }
+            } label: {
+                if isSubmittingComment {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("發佈")
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(newCommentText.isEmpty || isSubmittingComment)
+        }
+    }
 }
 
 private struct CommentRow: View {
     let comment: BiliComment
     let video: BiliVideo
+    let repository: BiliPaiRepository
+    let model: VideoDetailViewModel
     @EnvironmentObject private var router: AppRouter
 
     var body: some View {
-        Button {
-            if comment.replyCount > 0 {
-                router.openReplies(video: video, root: comment)
+        HStack(alignment: .top, spacing: 10) {
+            AsyncImage(url: comment.avatarURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    Circle()
+                        .fill(BiliPaiTheme.biliPink.opacity(0.18))
+                        .overlay(Image(systemName: "person.fill").foregroundStyle(BiliPaiTheme.biliPink))
+                }
             }
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                AsyncImage(url: comment.avatarURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    default:
-                        Circle()
-                            .fill(BiliPaiTheme.biliPink.opacity(0.18))
-                            .overlay(Image(systemName: "person.fill").foregroundStyle(BiliPaiTheme.biliPink))
-                    }
-                }
-                .frame(width: 36, height: 36)
-                .clipShape(Circle())
+            .frame(width: 36, height: 36)
+            .clipShape(Circle())
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(comment.authorName)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Spacer()
-                        if comment.likeCount > 0 {
-                            Label(comment.likeCount.compactCount, systemImage: "hand.thumbsup")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(comment.authorName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        Task { await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like") }
+                    } label: {
+                        Label(comment.likeCount.compactCount, systemImage: "hand.thumbsup")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
-                    Text(comment.message)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                    if !comment.replies.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(comment.replies) { reply in
-                                NestedReplyRow(comment: reply)
+                    .buttonStyle(.plain)
+                }
+                
+                Button {
+                    if comment.replyCount > 0 {
+                        router.openReplies(video: video, root: comment)
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(comment.message)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                        if !comment.replies.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(comment.replies) { reply in
+                                    NestedReplyRow(comment: reply)
+                                }
+                                if comment.replyCount > comment.replies.count {
+                                    Text("查看全部 \(comment.replyCount) 条回复 >")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(BiliPaiTheme.biliPink)
+                                        .padding(.top, 2)
+                                }
                             }
-                            if comment.replyCount > comment.replies.count {
-                                Text("查看全部 \(comment.replyCount) 条回复 >")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(BiliPaiTheme.biliPink)
-                                    .padding(.top, 2)
-                            }
+                            .padding(.top, 2)
+                        } else if comment.replyCount > 0 {
+                            Text("查看全部 \(comment.replyCount) 条回复 >")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(BiliPaiTheme.biliPink)
                         }
-                        .padding(.top, 2)
-                    } else if comment.replyCount > 0 {
-                        Text("查看全部 \(comment.replyCount) 条回复 >")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(BiliPaiTheme.biliPink)
                     }
                 }
+                .buttonStyle(.plain)
             }
         }
-        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
     }
 }

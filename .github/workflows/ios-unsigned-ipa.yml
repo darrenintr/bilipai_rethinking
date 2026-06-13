@@ -8,7 +8,7 @@ on:
       - 'ios/BiliPaiNative/**'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-unsigned-ipa:

@@ -71,6 +71,7 @@ final class BilibiliAPIClient {
     }
 
     func appRecommendedVideos() async throws -> [BiliVideo] {
+        bpLog("Fetching app recommendations")
         // App-side recommendation endpoint: https://app.bilibili.com/x/v2/feed/index
         // This provides a high-quality feed similar to the mobile app when logged in.
         let payload: APIResponse<AppFeedPayload> = try await get(
@@ -85,7 +86,9 @@ final class BilibiliAPIClient {
             ]
         )
         try payload.requireOK()
-        return payload.value?.items.compactMap(\.model) ?? []
+        let videos = payload.value?.items.compactMap(\.model) ?? []
+        bpLog("Received \(videos.count) app recommendations")
+        return videos
     }
 
     func popularVideos(page: Int = 1) async throws -> [BiliVideo] {
@@ -401,6 +404,64 @@ final class BilibiliAPIClient {
         )
     }
 
+    func postComment(aid: Int, message: String, root: Int? = nil, parent: Int? = nil) async throws {
+        var params: [String: String] = [
+            "type": "1",
+            "oid": "\(aid)",
+            "message": message,
+            "plat": "3" // iOS
+        ]
+        if let root { params["root"] = "\(root)" }
+        if let parent { params["parent"] = "\(parent)" }
+
+        try await post(
+            baseURL: baseURL,
+            path: "/x/v2/reply/add",
+            parameters: params
+        )
+    }
+
+    func likeComment(aid: Int, rpid: Int, action: Int) async throws {
+        try await post(
+            baseURL: baseURL,
+            path: "/x/v2/reply/action",
+            parameters: [
+                "type": "1",
+                "oid": "\(aid)",
+                "rpid": "\(rpid)",
+                "action": "\(action)"
+            ]
+        )
+    }
+
+    func hateComment(aid: Int, rpid: Int, action: Int) async throws {
+        try await post(
+            baseURL: baseURL,
+            path: "/x/v2/reply/hate",
+            parameters: [
+                "type": "1",
+                "oid": "\(aid)",
+                "rpid": "\(rpid)",
+                "action": "\(action)"
+            ]
+        )
+    }
+
+    func reportComment(aid: Int, rpid: Int, reason: Int, content: String? = nil) async throws {
+        var params = [
+            "type": "1",
+            "oid": "\(aid)",
+            "rpid": "\(rpid)",
+            "reason": "\(reason)"
+        ]
+        if let content { params["content"] = content }
+        try await post(
+            baseURL: baseURL,
+            path: "/x/v2/reply/report",
+            parameters: params
+        )
+    }
+
     private func get<T: Decodable>(
         baseURL: URL,
         path: String,
@@ -480,12 +541,12 @@ final class BilibiliAPIClient {
             // after this, but without the log the user has no way to know
             // whether the failure is a connectivity blip, a DNS issue, or a
             // Bilibili-side rate limit.
-            NSLog("BiliPai: GET \(url.absoluteString) failed: \(error.localizedDescription)")
+            bpLog("GET \(url.absoluteString) failed: \(error.localizedDescription)")
             throw error
         }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            NSLog("BiliPai: GET \(url.absoluteString) returned HTTP \(status)")
+            bpLog("GET \(url.absoluteString) returned HTTP \(status)")
             throw BilibiliAPIError.http
         }
         do {
@@ -495,9 +556,63 @@ final class BilibiliAPIClient {
             // missing/renamed field in a single video DTO, not a structural
             // change. Log the body so the next debugging session has the
             // raw JSON to work with.
-            NSLog("BiliPai: decode failed for \(url.absoluteString): \(error)\n  body: \(String(data: data.prefix(512), encoding: .utf8) ?? "<binary>")")
+            bpLog("decode failed for \(url.absoluteString): \(error)\n  body: \(String(data: data.prefix(512), encoding: .utf8) ?? "<binary>")")
             throw error
         }
+    }
+
+    private func post(
+        baseURL: URL,
+        path: String,
+        parameters: [String: String]
+    ) async throws {
+        var items = parameters
+
+        // Extract CSRF token from cookies if present
+        if let cookies = cookieProvider?() {
+            let pairs = cookies.components(separatedBy: ";")
+            for pair in pairs {
+                let parts = pair.trimmingCharacters(in: .whitespaces).components(separatedBy: "=")
+                if parts.count == 2 && parts[0] == "bili_jct" {
+                    items["csrf"] = parts[1]
+                    break
+                }
+            }
+        }
+
+        let bodyString = items.keys.sorted().map { key in
+            "\(key)=\(encodeURIComponent(items[key] ?? ""))"
+        }.joined(separator: "&")
+
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = "POST"
+        request.httpBody = bodyString.data(using: .utf8)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 BiliPai-iOS/0.1", forHTTPHeaderField: "User-Agent")
+
+        if let cookies = cookieProvider?() {
+            request.setValue(cookies, forHTTPHeaderField: "Cookie")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw BilibiliAPIError.http
+        }
+
+        // Generic error check for Bilibili response
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "Unknown error"
+            bpLog("POST \(path) failed with code \(code): \(message)")
+            throw BilibiliAPIError.http
+        }
+    }
+
+    private func encodeURIComponent(_ string: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: ":#[]@!$&'()*+,;=")
+        return string.addingPercentEncoding(withAllowedCharacters: allowed) ?? string
     }
 }
 

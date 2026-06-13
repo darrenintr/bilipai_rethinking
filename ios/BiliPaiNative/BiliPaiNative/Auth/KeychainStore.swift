@@ -28,7 +28,7 @@ struct KeychainStore {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         guard status == errSecSuccess else {
             if status == errSecItemNotFound { return nil }
-            NSLog("BiliPai: Keychain read failed for \(account): \(status)")
+            bpLog("Keychain read failed for \(account): \(status)")
             return nil
         }
         return item as? Data
@@ -58,7 +58,7 @@ struct KeychainStore {
         let query = baseQuery(account: account)
         let status = SecItemDelete(query as CFDictionary)
         if status != errSecSuccess && status != errSecItemNotFound {
-            NSLog("BiliPai: Keychain delete failed for \(account): \(status)")
+            bpLog("Keychain delete failed for \(account): \(status)")
         }
     }
 

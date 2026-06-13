@@ -314,6 +314,37 @@ final class VideoDetailViewModel: ObservableObject {
         }
     }
 
+    func submitComment(repository: BiliPaiRepository, message: String) async -> Bool {
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        do {
+            try await repository.postComment(for: detail, message: message)
+            await loadComments(repository: repository)
+            return true
+        } catch {
+            errorMessage = "评论失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func performCommentAction(repository: BiliPaiRepository, rpid: Int, actionType: String) async {
+        do {
+            switch actionType {
+            case "like":
+                try await repository.likeComment(for: detail, rpid: rpid, action: 1)
+            case "unlike":
+                try await repository.likeComment(for: detail, rpid: rpid, action: 0)
+            case "hate":
+                try await repository.hateComment(for: detail, rpid: rpid, action: 1)
+            default:
+                break
+            }
+            // In a real app we'd update the local state without a full reload
+            // for immediate feedback.
+        } catch {
+            bpLog("Comment action \(actionType) failed: \(error)")
+        }
+    }
+
     private func makePlayer(playback: BiliPlayback) async throws -> AVPlayer {
         let item = try await makePlayerItem(playback: playback)
         let player = AVPlayer(playerItem: item)
@@ -574,5 +605,34 @@ final class ReplyListViewModel: ObservableObject {
             page -= 1
         }
         isLoadingMore = false
+    }
+
+    func submitReply(repository: BiliPaiRepository, message: String) async -> Bool {
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        do {
+            try await repository.postComment(for: video, message: message, root: rootComment.id, parent: rootComment.id)
+            await load(repository: repository)
+            return true
+        } catch {
+            errorMessage = "回复失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func performCommentAction(repository: BiliPaiRepository, rpid: Int, actionType: String) async {
+        do {
+            switch actionType {
+            case "like":
+                try await repository.likeComment(for: video, rpid: rpid, action: 1)
+            case "unlike":
+                try await repository.likeComment(for: video, rpid: rpid, action: 0)
+            case "hate":
+                try await repository.hateComment(for: video, rpid: rpid, action: 1)
+            default:
+                break
+            }
+        } catch {
+            bpLog("Reply action \(actionType) failed: \(error)")
+        }
     }
 }
