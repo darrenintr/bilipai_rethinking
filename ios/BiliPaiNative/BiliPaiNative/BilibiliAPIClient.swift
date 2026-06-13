@@ -72,21 +72,33 @@ final class BilibiliAPIClient {
 
     func appRecommendedVideos(freshIndex: Int = 0, isRefresh: Bool = true) async throws -> [BiliVideo] {
         bpLog("Fetching app recommendations (idx: \(freshIndex), refresh: \(isRefresh))")
-        // App-side recommendation endpoint: https://app.bilibili.com/x/v2/feed/index
-        // This provides a high-quality feed similar to the mobile app when logged in.
         
         let finalIdx = Int(Date().timeIntervalSince1970) + freshIndex
+        
+        var queryItems = [
+            URLQueryItem(name: "mobi_app", value: "iphone"),
+            URLQueryItem(name: "platform", value: "ios"),
+            URLQueryItem(name: "idx", value: "\(finalIdx)"),
+            URLQueryItem(name: "pull", value: isRefresh ? "true" : "false"),
+            URLQueryItem(name: "login_event", value: "0"),
+            URLQueryItem(name: "appkey", value: appKey),
+            URLQueryItem(name: "ts", value: "\(Int(Date().timeIntervalSince1970))"),
+            URLQueryItem(name: "buvid", value: buvid)
+        ]
+        
+        // Manual App sign
+        let sorted = queryItems.sorted { $0.name < $1.name }
+        let query = sorted.compactMap { item -> String? in
+            guard let value = item.value else { return nil }
+            return "\(item.name)=\(value)"
+        }.joined(separator: "&")
+        let sign = md5(query + appSec)
+        queryItems.append(URLQueryItem(name: "sign", value: sign))
         
         let payload: APIResponse<AppFeedPayload> = try await get(
             baseURL: appBaseURL,
             path: "/x/v2/feed/index",
-            queryItems: [
-                URLQueryItem(name: "mobi_app", value: "iphone"),
-                URLQueryItem(name: "platform", value: "ios"),
-                URLQueryItem(name: "idx", value: "\(finalIdx)"),
-                URLQueryItem(name: "pull", value: isRefresh ? "true" : "false"),
-                URLQueryItem(name: "login_event", value: "0")
-            ]
+            queryItems: queryItems
         )
         try payload.requireOK()
         let items = payload.value?.items ?? []
@@ -101,6 +113,10 @@ final class BilibiliAPIClient {
         }
         bpLog("Received \(items.count) items, \(videos.count) mapped to videos")
         return videos
+    }
+
+    private func md5(_ string: String) -> String {
+        Insecure.MD5.hash(data: Data(string.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     func popularVideos(page: Int = 1) async throws -> [BiliVideo] {
@@ -1613,6 +1629,28 @@ private extension KeyedDecodingContainer where K == DynamicKey {
             }
         }
         return nil
+    }
+}
+
+private extension String {
+    var strippingHTML: String {
+        replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    }
+
+    var httpsURL: URL? {
+        let source = hasPrefix("//") ? "https:\(self)" : self
+        guard var components = URLComponents(string: source) else { return nil }
+        if components.scheme == "http" {
+            components.scheme = "https"
+        }
+        return components.url
+    }
+}
+   self.fetchedAt = Date()
+            return ticket
+        }
+        
+        throw BilibiliAPIError.missingData
     }
 }
 
