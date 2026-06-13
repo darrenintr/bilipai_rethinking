@@ -224,8 +224,8 @@ final class BilibiliAPIClient {
         // thread where every visible comment is pinned — without
         // merging we'd show an empty list.
         let pinned = payload.value?.upperTop?.values.map(\.model) ?? []
-        let legacyPinned = payload.value?.topReplies?.items ?? []
-        let regular = payload.value?.replies?.items ?? []
+        let legacyPinned = payload.value?.topReplies?.items.map(\.model) ?? []
+        let regular = payload.value?.replies?.items.map(\.model) ?? []
         var seen = Set<Int>()
         var merged: [BiliComment] = []
         for model in pinned + legacyPinned + regular {
