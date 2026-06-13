@@ -1,6 +1,7 @@
 import Foundation
+import SwiftUI
 
-final class BiliPaiRepository {
+final class BiliPaiRepository: ObservableObject {
     let apiClient: BilibiliAPIClient
     private let bundled: BundledFeedService
 

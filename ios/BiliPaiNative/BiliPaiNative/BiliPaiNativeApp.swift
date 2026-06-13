@@ -5,21 +5,15 @@ import SwiftUI
 struct BiliPaiNativeApp: App {
     @StateObject private var router = AppRouter()
     @StateObject private var authStore = AuthStore()
+    @StateObject private var repository: BiliPaiRepository
     @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
-
-    private let repository: BiliPaiRepository
 
     init() {
         PlayerAudioSession.activate()
-        // Build the API client + repository with a cookie provider that
-        // reads the live `AuthStore` on every request. We can't capture
-        // `self.authStore` here because it isn't constructed yet — the
-        // `wireAuth(_:)` call below re-binds the closure after the
-        // `StateObject` is up.
         let client = BilibiliAPIClient()
         let repo = BiliPaiRepository(apiClient: client)
-        client.cookieProvider = nil // re-bound in onAppear below
-        self.repository = repo
+        client.cookieProvider = nil
+        _repository = StateObject(wrappedValue: repo)
     }
 
     var body: some Scene {
@@ -27,12 +21,10 @@ struct BiliPaiNativeApp: App {
             RootView(repository: repository)
                 .environmentObject(router)
                 .environmentObject(authStore)
+                .environmentObject(repository)
                 .tint(BiliPaiTheme.biliPink)
                 .preferredColorScheme(themeMode.colorScheme)
                 .onAppear {
-                    // Now that `authStore` exists as an `@StateObject`,
-                    // we can read `activeAccount.cookieHeader` lazily on
-                    // each API call.
                     repository.apiClient.cookieProvider = { [weak authStore] in
                         authStore?.activeAccount?.cookieHeader
                     }
@@ -40,6 +32,51 @@ struct BiliPaiNativeApp: App {
         }
     }
 }
+
+// MARK: - Logger
+
+final class Logger: ObservableObject {
+    static let shared = Logger()
+    
+    @Published private(set) var logs: [String] = []
+    private let maxLogs = 1000
+    
+    private init() {}
+    
+    func log(_ message: String, file: String = #file, line: Int = #line) {
+        let fileName = (file as NSString).lastPathComponent
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let logEntry = "[\(timestamp)] [\(fileName):\(line)] \(message)"
+        
+        DispatchQueue.main.async {
+            self.logs.append(logEntry)
+            if self.logs.count > self.maxLogs {
+                self.logs.removeFirst()
+            }
+            print(logEntry)
+        }
+    }
+    
+    func export() -> URL? {
+        let allLogs = logs.joined(separator: "\n")
+        let fileName = "BiliPai_Logs_\(Int(Date().timeIntervalSince1970)).txt"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        
+        do {
+            try allLogs.write(to: tempURL, atomically: true, encoding: .utf8)
+            return tempURL
+        } catch {
+            log("Failed to export logs: \(error.localizedDescription)")
+            return nil
+        }
+    }
+}
+
+func bpLog(_ message: String, file: String = #file, line: Int = #line) {
+    Logger.shared.log(message, file: file, line: line)
+}
+
+// MARK: - Audio Session
 
 enum PlayerAudioSession {
     /// Configure the shared audio session for video playback. Must be called once
