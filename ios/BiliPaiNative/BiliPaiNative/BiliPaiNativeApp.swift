@@ -49,6 +49,9 @@ final class Logger: ObservableObject {
         let logEntry = "[\(timestamp)] [\(fileName):\(line)] \(message)"
         
         DispatchQueue.main.async {
+            if self.logs.isEmpty {
+                self.logs.append("[BiliPai Session Start]")
+            }
             self.logs.append(logEntry)
             if self.logs.count > self.maxLogs {
                 self.logs.removeFirst()

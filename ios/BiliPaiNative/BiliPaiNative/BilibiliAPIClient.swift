@@ -840,16 +840,22 @@ private struct AppFeedItemDTO: Decodable {
     }
 
     var model: BiliVideo? {
-        guard cardGoto == "av" else { return nil }
+        // App API returns various card types. 'av' is the standard video.
+        // We also allow 'bangumi' if we can map it.
+        guard cardGoto == "av" || cardGoto == "bangumi" else { return nil }
+        
+        let coverHTTPS = cover?.absoluteString.replacingOccurrences(of: "http://", with: "https://")
+        let finalCover = coverHTTPS != nil ? URL(string: coverHTTPS!) : nil
+        
         return BiliVideo(
-            bvid: "", // App API doesn't always provide bvid directly, we'll rely on aid
+            bvid: "", // Will be fetched on demand in detail(for:) if needed
             aid: playerArgs?.aid ?? Int(param) ?? 0,
             cid: playerArgs?.cid ?? 0,
             title: title,
             ownerName: descButton?.text ?? "Bilibili",
-            coverURL: cover,
+            coverURL: finalCover,
             duration: playerArgs?.duration ?? 0,
-            viewCount: 0, // Not provided in Int form in this DTO
+            viewCount: 0,
             danmakuCount: 0,
             likeCount: 0,
             description: ""
