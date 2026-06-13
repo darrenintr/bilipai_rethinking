@@ -1,0 +1,126 @@
+import SwiftUI
+
+struct RootView: View {
+    let repository: BiliPaiRepository
+
+    @EnvironmentObject private var router: AppRouter
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                PadRootView(repository: repository)
+            } else {
+                PhoneRootView(repository: repository)
+            }
+        }
+        .onAppear {
+            router.consumePendingIntentRoute()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                router.consumePendingIntentRoute()
+            }
+        }
+        .onOpenURL { url in
+            handle(url)
+        }
+    }
+
+    private func handle(_ url: URL) {
+        guard url.scheme == "bilipai" else { return }
+        switch url.host {
+        case "home":
+            router.open(.home)
+        case "dynamic":
+            router.open(.dynamic)
+        case "live":
+            router.open(.live)
+        case "settings":
+            router.open(.profile)
+        case "search":
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "q" })?
+                .value ?? ""
+            router.openSearch(query)
+        default:
+            break
+        }
+    }
+}
+
+private struct PhoneRootView: View {
+    let repository: BiliPaiRepository
+    @EnvironmentObject private var router: AppRouter
+
+    var body: some View {
+        NavigationStack(path: $router.path) {
+            TabView(selection: $router.selectedTab) {
+                HomeView(repository: repository)
+                    .tabItem { Label("Home", systemImage: "house") }
+                    .tag(MainTab.home)
+
+                DynamicFeedView(repository: repository)
+                    .tabItem { Label("Dynamic", systemImage: "rectangle.stack") }
+                    .tag(MainTab.dynamic)
+
+                LiveRoomsView(repository: repository)
+                    .tabItem { Label("Live", systemImage: "play.tv") }
+                    .tag(MainTab.live)
+
+                ProfileSettingsView()
+                    .tabItem { Label("Mine", systemImage: "person.crop.circle") }
+                    .tag(MainTab.profile)
+            }
+            .navigationDestination(for: BiliVideo.self) { video in
+                VideoDetailView(video: video, repository: repository)
+            }
+        }
+    }
+}
+
+private struct PadRootView: View {
+    let repository: BiliPaiRepository
+    @EnvironmentObject private var router: AppRouter
+
+    var body: some View {
+        NavigationSplitView {
+            List {
+                ForEach(MainTab.allCases) { tab in
+                    Button {
+                        router.open(tab)
+                    } label: {
+                        Label(tab.title, systemImage: tab.symbolName)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(router.selectedTab == tab ? BiliPaiTheme.biliPink.opacity(0.14) : Color.clear)
+                }
+            }
+            .navigationTitle("BiliPai")
+        } detail: {
+            NavigationStack(path: $router.path) {
+                selectedView
+                    .navigationDestination(for: BiliVideo.self) { video in
+                        VideoDetailView(video: video, repository: repository)
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var selectedView: some View {
+        switch router.selectedTab {
+        case .home:
+            HomeView(repository: repository)
+        case .dynamic:
+            DynamicFeedView(repository: repository)
+        case .live:
+            LiveRoomsView(repository: repository)
+        case .profile:
+            ProfileSettingsView()
+        }
+    }
+}
