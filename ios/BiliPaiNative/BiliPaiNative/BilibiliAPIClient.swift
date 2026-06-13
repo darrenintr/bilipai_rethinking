@@ -132,7 +132,7 @@ final class BilibiliAPIClient {
         guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         let payload: APIResponse<VideoListPayload> = try await get(
             baseURL: baseURL,
-            path: "/x/web-interface/search/type",
+            path: "/x/web-interface/wbi/search/type",
             queryItems: [
                 URLQueryItem(name: "search_type", value: "video"),
                 URLQueryItem(name: "keyword", value: keyword),
