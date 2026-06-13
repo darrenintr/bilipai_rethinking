@@ -20,7 +20,18 @@ extension View {
                 in: RoundedRectangle(cornerRadius: cornerRadius)
             )
         case .liquidGlass:
-            self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+            if #available(iOS 26.0, *) {
+                self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+            } else {
+                // iOS 17 / 18 fallback: a thin material with the same
+                // corner radius is the closest visual approximation that
+                // compiles against the current SDK. Users on iOS 26+
+                // still get the real Liquid Glass material.
+                self.background(
+                    .thinMaterial,
+                    in: RoundedRectangle(cornerRadius: cornerRadius)
+                )
+            }
         }
     }
 
@@ -35,7 +46,11 @@ extension View {
         case .material3:
             self.background(.thinMaterial, in: Capsule())
         case .liquidGlass:
-            self.glassEffect(.regular, in: .capsule)
+            if #available(iOS 26.0, *) {
+                self.glassEffect(.regular, in: .capsule)
+            } else {
+                self.background(.thinMaterial, in: Capsule())
+            }
         }
     }
 }

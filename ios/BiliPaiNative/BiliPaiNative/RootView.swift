@@ -33,8 +33,8 @@ struct RootView: View {
 
 /// Applies the iOS 26 `.toolbarBackground(.glass, for: .tabBar)` material
 /// only when the user has picked the Liquid Glass preset. On older OS
-/// versions the modifier is a no-op so the build still compiles against
-/// the iOS 26 deployment target.
+/// versions the modifier falls back to a `.regularMaterial` so the build
+/// still compiles against the iOS 18 deployment target.
 private struct LiquidGlassTabBarModifier: ViewModifier {
     let materialDesign: MaterialDesign
 
@@ -43,9 +43,18 @@ private struct LiquidGlassTabBarModifier: ViewModifier {
         case .material3:
             content
         case .liquidGlass:
-            content
-                .toolbarBackground(.glass, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
+            if #available(iOS 26.0, *) {
+                content
+                    .toolbarBackground(.glass, for: .tabBar)
+                    .toolbarBackground(.visible, for: .tabBar)
+            } else {
+                // iOS 17 / 18 fallback. The exact `.glass` material is
+                // unavailable; `.regularMaterial` is the closest we can
+                // get without bleeding Liquid Glass into the public SDK.
+                content
+                    .toolbarBackground(.regularMaterial, for: .tabBar)
+                    .toolbarBackground(.visible, for: .tabBar)
+            }
         }
     }
 }
