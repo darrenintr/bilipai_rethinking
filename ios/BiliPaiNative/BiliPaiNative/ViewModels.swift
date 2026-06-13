@@ -322,19 +322,23 @@ final class VideoDetailViewModel: ObservableObject {
     }
 
     private func makePlayerItem(playback: BiliPlayback) async throws -> AVPlayerItem {
-        if let audioURL = playback.audioURL {
-            let composition = try await makeComposition(
-                videoURL: playback.videoURL,
-                audioURL: audioURL,
-                referer: playback.referer
-            )
-            let item = AVPlayerItem(asset: composition)
+        // If we have an HLS master playlist or a standard DURL (MP4/FLV),
+        // use it directly. AVPlayer handles HLS manifests natively and
+        // more stably than manual DASH composition.
+        if playback.audioURL == nil {
+            let asset = Self.makeAsset(url: playback.videoURL, referer: playback.referer)
+            let item = AVPlayerItem(asset: asset)
             configure(item: item)
             return item
         }
 
-        let asset = Self.makeAsset(url: playback.videoURL, referer: playback.referer)
-        let item = AVPlayerItem(asset: asset)
+        // Fallback for cases where only DASH segments are available.
+        let composition = try await makeComposition(
+            videoURL: playback.videoURL,
+            audioURL: playback.audioURL!,
+            referer: playback.referer
+        )
+        let item = AVPlayerItem(asset: composition)
         configure(item: item)
         return item
     }

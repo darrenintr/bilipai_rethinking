@@ -179,7 +179,7 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "bvid", value: bvid),
                 URLQueryItem(name: "cid", value: "\(cid)"),
                 URLQueryItem(name: "qn", value: "64"),
-                URLQueryItem(name: "fnval", value: "1"),
+                URLQueryItem(name: "fnval", value: "64"), // Request HLS (Master Playlist)
                 URLQueryItem(name: "fnver", value: "0"),
                 URLQueryItem(name: "fourk", value: "1"),
                 URLQueryItem(name: "gaia_source", value: "view-card")
@@ -703,6 +703,8 @@ private struct PlayURLPayload: Decodable {
     let dash: Dash?
 
     var bestPlayback: (videoURL: URL, audioURL: URL?)? {
+        // iOS 15+ has native support for HLS. Bilibili returns HLS master
+        // playlist in `durl` when `fnval=64` is requested.
         if let url = durl?.first?.url {
             return (videoURL: url, audioURL: nil)
         }
