@@ -169,7 +169,20 @@ final class BilibiliAPIClient {
             ]
         )
         try payload.requireOK()
-        return payload.value?.replies?.map(\.model) ?? []
+        // Pinned comments arrive under `top_replies`; regular replies under
+        // `replies`. Bilibili sometimes sends a thread where every visible
+        // comment is pinned — without merging we'd show an empty list.
+        let pinned = payload.value?.topReplies?.items ?? []
+        let regular = payload.value?.replies?.items ?? []
+        var seen = Set<Int>()
+        var merged: [BiliComment] = []
+        for dto in pinned + regular {
+            let model = dto.model
+            if seen.insert(model.id).inserted {
+                merged.append(model)
+            }
+        }
+        return merged
     }
 
     private func get<T: Decodable>(
@@ -200,6 +213,11 @@ enum BilibiliAPIError: Error {
     case http
     case api(String)
     case missingData
+    /// The endpoint we wanted to call requires an `aid` (or `bvid`) on the
+    /// input and we have neither. Surfacing this as a typed error lets the
+    /// caller show a clear "评论不可用" message instead of a generic
+    /// "Could not load public comments." after a doomed network call.
+    case missingIdentity
 }
 
 private struct APIResponse<T: Decodable>: Decodable {
@@ -351,7 +369,42 @@ private struct LiveRoomDTO: Decodable {
 }
 
 private struct CommentPayload: Decodable {
-    let replies: [CommentDTO]?
+    let replies: LenientCommentArray?
+    let topReplies: LenientCommentArray?
+
+    enum CodingKeys: String, CodingKey {
+        case replies
+        case topReplies = "top_replies"
+    }
+}
+
+/// A wrapper that drops any reply that fails to decode, so a single
+/// non-text reply (image, at-mention, emote, vote, …) does not take the
+/// whole comment thread down with it. Bilibili mixes reply types in the
+/// same array and the per-reply shape is not consistent enough to be
+/// decoded all-or-nothing.
+private struct LenientCommentArray: Decodable {
+    let items: [CommentDTO]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode([FailableDecodable<CommentDTO>].self)
+        self.items = raw.compactMap(\.value)
+    }
+}
+
+private struct FailableDecodable<T: Decodable>: Decodable {
+    let value: T?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        do {
+            self.value = try container.decode(T.self)
+        } catch {
+            // Drop this element and keep going.
+            self.value = nil
+        }
+    }
 }
 
 private struct CommentDTO: Decodable {
@@ -361,12 +414,29 @@ private struct CommentDTO: Decodable {
     let like: Int
     let rcount: Int?
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rpid = try container.decode(Int.self, forKey: .rpid)
+        member = try container.decode(Member.self, forKey: .member)
+        content = try container.decode(Content.self, forKey: .content)
+        like = try container.decodeIfPresent(Int.self, forKey: .like) ?? 0
+        rcount = try container.decodeIfPresent(Int.self, forKey: .rcount)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case rpid
+        case member
+        case content
+        case like
+        case rcount
+    }
+
     var model: BiliComment {
         BiliComment(
             id: rpid,
             authorName: member.uname,
             avatarURL: member.avatarURL,
-            message: content.message.strippingHTML,
+            message: content.message,
             likeCount: like,
             replyCount: rcount ?? 0
         )
@@ -382,8 +452,28 @@ private struct CommentDTO: Decodable {
         }
     }
 
+    /// Bilibili reply `content` shapes are not uniform. Text replies have
+    /// `message`; image replies have `pictures`; at-mentions have
+    /// `at_name_to_mid`; emotes have `emote`. We accept whichever field is
+    /// present and synthesise a label for the non-text cases so the row
+    /// still renders instead of failing the whole thread.
     struct Content: Decodable {
         let message: String
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicKey.self)
+            if let raw = try? container.decode(String.self, forKey: DynamicKey("message")) {
+                message = raw.strippingHTML
+            } else if container.contains(DynamicKey("pictures")) {
+                message = "[图片评论]"
+            } else if container.contains(DynamicKey("vote")) {
+                message = "[投票]"
+            } else if container.contains(DynamicKey("emote")) {
+                message = "[表情]"
+            } else {
+                message = ""
+            }
+        }
     }
 }
 

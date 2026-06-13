@@ -216,6 +216,9 @@ final class VideoDetailViewModel: ObservableObject {
         commentsErrorMessage = nil
         do {
             comments = try await repository.comments(for: detail)
+        } catch BilibiliAPIError.missingIdentity {
+            commentsErrorMessage = "评论不可用"
+            comments = []
         } catch {
             commentsErrorMessage = "Could not load public comments."
         }

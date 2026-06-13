@@ -77,8 +77,17 @@ final class BiliPaiRepository {
         if aid > 0 {
             return try await apiClient.comments(aid: aid)
         }
-        let detail = try await apiClient.videoDetail(bvid: video.bvid)
-        return try await apiClient.comments(aid: detail.aid)
+        if !video.bvid.isEmpty {
+            let detail = try await apiClient.videoDetail(bvid: video.bvid)
+            if detail.aid > 0 {
+                return try await apiClient.comments(aid: detail.aid)
+            }
+        }
+        // Neither the feed entry nor the video-detail fallback produced an
+        // `aid` we can call the comment endpoint with. Surface a typed error
+        // so the UI can show a specific "评论不可用" message instead of
+        // pretending the request failed for some other reason.
+        throw BilibiliAPIError.missingIdentity
     }
 
     func dynamicPosts() -> [DynamicPost] {

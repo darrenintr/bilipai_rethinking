@@ -79,15 +79,12 @@ struct VideoDetailView: View {
                         }
                     }
             }
-
-            if model.danmakuEnabled, model.player != nil {
-                Text("Danmaku preview layer")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(8)
-                    .background(.black.opacity(0.38), in: Capsule())
-                    .padding(14)
-            }
+            // The earlier "Danmaku preview layer" overlay used to live here
+            // and crowd the top-leading corner where the fullscreen button
+            // sits. There is no real danmaku engine yet (the project README
+            // is explicit: "full danmaku rendering are not ported yet"), so
+            // we drop the placeholder entirely. The Danmaku toggle in the
+            // control panel below stays as a "coming soon" hint.
         }
         .aspectRatio(16 / 9, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius))
@@ -130,8 +127,12 @@ struct VideoDetailView: View {
 
     private var controlPanel: some View {
         HStack {
+            // TODO: real danmaku engine. The toggle stays in the UI as a
+            // hint at the future feature but does nothing until then.
             Toggle("Danmaku", isOn: $model.danmakuEnabled)
                 .toggleStyle(.button)
+                .disabled(true)
+                .opacity(0.5)
             Toggle("Audio", isOn: $model.audioModeEnabled)
                 .toggleStyle(.button)
             Menu {
