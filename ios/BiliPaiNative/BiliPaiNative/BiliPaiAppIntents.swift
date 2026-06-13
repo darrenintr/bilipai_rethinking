@@ -73,6 +73,17 @@ struct SearchBiliPaiIntent: AppIntent {
     }
 }
 
+struct OpenBiliPaiSearchIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open BiliPai Search"
+    static var description = IntentDescription("Open BiliPai to the video search field.")
+    static var openAppWhenRun: Bool { true }
+
+    func perform() async throws -> some IntentResult {
+        IntentRouteStore.store(.search(""))
+        return .result()
+    }
+}
+
 struct ContinueWatchingIntent: AppIntent {
     static var title: LocalizedStringResource = "Continue Watching"
     static var description = IntentDescription("Open the most recent BiliPai video.")
@@ -177,9 +188,9 @@ struct BiliPaiShortcutsProvider: AppShortcutsProvider {
             systemImageName: "play.rectangle"
         )
         AppShortcut(
-            intent: SearchBiliPaiIntent(),
+            intent: OpenBiliPaiSearchIntent(),
             phrases: [
-                "Search \(\.$keyword) in \(.applicationName)"
+                "Search in \(.applicationName)"
             ],
             shortTitle: "Search BiliPai",
             systemImageName: "magnifyingglass"
