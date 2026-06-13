@@ -262,7 +262,6 @@ struct FavoriteFoldersView: View {
         }
         .navigationTitle("我的收藏")
         .task { await model.load(repository: repository, mid: mid) }
-        .refreshable { await model.load(repository: repository, mid: mid) }
     }
 }
 
@@ -359,5 +358,8 @@ private struct VideoListRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+)
     }
 }

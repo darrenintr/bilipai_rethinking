@@ -38,12 +38,6 @@ struct HomeView: View {
                         await model.load(repository: repository)
                     }
                 }
-                .refreshable {
-                    await model.load(repository: repository)
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        proxy.scrollTo("feedTop", anchor: .top)
-                    }
-                }
                 .onChange(of: model.category) { _, _ in
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("feedTop", anchor: .top)

@@ -53,7 +53,6 @@ struct DynamicFeedView: View {
         }
         .navigationTitle("动态")
         .task { await model.load(repository: repository) }
-        .refreshable { await model.load(repository: repository) }
     }
 
     @ViewBuilder
