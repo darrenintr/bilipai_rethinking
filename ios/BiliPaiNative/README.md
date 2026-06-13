@@ -15,7 +15,8 @@ Implemented:
 
 Current limitations:
 
-- Login, cookies, WBI signing, premium quality, authenticated history, and full danmaku rendering are not ported yet.
+- Premium quality, authenticated history, and full danmaku rendering are not ported yet.
+- QR login and local account persistence are implemented for the native iOS slice, but follow-feed/profile parity with the Android app is still incomplete.
 - iOS builds require macOS with Xcode. This Linux container has no `xcodebuild` or Swift toolchain.
 - The API client only uses public endpoints and does not attempt to bypass Bilibili access controls.
 

@@ -4,10 +4,15 @@ struct HomeView: View {
     let repository: BiliPaiRepository
 
     @EnvironmentObject private var router: AppRouter
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var model = HomeViewModel()
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
-    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12)]
+    private var columns: [GridItem] {
+        let minimumWidth: CGFloat = horizontalSizeClass == .regular ? 220 : 172
+        let maximumWidth: CGFloat = horizontalSizeClass == .regular ? 300 : 220
+        return [GridItem(.adaptive(minimum: minimumWidth, maximum: maximumWidth), spacing: 12, alignment: .top)]
+    }
 
     var body: some View {
         ScrollViewReader { proxy in

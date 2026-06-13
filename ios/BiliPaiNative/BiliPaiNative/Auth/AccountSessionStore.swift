@@ -9,21 +9,29 @@ import Foundation
 final class AccountSessionStore {
     private static let accountsAccount = "bilipai.accounts"
     private static let activeMidAccount = "bilipai.activeMid"
+    private static let accountsDefaultsKey = "bilipai.accounts.defaults"
+    private static let activeMidDefaultsKey = "bilipai.activeMid.defaults"
 
     private let keychain: KeychainStore
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let defaults: UserDefaults
 
-    init(keychain: KeychainStore = KeychainStore()) {
+    init(
+        keychain: KeychainStore = KeychainStore(),
+        defaults: UserDefaults = .standard
+    ) {
         self.keychain = keychain
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
+        self.defaults = defaults
     }
 
     func getAccounts() -> [StoredAccount] {
-        guard let data = keychain.readData(account: Self.accountsAccount) else {
+        guard let data = keychain.readData(account: Self.accountsAccount)
+            ?? defaults.data(forKey: Self.accountsDefaultsKey) else {
             return []
         }
         do {
@@ -35,7 +43,8 @@ final class AccountSessionStore {
     }
 
     func getActiveAccountMid() -> Int64? {
-        guard let data = keychain.readData(account: Self.activeMidAccount),
+        guard let data = keychain.readData(account: Self.activeMidAccount)
+                ?? defaults.data(forKey: Self.activeMidDefaultsKey),
               let raw = String(data: data, encoding: .utf8),
               let mid = Int64(raw) else {
             return nil
@@ -80,19 +89,23 @@ final class AccountSessionStore {
 
     func clearActiveAccount() {
         keychain.delete(account: Self.activeMidAccount)
+        defaults.removeObject(forKey: Self.activeMidDefaultsKey)
     }
 
     private func persist(list: [StoredAccount], activeMid: Int64?) {
         do {
             let data = try encoder.encode(list)
             try keychain.writeData(data, account: Self.accountsAccount)
+            defaults.set(data, forKey: Self.accountsDefaultsKey)
         } catch {
             NSLog("BiliPai: account list persist failed: \(error)")
         }
         if let activeMid, let raw = "\(activeMid)".data(using: .utf8) {
             try? keychain.writeData(raw, account: Self.activeMidAccount)
+            defaults.set(raw, forKey: Self.activeMidDefaultsKey)
         } else {
             keychain.delete(account: Self.activeMidAccount)
+            defaults.removeObject(forKey: Self.activeMidDefaultsKey)
         }
     }
 }

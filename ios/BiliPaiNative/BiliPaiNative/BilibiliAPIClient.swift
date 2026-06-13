@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 
 final class BilibiliAPIClient {
@@ -6,6 +7,7 @@ final class BilibiliAPIClient {
     private let liveBaseURL = URL(string: "https://api.live.bilibili.com")!
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let wbiSigner = WbiSigner()
     /// Closure that returns the active account's `Cookie:` header, or
     /// `nil` when the user is signed out. The `BilibiliAPIClient` does
     /// not own the `AuthStore` so it stays decoupled from auth state —
@@ -52,7 +54,8 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "fresh_type", value: "4"),
                 URLQueryItem(name: "feed_version", value: "V8"),
                 URLQueryItem(name: "web_location", value: "1430650")
-            ]
+            ],
+            signWithWBI: true
         )
         try payload.requireOK()
         return payload.value?.videos.map(\.model) ?? []
@@ -133,8 +136,12 @@ final class BilibiliAPIClient {
             queryItems: [
                 URLQueryItem(name: "search_type", value: "video"),
                 URLQueryItem(name: "keyword", value: keyword),
-                URLQueryItem(name: "page", value: "\(page)")
-            ]
+                URLQueryItem(name: "page", value: "\(page)"),
+                URLQueryItem(name: "page_size", value: "20"),
+                URLQueryItem(name: "platform", value: "pc"),
+                URLQueryItem(name: "web_location", value: "1430654")
+            ],
+            signWithWBI: true
         )
         try payload.requireOK()
         return payload.value?.videos.map(\.model) ?? []
@@ -174,7 +181,8 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "fnver", value: "0"),
                 URLQueryItem(name: "fourk", value: "1"),
                 URLQueryItem(name: "gaia_source", value: "view-card")
-            ]
+            ],
+            signWithWBI: true
         )
         try payload.requireOK()
         guard let url = payload.value?.bestURL else {
@@ -215,7 +223,8 @@ final class BilibiliAPIClient {
                 URLQueryItem(name: "oid", value: "\(aid)"),
                 URLQueryItem(name: "mode", value: "3"),
                 URLQueryItem(name: "ps", value: "20")
-            ]
+            ],
+            signWithWBI: true
         )
         try payload.requireOK()
         // Pinned comments arrive under `upper.top`; regular replies under
@@ -239,7 +248,8 @@ final class BilibiliAPIClient {
     private func get<T: Decodable>(
         baseURL: URL,
         path: String,
-        queryItems: [URLQueryItem]
+        queryItems: [URLQueryItem],
+        signWithWBI: Bool = false
     ) async throws -> T {
         // Cache-bust every public-endpoint request. URLSession's shared
         // cache is shared across the app, and Bilibili returns
@@ -260,6 +270,9 @@ final class BilibiliAPIClient {
         let nonce = UUID().uuidString
         items.append(URLQueryItem(name: "_t", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
         items.append(URLQueryItem(name: "_r", value: nonce))
+        if signWithWBI {
+            items = try await wbiSigner.sign(queryItems: items, using: session)
+        }
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
         components.queryItems = items
         guard let url = components.url else {
@@ -316,6 +329,91 @@ final class BilibiliAPIClient {
     }
 }
 
+private actor WbiSigner {
+    private struct CachedKeys {
+        let imgKey: String
+        let subKey: String
+        let fetchedAt: Date
+    }
+
+    private let mixinKeyEncTab = [
+        46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+        33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
+        61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
+        36, 20, 34, 44, 52
+    ]
+    private let keyTTL: TimeInterval = 6 * 60 * 60
+    private let navURL = URL(string: "https://api.bilibili.com/x/web-interface/nav")!
+    private var cachedKeys: CachedKeys?
+
+    func sign(queryItems: [URLQueryItem], using session: URLSession) async throws -> [URLQueryItem] {
+        let keys = try await loadKeys(using: session)
+        let mixinKey = buildMixinKey(imgKey: keys.imgKey, subKey: keys.subKey)
+        let timestamp = String(Int(Date().timeIntervalSince1970))
+
+        var params: [String: String] = [:]
+        for item in queryItems {
+            guard let value = item.value else { continue }
+            params[item.name] = value.replacingOccurrences(of: #"[!'()*]"#, with: "", options: .regularExpression)
+        }
+        params["wts"] = timestamp
+
+        let sorted = params.keys.sorted().map { key in
+            "\(key)=\(encodeURIComponent(params[key] ?? ""))"
+        }.joined(separator: "&")
+        params["w_rid"] = md5(sorted + mixinKey)
+
+        return params.keys.sorted().map { key in
+            URLQueryItem(name: key, value: params[key])
+        }
+    }
+
+    private func loadKeys(using session: URLSession) async throws -> CachedKeys {
+        if let cachedKeys, Date().timeIntervalSince(cachedKeys.fetchedAt) < keyTTL {
+            return cachedKeys
+        }
+
+        var request = URLRequest(url: navURL)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 BiliPai-iOS/0.1", forHTTPHeaderField: "User-Agent")
+        let (data, _) = try await session.data(for: request)
+        let payload = try JSONDecoder().decode(WbiNavResponse.self, from: data)
+        let imgURL = payload.data.wbiImg.imgURL
+        let subURL = payload.data.wbiImg.subURL
+        let keys = CachedKeys(
+            imgKey: imgURL.deletingPathExtension().lastPathComponent,
+            subKey: subURL.deletingPathExtension().lastPathComponent,
+            fetchedAt: Date()
+        )
+        cachedKeys = keys
+        return keys
+    }
+
+    private func buildMixinKey(imgKey: String, subKey: String) -> String {
+        let source = Array(imgKey + subKey)
+        let mixed = mixinKeyEncTab.compactMap { index in
+            index < source.count ? source[index] : nil
+        }
+        return String(mixed.prefix(32))
+    }
+
+    private func encodeURIComponent(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_.~"))
+        return value.unicodeScalars.map { scalar in
+            if allowed.contains(scalar) {
+                return String(scalar)
+            }
+            let bytes = String(scalar).utf8.map { String(format: "%%%02X", $0) }
+            return bytes.joined()
+        }.joined()
+    }
+
+    private func md5(_ value: String) -> String {
+        Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 enum BilibiliAPIError: Error {
     case invalidURL
     case http
@@ -342,6 +440,28 @@ private struct APIResponse<T: Decodable>: Decodable {
         if let code, code != 0 {
             throw BilibiliAPIError.api(message ?? "Bilibili API returned code \(code)")
         }
+    }
+}
+
+private struct WbiNavResponse: Decodable {
+    let data: WbiNavData
+}
+
+private struct WbiNavData: Decodable {
+    let wbiImg: WbiImage
+
+    enum CodingKeys: String, CodingKey {
+        case wbiImg = "wbi_img"
+    }
+}
+
+private struct WbiImage: Decodable {
+    let imgURL: URL
+    let subURL: URL
+
+    enum CodingKeys: String, CodingKey {
+        case imgURL = "img_url"
+        case subURL = "sub_url"
     }
 }
 
