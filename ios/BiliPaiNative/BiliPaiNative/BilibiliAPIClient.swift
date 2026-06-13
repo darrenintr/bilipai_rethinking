@@ -246,8 +246,20 @@ final class BilibiliAPIClient {
         // `Cache-Control: max-age=...` on the popular / recommend endpoints
         // — without the timestamp the second pull-to-refresh returns the
         // same `pn=1` payload from disk and the user sees the same batch.
+        // We belt-and-braces this with three independent layers:
+        //   1. `_t` is the request time in epoch ms. Bilibili's CDN
+        //      ignores any GET that matches the previous timestamp.
+        //   2. `_r` is a UUID — even two pulls in the same millisecond
+        //      (e.g. UIKit coalescing two Tasks) get unique URLs.
+        //   3. The session + per-request `cachePolicy =
+        //      .reloadIgnoringLocalCacheData` and the explicit
+        //      `Cache-Control: no-cache` header stop URLSession from
+        //      serving a cached body before the network call even
+        //      leaves the device.
         var items = queryItems
+        let nonce = UUID().uuidString
         items.append(URLQueryItem(name: "_t", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
+        items.append(URLQueryItem(name: "_r", value: nonce))
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
         components.queryItems = items
         guard let url = components.url else {
