@@ -44,7 +44,7 @@ final class BilibiliAPIClient {
         if cookieProvider?() != nil {
             // If the user is logged in, use the App API for optimized recommendations.
             // This endpoint provides a more personalized feed based on user history.
-            return try await appRecommendedVideos()
+            return try await appRecommendedVideos(freshIndex: freshIndex, isRefresh: true)
         }
 
         // The canonical path per the pskdje/bilibili-API-collect docs is
@@ -70,24 +70,36 @@ final class BilibiliAPIClient {
         return payload.value?.videos.map(\.model) ?? []
     }
 
-    func appRecommendedVideos() async throws -> [BiliVideo] {
-        bpLog("Fetching app recommendations")
+    func appRecommendedVideos(freshIndex: Int = 0, isRefresh: Bool = true) async throws -> [BiliVideo] {
+        bpLog("Fetching app recommendations (idx: \(freshIndex), refresh: \(isRefresh))")
         // App-side recommendation endpoint: https://app.bilibili.com/x/v2/feed/index
         // This provides a high-quality feed similar to the mobile app when logged in.
+        
+        let finalIdx = Int(Date().timeIntervalSince1970) + freshIndex
+        
         let payload: APIResponse<AppFeedPayload> = try await get(
             baseURL: appBaseURL,
             path: "/x/v2/feed/index",
             queryItems: [
                 URLQueryItem(name: "mobi_app", value: "iphone"),
                 URLQueryItem(name: "platform", value: "ios"),
-                URLQueryItem(name: "idx", value: "\(Int(Date().timeIntervalSince1970))"),
-                URLQueryItem(name: "pull", value: "true"),
+                URLQueryItem(name: "idx", value: "\(finalIdx)"),
+                URLQueryItem(name: "pull", value: isRefresh ? "true" : "false"),
                 URLQueryItem(name: "login_event", value: "0")
             ]
         )
         try payload.requireOK()
-        let videos = payload.value?.items.compactMap(\.model) ?? []
-        bpLog("Received \(videos.count) app recommendations")
+        let items = payload.value?.items ?? []
+        let videos = items.compactMap { item -> BiliVideo? in
+            // Handle multiple card types that contain video data
+            let validGotos = ["av", "bangumi", "ad", "live"] 
+            // We'll skip 'ad' but some 'ad' cards are actually suggested videos
+            guard validGotos.contains(item.cardGoto) else { return nil }
+            if item.cardGoto == "ad" && item.cardType != "small_cover_v2" { return nil }
+            
+            return item.model
+        }
+        bpLog("Received \(items.count) items, \(videos.count) mapped to videos")
         return videos
     }
 
@@ -1597,6 +1609,20 @@ private extension KeyedDecodingContainer where K == DynamicKey {
 }
 
 private extension String {
+    var strippingHTML: String {
+        replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    }
+
+    var httpsURL: URL? {
+        let source = hasPrefix("//") ? "https:\(self)" : self
+        guard var components = URLComponents(string: source) else { return nil }
+        if components.scheme == "http" {
+            components.scheme = "https"
+        }
+        return components.url
+    }
+}
+ivate extension String {
     var strippingHTML: String {
         replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
     }
