@@ -3,9 +3,11 @@ name: iOS Unsigned IPA
 on:
   workflow_dispatch:
   push:
+    branches:
+      - working
     paths:
       - '.github/workflows/ios-unsigned-ipa.yml'
-      - 'ios/BiliPaiNative/**'
+      - 'ios/**'
 
 permissions:
   contents: write
