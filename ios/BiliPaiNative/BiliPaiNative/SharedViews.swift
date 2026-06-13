@@ -106,7 +106,7 @@ struct CoverImage: View {
     }
 }
 
-private struct ResilientImage: View {
+struct ResilientImage: View {
     let url: URL?
 
     @State private var image: UIImage?

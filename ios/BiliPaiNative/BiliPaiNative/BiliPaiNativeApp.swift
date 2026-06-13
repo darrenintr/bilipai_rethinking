@@ -33,10 +33,8 @@ struct BiliPaiNativeApp: App {
                     // Now that `authStore` exists as an `@StateObject`,
                     // we can read `activeAccount.cookieHeader` lazily on
                     // each API call.
-                    if let client = repository.apiClient {
-                        client.cookieProvider = { [weak authStore] in
-                            authStore?.activeAccount?.cookieHeader
-                        }
+                    repository.apiClient.cookieProvider = { [weak authStore] in
+                        authStore?.activeAccount?.cookieHeader
                     }
                 }
         }
