@@ -54,7 +54,7 @@ final class VideoDetailViewModel: ObservableObject {
             let asset = AVURLAsset(
                 url: playback.url,
                 options: [
-                    AVURLAssetHTTPHeaderFieldsKey: [
+                    "AVURLAssetHTTPHeaderFieldsKey": [
                         "Referer": playback.referer.absoluteString,
                         "User-Agent": "Mozilla/5.0 BiliPai-iOS/0.1"
                     ]
