@@ -84,7 +84,8 @@ struct BiliVideo: Identifiable, Hashable, Codable {
 }
 
 struct BiliPlayback: Hashable {
-    let url: URL
+    let videoURL: URL
+    let audioURL: URL?
     let referer: URL
 }
 
@@ -104,6 +105,7 @@ struct BiliComment: Identifiable, Hashable {
     let message: String
     let likeCount: Int
     let replyCount: Int
+    let replies: [BiliComment]
 }
 
 struct CommentPage: Hashable {

@@ -36,6 +36,12 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum ProfileRoute: Hashable {
+    case history
+    case favorites(mid: Int64)
+    case watchLater
+}
+
 @MainActor
 final class AppRouter: ObservableObject {
     @Published var selectedTab: MainTab = .home
@@ -53,6 +59,10 @@ final class AppRouter: ObservableObject {
     func openVideo(_ video: BiliVideo) {
         IntentRecentVideoStore.record(video)
         path.append(video)
+    }
+
+    func open(_ route: ProfileRoute) {
+        path.append(route)
     }
 
     func openSearch(_ query: String) {

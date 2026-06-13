@@ -38,18 +38,18 @@ struct HomeView: View {
                 }
                 .refreshable {
                     await model.load(repository: repository)
-                    // Pull-to-refresh should snap back to the top of the new
-                    // batch — otherwise the user stays pinned at the old scroll
-                    // offset and only sees the new content if they scroll up.
                     withAnimation(.easeOut(duration: 0.25)) {
+                        model.scrollPositionID = "feedTop"
                         proxy.scrollTo("feedTop", anchor: .top)
                     }
                 }
                 .onChange(of: model.category) { _, _ in
+                    model.scrollPositionID = "feedTop"
                     Task { await model.load(repository: repository) }
                 }
                 .onChange(of: model.popularSubCategory) { _, _ in
                     guard model.category == .popular else { return }
+                    model.scrollPositionID = "feedTop"
                     Task { await model.load(repository: repository) }
                 }
                 .onChange(of: router.pendingSearchQuery) { _, query in
@@ -65,6 +65,10 @@ struct HomeView: View {
     private func feedContent(scrollProxy proxy: ScrollViewProxy) -> some View {
         ScrollView {
             LazyVStack(spacing: 14) {
+                Color.clear
+                    .frame(height: 0)
+                    .id("feedTop")
+
                 searchBar
                 categoryStrip
                 if model.category == .popular {
@@ -102,6 +106,7 @@ struct HomeView: View {
                             LiveRoomCard(room: room)
                         }
                     }
+                    .scrollTargetLayout()
                 } else if model.videos.isEmpty {
                     HomeEmptyState(
                         category: model.category,
@@ -118,18 +123,23 @@ struct HomeView: View {
                             VideoCard(video: video) {
                                 router.openVideo(video)
                             }
+                            .id(video.id)
                             .onAppear {
+                                if model.scrollPositionID != video.id {
+                                    model.scrollPositionID = video.id
+                                }
                                 triggerLoadMoreIfNeeded(currentIndex: index)
                             }
                         }
                     }
+                    .scrollTargetLayout()
                     paginationFooter
                 }
             }
             .padding(16)
-            // Anchor the top of the feed so pull-to-refresh can scroll back.
-            Color.clear.frame(height: 0).id("feedTop")
+            .scrollTargetLayout()
         }
+        .scrollPosition(id: $model.scrollPositionID)
     }
 
     private var searchBar: some View {

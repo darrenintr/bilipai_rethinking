@@ -241,7 +241,19 @@ private struct CommentRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                if comment.replyCount > 0 {
+                if !comment.replies.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(comment.replies) { reply in
+                            NestedReplyRow(comment: reply)
+                        }
+                        if comment.replyCount > comment.replies.count {
+                            Text("还有 \(comment.replyCount - comment.replies.count) 条回复未展开")
+                                .font(.caption)
+                                .foregroundStyle(BiliPaiTheme.biliPink)
+                        }
+                    }
+                    .padding(.top, 2)
+                } else if comment.replyCount > 0 {
                     Text("\(comment.replyCount) replies")
                         .font(.caption)
                         .foregroundStyle(BiliPaiTheme.biliPink)
@@ -249,6 +261,31 @@ private struct CommentRow: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct NestedReplyRow: View {
+    let comment: BiliComment
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(comment.authorName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                if comment.likeCount > 0 {
+                    Label(comment.likeCount.compactCount, systemImage: "hand.thumbsup")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(comment.message)
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: BiliPaiTheme.cornerStyle))
     }
 }
 

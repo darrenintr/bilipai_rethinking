@@ -13,6 +13,7 @@ final class HomeViewModel: ObservableObject {
     @Published var isLoadingMore = false
     @Published var hasMore = true
     @Published var errorMessage: String?
+    @Published var scrollPositionID: String? = "feedTop"
     /// True when the feed is showing the offline bundled sample set. We
     /// expose this so the home view can render an "离线样例" caption and
     /// so the pagination footer can offer a "重新加载" action.
@@ -38,6 +39,7 @@ final class HomeViewModel: ObservableObject {
         // = true even after the live API returns, and the user would see
         // the bundled list for a beat before the new data overwrites it.
         isShowingBundledFallback = false
+        scrollPositionID = "feedTop"
         await loadPage(repository: repository, replacing: true, requestID: requestID)
         guard isCurrentRequest(requestID) else { return }
         isLoading = false
@@ -215,7 +217,13 @@ final class VideoDetailViewModel: ObservableObject {
 
     private var failureObserver: NSObjectProtocol?
     private var rateObserver: NSObjectProtocol?
+    private var endObserver: NSObjectProtocol?
     private var nextCommentCursor: Int?
+    private var playback: BiliPlayback?
+    private var recoveryTask: Task<Void, Never>?
+    private var timeObserverToken: Any?
+    private var lastObservedPlaybackTime: Double = 0
+    private var stalledObservationCount = 0
 
     init(video: BiliVideo) {
         self.detail = video
@@ -228,6 +236,9 @@ final class VideoDetailViewModel: ObservableObject {
         if let rateObserver {
             NotificationCenter.default.removeObserver(rateObserver)
         }
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
     }
 
     func load(repository: BiliPaiRepository) async {
@@ -236,57 +247,9 @@ final class VideoDetailViewModel: ObservableObject {
         do {
             detail = try await repository.detail(for: detail)
             let playback = try await repository.playback(for: detail)
-            let asset = AVURLAsset(
-                url: playback.url,
-                options: [
-                    "AVURLAssetHTTPHeaderFieldsKey": [
-                        "Referer": playback.referer.absoluteString,
-                        "User-Agent": "Mozilla/5.0 BiliPai-iOS/0.1"
-                    ]
-                ]
-            )
-            let item = AVPlayerItem(asset: asset)
-            // Keep a small forward buffer so the player starts quickly without
-            // stalling on a slow CDN. The default behaviour is to wait until
-            // enough data is buffered, which makes the first few seconds feel
-            // frozen on cellular.
-            item.preferredForwardBufferDuration = 4
-            let player = AVPlayer(playerItem: item)
-            // `automaticallyWaitsToMinimizeStalling` is true by default; it
-            // can leave a sluggish feed stuck on the buffering spinner. Allow
-            // the player to start as soon as it has any data and let the
-            // network catch up. The AVPlayer will still pause if the item
-            // becomes unplayable.
-            player.automaticallyWaitsToMinimizeStalling = false
-            player.allowsExternalPlayback = true
-            player.appliesMediaSelectionCriteriaAutomatically = true
-            player.rate = playbackSpeed
-
-            failureObserver = NotificationCenter.default.addObserver(
-                forName: .AVPlayerItemFailedToPlayToEndTime,
-                object: item,
-                queue: .main
-            ) { [weak self] notification in
-                guard let self else { return }
-                let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-                Task { @MainActor in
-                    self.errorMessage = "播放失败：\(error?.localizedDescription ?? "未知错误")"
-                }
-            }
-            rateObserver = NotificationCenter.default.addObserver(
-                forName: .AVPlayerItemPlaybackStalled,
-                object: item,
-                queue: .main
-            ) { [weak self] _ in
-                guard let self else { return }
-                // AVPlayer will normally resume from a stall on its own; this
-                // just keeps the spinner from getting stuck if it does not.
-                Task { @MainActor in
-                    self.player?.play()
-                }
-            }
-
-            self.player = player
+            self.playback = playback
+            self.player = try await makePlayer(playback: playback)
+            installPlaybackObservers()
             await loadComments(repository: repository)
         } catch {
             errorMessage = "Playback is unavailable for this item without a valid public play URL."
@@ -296,6 +259,9 @@ final class VideoDetailViewModel: ObservableObject {
     }
 
     func teardown() {
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        removeTimeObserver()
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         if let failureObserver {
@@ -305,6 +271,10 @@ final class VideoDetailViewModel: ObservableObject {
         if let rateObserver {
             NotificationCenter.default.removeObserver(rateObserver)
             self.rateObserver = nil
+        }
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
         }
     }
 
@@ -343,6 +313,196 @@ final class VideoDetailViewModel: ObservableObject {
             commentsTotalCount = max(commentsTotalCount, page.totalCount)
         } catch {
             commentsErrorMessage = "Could not load more comments."
+        }
+    }
+
+    private func makePlayer(playback: BiliPlayback) async throws -> AVPlayer {
+        let item = try await makePlayerItem(playback: playback)
+        let player = AVPlayer(playerItem: item)
+        configure(player: player)
+        return player
+    }
+
+    private func makePlayerItem(playback: BiliPlayback) async throws -> AVPlayerItem {
+        if let audioURL = playback.audioURL {
+            let composition = try await makeComposition(
+                videoURL: playback.videoURL,
+                audioURL: audioURL,
+                referer: playback.referer
+            )
+            let item = AVPlayerItem(asset: composition)
+            configure(item: item)
+            return item
+        }
+
+        let asset = Self.makeAsset(url: playback.videoURL, referer: playback.referer)
+        let item = AVPlayerItem(asset: asset)
+        configure(item: item)
+        return item
+    }
+
+    private func makeComposition(videoURL: URL, audioURL: URL, referer: URL) async throws -> AVMutableComposition {
+        let videoAsset = Self.makeAsset(url: videoURL, referer: referer)
+        let audioAsset = Self.makeAsset(url: audioURL, referer: referer)
+        async let allVideoTracks = videoAsset.load(.tracks)
+        async let allAudioTracks = audioAsset.load(.tracks)
+        let composition = AVMutableComposition()
+        let videoTracks = try await allVideoTracks.filter { $0.mediaType == .video }
+        let audioTracks = try await allAudioTracks.filter { $0.mediaType == .audio }
+
+        if let videoTrack = videoTracks.first,
+           let targetVideo = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            let duration = try await videoAsset.load(.duration)
+            try targetVideo.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: videoTrack, at: .zero)
+        }
+
+        if let audioTrack = audioTracks.first,
+           let targetAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            let duration = try await audioAsset.load(.duration)
+            try targetAudio.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: audioTrack, at: .zero)
+        }
+
+        return composition
+    }
+
+    private func configure(item: AVPlayerItem) {
+        item.preferredForwardBufferDuration = 8
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
+    }
+
+    private func configure(player: AVPlayer) {
+        player.automaticallyWaitsToMinimizeStalling = false
+        player.allowsExternalPlayback = true
+        player.appliesMediaSelectionCriteriaAutomatically = true
+        player.currentItem?.preferredForwardBufferDuration = 8
+        player.rate = playbackSpeed
+    }
+
+    private func installPlaybackObservers() {
+        guard let player, let item = player.currentItem else { return }
+
+        if let failureObserver {
+            NotificationCenter.default.removeObserver(failureObserver)
+        }
+        if let rateObserver {
+            NotificationCenter.default.removeObserver(rateObserver)
+        }
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+        removeTimeObserver()
+
+        failureObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            Task { @MainActor in
+                self.errorMessage = "播放失败：\(error?.localizedDescription ?? "未知错误")"
+                await self.recoverPlaybackIfNeeded()
+            }
+        }
+
+        rateObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.recoverPlaybackIfNeeded()
+            }
+        }
+
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.stalledObservationCount = 0
+        }
+
+        lastObservedPlaybackTime = item.currentTime().seconds
+        timeObserverToken = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 2, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            guard let self else { return }
+            let seconds = time.seconds
+            guard seconds.isFinite else { return }
+            let isTryingToPlay = player.timeControlStatus == .playing || player.rate > 0
+            if isTryingToPlay, abs(seconds - self.lastObservedPlaybackTime) < 0.1 {
+                self.stalledObservationCount += 1
+            } else {
+                self.stalledObservationCount = 0
+            }
+            self.lastObservedPlaybackTime = seconds
+            if self.stalledObservationCount >= 2 {
+                self.stalledObservationCount = 0
+                Task { @MainActor in
+                    await self.recoverPlaybackIfNeeded()
+                }
+            }
+        }
+    }
+
+    private func removeTimeObserver() {
+        if let token = timeObserverToken {
+            player?.removeTimeObserver(token)
+            timeObserverToken = nil
+        }
+    }
+
+    private func recoverPlaybackIfNeeded() async {
+        guard recoveryTask == nil else { return }
+        guard let playback else { return }
+        let resumeTime = player?.currentTime() ?? .zero
+        let shouldResumePlayback = (player?.rate ?? 0) > 0 || player?.timeControlStatus == .playing
+
+        recoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.recoveryTask = nil }
+            do {
+                let newItem = try await self.makePlayerItem(playback: playback)
+                self.player?.replaceCurrentItem(with: newItem)
+                if let player = self.player {
+                    self.configure(player: player)
+                }
+                self.installPlaybackObservers()
+                if resumeTime.seconds.isFinite, resumeTime.seconds > 0 {
+                    await self.seekPlayer(to: resumeTime)
+                }
+                if shouldResumePlayback {
+                    self.player?.playImmediately(atRate: self.playbackSpeed)
+                }
+                self.errorMessage = nil
+            } catch {
+                self.errorMessage = "播放恢复失败：\(error.localizedDescription)"
+            }
+        }
+        await recoveryTask?.value
+    }
+
+    private static func makeAsset(url: URL, referer: URL) -> AVURLAsset {
+        AVURLAsset(
+            url: url,
+            options: [
+                "AVURLAssetHTTPHeaderFieldsKey": [
+                    "Referer": referer.absoluteString,
+                    "User-Agent": "Mozilla/5.0 BiliPai-iOS/0.1"
+                ]
+            ]
+        )
+    }
+
+    private func seekPlayer(to time: CMTime) async {
+        guard let player else { return }
+        await withCheckedContinuation { continuation in
+            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                continuation.resume()
+            }
         }
     }
 }

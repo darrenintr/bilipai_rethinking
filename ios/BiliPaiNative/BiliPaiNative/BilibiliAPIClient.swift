@@ -187,10 +187,14 @@ final class BilibiliAPIClient {
             signWithWBI: true
         )
         try payload.requireOK()
-        guard let url = payload.value?.bestURL else {
+        guard let playback = payload.value?.bestPlayback else {
             throw BilibiliAPIError.missingData
         }
-        return BiliPlayback(url: url, referer: URL(string: "https://www.bilibili.com/video/\(bvid)")!)
+        return BiliPlayback(
+            videoURL: playback.videoURL,
+            audioURL: playback.audioURL,
+            referer: URL(string: "https://www.bilibili.com/video/\(bvid)")!
+        )
     }
 
     func liveRooms() async throws -> [BiliLiveRoom] {
@@ -676,11 +680,17 @@ private struct PlayURLPayload: Decodable {
     let durl: [DURL]?
     let dash: Dash?
 
-    var bestURL: URL? {
+    var bestPlayback: (videoURL: URL, audioURL: URL?)? {
         if let url = durl?.first?.url {
-            return url
+            return (videoURL: url, audioURL: nil)
         }
-        return dash?.video.first?.baseURL
+        guard let dash else { return nil }
+        let preferredVideo = dash.video.first { video in
+            video.codecs.localizedCaseInsensitiveContains("avc")
+                || video.codecs.localizedCaseInsensitiveContains("h264")
+        } ?? dash.video.first
+        guard let preferredVideo else { return nil }
+        return (videoURL: preferredVideo.baseURL, audioURL: dash.audio.first?.baseURL)
     }
 
     struct DURL: Decodable {
@@ -689,9 +699,20 @@ private struct PlayURLPayload: Decodable {
 
     struct Dash: Decodable {
         let video: [DashVideo]
+        let audio: [DashMedia]
     }
 
     struct DashVideo: Decodable {
+        let baseURL: URL
+        let codecs: String
+
+        enum CodingKeys: String, CodingKey {
+            case baseURL = "baseUrl"
+            case codecs
+        }
+    }
+
+    struct DashMedia: Decodable {
         let baseURL: URL
 
         enum CodingKeys: String, CodingKey {
@@ -1182,6 +1203,7 @@ private struct CommentDTO: Decodable {
     let content: Content
     let like: Int
     let rcount: Int?
+    let replies: LenientCommentArray?
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -1190,6 +1212,7 @@ private struct CommentDTO: Decodable {
         content = try container.decode(Content.self, forKey: .content)
         like = try container.decodeIfPresent(Int.self, forKey: .like) ?? 0
         rcount = try container.decodeIfPresent(Int.self, forKey: .rcount)
+        replies = try container.decodeIfPresent(LenientCommentArray.self, forKey: .replies)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1198,6 +1221,7 @@ private struct CommentDTO: Decodable {
         case content
         case like
         case rcount
+        case replies
     }
 
     var model: BiliComment {
@@ -1207,7 +1231,8 @@ private struct CommentDTO: Decodable {
             avatarURL: member.avatarURL,
             message: content.message,
             likeCount: like,
-            replyCount: rcount ?? 0
+            replyCount: rcount ?? 0,
+            replies: replies?.items.map(\.model) ?? []
         )
     }
 

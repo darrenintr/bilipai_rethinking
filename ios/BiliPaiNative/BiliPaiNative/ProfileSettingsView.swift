@@ -179,21 +179,21 @@ private struct ProfileQuickActionGrid: View {
     let items: [ProfileQuickAction]
     let repository: BiliPaiRepository
     @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var router: AppRouter
     private let columns = [GridItem(.adaptive(minimum: 96), spacing: 10)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 10) {
             ForEach(items) { item in
-                if let destination = destinationView(for: item) {
-                    NavigationLink {
-                        destination
-                    } label: {
-                        quickActionCard(item)
-                    }
-                    .buttonStyle(.plain)
-                } else {
+                Button {
+                    guard let route = route(for: item) else { return }
+                    router.open(route)
+                } label: {
                     quickActionCard(item)
                 }
+                .buttonStyle(.plain)
+                .disabled(route(for: item) == nil)
+                .opacity(route(for: item) == nil ? 0.5 : 1)
             }
         }
         .padding(.vertical, 4)
@@ -218,18 +218,18 @@ private struct ProfileQuickActionGrid: View {
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 
-    private func destinationView(for item: ProfileQuickAction) -> AnyView? {
+    private func route(for item: ProfileQuickAction) -> ProfileRoute? {
         guard authStore.activeAccount != nil else { return nil }
         switch item.destination {
         case .history:
-            return AnyView(HistoryListView(repository: repository))
+            return .history
         case .favorites:
             if let mid = authStore.activeAccount?.mid {
-                return AnyView(FavoriteFoldersView(repository: repository, mid: mid))
+                return .favorites(mid: mid)
             }
             return nil
         case .watchLater:
-            return AnyView(WatchLaterListView(repository: repository))
+            return .watchLater
         case nil:
             return nil
         }

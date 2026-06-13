@@ -84,6 +84,9 @@ private struct PhoneRootView: View {
             .navigationDestination(for: BiliVideo.self) { video in
                 VideoDetailView(video: video, repository: repository)
             }
+            .navigationDestination(for: ProfileRoute.self) { route in
+                profileRouteView(route, repository: repository)
+            }
         }
     }
 }
@@ -113,6 +116,9 @@ private struct PadRootView: View {
                     .navigationDestination(for: BiliVideo.self) { video in
                         VideoDetailView(video: video, repository: repository)
                     }
+                    .navigationDestination(for: ProfileRoute.self) { route in
+                        profileRouteView(route, repository: repository)
+                    }
             }
         }
     }
@@ -129,6 +135,18 @@ private struct PadRootView: View {
         case .profile:
             ProfileSettingsView(repository: repository)
         }
+    }
+}
+
+@ViewBuilder
+private func profileRouteView(_ route: ProfileRoute, repository: BiliPaiRepository) -> some View {
+    switch route {
+    case .history:
+        HistoryListView(repository: repository)
+    case .favorites(let mid):
+        FavoriteFoldersView(repository: repository, mid: mid)
+    case .watchLater:
+        WatchLaterListView(repository: repository)
     }
 }
 
