@@ -4,6 +4,7 @@ import Foundation
 
 final class BilibiliAPIClient {
     private let baseURL = URL(string: "https://api.bilibili.com")!
+    private let appBaseURL = URL(string: "https://app.bilibili.com")!
     private let liveBaseURL = URL(string: "https://api.live.bilibili.com")!
     private let session: URLSession
     private let decoder: JSONDecoder
@@ -40,6 +41,12 @@ final class BilibiliAPIClient {
     }
 
     func recommendedVideos(freshIndex: Int = 0) async throws -> [BiliVideo] {
+        if cookieProvider?() != nil {
+            // If the user is logged in, use the App API for optimized recommendations.
+            // This endpoint provides a more personalized feed based on user history.
+            return try await appRecommendedVideos()
+        }
+
         // The canonical path per the pskdje/bilibili-API-collect docs is
         // `/x/web-interface/wbi/index/top/feed/rcmd` (note the `wbi`
         // segment). The shorter non-wbi path is the legacy alias and
@@ -61,6 +68,24 @@ final class BilibiliAPIClient {
         )
         try payload.requireOK()
         return payload.value?.videos.map(\.model) ?? []
+    }
+
+    func appRecommendedVideos() async throws -> [BiliVideo] {
+        // App-side recommendation endpoint: https://app.bilibili.com/x/v2/feed/index
+        // This provides a high-quality feed similar to the mobile app when logged in.
+        let payload: APIResponse<AppFeedPayload> = try await get(
+            baseURL: appBaseURL,
+            path: "/x/v2/feed/index",
+            queryItems: [
+                URLQueryItem(name: "mobi_app", value: "iphone"),
+                URLQueryItem(name: "platform", value: "ios"),
+                URLQueryItem(name: "idx", value: "\(Int(Date().timeIntervalSince1970))"),
+                URLQueryItem(name: "pull", value: "true"),
+                URLQueryItem(name: "login_event", value: "0")
+            ]
+        )
+        try payload.requireOK()
+        return payload.value?.items.compactMap(\.model) ?? []
     }
 
     func popularVideos(page: Int = 1) async throws -> [BiliVideo] {
@@ -399,8 +424,15 @@ final class BilibiliAPIClient {
         //      leaves the device.
         var items = queryItems
         let nonce = UUID().uuidString
-        items.append(URLQueryItem(name: "_t", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
-        items.append(URLQueryItem(name: "_r", value: nonce))
+
+        // Only add cache-busting if not already present in queryItems
+        if !items.contains(where: { $0.name == "_t" }) {
+            items.append(URLQueryItem(name: "_t", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
+        }
+        if !items.contains(where: { $0.name == "_r" }) {
+            items.append(URLQueryItem(name: "_r", value: nonce))
+        }
+
         if signWithWBI {
             items = try await wbiSigner.sign(queryItems: items, using: session)
         }
@@ -420,6 +452,15 @@ final class BilibiliAPIClient {
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
         request.setValue("Mozilla/5.0 BiliPai-iOS/0.1", forHTTPHeaderField: "User-Agent")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+        // Specialized headers for App API
+        if baseURL.host?.contains("app.bilibili.com") == true {
+            request.setValue("iphone", forHTTPHeaderField: "mobi_app")
+            request.setValue("ios", forHTTPHeaderField: "platform")
+            // The app API is stricter about UA.
+            request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
+        }
+
         // Inject the active account's cookies. The `comments` endpoint
         // returns `code: -352 风控` without a SESSDATA cookie, so this
         // is the line that makes the comments list load for signed-in
@@ -646,6 +687,59 @@ private struct WeeklySeriesListPayload: Decodable {
 
 private struct WeeklySeriesPeriod: Decodable {
     let number: Int
+}
+
+private struct AppFeedPayload: Decodable {
+    let items: [AppFeedItemDTO]
+}
+
+private struct AppFeedItemDTO: Decodable {
+    let cardType: String
+    let cardGoto: String
+    let param: String
+    let cover: URL?
+    let title: String
+    let uri: String
+    let playerArgs: AppPlayerArgs?
+    let descButton: AppDescButton?
+
+    enum CodingKeys: String, CodingKey {
+        case cardType = "card_type"
+        case cardGoto = "card_goto"
+        case param
+        case cover
+        case title
+        case uri
+        case playerArgs = "player_args"
+        case descButton = "desc_button"
+    }
+
+    struct AppPlayerArgs: Decodable {
+        let aid: Int
+        let cid: Int
+        let duration: Int
+    }
+
+    struct AppDescButton: Decodable {
+        let text: String
+    }
+
+    var model: BiliVideo? {
+        guard cardGoto == "av" else { return nil }
+        return BiliVideo(
+            bvid: "", // App API doesn't always provide bvid directly, we'll rely on aid
+            aid: playerArgs?.aid ?? Int(param) ?? 0,
+            cid: playerArgs?.cid ?? 0,
+            title: title,
+            ownerName: descButton?.text ?? "Bilibili",
+            coverURL: cover,
+            duration: playerArgs?.duration ?? 0,
+            viewCount: 0, // Not provided in Int form in this DTO
+            danmakuCount: 0,
+            likeCount: 0,
+            description: ""
+        )
+    }
 }
 
 private struct VideoDTO: Decodable {
