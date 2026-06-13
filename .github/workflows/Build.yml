@@ -2,6 +2,9 @@ name: Build
 
 on:
   push:
+    paths-ignore:
+      - 'ios/**'
+      - '.github/workflows/ios-unsigned-ipa.yml'
   workflow_dispatch:
     inputs:
       build_type:
