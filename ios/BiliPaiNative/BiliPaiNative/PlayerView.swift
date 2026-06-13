@@ -11,29 +11,17 @@ import UIKit
 /// `VideoPlayer` only exposes a fullscreen button when the parent context
 /// allows it. Wrapping the controller directly also gives us a hook for
 /// the custom fullscreen overlay rendered on top of the inline view.
-struct PlayerView: UIViewControllerRepresentable {
-    let player: AVPlayer
-    var allowsPictureInPicture: Bool = true
+/// FFmpeg-based player view.
+struct PlayerView: View {
+    let playback: BiliPlayback
+    @State private var isPlaying = true
 
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = player
-        controller.allowsPictureInPicturePlayback = allowsPictureInPicture
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.showsPlaybackControls = true
-        controller.videoGravity = .resizeAspect
-        controller.entersFullScreenWhenPlaybackBegins = false
-        controller.exitsFullScreenWhenPlaybackEnds = false
-        // The native fullscreen button still works on tap, but we also surface
-        // our own button so the affordance is obvious.
-        controller.allowsVideoFrameAnalysis = false
-        return controller
-    }
-
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
-        if controller.player !== player {
-            controller.player = player
-        }
+    var body: some View {
+        VLCPlayerView(
+            url: playback.videoURL,
+            referer: "https://www.bilibili.com",
+            isPlaying: $isPlaying
+        )
     }
 }
 
