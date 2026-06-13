@@ -11,111 +11,119 @@ struct HomeView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 14) {
-                    searchBar
-                    categoryStrip
-                    if model.category == .popular {
-                        popularSubCategoryStrip
-                    }
-                    if let error = model.errorMessage {
-                        VStack(spacing: 10) {
-                            ErrorBanner(message: error)
-                            Button {
-                                model.showBundledFallback(repository: repository)
-                            } label: {
-                                Label("查看离线样例", systemImage: "wifi.slash")
-                                    .font(.caption.weight(.semibold))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+            feedContent(scrollProxy: proxy)
+                .background(BiliPaiTheme.pageBackground)
+                .navigationTitle("BiliPai")
+                .toolbar {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            router.open(.dynamic)
+                        } label: {
+                            Image(systemName: "bell")
                         }
-                    }
-                    if model.isShowingBundledFallback {
-                        HomeOfflineBanner {
-                            Task {
-                                await model.load(repository: repository)
-                                withAnimation(.easeOut(duration: 0.25)) {
-                                    proxy.scrollTo("feedTop", anchor: .top)
-                                }
-                            }
+                        Button {
+                            router.open(.profile)
+                        } label: {
+                            Image(systemName: "person.crop.circle")
                         }
-                    }
-                    if model.isLoading && model.videos.isEmpty && model.liveRooms.isEmpty {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, minHeight: 180)
-                    } else if model.category == .live && !model.liveRooms.isEmpty {
-                        LazyVGrid(columns: columns, spacing: 16) {
-                            ForEach(model.liveRooms) { room in
-                                LiveRoomCard(room: room)
-                            }
-                        }
-                    } else if model.videos.isEmpty {
-                        HomeEmptyState(
-                            category: model.category,
-                            searchQuery: model.searchQuery,
-                            hasError: model.errorMessage != nil
-                        )
-                    } else {
-                        if model.category == .recommend {
-                            TodayWatchCard(videos: Array(model.videos.prefix(4)))
-                                .padding(.bottom, 4)
-                        }
-                        LazyVGrid(columns: columns, spacing: 18) {
-                            ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
-                                VideoCard(video: video) {
-                                    router.openVideo(video)
-                                }
-                                .onAppear {
-                                    triggerLoadMoreIfNeeded(currentIndex: index)
-                                }
-                            }
-                        }
-                        paginationFooter
                     }
                 }
-                .padding(16)
-                // Anchor the top of the feed so pull-to-refresh can scroll back.
-                Color.clear.frame(height: 0).id("feedTop")
-            }
-        }
-        .background(BiliPaiTheme.pageBackground)
-        .navigationTitle("BiliPai")
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    router.open(.dynamic)
-                } label: {
-                    Image(systemName: "bell")
+                .task {
+                    await model.load(repository: repository)
                 }
-                Button {
-                    router.open(.profile)
-                } label: {
-                    Image(systemName: "person.crop.circle")
+                .refreshable {
+                    await model.load(repository: repository)
+                    // Pull-to-refresh should snap back to the top of the new
+                    // batch — otherwise the user stays pinned at the old scroll
+                    // offset and only sees the new content if they scroll up.
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        proxy.scrollTo("feedTop", anchor: .top)
+                    }
+                }
+                .onChange(of: model.category) { _, _ in
+                    Task { await model.load(repository: repository) }
+                }
+                .onChange(of: model.popularSubCategory) { _, _ in
+                    guard model.category == .popular else { return }
+                    Task { await model.load(repository: repository) }
+                }
+                .onChange(of: router.pendingSearchQuery) { _, query in
+                    Task { await model.applyIntentSearch(query, repository: repository) }
+                }
+        }
+    }
+
+    /// The scrollable feed body. The `ScrollViewReader` lives in `body`
+    /// so the `proxy` it provides is in scope for the `.refreshable`
+    /// modifier, which needs to scroll back to the top of the feed.
+    @ViewBuilder
+    private func feedContent(scrollProxy proxy: ScrollViewProxy) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                searchBar
+                categoryStrip
+                if model.category == .popular {
+                    popularSubCategoryStrip
+                }
+                if let error = model.errorMessage {
+                    VStack(spacing: 10) {
+                        ErrorBanner(message: error)
+                        Button {
+                            model.showBundledFallback(repository: repository)
+                        } label: {
+                            Label("查看离线样例", systemImage: "wifi.slash")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+                if model.isShowingBundledFallback {
+                    HomeOfflineBanner {
+                        Task {
+                            await model.load(repository: repository)
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                proxy.scrollTo("feedTop", anchor: .top)
+                            }
+                        }
+                    }
+                }
+                if model.isLoading && model.videos.isEmpty && model.liveRooms.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                } else if model.category == .live && !model.liveRooms.isEmpty {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(model.liveRooms) { room in
+                            LiveRoomCard(room: room)
+                        }
+                    }
+                } else if model.videos.isEmpty {
+                    HomeEmptyState(
+                        category: model.category,
+                        searchQuery: model.searchQuery,
+                        hasError: model.errorMessage != nil
+                    )
+                } else {
+                    if model.category == .recommend {
+                        TodayWatchCard(videos: Array(model.videos.prefix(4)))
+                            .padding(.bottom, 4)
+                    }
+                    LazyVGrid(columns: columns, spacing: 18) {
+                        ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
+                            VideoCard(video: video) {
+                                router.openVideo(video)
+                            }
+                            .onAppear {
+                                triggerLoadMoreIfNeeded(currentIndex: index)
+                            }
+                        }
+                    }
+                    paginationFooter
                 }
             }
-        }
-        .task {
-            await model.load(repository: repository)
-        }
-        .refreshable {
-            await model.load(repository: repository)
-            // Pull-to-refresh should snap back to the top of the new
-            // batch — otherwise the user stays pinned at the old scroll
-            // offset and only sees the new content if they scroll up.
-            withAnimation(.easeOut(duration: 0.25)) {
-                proxy.scrollTo("feedTop", anchor: .top)
-            }
-        }
-        .onChange(of: model.category) { _, _ in
-            Task { await model.load(repository: repository) }
-        }
-        .onChange(of: model.popularSubCategory) { _, _ in
-            guard model.category == .popular else { return }
-            Task { await model.load(repository: repository) }
-        }
-        .onChange(of: router.pendingSearchQuery) { _, query in
-            Task { await model.applyIntentSearch(query, repository: repository) }
+            .padding(16)
+            // Anchor the top of the feed so pull-to-refresh can scroll back.
+            Color.clear.frame(height: 0).id("feedTop")
         }
     }
 

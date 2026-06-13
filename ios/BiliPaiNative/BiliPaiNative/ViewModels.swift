@@ -231,7 +231,9 @@ final class VideoDetailViewModel: ObservableObject {
                 guard let self else { return }
                 // AVPlayer will normally resume from a stall on its own; this
                 // just keeps the spinner from getting stuck if it does not.
-                self.player?.play()
+                Task { @MainActor in
+                    self.player?.play()
+                }
             }
 
             self.player = player
