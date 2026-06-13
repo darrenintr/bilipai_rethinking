@@ -19,12 +19,14 @@ final class HomeViewModel: ObservableObject {
     @Published var isShowingBundledFallback = false
 
     private var page = 1
+    private var requestGeneration: UInt64 = 0
     /// The maximum number of items the upstream endpoint will return in one
     /// request. Once we get fewer than this many results we know we are at
     /// the end of the feed.
     private let pageSize = 20
 
     func load(repository: BiliPaiRepository) async {
+        let requestID = beginNewRequestGeneration()
         page = 1
         isLoading = true
         isLoadingMore = false
@@ -35,7 +37,8 @@ final class HomeViewModel: ObservableObject {
         // = true even after the live API returns, and the user would see
         // the bundled list for a beat before the new data overwrites it.
         isShowingBundledFallback = false
-        await loadPage(repository: repository, replacing: true)
+        await loadPage(repository: repository, replacing: true, requestID: requestID)
+        guard isCurrentRequest(requestID) else { return }
         isLoading = false
     }
 
@@ -48,7 +51,9 @@ final class HomeViewModel: ObservableObject {
         guard categorySupportsPagination else { return }
         isLoadingMore = true
         page += 1
-        await loadPage(repository: repository, replacing: false)
+        let requestID = requestGeneration
+        await loadPage(repository: repository, replacing: false, requestID: requestID)
+        guard isCurrentRequest(requestID) else { return }
         isLoadingMore = false
     }
 
@@ -64,7 +69,9 @@ final class HomeViewModel: ObservableObject {
         guard category != .follow, category != .live else { return }
         isLoadingMore = true
         page += 1
-        await loadPage(repository: repository, replacing: false)
+        let requestID = requestGeneration
+        await loadPage(repository: repository, replacing: false, requestID: requestID)
+        guard isCurrentRequest(requestID) else { return }
         isLoadingMore = false
     }
 
@@ -99,16 +106,23 @@ final class HomeViewModel: ObservableObject {
         await load(repository: repository)
     }
 
-    private func loadPage(repository: BiliPaiRepository, replacing: Bool) async {
+    private func loadPage(
+        repository: BiliPaiRepository,
+        replacing: Bool,
+        requestID: UInt64
+    ) async {
         do {
             if category == .follow {
+                guard isCurrentRequest(requestID) else { return }
                 videos = []
                 liveRooms = []
                 errorMessage = "登录后查看关注动态、关注直播和个人推荐。"
                 hasMore = false
                 isShowingBundledFallback = false
             } else if category == .live {
-                liveRooms = try await repository.liveRooms()
+                let rooms = try await repository.liveRooms()
+                guard isCurrentRequest(requestID) else { return }
+                liveRooms = rooms
                 videos = []
                 hasMore = false
                 isShowingBundledFallback = false
@@ -119,6 +133,7 @@ final class HomeViewModel: ObservableObject {
                     popularSubCategory: popularSubCategory,
                     page: page
                 )
+                guard isCurrentRequest(requestID) else { return }
                 if replacing {
                     videos = next
                 } else {
@@ -145,6 +160,7 @@ final class HomeViewModel: ObservableObject {
                     : categorySupportsPagination && next.count >= pageSize
             }
         } catch {
+            guard isCurrentRequest(requestID) else { return }
             // Clear any stale `videos` so the user does not see a previous
             // batch (e.g. the bundled offline sample set) sitting under
             // the error banner. Without this, once the user tapped
@@ -164,6 +180,15 @@ final class HomeViewModel: ObservableObject {
                 errorMessage = "加载更多失败：\(error.localizedDescription)"
             }
         }
+    }
+
+    private func beginNewRequestGeneration() -> UInt64 {
+        requestGeneration &+= 1
+        return requestGeneration
+    }
+
+    private func isCurrentRequest(_ requestID: UInt64) -> Bool {
+        requestID == requestGeneration
     }
 }
 
