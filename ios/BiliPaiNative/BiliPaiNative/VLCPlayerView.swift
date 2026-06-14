@@ -150,7 +150,7 @@ final class PlayerController: ObservableObject {
         let previousView = attachedView
         let previousSurface = attachedSurface
         let isSurfaceSwap = previousView != nil && (previousView !== view || previousSurface != surface)
-        let shouldResumeAfterSwap = isSurfaceSwap && (mediaPlayer.isPlaying || isPlaying)
+        let shouldResumeAfterSwap = isSurfaceSwap && mediaPlayer.isPlaying
 
         diagLog(.playback, "Attaching drawable", details: [
             "surface": surface.rawValue,
