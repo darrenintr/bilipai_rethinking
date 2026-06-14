@@ -28,6 +28,24 @@ struct BiliPaiNativeApp: App {
                     repository.apiClient.cookieProvider = { [weak authStore] in
                         authStore?.activeAccount?.cookieHeader
                     }
+                    // The App API uses `buvid3` + `mid` to return a
+                    // personalised feed. The closure is re-evaluated on
+                    // every recommend call, so switching accounts in
+                    // `ProfileSettingsView` immediately takes effect.
+                    repository.apiClient.appConfigProvider = { [weak authStore] in
+                        guard let account = authStore?.activeAccount else { return nil }
+                        return BiliAppConfig(buvid3: account.buvid3, mid: account.mid)
+                    }
+                }
+                // Invalidate the follow-feed's cached followings set
+                // whenever the active account changes. Without this,
+                // switching to a new account would still apply the
+                // previous account's follow filter on the next load
+                // of the 关注 tab.
+                .onReceive(authStore.$activeAccount) { newAccount in
+                    if newAccount != nil {
+                        repository.invalidateFollowingsCache()
+                    }
                 }
         }
     }

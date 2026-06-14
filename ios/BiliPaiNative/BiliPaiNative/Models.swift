@@ -98,6 +98,80 @@ struct BiliLiveRoom: Identifiable, Hashable {
     let viewerCount: Int
 }
 
+/// Per-account overrides the App API needs to return a personalised
+/// recommend list. Populated by `BiliPaiNativeApp.body.onAppear` from
+/// the live `AuthStore` so that switching accounts in
+/// `ProfileSettingsView` immediately takes effect on the next refresh.
+///
+/// `buvid3` is the device fingerprint the upstream uses to recognise
+/// the client. When empty the App API gates the personalised response
+/// and falls back to anonymous trending, which is why the iOS app
+/// looked like 热门 when signed in.
+///
+/// `mid` is the active user's Bilibili ID. Sending it triggers the
+/// personalised re-ranking; omitting it keeps the request valid but
+/// downgrades the response to the anonymous flavour.
+struct BiliAppConfig: Hashable {
+    let buvid3: String?
+    let mid: Int64
+
+    var isPersonalised: Bool {
+        mid > 0 && (buvid3?.isEmpty == false)
+    }
+}
+
+/// `BiliLiveStreamFormat` describes the streaming protocol a live
+/// room exposes. Bilibili rooms typically offer both an FLV stream
+/// (lowest latency, FFmpeg friendly) and an HLS stream (works with
+/// stock players). The player toggle in `LivePlayerView` flips
+/// between them.
+enum BiliLiveStreamFormat: String, Codable, CaseIterable, Identifiable {
+    case hls
+    case flv
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .hls: return "HLS"
+        case .flv: return "FLV"
+        }
+    }
+}
+
+/// Stream URLs for a single live room, keyed by format. The HLS slot
+/// may be absent on rooms whose CDN only exposes FLV, in which case
+/// the player disables the toggle for that format.
+struct BiliLivePlayback: Hashable {
+    let roomID: Int
+    let title: String
+    let hostName: String
+    let streams: [BiliLiveStreamFormat: URL]
+    let referer: URL
+}
+
+/// Kinds of dynamic card the follow feed surfaces. The HTTP payload is
+/// the same for all of them — they differ only by which `major.*`
+/// module the upstream populates. The UI uses this enum to pick the
+/// right card chrome (video card vs. 专栏 text vs. live-started banner
+/// vs.转发 reposting the original post).
+enum DynamicPostKind: String, Codable, Hashable {
+    case video
+    case article
+    case bangumi
+    case liveStarted = "live_started"
+    case forward
+
+    /// Best-effort guess based on whether the upstream payload
+    /// populated an attached video. Forwarded posts keep the
+    /// original attached video, so the follow tab can still render
+    /// the attached content inline.
+    static func infer(attachedVideo: BiliVideo?) -> DynamicPostKind {
+        guard attachedVideo != nil else { return .forward }
+        return .video
+    }
+}
+
 struct BiliComment: Identifiable, Hashable {
     let id: Int
     let authorName: String
@@ -122,12 +196,36 @@ struct DynamicPost: Identifiable, Hashable {
     let text: String
     let timeLabel: String
     let attachedVideo: BiliVideo?
+    /// Best-effort classification of the card shape. The follow-feed
+    /// DTO exposes the same `items[]` envelope for videos, 专栏, 番剧,
+    /// 直播开播 and 转发, so the decoder does not always know which
+    /// one the upstream populated. We infer the kind from which
+    /// `major.*` module the payload carries and fall back to `.video`
+    /// when an attached video is present. The UI uses this to pick the
+    /// right card chrome — a 专栏 post has no thumbnail and should
+    /// render as a long text block, a 直播开播 card should flash a
+    /// "LIVE" badge, etc.
+    var kind: DynamicPostKind {
+        DynamicPostKind.infer(attachedVideo: attachedVideo)
+    }
 }
 
 struct DynamicFeedPage: Hashable {
     let items: [DynamicPost]
     let nextOffset: String
     let hasMore: Bool
+    /// True when the request could not be served because the user is
+    /// signed out. Used by `HomeView` to render the existing "登录后
+    /// 查看关注动态" prompt without distinguishing empty-state from
+    /// signed-out-state in the view layer.
+    let needsLogin: Bool
+
+    init(items: [DynamicPost], nextOffset: String, hasMore: Bool, needsLogin: Bool = false) {
+        self.items = items
+        self.nextOffset = nextOffset
+        self.hasMore = hasMore
+        self.needsLogin = needsLogin
+    }
 }
 
 struct HistoryCursorState: Hashable {

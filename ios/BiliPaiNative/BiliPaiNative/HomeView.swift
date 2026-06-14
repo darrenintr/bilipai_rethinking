@@ -4,9 +4,15 @@ struct HomeView: View {
     let repository: BiliPaiRepository
 
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var model = HomeViewModel()
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+
+    /// Resolved on every call so account switches in
+    /// `ProfileSettingsView` are reflected in the follow-feed filter
+    /// on the next refresh — the view model never caches it.
+    private var accountMid: Int64 { authStore.activeAccount?.mid ?? 0 }
 
     private var columns: [GridItem] {
         let minimumWidth: CGFloat = horizontalSizeClass == .regular ? 220 : 172
@@ -35,24 +41,24 @@ struct HomeView: View {
                 }
                 .task {
                     if model.videos.isEmpty && model.liveRooms.isEmpty {
-                        await model.load(repository: repository)
+                        await model.load(repository: repository, accountMid: accountMid)
                     }
                 }
                 .onChange(of: model.category) { _, _ in
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("feedTop", anchor: .top)
                     }
-                    Task { await model.load(repository: repository) }
+                    Task { await model.load(repository: repository, accountMid: accountMid) }
                 }
                 .onChange(of: model.popularSubCategory) { _, _ in
                     guard model.category == .popular else { return }
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("feedTop", anchor: .top)
                     }
-                    Task { await model.load(repository: repository) }
+                    Task { await model.load(repository: repository, accountMid: accountMid) }
                 }
                 .onChange(of: router.pendingSearchQuery) { _, query in
-                    Task { await model.applyIntentSearch(query, repository: repository) }
+                    Task { await model.applyIntentSearch(query, repository: repository, accountMid: accountMid) }
                 }
         }
     }
@@ -89,14 +95,14 @@ struct HomeView: View {
                 if model.isShowingBundledFallback {
                     HomeOfflineBanner {
                         Task {
-                            await model.load(repository: repository)
+                            await model.load(repository: repository, accountMid: accountMid)
                             withAnimation(.easeOut(duration: 0.25)) {
                                 proxy.scrollTo("feedTop", anchor: .top)
                             }
                         }
                     }
                 }
-                if model.isLoading && model.videos.isEmpty && model.liveRooms.isEmpty {
+                if model.isLoading && model.videos.isEmpty && model.liveRooms.isEmpty && model.dynamicItems.isEmpty {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 180)
                 } else if model.category == .live && !model.liveRooms.isEmpty {
@@ -105,6 +111,8 @@ struct HomeView: View {
                             LiveRoomCard(room: room)
                         }
                     }
+                } else if model.category == .follow {
+                    DynamicFeedList(model: model, repository: repository)
                 } else if model.videos.isEmpty {
                     HomeEmptyState(
                         category: model.category,
@@ -143,7 +151,7 @@ struct HomeView: View {
                 .submitLabel(.search)
                 .onSubmit {
                     model.category = .search
-                    Task { await model.load(repository: repository) }
+                    Task { await model.load(repository: repository, accountMid: accountMid) }
                 }
             if !model.searchQuery.isEmpty {
                 Button {
@@ -215,7 +223,7 @@ struct HomeView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 8)
-        } else if model.videos.count > 0 && model.category != .live && model.category != .follow {
+        } else if model.videos.count > 0 && model.category != .live {
             // Replace the "— 没有更多了 —" caption with a real action. The
             // user can either pull-to-refresh, tap the "换一批" button to
             // re-request the next page (works when the upstream endpoint
@@ -229,7 +237,7 @@ struct HomeView: View {
                 }
                 HStack(spacing: 10) {
                     Button {
-                        Task { await model.load(repository: repository) }
+                        Task { await model.load(repository: repository, accountMid: accountMid) }
                     } label: {
                         Label("刷新", systemImage: "arrow.clockwise")
                             .font(.caption.weight(.semibold))
@@ -238,7 +246,7 @@ struct HomeView: View {
                     .controlSize(.small)
 
                     Button {
-                        Task { await model.loadNextBatch(repository: repository) }
+                        Task { await model.loadNextBatch(repository: repository, accountMid: accountMid) }
                     } label: {
                         Label("换一批", systemImage: "infinity")
                             .font(.caption.weight(.semibold))
@@ -247,6 +255,17 @@ struct HomeView: View {
                     .controlSize(.small)
                 }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 12)
+        } else if model.category == .follow && model.dynamicHasMore && !model.dynamicItems.isEmpty {
+            Button {
+                Task { await model.loadMore(repository: repository, accountMid: accountMid) }
+            } label: {
+                Label("查看更多关注动态", systemImage: "arrow.down.circle")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .frame(maxWidth: .infinity)
             .padding(.top, 12)
         }
@@ -258,7 +277,7 @@ struct HomeView: View {
         // empty for a moment; anything looser wastes requests.
         let threshold = max(0, model.videos.count - 4)
         guard currentIndex >= threshold else { return }
-        Task { await model.loadMore(repository: repository) }
+        Task { await model.loadMore(repository: repository, accountMid: accountMid) }
     }
 }
 
@@ -322,7 +341,7 @@ private struct HomeEmptyState: View {
     private var description: String {
         if hasError { return "下拉重试 Bilibili 公共内容源。" }
         if category == .follow {
-            return "Android 版这里显示关注动态；iOS 端需要接入账号 Cookie 后才能 1:1 读取。"
+            return "登录账号后查看关注 UP 主的视频、专栏、番剧和直播开播动态。"
         }
         if category == .live {
             return "下拉刷新 Bilibili 公共直播列表。"
@@ -331,6 +350,108 @@ private struct HomeEmptyState: View {
             return "输入关键词后加载 Bilibili 公共搜索结果。"
         }
         return "换个关键词，或切换到热门、排行榜、分区内容。"
+    }
+}
+
+/// Follow-tab renderer. Each card reuses the chrome shape from
+/// `DynamicFeedView` (avatar row + text + optional attached video)
+/// so the visual language matches the standalone 动态 tab. The list
+/// also pre-fetches the next offset page when the user approaches
+/// the bottom — same trigger window as `DynamicFeedView`.
+private struct DynamicFeedList: View {
+    let model: HomeViewModel
+    let repository: BiliPaiRepository
+    @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
+
+    var body: some View {
+        LazyVStack(spacing: 14) {
+            ForEach(Array(model.dynamicItems.enumerated()), id: \.element.id) { index, post in
+                DynamicPostCard(post: post)
+                    .onAppear {
+                        if index >= max(0, model.dynamicItems.count - 5) {
+                            Task { await model.loadMore(repository: repository, accountMid: authStore.activeAccount?.mid ?? 0) }
+                        }
+                    }
+            }
+            if model.isLoadingMore {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            }
+        }
+    }
+}
+
+/// Card chrome for a single dynamic post. Mirrors the rows in
+/// `DynamicFeedView` so the follow tab and the standalone 动态 tab
+/// render the same shapes — same avatar, same text, same attached
+/// `VideoCard`. Kept private to this file because the public
+/// `DynamicFeedView` body inlines its own copy; refactoring both to
+/// share this type is the next cleanup pass once we know which shapes
+/// the follow tab needs.
+private struct DynamicPostCard: View {
+    let post: DynamicPost
+    @EnvironmentObject private var router: AppRouter
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                avatar
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(post.author)
+                        .font(.headline)
+                    HStack(spacing: 6) {
+                        Text(post.timeLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if post.kind == .liveStarted {
+                            Text("· 开播")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(BiliPaiTheme.biliPink)
+                        } else if post.kind == .article {
+                            Text("· 专栏")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        } else if post.kind == .forward {
+                            Text("· 转发")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Spacer()
+            }
+            if !post.text.isEmpty {
+                Text(post.text)
+                    .font(.subheadline)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let video = post.attachedVideo {
+                VideoCard(video: video) {
+                    router.openVideo(video)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let url = post.authorAvatarURL {
+            CoverImage(url: url)
+                .frame(width: 42, height: 42)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(BiliPaiTheme.biliPink.opacity(0.18))
+                .frame(width: 42, height: 42)
+                .overlay(Text(String(post.author.prefix(1))).font(.headline))
+        }
     }
 }
 

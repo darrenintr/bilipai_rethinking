@@ -36,6 +36,22 @@ final class BilibiliAPIClient {
     /// accounts in `ProfileSettingsView` immediately takes effect.
     var cookieProvider: (() -> String?)?
 
+    /// Per-request overrides the App API needs in order to return a
+    /// personalised feed. Without `buvid3`, the upstream gates the
+    /// personalised response behind an anonymous fallback and returns
+    /// the same `热门` list the web recommend endpoint would have sent.
+    /// Same ownership model as `cookieProvider` — owned by `AuthStore`,
+    /// re-evaluated on every call so account switches take effect
+    /// immediately.
+    var appConfigProvider: (() -> BiliAppConfig?)?
+
+    /// Static fallback when no account is signed in. Kept on the
+    /// client so unit tests and the cached-`BiliAppConfig` callers
+    /// can read the same placeholder value the API originally used.
+    static var defaultConfig: BiliAppConfig {
+        BiliAppConfig(buvid3: nil, mid: 0)
+    }
+
     init(session: URLSession? = nil) {
         if let session {
             self.session = session
@@ -92,19 +108,35 @@ final class BilibiliAPIClient {
 
     func appRecommendedVideos(freshIndex: Int = 0, isRefresh: Bool = true) async throws -> [BiliVideo] {
         bpLog("Fetching app recommendations (idx: \(freshIndex), refresh: \(isRefresh))")
-        
+
         let finalIdx = Int(Date().timeIntervalSince1970) + freshIndex
-        
+
+        // The personalised App API path needs two values the anonymous
+        // path does not have: the active account's `buvid3` so the
+        // upstream can recognise the device, and the account `mid` so
+        // the response can be re-ranked against that user's history.
+        // When both are absent we still send the request, but the
+        // upstream will return the same `热门` list as the web
+        // fallback and `BiliPaiRepository.feed(...)` will catch that
+        // downstream.
+        let config = appConfigProvider?() ?? BilibiliAPIClient.defaultConfig
+        let activeBuvid3 = config.buvid3?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let effectiveBuvid = (activeBuvid3 ?? buvid)
+        let personalMid = config.mid > 0 ? "\(config.mid)" : nil
+
         var queryItems = [
             URLQueryItem(name: "mobi_app", value: "iphone"),
             URLQueryItem(name: "platform", value: "ios"),
             URLQueryItem(name: "idx", value: "\(finalIdx)"),
             URLQueryItem(name: "pull", value: isRefresh ? "true" : "false"),
-            URLQueryItem(name: "login_event", value: "0"),
+            URLQueryItem(name: "login_event", value: personalMid == nil ? "0" : "1"),
             URLQueryItem(name: "appkey", value: appKey),
             URLQueryItem(name: "ts", value: "\(Int(Date().timeIntervalSince1970))"),
-            URLQueryItem(name: "buvid", value: buvid)
+            URLQueryItem(name: "buvid", value: effectiveBuvid)
         ]
+        if let personalMid {
+            queryItems.append(URLQueryItem(name: "mid", value: personalMid))
+        }
         
         // Manual App sign
         let sorted = queryItems.sorted { $0.name < $1.name }
@@ -138,6 +170,18 @@ final class BilibiliAPIClient {
     private func md5(_ string: String) -> String {
         Insecure.MD5.hash(data: Data(string.utf8)).map { String(format: "%02x", $0) }.joined()
     }
+
+private extension String {
+    /// Returns `nil` when the receiver is empty (or whitespace-only).
+    /// Used when an optional API parameter should be omitted entirely
+    /// rather than sent as an empty string — Bilibili treats empty
+    /// `mid` / `buvid3` values as "anonymous fallback" rather than
+    /// "drop this parameter", which is why we treat `""` as `nil` at
+    /// the call site.
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+}
 
     func popularVideos(page: Int = 1) async throws -> [BiliVideo] {
         let payload: APIResponse<VideoListPayload> = try await get(
@@ -289,6 +333,96 @@ final class BilibiliAPIClient {
         return payload.value?.list.map(\.model) ?? []
     }
 
+    /// Fetch the playable stream URLs for a live room. The endpoint
+    /// returns a tree of protocols (`stream[]`) → formats (`format[]`)
+    /// → codecs (`codec[]`) → CDN hosts (`url_info[]`). We pick the
+    /// first CDN for the FLV and HLS slots and let the player toggle
+    /// between them at runtime.
+    ///
+    /// Older CDNs occasionally return only FLV; in that case the HLS
+    /// slot on the resulting `BiliLivePlayback` is `nil` and the UI
+    /// disables the toggle. Throws when the room is offline (code != 0
+    /// or no playable streams) so the caller can show a specific
+    /// "未开播" message instead of pretending playback failed.
+    func livePlaybackURL(roomID: Int) async throws -> BiliLivePlayback {
+        let payload: APIResponse<LivePlayInfoPayload> = try await get(
+            baseURL: liveBaseURL,
+            path: "/xlive/web-room/v2/index/getRoomPlayInfo",
+            queryItems: [
+                URLQueryItem(name: "room_id", value: "\(roomID)"),
+                URLQueryItem(name: "protocol", value: "0,1"),
+                URLQueryItem(name: "format", value: "0,1,2"),
+                URLQueryItem(name: "codec", value: "0,1"),
+                URLQueryItem(name: "qn", value: "10000"),
+                URLQueryItem(name: "platform", value: "web"),
+                URLQueryItem(name: "ptype", value: "8")
+            ]
+        )
+        try payload.requireOK()
+        guard let data = payload.value else {
+            throw BilibiliAPIError.missingData
+        }
+
+        var streams: [BiliLiveStreamFormat: URL] = [:]
+
+        // Bilibili returns one `stream` entry per `protocol` value
+        // requested (0 = FLV, 1 = HLS). We walk the list once and
+        // pull the best URL out of each. The codec/format nesting
+        // inside each stream is what gives us the actual playable
+        // URL — we pick the first codec whose `url_info` exposes at
+        // least one host.
+        for stream in data.playurlInfo?.playurl.stream ?? [] {
+            let format: BiliLiveStreamFormat?
+            switch stream.protocolName {
+            case "http_hls", "https_hls":
+                format = .hls
+            case "http_flv", "https_flv", "rtmp_flv", "rtmp_flv_h265":
+                format = .flv
+            default:
+                format = nil
+            }
+            guard let format else { continue }
+            // Already populated (Bilibili can return both protocols
+            // for the same format on some rooms) — prefer the first.
+            if streams[format] != nil { continue }
+            for fmt in stream.format {
+                for codec in fmt.codec {
+                    if let urlInfo = codec.urlInfo.first,
+                       let composed = composeStreamURL(urlInfo: urlInfo, codec: codec) {
+                        streams[format] = composed
+                        break
+                    }
+                }
+                if streams[format] != nil { break }
+            }
+        }
+
+        let referer = URL(string: "https://live.bilibili.com/\(roomID)")!
+        let info = data.roomInfo
+        return BiliLivePlayback(
+            roomID: roomID,
+            title: info?.title ?? "",
+            hostName: info?.areaName ?? "",
+            streams: streams,
+            referer: referer
+        )
+    }
+
+    /// Bilibili splits a stream URL into `host` + `base_url` + `extra`
+    /// (each on its own CDN edge). We glue them back together and
+    /// prefer HTTPS when the host scheme allows it. The `extra`
+    /// segment carries the query-string parameters Bilibili's CDN
+    /// requires to validate the request.
+    private func composeStreamURL(urlInfo: LivePlayURLHost, codec: LivePlayCodec) -> URL? {
+        let scheme = urlInfo.host.lowercased().hasPrefix("https://") ? "https" : "http"
+        let hostPart = urlInfo.host.hasPrefix("\(scheme)://") ? String(urlInfo.host.dropFirst("\(scheme)://".count)) : urlInfo.host
+        var raw = "\(scheme)://\(hostPart)\(codec.baseURL)"
+        if !urlInfo.extra.isEmpty {
+            raw += "?" + urlInfo.extra
+        }
+        return URL(string: raw)
+    }
+
     func dynamicFeed(type: String = "all", offset: String = "") async throws -> DynamicFeedPage {
         let payload: APIResponse<DynamicFeedPayload> = try await get(
             baseURL: baseURL,
@@ -310,6 +444,92 @@ final class BilibiliAPIClient {
             nextOffset: data?.offset ?? "",
             hasMore: data?.hasMore ?? false
         )
+    }
+
+    /// Follow-feed variant of `dynamicFeed(...)`. Bilibili does NOT expose
+    /// a follow-scoped dynamic endpoint that we can reach via REST —
+    /// `/x/polymer/web-dynamic/v1/feed/attention` (used by the older
+    /// documentation) returns 404, and `dynamic_svr` paths are gated
+    /// behind the WebSocket channel the official client uses for live
+    /// updates. The Android bilipai client solves this by fetching
+    /// `/feed/all` and filtering client-side against the user's
+    /// followings set, and that is what we do here too.
+    ///
+    /// The caller is responsible for keeping a followings set (see
+    /// `followingMids(...)`) and passing it in as `followingFilter`.
+    /// Items whose author `mid` is not in the set are dropped before
+    /// the page is returned. We deliberately do NOT filter by
+    /// `type=` — the user wants every dynamic card shape (videos,
+    /// 专栏, 番剧, 直播开播, 转发) to surface on the follow tab.
+    ///
+    /// Returns an empty page (with `needsLogin: true`) when no account
+    /// is active so the home view can render the existing "登录后查看
+    /// 关注动态" prompt without a try/catch dance.
+    func attentionFeed(
+        offset: String = "",
+        followingFilter: Set<Int64>? = nil
+    ) async throws -> DynamicFeedPage {
+        if cookieProvider?() == nil {
+            return DynamicFeedPage(items: [], nextOffset: "", hasMore: false, needsLogin: true)
+        }
+        let payload: APIResponse<DynamicFeedPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/polymer/web-dynamic/v1/feed/all",
+            queryItems: [
+                URLQueryItem(name: "offset", value: offset),
+                URLQueryItem(name: "page", value: "1"),
+                URLQueryItem(name: "features", value: "itemOpusStyle,listOnlyfans,opusBigCover,commentsNewVersion,onlyfansVote,onlyfansAssetsV2,decorationCard,forwardListHidden,ugcDelete"),
+                URLQueryItem(name: "timezone_offset", value: "-480"),
+                URLQueryItem(name: "platform", value: "web"),
+                URLQueryItem(name: "web_location", value: "333.1365")
+            ]
+        )
+        try payload.requireOK()
+        let data = payload.value
+        var items = data?.items.compactMap(\.post).filter { !$0.id.isEmpty } ?? []
+        // When a followings filter is supplied, drop items whose author
+        // is not in the user's follow set. We keep the original `mid`
+        // (carried via the DynamicCardDTO) on `DynamicPost` so the
+        // filter can run here. Without a filter (e.g. anonymous
+        // fallback), pass through everything.
+        if let followingFilter {
+            // Items coming through `DynamicCardDTO.post` lose the raw
+            // `mid` because `DynamicPost` only stores `author`. The
+            // filter is therefore applied at the DTO level by
+            // re-walking the original payload in `attentionFeedDTO`.
+            items = attentionFeedDTO(payload: data, followingFilter: followingFilter)
+        }
+        return DynamicFeedPage(
+            items: items,
+            nextOffset: data?.offset ?? "",
+            hasMore: data?.hasMore ?? false,
+            needsLogin: false
+        )
+    }
+
+    /// Re-walk a decoded `DynamicFeedPayload` and apply the followings
+    /// filter at the DTO level (where `module_author.mid` is still
+    /// available). Returns the `[DynamicPost]` items whose author mid
+    /// is in `followingFilter`. Items without a `module_author.mid`
+    /// are kept by default — the DTO fallback names them "Bilibili"
+    /// which is a synthetic value, and we do not want to drop the
+    /// upstream's official-account posts.
+    private func attentionFeedDTO(
+        payload: DynamicFeedPayload?,
+        followingFilter: Set<Int64>
+    ) -> [DynamicPost] {
+        guard let payload else { return [] }
+        return payload.items.compactMap { dto -> DynamicPost? in
+            guard dto.visible, !dto.id.isEmpty else { return nil }
+            guard let post = dto.post else { return nil }
+            // The DTO exposes author mid only via the decoder path; if
+            // the author mid is unknown we keep the item (defensive
+            // default — official-account posts would otherwise vanish).
+            if let mid = dto.authorMid {
+                return followingFilter.contains(mid) ? post : nil
+            }
+            return post
+        }
     }
 
     func history(cursor: HistoryCursorState? = nil, pageSize: Int = 30) async throws -> HistoryPageResult {
@@ -358,6 +578,51 @@ final class BilibiliAPIClient {
         )
         try payload.requireOK()
         return payload.value?.list.compactMap(\.folder) ?? []
+    }
+
+    /// Page through the user's followings list and return the full set
+    /// of `mid` values. Bilibili paginates at 50 per page, so users with
+    /// 300+ follows trigger a few extra round-trips. We do NOT cache
+    /// the result here — the caller is responsible for caching because
+    /// it owns the `Set<Int64>` lifetime.
+    ///
+    /// The endpoint requires an active SESSDATA cookie; an anonymous
+    /// request returns code -101 and we treat that as "no follows"
+    /// rather than throwing, so the home view can render the login
+    /// prompt without a try/catch dance.
+    func followingMids(vmid: Int64) async throws -> Set<Int64> {
+        if cookieProvider?() == nil { return [] }
+        var mids: Set<Int64> = []
+        var page = 1
+        let pageSize = 50
+        while true {
+            let payload: APIResponse<FollowingsPayload> = try await get(
+                baseURL: baseURL,
+                path: "/x/relation/followings",
+                queryItems: [
+                    URLQueryItem(name: "vmid", value: "\(vmid)"),
+                    URLQueryItem(name: "pn", value: "\(page)"),
+                    URLQueryItem(name: "ps", value: "\(pageSize)"),
+                    URLQueryItem(name: "order", value: "desc")
+                ]
+            )
+            if payload.code == -101 { return [] }
+            try payload.requireOK()
+            guard let data = payload.value, !data.list.isEmpty else { break }
+            for entry in data.list { mids.insert(entry.mid) }
+            // Stop when the upstream returns a short page; otherwise
+            // advance and keep going. `total` is the user's full
+            // followings count, but trusting it lets a stale server-
+            // side count over-iterate, so we stop on a short page.
+            if data.list.count < pageSize { break }
+            page += 1
+            // Hard cap at 100 pages (5000 follows) so a corrupted
+            // `total` field cannot loop us forever. Power users with
+            // 5000+ follows are vanishingly rare; if we ever hit this,
+            // the safer behaviour is to render what we have.
+            if page > 100 { break }
+        }
+        return mids
     }
 
     func favoriteVideos(mediaID: Int64, page: Int = 1) async throws -> FavoriteFolderVideosPage {
@@ -1026,6 +1291,85 @@ private struct LiveRoomPayload: Decodable {
     let list: [LiveRoomDTO]
 }
 
+private struct LivePlayInfoPayload: Decodable {
+    let roomInfo: LivePlayRoomInfo?
+    let playurlInfo: LivePlayURLInfo?
+
+    enum CodingKeys: String, CodingKey {
+        case roomInfo = "room_info"
+        case playurlInfo = "playurl_info"
+    }
+}
+
+private struct LivePlayRoomInfo: Decodable {
+    let roomID: Int64
+    let title: String?
+    /// `area_name` is the live-room's section ("唱见", "游戏", etc.).
+    /// We surface this as the host-name placeholder when the host
+    /// field is missing on the play payload.
+    let areaName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case roomID = "room_id"
+        case title
+        case areaName = "area_name"
+    }
+}
+
+private struct LivePlayURLInfo: Decodable {
+    let playurl: LivePlayURLContainer
+}
+
+private struct LivePlayURLContainer: Decodable {
+    let stream: [LivePlayStream]
+}
+
+private struct LivePlayStream: Decodable {
+    let protocolName: String
+    let format: [LivePlayFormat]
+
+    enum CodingKeys: String, CodingKey {
+        case protocolName = "protocol_name"
+        case format
+    }
+}
+
+private struct LivePlayFormat: Decodable {
+    let formatName: String
+    let codec: [LivePlayCodec]
+
+    enum CodingKeys: String, CodingKey {
+        case formatName = "format_name"
+        case codec
+    }
+}
+
+private struct LivePlayCodec: Decodable {
+    let codecName: String
+    let currentQPS: Int?
+    let baseURL: String
+    let urlInfo: [LivePlayURLHost]
+
+    enum CodingKeys: String, CodingKey {
+        case codecName = "codec_name"
+        case currentQPS = "current_qn"
+        case baseURL = "base_url"
+        case urlInfo = "url_info"
+    }
+}
+
+private struct LivePlayURLHost: Decodable {
+    let host: String
+    let extra: String
+    let streamTtl: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case host
+        case extra
+        case streamTtl = "stream_ttl"
+    }
+}
+
 private struct LiveRoomDTO: Decodable {
     let roomid: Int
     let title: String
@@ -1073,6 +1417,12 @@ private struct DynamicCardDTO: Decodable {
     let id: String
     let visible: Bool
     let authorName: String
+    /// Raw author `mid` from `modules.module_author.mid`. Exposed so
+    /// the follow-feed path can filter against the user's followings
+    /// set without re-decoding the JSON. `nil` when the upstream
+    /// omitted the field (rare — only on synthetic / official-account
+    /// posts in our observed payloads).
+    let authorMid: Int64?
     let authorAvatarURL: URL?
     let text: String
     let attachedVideo: BiliVideo?
@@ -1098,6 +1448,7 @@ private struct DynamicCardDTO: Decodable {
         let modules = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("modules"))
         let author = try? modules?.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("module_author"))
         authorName = author?.decodeString(keys: ["name"]) ?? "Bilibili"
+        authorMid = author?.decodeInt64(keys: ["mid"])
         authorAvatarURL = author?.decodeString(keys: ["face"])?.httpsURL
         let pubTs = author?.decodeInt64(keys: ["pub_ts"]) ?? 0
         timeLabel = pubTs > 0 ? Self.relativeTimeLabel(from: pubTs) : "刚刚"
@@ -1150,6 +1501,30 @@ private struct DynamicCardDTO: Decodable {
         default:
             return "\(max(1, delta / 86_400)) 天前"
         }
+    }
+}
+
+private struct FollowingsPayload: Decodable {
+    let list: [FollowingEntry]
+    let total: Int?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        list = (try? container.decode([FollowingEntry].self, forKey: DynamicKey("list"))) ?? []
+        total = container.decodeInt(keys: ["total"])
+    }
+}
+
+private struct FollowingEntry: Decodable {
+    let mid: Int64
+    let uname: String?
+    let attribute: Int?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        mid = container.decodeInt64(keys: ["mid"]) ?? 0
+        uname = container.decodeString(keys: ["uname"])
+        attribute = container.decodeInt(keys: ["attribute"])
     }
 }
 

@@ -7,6 +7,16 @@ final class HomeViewModel: ObservableObject {
     @Published var searchQuery = ""
     @Published var videos: [BiliVideo] = []
     @Published var liveRooms: [BiliLiveRoom] = []
+    /// Dynamic feed rendered on the 关注 tab. Lives in parallel to
+    /// `videos` / `liveRooms` because the upstream envelope is a
+    /// different shape (`offset` + `items[]`, not `page` + `videos[]`).
+    /// `dynamicNeedsLogin` distinguishes the "signed-out, please log in"
+    /// empty state from a legitimate empty page (a user with no
+    /// follows yet).
+    @Published var dynamicItems: [DynamicPost] = []
+    @Published var dynamicHasMore = false
+    @Published var dynamicNextOffset = ""
+    @Published var dynamicNeedsLogin = false
     @Published var isLoading = false
     @Published var isLoadingMore = false
     @Published var hasMore = true
@@ -24,11 +34,18 @@ final class HomeViewModel: ObservableObject {
     /// the end of the feed.
     private let pageSize = 20
 
-    func load(repository: BiliPaiRepository) async {
+    func load(repository: BiliPaiRepository, accountMid: Int64 = 0) async {
         let requestID = beginNewRequestGeneration()
         page = 1
         videos = [] // Clear immediately for visual feedback
         liveRooms = []
+        // Reset dynamic-feed state on every fresh load so switching
+        // tabs or tapping the home indicator doesn't leave a stale
+        // "登录后查看关注动态" message on screen after the user signs in.
+        dynamicItems = []
+        dynamicHasMore = false
+        dynamicNextOffset = ""
+        dynamicNeedsLogin = false
         isLoading = true
         isLoadingMore = false
         hasMore = true
@@ -38,14 +55,27 @@ final class HomeViewModel: ObservableObject {
         // = true even after the live API returns, and the user would see
         // the bundled list for a beat before the new data overwrites it.
         isShowingBundledFallback = false
-        await loadPage(repository: repository, replacing: true, requestID: requestID)
+        await loadPage(repository: repository, accountMid: accountMid, replacing: true, requestID: requestID)
         guard isCurrentRequest(requestID) else { return }
         isLoading = false
     }
 
-    func loadMore(repository: BiliPaiRepository) async {
-        guard !isLoading, !isLoadingMore, hasMore else { return }
-        guard category != .follow, category != .live else { return }
+    func loadMore(repository: BiliPaiRepository, accountMid: Int64 = 0) async {
+        guard !isLoading, !isLoadingMore else { return }
+        // Follow tab uses the dynamic-feed pagination (`offset`), not
+        // the page-based one. Route it through its own branch so the
+        // `categorySupportsPagination` short-circuit below stays
+        // accurate for the video feeds.
+        if category == .follow {
+            guard dynamicHasMore, !dynamicNextOffset.isEmpty else { return }
+            isLoadingMore = true
+            let requestID = requestGeneration
+            await loadDynamicPage(repository: repository, accountMid: accountMid, replacing: false, requestID: requestID)
+            guard isCurrentRequest(requestID) else { return }
+            isLoadingMore = false
+            return
+        }
+        guard hasMore, category != .live else { return }
         // Some feed flavours always return the full list in a single response
         // (e.g. weekly/precious). Skip pagination for them so we do not
         // request the same page twice in a row.
@@ -53,7 +83,7 @@ final class HomeViewModel: ObservableObject {
         isLoadingMore = true
         page += 1
         let requestID = requestGeneration
-        await loadPage(repository: repository, replacing: false, requestID: requestID)
+        await loadPage(repository: repository, accountMid: accountMid, replacing: false, requestID: requestID)
         guard isCurrentRequest(requestID) else { return }
         isLoadingMore = false
     }
@@ -65,13 +95,13 @@ final class HomeViewModel: ObservableObject {
     /// another full 20-item page, so giving up on a short response is
     /// wrong. When even the retry returns nothing we drop into the
     /// bundled fallback so the user always has somewhere to scroll.
-    func loadNextBatch(repository: BiliPaiRepository) async {
+    func loadNextBatch(repository: BiliPaiRepository, accountMid: Int64 = 0) async {
         guard !isLoading, !isLoadingMore else { return }
         guard category != .follow, category != .live else { return }
         isLoadingMore = true
         page += 1
         let requestID = requestGeneration
-        await loadPage(repository: repository, replacing: false, requestID: requestID)
+        await loadPage(repository: repository, accountMid: accountMid, replacing: false, requestID: requestID)
         guard isCurrentRequest(requestID) else { return }
         isLoadingMore = false
     }
@@ -100,26 +130,23 @@ final class HomeViewModel: ObservableObject {
         }
     }
 
-    func applyIntentSearch(_ query: String, repository: BiliPaiRepository) async {
+    func applyIntentSearch(_ query: String, repository: BiliPaiRepository, accountMid: Int64 = 0) async {
         guard !query.isEmpty else { return }
         category = .search
         searchQuery = query
-        await load(repository: repository)
+        await load(repository: repository, accountMid: accountMid)
     }
 
     private func loadPage(
         repository: BiliPaiRepository,
+        accountMid: Int64,
         replacing: Bool,
         requestID: UInt64
     ) async {
         do {
             if category == .follow {
-                guard isCurrentRequest(requestID) else { return }
-                videos = []
-                liveRooms = []
-                errorMessage = "登录后查看关注动态、关注直播和个人推荐。"
-                hasMore = false
-                isShowingBundledFallback = false
+                await loadDynamicPage(repository: repository, accountMid: accountMid, replacing: replacing, requestID: requestID)
+                return
             } else if category == .live {
                 let rooms = try await repository.liveRooms()
                 guard isCurrentRequest(requestID) else { return }
@@ -194,6 +221,65 @@ final class HomeViewModel: ObservableObject {
     private func beginNewRequestGeneration() -> UInt64 {
         requestGeneration &+= 1
         return requestGeneration
+    }
+
+    /// Fetch a page of the follow dynamic feed. The upstream
+    /// pagination model is `offset`, not `page`, so this is its own
+    /// branch rather than a parameter on `loadPage(...)`.
+    ///
+    /// On anonymous access the API client short-circuits and returns
+    /// an empty page with `needsLogin: true`. We surface that as a
+    /// typed state on the model so the view can render the existing
+    /// "登录后查看关注动态" prompt without a try/catch in the view.
+    private func loadDynamicPage(
+        repository: BiliPaiRepository,
+        accountMid: Int64,
+        replacing: Bool,
+        requestID: UInt64
+    ) async {
+        let offset = replacing ? "" : dynamicNextOffset
+        do {
+            // `replacing == true` (i.e. a fresh load) invalidates the
+            // cached followings so a pull-to-refresh always picks up
+            // newly-followed UP masters. Pagination calls leave the
+            // cache alone so we don't re-fetch the followings list
+            // mid-scroll.
+            let page = try await repository.attentionFeed(
+                offset: offset,
+                accountMid: accountMid,
+                refreshFollowings: replacing
+            )
+            guard isCurrentRequest(requestID) else { return }
+            if replacing {
+                dynamicItems = page.items
+            } else {
+                // Dedupe by post id so a wrapped-around offset does
+                // not double-up a card we have already rendered. Same
+                // shape as the video-feed dedupe in `loadPage`.
+                let existing = Set(dynamicItems.map(\.id))
+                dynamicItems.append(contentsOf: page.items.filter { !existing.contains($0.id) })
+            }
+            dynamicNextOffset = page.nextOffset
+            dynamicHasMore = page.hasMore && !dynamicNextOffset.isEmpty
+            dynamicNeedsLogin = page.needsLogin
+            errorMessage = nil
+            hasMore = dynamicHasMore
+        } catch {
+            guard isCurrentRequest(requestID) else { return }
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                return
+            }
+            if replacing {
+                dynamicItems = []
+                dynamicHasMore = false
+                dynamicNextOffset = ""
+                dynamicNeedsLogin = false
+                errorMessage = "关注动态加载失败，下拉重试。"
+            } else {
+                errorMessage = "加载更多关注动态失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func isCurrentRequest(_ requestID: UInt64) -> Bool {

@@ -42,6 +42,16 @@ enum ProfileRoute: Hashable {
     case watchLater
 }
 
+/// Live playback navigation. The associated `BiliLiveRoom` carries the
+/// room identity (id/title) that `LivePlayerView` needs while it
+/// resolves the playable stream URLs. We push the room — not a
+/// pre-resolved `BiliLivePlayback` — because resolving the playback
+/// requires a network call and the route value type should be a
+/// small, cheap-to-`Hashable` snapshot.
+enum LiveRoute: Hashable {
+    case room(BiliLiveRoom)
+}
+
 @MainActor
 final class AppRouter: ObservableObject {
     @Published var selectedTab: MainTab = .home
@@ -67,6 +77,15 @@ final class AppRouter: ObservableObject {
 
     func open(_ route: ProfileRoute) {
         path.append(route)
+    }
+
+    /// Open the live player for `room`. Switches to the 直播 tab and
+    /// pushes `LiveRoute.room(room)` onto the navigation stack so the
+    /// existing `LiveRoomsView` `.navigationDestination(for:)` resolves
+    /// and presents the new `LivePlayerView`.
+    func openLive(_ room: BiliLiveRoom) {
+        selectedTab = .live
+        path.append(LiveRoute.room(room))
     }
 
     func openSearch(_ query: String) {

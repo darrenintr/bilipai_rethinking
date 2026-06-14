@@ -105,6 +105,14 @@ final class BiliPaiRepository: ObservableObject {
         try await apiClient.liveRooms()
     }
 
+    /// Resolve the playable stream URLs for a live room. The result
+    /// contains zero, one, or both HLS and FLV slots depending on
+    /// what the room's CDN exposes — the player UI is responsible for
+    /// disabling whichever toggle is unavailable.
+    func livePlayback(for room: BiliLiveRoom) async throws -> BiliLivePlayback {
+        try await apiClient.livePlaybackURL(roomID: room.id)
+    }
+
     func commentsPage(for video: BiliVideo, next: Int? = nil) async throws -> CommentPage {
         let aid = video.aid
         if aid > 0 {
@@ -159,6 +167,48 @@ final class BiliPaiRepository: ObservableObject {
 
     func dynamicFeed(offset: String = "") async throws -> DynamicFeedPage {
         try await apiClient.dynamicFeed(offset: offset)
+    }
+
+    /// Logged-in-only attention feed. Because Bilibili does not
+    /// expose a follow-scoped dynamic REST endpoint (`/feed/attention`
+    /// returns 404), we mirror the Android bilipai approach: fetch the
+    /// user's followings once, then filter `/feed/all` client-side.
+    ///
+    /// The followings set is fetched lazily and reused across paginated
+    /// requests until the caller invalidates it (e.g. on account
+    /// switch or pull-to-refresh). Re-fetching per page would balloon
+    /// a 323-follow user into 6-7 round-trips per scroll, which is why
+    /// we cache.
+    ///
+    /// Returns an empty page with `needsLogin: true` when the user is
+    /// signed out so the home view can render the existing "登录后
+    /// 查看关注动态" prompt without a try/catch dance.
+    private var cachedFollowings: (accountMid: Int64, mids: Set<Int64>)?
+
+    func attentionFeed(
+        offset: String = "",
+        accountMid: Int64,
+        refreshFollowings: Bool = false
+    ) async throws -> DynamicFeedPage {
+        if refreshFollowings { cachedFollowings = nil }
+        let mids = try await ensureFollowings(for: accountMid)
+        return try await apiClient.attentionFeed(offset: offset, followingFilter: mids)
+    }
+
+    /// Drop the cached followings set. Call on account switch so the
+    /// next follow-feed load fetches the new account's followings
+    /// instead of returning the previous user's filter.
+    func invalidateFollowingsCache() {
+        cachedFollowings = nil
+    }
+
+    private func ensureFollowings(for accountMid: Int64) async throws -> Set<Int64> {
+        if let cached = cachedFollowings, cached.accountMid == accountMid {
+            return cached.mids
+        }
+        let mids = try await apiClient.followingMids(vmid: accountMid)
+        cachedFollowings = (accountMid, mids)
+        return mids
     }
 
     func history(cursor: HistoryCursorState? = nil) async throws -> HistoryPageResult {

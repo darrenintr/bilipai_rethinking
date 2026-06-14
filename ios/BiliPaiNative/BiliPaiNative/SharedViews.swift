@@ -55,39 +55,45 @@ struct LiveRoomCard: View {
     let room: BiliLiveRoom
 
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @EnvironmentObject private var router: AppRouter
 
     /// See `VideoCard.titleBlockHeight` for why this is pinned.
     private static let titleBlockHeight: CGFloat = 40
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .topLeading) {
-                CoverImage(url: room.coverURL)
-                    .aspectRatio(16 / 10, contentMode: .fit)
-                Text("LIVE")
-                    .font(.caption2.weight(.black))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(.red, in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle))
-                    .padding(8)
+        Button {
+            router.openLive(room)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack(alignment: .topLeading) {
+                    CoverImage(url: room.coverURL)
+                        .aspectRatio(16 / 10, contentMode: .fit)
+                    Text("LIVE")
+                        .font(.caption2.weight(.black))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(.red, in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle))
+                        .padding(8)
+                }
+                Text(room.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(minHeight: Self.titleBlockHeight, alignment: .topLeading)
+                Text("\(room.hostName) - \(room.areaName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text("\(room.viewerCount.compactCount) watching")
+                    .font(.caption2)
+                    .foregroundStyle(BiliPaiTheme.biliPink)
             }
-            Text(room.title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(minHeight: Self.titleBlockHeight, alignment: .topLeading)
-            Text("\(room.hostName) - \(room.areaName)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Text("\(room.viewerCount.compactCount) watching")
-                .font(.caption2)
-                .foregroundStyle(BiliPaiTheme.biliPink)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(10)
+            .bilipaiCardSurface(materialDesign)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(10)
-        .bilipaiCardSurface(materialDesign)
+        .buttonStyle(.plain)
     }
 }
 
