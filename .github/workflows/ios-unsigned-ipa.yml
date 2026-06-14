@@ -36,6 +36,23 @@ jobs:
           xcodebuild -showsdks
           sw_vers
 
+      - name: Fetch MobileVLCKit xcframework
+        # The local SPM package at ios/BiliPaiNative/LocalPackages/MobileVLCKit
+        # wraps a binary target whose .xcframework is not committed to the
+        # repo. Pull it from the pinned VLC CDN URL set in the script's
+        # `VLC_XCFRAMEWORK_URL` default; the script also handles a
+        # SHA-256 integrity check when `VLC_XCFRAMEWORK_SHA256` is
+        # provided. The previous attempt (commit 1a95b9f6) used a
+        # remote `videolan/vlc-ios` SwiftPM reference and failed with
+        # "Missing package product MobileVLCKit" — that repo does not
+        # publish MobileVLCKit as an SPM product, only CocoaPods.
+        # MUST run before any `xcodebuild` call — `xcodebuild -list`
+        # triggers package-graph resolution, and a missing binary target
+        # there fails with "does not contain a binary artifact".
+        run: |
+          set -euo pipefail
+          bash scripts/fetch_mobilelockit.sh
+
       - name: Verify project + scheme exist
         # Fail fast with a clear message if the iOS-native project layout
         # has drifted (renamed scheme, moved .xcodeproj, etc.) before
@@ -49,20 +66,6 @@ jobs:
           # strings (not dicts), so we just do an `in` check.
           xcodebuild -list -project "$PROJECT_PATH" -json \
             | python3 -c "import json,sys; schemes=json.load(sys.stdin)['project']['schemes']; assert '$SCHEME' in schemes, f'Scheme $SCHEME not found in {schemes}'; print('Scheme $SCHEME present')"
-
-      - name: Fetch MobileVLCKit xcframework
-        # The local SPM package at ios/BiliPaiNative/LocalPackages/MobileVLCKit
-        # wraps a binary target whose .xcframework is not committed to the
-        # repo. Pull it from the pinned VLC CDN URL set in the script's
-        # `VLC_XCFRAMEWORK_URL` default; the script also handles a
-        # SHA-256 integrity check when `VLC_XCFRAMEWORK_SHA256` is
-        # provided. The previous attempt (commit 1a95b9f6) used a
-        # remote `videolan/vlc-ios` SwiftPM reference and failed with
-        # "Missing package product MobileVLCKit" — that repo does not
-        # publish MobileVLCKit as an SPM product, only CocoaPods.
-        run: |
-          set -euo pipefail
-          bash scripts/fetch_mobilelockit.sh
 
       - name: Resolve Swift Package Dependencies
         # Force a clean SPM resolution against the local MobileVLCKit
