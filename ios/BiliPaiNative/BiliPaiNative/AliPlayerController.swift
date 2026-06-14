@@ -48,9 +48,8 @@ final class PlayerController: NSObject, ObservableObject {
         diagLog(.playback, "Initializing AliPlayerController", details: ["url": url.absoluteString])
 
         guard let createdPlayer = AliPlayer() else {
-            diagLog(.playback, "AliPlayer() init returned nil — aborting", details: [:])
-            super.init()
-            return
+            diagLog(.playback, "AliPlayer() init returned nil - aborting", details: [:])
+            fatalError("AliPlayer() init returned nil")
         }
         createdPlayer.playerView = nil
         createdPlayer.scalingMode = AVP_SCALINGMODE_SCALEASPECTFIT
