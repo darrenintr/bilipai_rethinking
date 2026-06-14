@@ -40,7 +40,9 @@ final class PlayerController: NSObject, ObservableObject {
     private var attachedSurface: PlayerDrawableSurface?
     private var pollTimer: Timer?
     /// AliPlayer has no direct `status` property; track it via delegate.
-    private var _playerStatus: AVPStatus = .idle
+    private var _playerStatus: AVPStatus = .AVPStatusIdle
+
+    private static let userAgent = "bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)"
 
     init(url: URL, referer: String) {
         diagLog(.playback, "Initializing AliPlayerController", details: ["url": url.absoluteString])
@@ -51,12 +53,12 @@ final class PlayerController: NSObject, ObservableObject {
             return
         }
         createdPlayer.playerView = nil
-        createdPlayer.scalingMode = .scaleAspectFit
+        createdPlayer.scalingMode = .AVP_SCALINGMODE_SCALEASPECTFIT
         self.player = createdPlayer
         super.init()
 
-        let source = AVPUrlSource(urlString: url.absoluteString)
-        createdPlayer.setUrl(source: source)
+        createdPlayer.setConfig(Self.makeConfig(referer: referer))
+        createdPlayer.setUrlSource(Self.makeURLSource(url))
 
         // Set up delegate to receive status updates
         player.delegate = self
@@ -71,12 +73,25 @@ final class PlayerController: NSObject, ObservableObject {
 
     func swapMedia(to url: URL, referer: String) {
         player.stop()
-        let source = AVPUrlSource(urlString: url.absoluteString)
-        player.setUrl(source: source)
+        player.setConfig(Self.makeConfig(referer: referer))
+        player.setUrlSource(Self.makeURLSource(url))
         if isPlaying {
             player.prepare()
             player.start()
         }
+    }
+
+    private static func makeURLSource(_ url: URL) -> AVPUrlSource {
+        let source = AVPUrlSource()
+        source.playerUrl = url
+        return source
+    }
+
+    private static func makeConfig(referer: String) -> AVPConfig {
+        let config = AVPConfig()
+        config.referer = referer
+        config.userAgent = userAgent
+        return config
     }
 
     func preferDrawableSurface(_ surface: PlayerDrawableSurface) {
@@ -100,7 +115,7 @@ final class PlayerController: NSObject, ObservableObject {
             return
         }
 
-        let wasPlaying = (_playerStatus == .started)
+        let wasPlaying = (_playerStatus == .AVPStatusStarted)
         player.playerView = nil
         attachedView = view
         attachedSurface = surface
@@ -162,7 +177,7 @@ final class PlayerController: NSObject, ObservableObject {
         let currentMs = Int64(currentTime * 1000)
         let raw = currentMs + Int64(seconds * 1000)
         let clampedMs = min(totalMs, max(0, raw))
-        player.seek(toTime: clampedMs, seekMode: .accurate)
+        player.seek(toTime: clampedMs, seekMode: .AVP_SEEKMODE_ACCURATE)
         currentTime = Double(clampedMs) / 1000
     }
 
@@ -170,7 +185,7 @@ final class PlayerController: NSObject, ObservableObject {
     func seek(to seconds: Double) {
         let target = max(0, min(duration, seconds))
         let targetMs = Int64(target * 1000)
-        player.seek(toTime: targetMs, seekMode: .accurate)
+        player.seek(toTime: targetMs, seekMode: .AVP_SEEKMODE_ACCURATE)
         currentTime = target
     }
 
@@ -197,7 +212,7 @@ final class PlayerController: NSObject, ObservableObject {
         if dur > 0 {
             duration = Double(dur) / 1000
         }
-        let nowPlaying = (_playerStatus == .started)
+        let nowPlaying = (_playerStatus == .AVPStatusStarted)
         if nowPlaying != isPlaying {
             isPlaying = nowPlaying
             diagLog(.playback, "AliPlayer isPlaying changed", details: ["isPlaying": isPlaying])
@@ -216,7 +231,7 @@ extension PlayerController: AVPDelegate {
     nonisolated func onPlayerStatusChanged(_ player: AliPlayer, oldStatus: AVPStatus, newStatus: AVPStatus) {
         Task { @MainActor in
             self._playerStatus = newStatus
-            let nowPlaying = (newStatus == .started)
+            let nowPlaying = (newStatus == .AVPStatusStarted)
             if nowPlaying != self.isPlaying {
                 self.isPlaying = nowPlaying
                 diagLog(.playback, "AliPlayer status changed", details: [
@@ -238,7 +253,7 @@ extension PlayerController: AVPDelegate {
 
     nonisolated func onLoadingProgress(_ player: AliPlayer, progress: Float) {
         Task { @MainActor in
-            let buffering = progress < 1.0
+            let buffering = progress < 100.0
             if buffering != self.isBuffering {
                 self.isBuffering = buffering
             }
@@ -248,13 +263,13 @@ extension PlayerController: AVPDelegate {
     nonisolated func onPlayerEvent(_ player: AliPlayer, eventType: AVPEventType) {
         Task { @MainActor in
             switch eventType {
-            case .loadingStart:
+            case .AVPEventLoadingStart:
                 self.isBuffering = true
-            case .loadingEnd:
+            case .AVPEventLoadingEnd:
                 self.isBuffering = false
-            case .completion:
+            case .AVPEventCompletion:
                 self.isPlaying = false
-            case .prepareDone:
+            case .AVPEventPrepareDone:
                 let dur = player.duration
                 if dur > 0 {
                     self.duration = Double(dur) / 1000
