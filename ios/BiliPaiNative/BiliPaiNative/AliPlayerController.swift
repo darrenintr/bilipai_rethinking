@@ -40,19 +40,23 @@ final class PlayerController: NSObject, ObservableObject {
     private var attachedSurface: PlayerDrawableSurface?
     private var pollTimer: Timer?
     /// AliPlayer has no direct `status` property; track it via delegate.
-    private var _playerStatus: AliyunPlayer.AVPStatus = .idle
+    private var _playerStatus: AVPStatus = .idle
 
     init(url: URL, referer: String) {
         diagLog(.playback, "Initializing AliPlayerController", details: ["url": url.absoluteString])
 
-        let createdPlayer = AliPlayer()
+        guard let createdPlayer = AliPlayer() else {
+            diagLog(.playback, "AliPlayer() init returned nil — aborting", details: [:])
+            super.init()
+            return
+        }
         createdPlayer.playerView = nil
         createdPlayer.scalingMode = .scaleAspectFit
         self.player = createdPlayer
         super.init()
 
-        let source = AVPUrlSource.urlWithString(url.absoluteString)
-        createdPlayer.setUrlSource(source)
+        let source = AVPUrlSource(urlString: url.absoluteString)
+        createdPlayer.setUrl(source: source)
 
         // Set up delegate to receive status updates
         player.delegate = self
@@ -67,8 +71,8 @@ final class PlayerController: NSObject, ObservableObject {
 
     func swapMedia(to url: URL, referer: String) {
         player.stop()
-        let source = AVPUrlSource.urlWithString(url.absoluteString)
-        player.setUrlSource(source)
+        let source = AVPUrlSource(urlString: url.absoluteString)
+        player.setUrl(source: source)
         if isPlaying {
             player.prepare()
             player.start()
@@ -209,7 +213,7 @@ final class PlayerController: NSObject, ObservableObject {
 // MARK: - AVPDelegate
 
 extension PlayerController: AVPDelegate {
-    nonisolated func onPlayerStatusChanged(_ player: AliPlayer, oldStatus: AliyunPlayer.AVPStatus, newStatus: AliyunPlayer.AVPStatus) {
+    nonisolated func onPlayerStatusChanged(_ player: AliPlayer, oldStatus: AVPStatus, newStatus: AVPStatus) {
         Task { @MainActor in
             self._playerStatus = newStatus
             let nowPlaying = (newStatus == .started)
@@ -241,7 +245,7 @@ extension PlayerController: AVPDelegate {
         }
     }
 
-    nonisolated func onPlayerEvent(_ player: AliPlayer, eventType: AliyunPlayer.AVPEventType) {
+    nonisolated func onPlayerEvent(_ player: AliPlayer, eventType: AVPEventType) {
         Task { @MainActor in
             switch eventType {
             case .loadingStart:

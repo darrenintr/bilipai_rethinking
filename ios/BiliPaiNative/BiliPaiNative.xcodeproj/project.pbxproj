@@ -260,6 +260,7 @@
 				10000000000000000000011C /* ReplyListView.swift in Sources */,
 				10000000000000000000011D /* AliPlayerController.swift in Sources */,
 				10000000000000000000011E /* DiagnosticLogger.swift in Sources */,
+				10000000000000000000222 /* AliPlayerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
