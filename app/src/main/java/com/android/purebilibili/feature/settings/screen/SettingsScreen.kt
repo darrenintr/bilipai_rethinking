@@ -322,6 +322,14 @@ fun SettingsScreen(
     }
     
     val onExportLogsAction: () -> Unit = { LogCollector.exportAndShare(context) }
+    val onExportDiagnosticAction: () -> Unit = {
+        val result = com.android.purebilibili.core.util.DiagnosticLogger.exportReport(context)
+        if (result != null) {
+            Toast.makeText(context, "深度诊断日志已导出到 Download/BiliPai/logs", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(context, "导出失败", Toast.LENGTH_SHORT).show()
+        }
+    }
     val onTelegramClick: () -> Unit = { uriHandler.openUri(OFFICIAL_TELEGRAM_URL) }
     val onTwitterClick: () -> Unit = { uriHandler.openUri("https://x.com/YangY_0x00") }
     val onGithubClick: () -> Unit = { uriHandler.openUri(OFFICIAL_GITHUB_URL) }
@@ -957,6 +965,7 @@ fun SettingsScreen(
                     onPermissionClick = onPermissionClick,
                     onPluginsClick = onPluginsClick,
                     onExportLogsClick = onExportLogsAction,
+                    onExportDiagnosticClick = onExportDiagnosticAction,
                     onLicenseClick = onOpenSourceLicensesClick,
                     onDisclaimerClick = onDisclaimerClick,
                     onGithubClick = onGithubClick,
@@ -1059,6 +1068,7 @@ fun SettingsScreen(
                     onNavigateToBottomBarSettings = onNavigateToBottomBarSettings,
                     onPluginsClick = onPluginsClick,
                     onExportLogsClick = onExportLogsAction,
+                    onExportDiagnosticClick = onExportDiagnosticAction,
                     onLicenseClick = onOpenSourceLicensesClick,
                     onDisclaimerClick = onDisclaimerClick,
                     onGithubClick = onGithubClick,
@@ -1193,6 +1203,7 @@ private fun MobileSettingsLayout(
     onTipsClick: () -> Unit, // [Feature]
     onPluginsClick: () -> Unit,
     onExportLogsClick: () -> Unit,
+    onExportDiagnosticClick: () -> Unit,
     onLicenseClick: () -> Unit,
     onDisclaimerClick: () -> Unit,
     onGithubClick: () -> Unit,
@@ -1291,6 +1302,7 @@ private fun MobileSettingsLayout(
         onBlockedListClick = onBlockedListClick,
         onPluginsClick = onPluginsClick,
         onExportLogsClick = onExportLogsClick,
+        onExportDiagnosticClick = onExportDiagnosticClick,
         onSettingsShareClick = onSettingsShareClick,
         onWebDavBackupClick = onWebDavBackupClick,
         onDownloadPathClick = onDownloadPathClick,

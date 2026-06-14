@@ -10,6 +10,7 @@ import com.android.purebilibili.core.network.WbiUtils
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.store.TokenManager
 import com.android.purebilibili.core.util.NetworkUtils
+import com.android.purebilibili.core.util.DiagnosticLogger
 import com.android.purebilibili.data.model.response.*
 import com.android.purebilibili.feature.video.progress.PbpProgressData
 import com.android.purebilibili.feature.video.progress.parsePbpProgressData
@@ -462,6 +463,7 @@ object VideoRepository {
     
     //  Web 端推荐流 (WBI 签名)
     private suspend fun fetchWebFeed(idx: Int, refreshCount: Int): Result<List<VideoItem>> {
+        DiagnosticLogger.logRecommendFlow("Starting Web feed fetch", mapOf("idx" to idx, "refreshCount" to refreshCount))
         try {
             val cachedKeys = WbiKeyManager.getWbiKeys().getOrNull()
             val navWbiImg = if (cachedKeys == null) api.getNavInfo().data?.wbi_img else null
@@ -478,6 +480,8 @@ object VideoRepository {
             val signedParams = WbiUtils.sign(params, imgKey, subKey)
             val feedResp = api.getRecommendParams(signedParams)
             
+            DiagnosticLogger.logRecommendFlow("Web feed response received", mapOf("code" to feedResp.code, "itemCount" to (feedResp.data?.item?.size ?: 0)))
+            
             //  [调试] 检查 API 是否返回 dimension 字段
             feedResp.data?.item?.take(3)?.forEachIndexed { index, item ->
                 com.android.purebilibili.core.util.Logger.d("VideoRepo", 
@@ -492,6 +496,7 @@ object VideoRepository {
             
             return Result.success(list)
         } catch (e: Exception) {
+            DiagnosticLogger.logRecommendFlow("Web feed exception", mapOf("error" to e.message))
             e.printStackTrace()
             return Result.failure(e)
         }
@@ -499,9 +504,11 @@ object VideoRepository {
     
     //  移动端推荐流 (appkey + sign 签名)
     private suspend fun fetchMobileFeed(idx: Int, refreshCount: Int): Result<List<VideoItem>> {
+        DiagnosticLogger.logRecommendFlow("Starting Mobile feed fetch", mapOf("idx" to idx, "refreshCount" to refreshCount))
         try {
             val accessToken = TokenManager.accessTokenCache
             if (accessToken.isNullOrEmpty()) {
+                DiagnosticLogger.logRecommendFlow("Mobile feed skipped: No access_token")
                 com.android.purebilibili.core.util.Logger.d("VideoRepo", " No access_token, fallback to Web API")
                 return Result.failure(Exception("需要登录才能使用移动端推荐流"))
             }
@@ -526,6 +533,8 @@ object VideoRepository {
             com.android.purebilibili.core.util.Logger.d("VideoRepo", " Mobile feed request: idx=$idx")
             val feedResp = api.getMobileFeed(signedParams)
             
+            DiagnosticLogger.logRecommendFlow("Mobile feed response received", mapOf("code" to feedResp.code, "itemCount" to (feedResp.data?.items?.size ?: 0)))
+            
             if (feedResp.code != 0) {
                 com.android.purebilibili.core.util.Logger.d("VideoRepo", " Mobile feed error: code=${feedResp.code}, msg=${feedResp.message}")
                 return Result.failure(Exception(feedResp.message))
@@ -541,6 +550,7 @@ object VideoRepository {
             
             return Result.success(list)
         } catch (e: Exception) {
+            DiagnosticLogger.logRecommendFlow("Mobile feed exception", mapOf("error" to e.message))
             com.android.purebilibili.core.util.Logger.d("VideoRepo", " Mobile feed exception: ${e.message}")
             return Result.failure(e)
         }

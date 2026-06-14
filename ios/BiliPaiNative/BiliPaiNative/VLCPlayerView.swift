@@ -71,6 +71,7 @@ final class PlayerController: ObservableObject {
     private var pollTimer: Timer?
 
     init(url: URL, referer: String) {
+        diagLog(.playback, "Initializing PlayerController", details: ["url": url.absoluteString])
         #if canImport(MobileVLCKit)
         let player = VLCMediaPlayer()
         let media = VLCMedia(url: url)
@@ -121,6 +122,7 @@ final class PlayerController: ObservableObject {
     /// view re-claims the drawable after the fullscreen is
     /// dismissed.
     func attach(drawable view: UIView) {
+        diagLog(.playback, "Attaching drawable", details: ["view": String(describing: view)])
         #if canImport(MobileVLCKit)
         attachedView = view
         mediaPlayer.drawable = view
@@ -134,6 +136,7 @@ final class PlayerController: ObservableObject {
     /// vice-versa. Safe to call when the controller is no longer
     /// holding that view as its drawable.
     func detach(currentView: UIView) {
+        diagLog(.playback, "Detaching drawable", details: ["view": String(describing: currentView)])
         #if canImport(MobileVLCKit)
         // `VLCMediaPlayer.drawable` is typed `Any?` so it can hold
         // a CALayer, NSView, or UIView depending on the platform.
@@ -241,6 +244,7 @@ final class PlayerController: ObservableObject {
         }
         if mediaPlayer.isPlaying != isPlaying {
             isPlaying = mediaPlayer.isPlaying
+            diagLog(.playback, "isPlaying changed by player", details: ["isPlaying": isPlaying])
         }
         // Buffering = VLC's state machine is in opening or
         // buffering. The state value is the most reliable signal —
@@ -250,7 +254,11 @@ final class PlayerController: ObservableObject {
         // yet decided to pause. The state check is robust to
         // either case.
         let state = mediaPlayer.state
-        isBuffering = (state == .opening || state == .buffering)
+        let newBuffering = (state == .opening || state == .buffering)
+        if newBuffering != isBuffering {
+            isBuffering = newBuffering
+            diagLog(.playback, "isBuffering changed", details: ["isBuffering": isBuffering, "vlcState": state.rawValue])
+        }
         // `inputBitrate` is in bits/second; convert to bytes/sec
         // for the overlay. 0 while VLC has not yet computed a
         // rate (e.g. before the manifest is parsed).

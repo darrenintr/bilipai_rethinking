@@ -67,7 +67,20 @@ struct ProfileSettingsView: View {
                         showLogCopyAlert = true
                     }
                 } label: {
-                    PluginRow(title: "导出运行日志", subtitle: "用于反馈问题与调试", symbol: "doc.text.magnifyingglass")
+                    PluginRow(title: "导出运行日志", subtitle: "用于反馈问题与调试", symbol: "doc.text")
+                }
+                .buttonStyle(.plain)
+                
+                Button {
+                    if let url = DiagnosticLogger.shared.export() {
+                        logExportURL = url
+                        showShareSheet = true
+                    } else {
+                        UIPasteboard.general.string = DiagnosticLogger.shared.generateReport()
+                        showLogCopyAlert = true
+                    }
+                } label: {
+                    PluginRow(title: "导出深度诊断报告", subtitle: "推荐算法/Loading/全屏黑屏排查", symbol: "doc.text.magnifyingglass")
                 }
                 .buttonStyle(.plain)
                 .alert("日志已复制到剪貼板", isPresented: $showLogCopyAlert) {

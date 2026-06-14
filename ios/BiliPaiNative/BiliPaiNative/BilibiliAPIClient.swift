@@ -115,7 +115,10 @@ final class BilibiliAPIClient {
     }
 
     func recommendedVideos(freshIndex: Int = 0) async throws -> [BiliVideo] {
-        if cookieProvider?() != nil {
+        let hasCookie = cookieProvider?() != nil
+        diagLog(.recommendation, "Fetching recommended videos", details: ["hasCookie": hasCookie, "freshIndex": freshIndex])
+        
+        if hasCookie {
             // If the user is logged in, use the App API for optimized recommendations.
             // This endpoint provides a more personalized feed based on user history.
             return try await appRecommendedVideos(freshIndex: freshIndex, isRefresh: true)
@@ -127,6 +130,7 @@ final class BilibiliAPIClient {
         // Bilibili 風控 is stricter on it for anonymous iOS clients —
         // hits it returns 200 with an empty `item` array, which the
         // user sees as "same batch on every pull-to-refresh".
+        diagLog(.recommendation, "Using Web RCMD API (fallback/anonymous)")
         let payload: APIResponse<VideoListPayload> = try await get(
             baseURL: baseURL,
             path: "/x/web-interface/wbi/index/top/feed/rcmd",
@@ -141,10 +145,13 @@ final class BilibiliAPIClient {
             signWithWBI: true
         )
         try payload.requireOK()
-        return payload.value?.videos.map(\.model) ?? []
+        let videos = payload.value?.videos.map(\.model) ?? []
+        diagLog(.recommendation, "Web RCMD API success", details: ["count": videos.count])
+        return videos
     }
 
     func appRecommendedVideos(freshIndex: Int = 0, isRefresh: Bool = true) async throws -> [BiliVideo] {
+        diagLog(.recommendation, "Starting App Recommended fetch", details: ["freshIndex": freshIndex, "isRefresh": isRefresh])
         bpLog("Fetching app recommendations (idx: \(freshIndex), refresh: \(isRefresh))")
 
         let finalIdx = Int(Date().timeIntervalSince1970) + freshIndex
@@ -192,7 +199,14 @@ final class BilibiliAPIClient {
             path: "/x/v2/feed/index",
             queryItems: queryItems
         )
-        try payload.requireOK()
+        
+        do {
+            try payload.requireOK()
+        } catch {
+            diagLog(.recommendation, "App Recommended API error", details: ["code": payload.code, "message": payload.message ?? "unknown"])
+            throw error
+        }
+
         let items = payload.value?.items ?? []
         let videos = items.compactMap { item -> BiliVideo? in
             // Handle multiple card types that contain video data
@@ -200,6 +214,7 @@ final class BilibiliAPIClient {
             guard validGotos.contains(item.cardGoto) else { return nil }
             return item.model
         }
+        diagLog(.recommendation, "App Recommended API success", details: ["itemCount": items.count, "videoCount": videos.count])
         bpLog("Received \(items.count) items, \(videos.count) mapped to videos")
         return videos
     }

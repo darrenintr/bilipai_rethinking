@@ -75,6 +75,7 @@ import com.android.purebilibili.core.ui.adaptive.resolveEffectiveMotionTier
 import com.android.purebilibili.core.util.ShareUtils
 import com.android.purebilibili.core.util.WindowWidthSizeClass
 import com.android.purebilibili.core.util.Logger
+import com.android.purebilibili.core.util.DiagnosticLogger
 
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -967,7 +968,7 @@ fun VideoPlayerOverlay(
         player.isPlaying,
         debugInfo.bandwidthEstimate
     ) {
-        resolveCenterLoadingUiState(
+        val state = resolveCenterLoadingUiState(
             isBuffering = isBuffering,
             isQualitySwitching = isQualitySwitching,
             isSeekTransitionPending = suppressCenterPlayButtonForSeekTransition ||
@@ -977,6 +978,14 @@ fun VideoPlayerOverlay(
             isPlaying = player.isPlaying,
             bandwidthEstimate = debugInfo.bandwidthEstimate
         )
+        DiagnosticLogger.logPlaybackState("Center loading state updated", mapOf(
+            "state" to (state?.reason?.name ?: "null"),
+            "isBuffering" to isBuffering,
+            "isQualitySwitching" to isQualitySwitching,
+            "playWhenReady" to player.playWhenReady,
+            "isPlaying" to player.isPlaying
+        ))
+        state
     }
     val themePrimary = MaterialTheme.colorScheme.primary
     val centerLoadingVisualState = remember(themePrimary) {

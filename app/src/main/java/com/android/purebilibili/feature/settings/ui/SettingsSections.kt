@@ -223,6 +223,7 @@ internal data class SettingsRootCategoryActions(
     val onReplayOnboardingClick: () -> Unit,
     val onTipsClick: () -> Unit,
     val onOpenLinksClick: () -> Unit,
+    val onExportDiagnosticClick: () -> Unit,
     val onPrivacyModeChange: (Boolean) -> Unit,
     val onPrivacyContentAuthenticationChange: (Boolean) -> Unit,
     val onCrashTrackingChange: (Boolean) -> Unit,
@@ -425,7 +426,8 @@ internal fun SettingsRootCategoryContent(
                     onCrashTrackingChange = actions.onCrashTrackingChange,
                     onAnalyticsChange = actions.onAnalyticsChange,
                     onPluginsClick = actions.onPluginsClick,
-                    onExportLogsClick = actions.onExportLogsClick
+                    onExportLogsClick = actions.onExportLogsClick,
+                    onExportDiagnosticClick = actions.onExportDiagnosticClick
                 )
             }
             SettingsRootCategory.ABOUT_SUPPORT -> {
@@ -1070,7 +1072,8 @@ fun DeveloperSection(
     onCrashTrackingChange: (Boolean) -> Unit,
     onAnalyticsChange: (Boolean) -> Unit,
     onPluginsClick: () -> Unit,
-    onExportLogsClick: () -> Unit
+    onExportLogsClick: () -> Unit,
+    onExportDiagnosticClick: () -> Unit
 ) {
     val uiPreset = LocalUiPreset.current
     val crashTrackingTint = rememberSettingsEntryTint(SettingsEntryTintRole.SECONDARY, iOSTeal, uiPreset)
@@ -1115,6 +1118,14 @@ fun DeveloperSection(
             value = "播放器诊断与问题反馈",
             onClick = onExportLogsClick,
             iconTint = exportLogsVisual.iconTint
+        )
+        SettingsDivider(startIndent = 66.dp)
+        SettingClickableItem(
+            icon = io.github.alexzhirkevich.cupertino.icons.CupertinoIcons.Default.DocText,
+            title = "导出深度诊断日志",
+            value = "用于登录推荐/全屏黑屏/Loading圈问题",
+            onClick = onExportDiagnosticClick,
+            iconTint = MaterialTheme.colorScheme.primary
         )
     }
 }

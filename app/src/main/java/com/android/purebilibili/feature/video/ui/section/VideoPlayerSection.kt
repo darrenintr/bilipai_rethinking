@@ -126,6 +126,7 @@ import com.android.purebilibili.core.ui.transition.VIDEO_SHARED_COVER_ASPECT_RAT
 import com.android.purebilibili.core.util.FormatUtils
 import com.android.purebilibili.core.util.HapticType
 import com.android.purebilibili.core.util.Logger
+import com.android.purebilibili.core.util.DiagnosticLogger
 import com.android.purebilibili.core.util.rememberHapticFeedback
 import com.android.purebilibili.feature.screenshot.AppScreenshotGestureBlockState
 import com.android.purebilibili.feature.video.subtitle.SubtitleDisplayMode
@@ -616,6 +617,7 @@ fun VideoPlayerSection(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
+                DiagnosticLogger.logPlaybackState("Playback state changed", mapOf("state" to playbackState, "isBuffering" to isBuffering))
                 updateKeepScreenAwake()
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (playbackState == Player.STATE_BUFFERING) {
@@ -628,6 +630,7 @@ fun VideoPlayerSection(
                     }
                 } else if (bufferingStartedAtMs != 0L) {
                     val bufferingDurationMs = (now - bufferingStartedAtMs).coerceAtLeast(0L)
+                    DiagnosticLogger.logPlaybackState("Buffering recovered", mapOf("durationMs" to bufferingDurationMs, "state" to playbackState))
                     if (shouldLogPlaybackStall(
                             bufferingDurationMs = bufferingDurationMs,
                             playWhenReady = playerState.player.playWhenReady,
@@ -650,11 +653,17 @@ fun VideoPlayerSection(
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                DiagnosticLogger.logPlaybackState("IsPlaying changed", mapOf("isPlaying" to isPlaying))
                 updateKeepScreenAwake()
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                DiagnosticLogger.logPlaybackState("PlayWhenReady changed", mapOf("playWhenReady" to playWhenReady, "reason" to reason))
                 updateKeepScreenAwake()
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                DiagnosticLogger.logPlaybackState("Player error", mapOf("errorCode" to error.errorCode, "message" to error.message))
             }
         }
         playerState.player.addListener(listener)
@@ -2046,6 +2055,7 @@ fun VideoPlayerSection(
         }
 
         LaunchedEffect(isFullscreen) {
+            DiagnosticLogger.logFullscreenTransition("Fullscreen state changed", mapOf("isFullscreen" to isFullscreen))
             if (!hasObservedOrientationChange) {
                 hasObservedOrientationChange = true
                 return@LaunchedEffect

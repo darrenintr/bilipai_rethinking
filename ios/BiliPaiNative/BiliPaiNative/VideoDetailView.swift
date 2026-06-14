@@ -94,6 +94,9 @@ struct VideoDetailView: View {
                 FullscreenPlayerView(video: model.detail, playback: playback, controller: controller)
             }
         }
+        .onChange(of: isFullscreenPresented) { newValue in
+            diagLog(.fullscreen, "Fullscreen presentation changed", details: ["isPresented": newValue])
+        }
         // Auto-load the next comment batch only when the user has
         // actually scrolled the list and is within 200pt of the bottom.
         // The earlier per-row `.onAppear { if index >= count - 5 }`
