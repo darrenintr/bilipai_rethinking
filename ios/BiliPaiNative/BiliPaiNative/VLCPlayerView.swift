@@ -400,7 +400,7 @@ final class WatchSession {
 /// when the user goes fullscreen, the inline `UIView` is
 /// dismantled and the fullscreen one is created, but the same
 /// `VLCMediaPlayer` keeps playing across the handoff.
-fileprivate final class VLCPlayerContainerView: UIView {
+final class VLCPlayerContainerView: UIView {
     var onReadyForDrawable: ((VLCPlayerContainerView) -> Void)?
 
     override func didMoveToWindow() {
