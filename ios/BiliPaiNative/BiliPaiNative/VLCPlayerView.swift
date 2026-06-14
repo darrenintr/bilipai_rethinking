@@ -43,9 +43,15 @@ final class PlayerController: ObservableObject {
     /// `PlayerView` and `FullscreenPlayerView`.
     @Published private(set) var isBuffering: Bool = false
     /// Network read rate in bytes/second. 0 when idle. Sourced
-    /// from `VLCMediaPlayerStatistics.downloadRate` on each 0.5s
-    /// poll so the value the user sees is at most half a second
-    /// stale. The loading overlay formats this as KB/s or MB/s.
+    /// from `VLCMedia.statistics.inputBitrate` on each 0.5s poll
+    /// so the value the user sees is at most half a second stale.
+    /// The loading overlay formats this as KB/s or MB/s.
+    ///
+    /// `VLCMediaPlayer` itself does not expose a `statistics`
+    /// property — the stats live on the underlying `VLCMedia`.
+    /// `inputBitrate` is in bits per second (VLC's C struct uses
+    /// `int32_t`); we divide by 8 to convert to bytes/second
+    /// before publishing.
     @Published private(set) var networkSpeed: Double = 0
 
     #if canImport(MobileVLCKit)
@@ -129,7 +135,12 @@ final class PlayerController: ObservableObject {
     /// holding that view as its drawable.
     func detach(currentView: UIView) {
         #if canImport(MobileVLCKit)
-        if mediaPlayer.drawable === currentView {
+        // `VLCMediaPlayer.drawable` is typed `Any?` so it can hold
+        // a CALayer, NSView, or UIView depending on the platform.
+        // Cast to `UIView` so we can use `===` — `===` on `Any?`
+        // is not allowed because the compiler cannot prove the
+        // operand is a class type.
+        if let drawable = mediaPlayer.drawable as? UIView, drawable === currentView {
             mediaPlayer.drawable = nil
         }
         if attachedView === currentView {
@@ -240,9 +251,10 @@ final class PlayerController: ObservableObject {
         // either case.
         let state = mediaPlayer.state
         isBuffering = (state == .opening || state == .buffering)
-        // `downloadRate` is in bytes/second. 0 when idle. The
-        // loading overlay formats this via `formatNetworkSpeed`.
-        networkSpeed = Double(mediaPlayer.statistics.downloadRate)
+        // `inputBitrate` is in bits/second; convert to bytes/sec
+        // for the overlay. 0 while VLC has not yet computed a
+        // rate (e.g. before the manifest is parsed).
+        networkSpeed = Double(mediaPlayer.media?.statistics.inputBitrate ?? 0) / 8.0
         #endif
     }
 
@@ -415,7 +427,10 @@ struct VLCPlayerView: UIViewRepresentable {
         // to re-claim the drawable. Without this, the inline
         // surface would stay frozen on the last frame it showed
         // before the fullscreen took over.
-        if controller.mediaPlayer.drawable !== uiView {
+        // `drawable` is `Any?`; cast to `UIView` for `===`.
+        if let drawable = controller.mediaPlayer.drawable as? UIView, drawable !== uiView {
+            context.coordinator.attach(controller: controller, view: uiView)
+        } else if controller.mediaPlayer.drawable == nil {
             context.coordinator.attach(controller: controller, view: uiView)
         }
         #endif
@@ -433,6 +448,7 @@ struct VLCPlayerView: UIViewRepresentable {
         Coordinator()
     }
 
+    @MainActor
     class Coordinator {
         weak var controller: PlayerController?
         weak var view: UIView?
