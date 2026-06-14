@@ -79,10 +79,18 @@ struct VideoDetailView: View {
             session.start()
         }
         .onDisappear {
+            // [FIX] Only tear down if we are actually leaving the video detail screen.
+            // On iPad, entering fullscreen via fullScreenCover triggers onDisappear.
+            // Killing the player here would cause a black screen in the fullscreen view.
+            guard !isFullscreenPresented else {
+                diagLog(.fullscreen, "onDisappear suppressed: isFullscreenPresented is true")
+                return
+            }
+            
             // Free the asset and observers as soon as the screen is gone so we
             // do not hold a decoded video in memory while the user scrolls
             // around the home grid.
-            isFullscreenPresented = false
+            diagLog(.playback, "Tearing down PlayerController in VideoDetailView.onDisappear")
             watchSession?.stop()
             watchSession = nil
             playerController?.tearDown()

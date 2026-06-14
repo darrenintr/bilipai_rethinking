@@ -21,7 +21,6 @@ final class BiliPaiRepository: ObservableObject {
     /// silently substituting the bundled sample set — silently swapping in
     /// a 6-item static list on every refresh hides connectivity and
     /// `风控` issues from the user. The bundled set is still available via
-    /// `bundled.samples(for:)` for explicit offline-mode use.
     func feed(
         category: HomeCategory,
         searchQuery: String,
@@ -33,19 +32,26 @@ final class BiliPaiRepository: ObservableObject {
         switch category {
         case .recommend:
             if page == 1 {
+                // [FIX] Prioritize the Web Recommendation API (recommendedVideos).
+                // The App API requires an access_token for personalization, but 
+                // the Web API works with cookies (which we have from QR login).
                 do {
-                    let videos = try await apiClient.appRecommendedVideos(freshIndex: recommendFreshIndex, isRefresh: isRefresh)
-                    if !videos.isEmpty { return videos }
+                    let webRcmd = try await apiClient.recommendedVideos(freshIndex: recommendFreshIndex)
+                    if !webRcmd.isEmpty { return webRcmd }
                 } catch {
-                    bpLog("App API rcmd failed: \(error)")
+                    bpLog("Web API rcmd failed: \(error)")
                 }
-                // Fallback to web-side recommend if logged in but App API failed
-                if let webRcmd = try? await apiClient.recommendedVideos(freshIndex: recommendFreshIndex), !webRcmd.isEmpty {
-                    return webRcmd
+
+                // Fallback to App API if Web failed (unlikely but safe)
+                if let appRcmd = try? await apiClient.appRecommendedVideos(freshIndex: recommendFreshIndex, isRefresh: isRefresh), !appRcmd.isEmpty {
+                    return appRcmd
                 }
+
                 if let popular = try? await apiClient.popularVideos(page: page), !popular.isEmpty {
                     return popular
                 }
+                // ...
+
                 if let ranking = try? await apiClient.rankingVideos(), !ranking.isEmpty {
                     return ranking
                 }

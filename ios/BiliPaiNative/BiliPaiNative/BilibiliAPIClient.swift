@@ -371,7 +371,7 @@ final class BilibiliAPIClient {
             let queryItems: [URLQueryItem] = identity + [
                 URLQueryItem(name: "cid", value: "\(cid)"),
                 URLQueryItem(name: "qn", value: "\(qn)"),
-                URLQueryItem(name: "fnval", value: "4048"),
+                URLQueryItem(name: "fnval", value: "1"), // [FIX] Use 1 (MP4) instead of 4048 (DASH) for combined audio/video
                 URLQueryItem(name: "fnver", value: "0"),
                 URLQueryItem(name: "fourk", value: "1"),
                 URLQueryItem(name: "gaia_source", value: "view-card")

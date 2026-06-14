@@ -365,20 +365,26 @@ private struct DynamicFeedList: View {
     @EnvironmentObject private var authStore: AuthStore
 
     var body: some View {
-        LazyVStack(spacing: 14) {
-            ForEach(Array(model.dynamicItems.enumerated()), id: \.element.id) { index, post in
-                DynamicPostCard(post: post)
-                    .onAppear {
-                        if index >= max(0, model.dynamicItems.count - 5) {
-                            Task { await model.loadMore(repository: repository, accountMid: authStore.activeAccount?.mid ?? 0) }
+        if model.dynamicNeedsLogin {
+            HomeEmptyState(category: .follow, searchQuery: "", hasError: false)
+        } else if model.dynamicItems.isEmpty && !model.isLoading {
+            HomeEmptyState(category: .follow, searchQuery: "", hasError: false)
+        } else {
+            LazyVStack(spacing: 14) {
+                ForEach(Array(model.dynamicItems.enumerated()), id: \.element.id) { index, post in
+                    DynamicPostCard(post: post)
+                        .onAppear {
+                            if index >= max(0, model.dynamicItems.count - 5) {
+                                Task { await model.loadMore(repository: repository, accountMid: authStore.activeAccount?.mid ?? 0) }
+                            }
                         }
-                    }
-            }
-            if model.isLoadingMore {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                }
+                if model.isLoadingMore {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
             }
         }
     }
