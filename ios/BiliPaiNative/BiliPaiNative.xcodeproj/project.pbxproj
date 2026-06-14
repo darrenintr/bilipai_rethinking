@@ -36,6 +36,7 @@
 		10000000000000000000011B /* AccountContentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021C /* AccountContentViews.swift */; };
 		10000000000000000000011C /* ReplyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021D /* ReplyListView.swift */; };
 		10000000000000000000011D /* VLCPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021E /* VLCPlayerView.swift */; };
+		10000000000000000000011E /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021F /* DiagnosticLogger.swift */; };
 		100000000000000000000C11 /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 100000000000000000000C02 /* MobileVLCKit */; };
 /* End PBXBuildFile section */
 
@@ -71,6 +72,7 @@
 		10000000000000000000021C /* AccountContentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountContentViews.swift; sourceTree = "<group>"; };
 		10000000000000000000021D /* ReplyListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyListView.swift; sourceTree = "<group>"; };
 		10000000000000000000021E /* VLCPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCPlayerView.swift; sourceTree = "<group>"; };
+		10000000000000000000021F /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -116,6 +118,7 @@
 				100000000000000000000210 /* Info.plist */,
 				100000000000000000000211 /* PlayerView.swift */,
 				10000000000000000000021E /* VLCPlayerView.swift */,
+				10000000000000000000021F /* DiagnosticLogger.swift */,
 				100000000000000000000212 /* Assets.xcassets */,
 				100000000000000000000213 /* DesignModifier.swift */,
 				100000000000000000000214 /* BundledFeedService.swift */,
@@ -272,6 +275,7 @@
 				10000000000000000000011B /* AccountContentViews.swift in Sources */,
 				10000000000000000000011C /* ReplyListView.swift in Sources */,
 				10000000000000000000011D /* VLCPlayerView.swift in Sources */,
+				10000000000000000000011E /* DiagnosticLogger.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
