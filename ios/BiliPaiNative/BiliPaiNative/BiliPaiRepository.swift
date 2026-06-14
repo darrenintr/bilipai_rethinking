@@ -165,6 +165,28 @@ final class BiliPaiRepository: ObservableObject {
         try await apiClient.reportComment(aid: aid, rpid: rpid, reason: reason, content: content)
     }
 
+    /// Report a single history tick. The caller decides cadence — the
+    /// canonical pattern is `progress=0` on playback start and
+    /// every 30s thereafter. The repository resolves `aid` from the
+    /// video (or fetches the detail by `bvid` if the feed entry
+    /// only carried a `bvid`) and pulls the matching `cid` from
+    /// the most recent detail load. Failures are non-fatal: the
+    /// caller should catch and `bpLog` rather than surface to the
+    /// user — a missed history tick does not affect playback.
+    func reportHistory(for video: BiliVideo, cid: Int, progress: Int) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.reportHistory(aid: aid, cid: cid, progress: progress)
+    }
+
+    /// Lower-level variant that takes already-resolved identifiers.
+    /// `WatchSession` (in `VLCPlayerView.swift`) calls this every
+    /// 30 seconds; it has no `BiliVideo` because the timer runs
+    /// across the inline ↔ fullscreen transition and the video
+    /// object is not always in hand.
+    func reportHistoryForWatchSession(aid: Int, cid: Int, progress: Int) async throws {
+        try await apiClient.reportHistory(aid: aid, cid: cid, progress: progress)
+    }
+
     func dynamicFeed(offset: String = "") async throws -> DynamicFeedPage {
         try await apiClient.dynamicFeed(offset: offset)
     }

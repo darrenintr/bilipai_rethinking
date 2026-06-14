@@ -17,6 +17,21 @@ struct VideoDetailView: View {
 
     @StateObject private var model: VideoDetailViewModel
     @State private var isFullscreenPresented = false
+    /// Single `PlayerController` shared by the inline `PlayerView`
+    /// and the `FullscreenPlayerView`. Created lazily once
+    /// `model.playback` is loaded, because the controller's
+    /// initialiser needs the playback URL. Hoisting the player
+    /// up to this level is what makes the playhead and
+    /// play/pause state stay continuous across the inline ↔
+    /// fullscreen transition — both surfaces point at the same
+    /// `VLCMediaPlayer`, only the visible `UIView` (drawable) is
+    /// swapped when the user enters / leaves fullscreen.
+    @State private var playerController: PlayerController?
+    /// The history-reporting `WatchSession` also lives at this
+    /// level for the same reason. Previously each view created
+    /// its own, which would double-fire on every inline ↔
+    /// fullscreen transition.
+    @State private var watchSession: WatchSession?
 
     init(video: BiliVideo, repository: BiliPaiRepository) {
         self.video = video
@@ -40,16 +55,43 @@ struct VideoDetailView: View {
         .task {
             await model.load(repository: repository)
         }
+        .onChange(of: model.playback) { _, playback in
+            // Build the shared controller + history reporter
+            // exactly once, when playback first becomes available.
+            // We compare against `playerController` (not just nil)
+            // because a re-load on a `Retry` could fire this
+            // `onChange` with a new playback object while the old
+            // controller is still alive.
+            guard let playback, playerController == nil else { return }
+            let controller = PlayerController(
+                url: playback.videoURL,
+                referer: "https://www.bilibili.com"
+            )
+            playerController = controller
+            let session = WatchSession(
+                repository: repository,
+                aid: model.detail.aid,
+                cid: model.detail.cid,
+                getCurrentSeconds: { [weak controller] in controller?.currentTime ?? 0 },
+                isActive: { [weak controller] in controller?.isPlaying ?? false }
+            )
+            watchSession = session
+            session.start()
+        }
         .onDisappear {
             // Free the asset and observers as soon as the screen is gone so we
             // do not hold a decoded video in memory while the user scrolls
             // around the home grid.
             isFullscreenPresented = false
+            watchSession?.stop()
+            watchSession = nil
+            playerController?.tearDown()
+            playerController = nil
             model.teardown()
         }
         .fullScreenCover(isPresented: $isFullscreenPresented) {
-            if let playback = model.playback {
-                FullscreenPlayerView(video: model.detail, playback: playback)
+            if let playback = model.playback, let controller = playerController {
+                FullscreenPlayerView(video: model.detail, playback: playback, controller: controller)
             }
         }
         // Auto-load the next comment batch only when the user has
@@ -76,8 +118,8 @@ struct VideoDetailView: View {
     @ViewBuilder
     private var playerSurface: some View {
         ZStack(alignment: .topLeading) {
-            if let playback = model.playback {
-                PlayerView(playback: playback)
+            if let playback = model.playback, let controller = playerController {
+                PlayerView(playback: playback, video: model.detail, controller: controller)
                     .onAppear { model.isPlaying = true }
                     .onDisappear { model.isPlaying = false }
 

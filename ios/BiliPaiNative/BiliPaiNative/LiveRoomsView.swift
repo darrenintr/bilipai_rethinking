@@ -53,10 +53,11 @@ struct LiveRoomsView: View {
 /// Live-room playback surface. Resolves the playback URLs on appear
 /// (one network round-trip to `getRoomPlayInfo`), drives
 /// `VLCPlayerView` with the URL for the active format, and lets the
-/// user toggle HLS ↔ FLV in the toolbar. Switching format re-creates
-/// the underlying `VLCMedia` rather than trying to swap it on the
-/// live player — VLC's API does not let us hot-swap a media object
-/// without a brief drop, and a clean rebuild is more reliable.
+/// user toggle HLS ↔ FLV in the toolbar. Switching format hot-swaps
+/// the underlying media on the shared `PlayerController` via
+/// `swapMedia(to:referer:)` — VLC's API does not let us hot-swap a
+/// media object without a brief drop, but reusing the same player
+/// keeps the play/pause state and the polling timer intact.
 private struct LivePlayerView: View {
     let room: BiliLiveRoom
     let repository: BiliPaiRepository
@@ -64,7 +65,9 @@ private struct LivePlayerView: View {
     @State private var playback: BiliLivePlayback?
     @State private var errorMessage: String?
     @State private var format: BiliLiveStreamFormat = .flv
-    @StateObject private var controller = PlayerController()
+    /// Created lazily once `playback` is loaded, because the
+    /// controller's init needs the active stream URL.
+    @State private var controller: PlayerController?
 
     var body: some View {
         ZStack {
@@ -84,16 +87,27 @@ private struct LivePlayerView: View {
         .task {
             await loadPlayback()
         }
+        .onChange(of: format) { _, newFormat in
+            // HLS ↔ FLV toggle. Use `swapMedia` rather than
+            // recreating the controller so the polling timer and
+            // any buffer the player has already built up survive
+            // the toggle. (A live stream re-buffers from the
+            // current server time on either URL anyway, so the
+            // saving is small but the playback is uninterrupted
+            // instead of dropping to black for a frame.)
+            guard let playback, let url = playback.streams[newFormat] else { return }
+            controller?.swapMedia(to: url, referer: playback.referer.absoluteString)
+        }
+        .onDisappear {
+            controller?.tearDown()
+            controller = nil
+        }
     }
 
     @ViewBuilder
     private var playerSurface: some View {
-        if let playback, let url = playback.streams[format] {
-            VLCPlayerView(
-                url: url,
-                referer: playback.referer.absoluteString,
-                controller: controller
-            )
+        if let controller {
+            VLCPlayerView(controller: controller)
         } else if let errorMessage {
             ContentUnavailableView(
                 "无法播放该直播间",
@@ -151,13 +165,25 @@ private struct LivePlayerView: View {
 
     private func loadPlayback() async {
         do {
-            playback = try await repository.livePlayback(for: room)
+            let resolved = try await repository.livePlayback(for: room)
+            playback = resolved
             // Pick the first available format — HLS is usually
             // present and easier to debug, but FLV wins on older
             // CDNs. The picker reflects only the formats actually
             // returned by the upstream.
-            if let first = BiliLiveStreamFormat.allCases.first(where: { playback?.streams[$0] != nil }) {
+            if let first = BiliLiveStreamFormat.allCases.first(where: { resolved.streams[$0] != nil }) {
                 format = first
+            }
+            // Build the shared controller the first time
+            // playback loads. We pick the URL of the active
+            // `format`; the HLS ↔ FLV `onChange` above calls
+            // `swapMedia` for later switches rather than
+            // recreating the player.
+            if controller == nil, let url = resolved.streams[format] {
+                controller = PlayerController(
+                    url: url,
+                    referer: resolved.referer.absoluteString
+                )
             }
             errorMessage = nil
         } catch {

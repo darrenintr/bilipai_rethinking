@@ -1,25 +1,137 @@
 import SwiftUI
 import UIKit
 
-/// SwiftUI wrapper around `VLCPlayerView`, which in turn hosts a
-/// `VLCMediaPlayer` from MobileVLCKit.
+/// SwiftUI wrapper around `VLCPlayerView`, which in turn hosts the
+/// shared `VLCMediaPlayer` owned by `PlayerController`.
 ///
 /// We moved off `AVPlayerViewController` in commit 5f1d9f2d because the
 /// official iOS player chokes on Bilibili's custom `Referer`-gated DASH
 /// manifests, whereas VLC's FFmpeg-based pipeline negotiates the headers
-/// transparently. `VLCPlayerView` keeps a single `VLCMediaPlayer` alive
-/// for the lifetime of the `BiliPlayback` and exposes only the play /
-/// pause controls we actually need in the inline surface.
+/// transparently.
+///
+/// The `PlayerController` is created and owned by
+/// `VideoDetailView` (not by this view) so the same player is
+/// shared with the `FullscreenPlayerView`. The user can go
+/// inline → fullscreen → inline and the playhead and play/pause
+/// state stay continuous across the transition.
 struct PlayerView: View {
     let playback: BiliPlayback
-    @StateObject private var controller = PlayerController()
+    let video: BiliVideo
+    @ObservedObject var controller: PlayerController
+
+    @State private var showCenterControl = false
+    @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
-        VLCPlayerView(
-            url: playback.videoURL,
-            referer: "https://www.bilibili.com",
-            controller: controller
-        )
+        ZStack {
+            VLCPlayerView(controller: controller)
+
+            // The inline surface gets a single play/pause control
+            // (centre, large, auto-hides while playing). The
+            // fullscreen overlay renders the full control set
+            // (dismiss / skip / scrubber) — the inline surface is
+            // already a small box on the detail screen and adding
+            // 5 buttons would crowd the layout. Tapping anywhere
+            // toggles the control; auto-hide matches the
+            // fullscreen's behaviour for consistency.
+            if showCenterControl || !controller.isPlaying {
+                centerControl
+                    .transition(.opacity)
+            }
+
+            // Loading overlay: a small spinner + the current
+            // network read rate. The user said "show the
+            // progress or the network speed is the best" — VLC
+            // does not expose a buffered-fraction, so the
+            // network rate (KB/s) is the only meaningful number
+            // we can show while `state == .opening / .buffering`.
+            if controller.isBuffering {
+                loadingOverlay
+                    .transition(.opacity)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { toggleCenterControl() }
+        .onAppear {
+            // Show the play/pause immediately when paused so the
+            // user can resume. While playing it auto-hides 2s in.
+            if !controller.isPlaying { showCenterControl = true }
+            else { scheduleCenterHide() }
+        }
+        .onDisappear {
+            hideTask?.cancel()
+        }
+    }
+
+    private var centerControl: some View {
+        Button {
+            controller.toggle()
+            toggleCenterControl()
+        } label: {
+            Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(.black.opacity(0.55), in: Circle())
+        }
+        .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
+    }
+
+    /// Spinner + KB/s readout. Drawn over the video surface but
+    /// below the play/pause button so the user can still tap to
+    /// pause while a load is in flight.
+    private var loadingOverlay: some View {
+        VStack(spacing: 6) {
+            ProgressView()
+                .tint(.white)
+                .controlSize(.regular)
+            Text(formatNetworkSpeed(controller.networkSpeed))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.9))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.black.opacity(0.55), in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading video")
+    }
+
+    /// Format a bytes/second value into the most readable unit.
+    /// 0 reads as "—" so a brand-new buffer (where VLC has not yet
+    /// computed a rate) is not mistaken for a stalled connection.
+    private func formatNetworkSpeed(_ bytesPerSecond: Double) -> String {
+        guard bytesPerSecond > 0 else { return "—" }
+        if bytesPerSecond >= 1_000_000 {
+            return String(format: "%.1f MB/s", bytesPerSecond / 1_000_000)
+        }
+        if bytesPerSecond >= 1_000 {
+            return String(format: "%.0f KB/s", bytesPerSecond / 1_000)
+        }
+        return String(format: "%.0f B/s", bytesPerSecond)
+    }
+
+    private func toggleCenterControl() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showCenterControl.toggle()
+        }
+        if showCenterControl && controller.isPlaying {
+            scheduleCenterHide()
+        } else {
+            hideTask?.cancel()
+        }
+    }
+
+    private func scheduleCenterHide() {
+        hideTask?.cancel()
+        hideTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    showCenterControl = false
+                }
+            }
+        }
     }
 }
 
@@ -49,12 +161,19 @@ struct PlayerView: View {
 /// the video layer (behind the controls), so a tap on a control
 /// button is absorbed by the button and does not bubble down to
 /// hide the overlay.
+///
+/// The `PlayerController` is created and owned by the parent
+/// `VideoDetailView`, not by this view. The user can go
+/// inline → fullscreen → inline and the playhead and play/pause
+/// state stay continuous across the transition — the same
+/// `VLCMediaPlayer` keeps playing while only the visible
+/// `UIView` (drawable) is swapped.
 struct FullscreenPlayerView: View {
     let video: BiliVideo
     let playback: BiliPlayback
+    @ObservedObject var controller: PlayerController
 
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var controller = PlayerController()
     @State private var controlsVisible = true
     @State private var hideTask: Task<Void, Never>?
     /// Local mirror of the scrubber position while the user is
@@ -73,33 +192,38 @@ struct FullscreenPlayerView: View {
             // front and intercepts taps first — the tap on the video
             // never fires, so the user does not accidentally hide
             // the controls by tapping the centre play button.
-            VLCPlayerView(
-                url: playback.videoURL,
-                referer: "https://www.bilibili.com",
-                controller: controller
-            )
-            .ignoresSafeArea()
-            .contentShape(Rectangle())
-            .onTapGesture { toggleControls() }
+            VLCPlayerView(controller: controller)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { toggleControls() }
 
             if controlsVisible {
                 controlsOverlay
+                    .transition(.opacity)
+            }
+
+            // Loading overlay: spinner + KB/s. Drawn on top of
+            // the controls so the user always sees it during a
+            // stall, even if the auto-hide task has already
+            // hidden the rest of the chrome.
+            if controller.isBuffering {
+                loadingOverlay
                     .transition(.opacity)
             }
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear {
-            // Sync the local scrub mirror to whatever the controller
-            // already knows (typically 0 on a fresh player).
+            // Sync the local scrub mirror to whatever the
+            // controller already knows. With the shared-controller
+            // design this is the playhead the inline surface was
+            // last showing — the fullscreen picks up exactly
+            // where the inline left off.
             scrubValue = controller.currentTime
             scheduleControlsHide()
         }
         .onDisappear {
             hideTask?.cancel()
-            // Stop the 0.5s poll timer in the controller so the
-            // playhead stops updating once the overlay is gone.
-            controller.detach()
         }
     }
 
@@ -223,6 +347,40 @@ struct FullscreenPlayerView: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white)
         }
+    }
+
+    /// Spinner + KB/s readout for the fullscreen surface. Larger
+    /// than the inline variant because the fullscreen has more
+    /// room and the user is at arm's length, not a thumb-tap
+    /// away.
+    private var loadingOverlay: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .tint(.white)
+                .controlSize(.large)
+            Text(formatNetworkSpeed(controller.networkSpeed))
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.black.opacity(0.6), in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading video")
+    }
+
+    /// Format a bytes/second value into the most readable unit.
+    /// 0 reads as "—" so a brand-new buffer (where VLC has not yet
+    /// computed a rate) is not mistaken for a stalled connection.
+    private func formatNetworkSpeed(_ bytesPerSecond: Double) -> String {
+        guard bytesPerSecond > 0 else { return "—" }
+        if bytesPerSecond >= 1_000_000 {
+            return String(format: "%.1f MB/s", bytesPerSecond / 1_000_000)
+        }
+        if bytesPerSecond >= 1_000 {
+            return String(format: "%.0f KB/s", bytesPerSecond / 1_000)
+        }
+        return String(format: "%.0f B/s", bytesPerSecond)
     }
 
     /// Two-source-of-truth binding for the scrubber. While the user

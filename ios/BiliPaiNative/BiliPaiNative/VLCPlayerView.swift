@@ -4,16 +4,25 @@ import UIKit
 import MobileVLCKit
 #endif
 
-/// Owns a `VLCMediaPlayer` and exposes the bits the SwiftUI side needs:
-/// a published `isPlaying` flag, the playhead `currentTime` and total
-/// `duration` in seconds, plus `skip`/`seek`/`toggle` commands.
+/// Owns a `VLCMediaPlayer` for its entire lifetime and exposes the
+/// bits the SwiftUI side needs: the playhead `currentTime`, total
+/// `duration`, the play/pause flag, the buffering indicator, and the
+/// network read rate. Also owns `skip`/`seek`/`toggle` commands.
 ///
-/// The player view itself (`VLCPlayerView`) is a thin `UIViewRepresentable`
-/// that hands the media player to the controller in `makeUIView` and
-/// forwards play/pause updates from the controller on every SwiftUI
-/// re-render. Centralising state in a controller means the fullscreen
-/// overlay (skip / scrub / play-pause) and the inline surface share one
-/// truth source and can stay simple value-typed views.
+/// The `VLCPlayerView` representable is a thin wrapper that points
+/// the player's `drawable` at a `UIView` and releases it on
+/// dismantle. Hoisting ownership of the `VLCMediaPlayer` up to the
+/// controller is what lets the inline `PlayerView` and the
+/// `FullscreenPlayerView` share one player — when the user goes
+/// fullscreen, the inline `UIView` is dismantled and the fullscreen
+/// one is created, but the underlying player (and its playhead /
+/// play-pause state) keeps playing across the handoff. The user
+/// expects the same video to keep going at the same timestamp
+/// whether or not the fullscreen is up.
+///
+/// Centralising state in a controller also means the fullscreen
+/// overlay (skip / scrub / play-pause) and the inline surface share
+/// one truth source and can stay simple value-typed views.
 @MainActor
 final class PlayerController: ObservableObject {
     /// Playhead position in seconds. Updated by `refresh()` on a 0.5s
@@ -25,58 +34,131 @@ final class PlayerController: ObservableObject {
     /// in `Slider`'s `in:` parameter.
     @Published private(set) var duration: Double = 0
     /// `true` when the media should be playing. SwiftUI controls mutate
-    /// this binding; the VLCPlayerView's `updateUIView` reconciles it
-    /// against the underlying `mediaPlayer.isPlaying` (VLC can pause
-    /// on its own when buffering or hitting EOF).
+    /// this binding; the polling `refresh()` reconciles it against
+    /// `mediaPlayer.isPlaying` (VLC can pause on its own when
+    /// buffering or hitting EOF).
     @Published var isPlaying: Bool = true
+    /// `true` while VLC is opening the network stream or buffering
+    /// frames. Drives the loading-spinner overlay in both
+    /// `PlayerView` and `FullscreenPlayerView`.
+    @Published private(set) var isBuffering: Bool = false
+    /// Network read rate in bytes/second. 0 when idle. Sourced
+    /// from `VLCMediaPlayerStatistics.downloadRate` on each 0.5s
+    /// poll so the value the user sees is at most half a second
+    /// stale. The loading overlay formats this as KB/s or MB/s.
+    @Published private(set) var networkSpeed: Double = 0
 
-    /// Weak so the controller never extends the media player's life —
-    /// the player is owned by `VLCPlayerView.Coordinator` and freed
-    /// when SwiftUI tears the representable down.
     #if canImport(MobileVLCKit)
-    fileprivate weak var mediaPlayer: VLCMediaPlayer?
+    /// Strong ownership of the media player. The controller
+    /// outlives both the inline and the fullscreen `UIView`s, so
+    /// the player keeps decoding across the inline ↔ fullscreen
+    /// transition — only the drawable (the visible `UIView`) is
+    /// swapped when the user enters / leaves fullscreen.
+    let mediaPlayer: VLCMediaPlayer
     #endif
+    /// Weak ref to whichever `UIView` is currently the player's
+    /// drawable. Tracked only so `detach(currentView:)` can clear
+    /// the drawable only if it still belongs to the view that
+    /// called detach — the inline view detaching must not wipe a
+    /// fullscreen view that just took over the drawable.
+    private weak var attachedView: UIView?
     private var pollTimer: Timer?
 
-    init() {}
+    init(url: URL, referer: String) {
+        #if canImport(MobileVLCKit)
+        let player = VLCMediaPlayer()
+        let media = VLCMedia(url: url)
+        // Bilibili's CDN gates the DASH / FLV manifests on these
+        // headers; without them the upstream returns 403.
+        media.addOptions([
+            "http-referrer": referer,
+            "http-user-agent": "bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)"
+        ])
+        player.media = media
+        self.mediaPlayer = player
+        // Start playback as soon as the controller exists — even
+        // before any `UIView` is attached. The audio plays in the
+        // background; when the first view attaches the frames just
+        // start landing on it. This is what makes the inline ↔
+        // fullscreen handoff seamless.
+        if isPlaying {
+            player.play()
+        }
+        #endif
+        startPolling()
+    }
 
     #if canImport(MobileVLCKit)
-    /// Called by `VLCPlayerView.makeUIView` once the underlying
-    /// `VLCMediaPlayer` exists. Starts the playhead poll.
-    fileprivate func attach(_ player: VLCMediaPlayer) {
-        mediaPlayer = player
-        startPolling()
+    /// Hot-swap the underlying media without dropping controller
+    /// state. Used by the live format toggle (HLS ↔ FLV in
+    /// `LivePlayerView`). VLC's API requires `stop()` + reassign
+    /// `media` to actually start a new URL — a plain `play()`
+    /// after a media change is a no-op.
+    func swapMedia(to url: URL, referer: String) {
+        mediaPlayer.stop()
+        let media = VLCMedia(url: url)
+        media.addOptions([
+            "http-referrer": referer,
+            "http-user-agent": "bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)"
+        ])
+        mediaPlayer.media = media
+        if isPlaying {
+            mediaPlayer.play()
+        }
     }
     #endif
 
-    /// Called from `FullscreenPlayerView.onDisappear` so the 0.5s
-    /// poll timer stops when the overlay is dismissed. Safe to call
-    /// multiple times.
-    func detach() {
-        stopPolling()
+    /// Make `view` the player's drawable. Safe to call multiple
+    /// times — re-attaching the same view (e.g. on every SwiftUI
+    /// re-render) just re-points the property. This is what
+    /// makes the inline ↔ fullscreen handoff work: the inline
+    /// view re-claims the drawable after the fullscreen is
+    /// dismissed.
+    func attach(drawable view: UIView) {
         #if canImport(MobileVLCKit)
-        mediaPlayer = nil
+        attachedView = view
+        mediaPlayer.drawable = view
         #endif
     }
 
-    deinit {
-        // `Timer.invalidate()` is thread-safe; the controller itself
-        // is @MainActor-isolated so the published properties stay
-        // consistent, but the timer holds a closure that dispatches
-        // back to the main actor and reads `mediaPlayer` (which is
-        // already nil by the time deinit runs on the main actor).
-        pollTimer?.invalidate()
+    /// Release the drawable if it still belongs to the calling
+    /// view. Passing `currentView` is what makes the inline ↔
+    /// fullscreen handoff safe: the inline view's dismantle can
+    /// not wipe the fullscreen view's drawable claim, and
+    /// vice-versa. Safe to call when the controller is no longer
+    /// holding that view as its drawable.
+    func detach(currentView: UIView) {
+        #if canImport(MobileVLCKit)
+        if mediaPlayer.drawable === currentView {
+            mediaPlayer.drawable = nil
+        }
+        if attachedView === currentView {
+            attachedView = nil
+        }
+        #endif
+    }
+
+    /// Stop the player and the polling timer. Called from
+    /// `VideoDetailView.onDisappear` so a navigated-away video
+    /// frees the decoded buffer instead of playing silent audio
+    /// in the background. The next `init` creates a fresh
+    /// `VLCMediaPlayer` from scratch.
+    func tearDown() {
+        stopPolling()
+        #if canImport(MobileVLCKit)
+        mediaPlayer.stop()
+        #endif
     }
 
     func play() {
         #if canImport(MobileVLCKit)
-        mediaPlayer?.play()
+        mediaPlayer.play()
         #endif
     }
 
     func pause() {
         #if canImport(MobileVLCKit)
-        mediaPlayer?.pause()
+        mediaPlayer.pause()
         #endif
     }
 
@@ -93,16 +175,15 @@ final class PlayerController: ObservableObject {
     /// fullscreen overlay.
     func skip(by seconds: Double) {
         #if canImport(MobileVLCKit)
-        guard let player = mediaPlayer else { return }
         // `media` is optional on `VLCMediaPlayer`; nil means no media
         // is loaded yet (e.g. tap arrived during the first
-        // `play()`). Treat as 0 length in that case so a positive
-        // skip is clamped to 0 instead of crashing.
-        let totalMs = max(0, player.media?.length.intValue ?? 0)
-        let currentMs = player.time.intValue
+        // `play()`). Treat as 0 length so a positive skip is
+        // clamped to 0 instead of crashing.
+        let totalMs = max(0, mediaPlayer.media?.length.intValue ?? 0)
+        let currentMs = mediaPlayer.time.intValue
         let raw = Double(currentMs) + seconds * 1000
         let clampedMs = Int32(min(Double(totalMs), max(0, raw)))
-        player.time = VLCTime(int: clampedMs)
+        mediaPlayer.time = VLCTime(int: clampedMs)
         currentTime = Double(clampedMs) / 1000
         #endif
     }
@@ -112,11 +193,10 @@ final class PlayerController: ObservableObject {
     /// `FullscreenPlayerView` for the debounce logic.
     func seek(to seconds: Double) {
         #if canImport(MobileVLCKit)
-        guard let player = mediaPlayer else { return }
-        let totalSeconds = max(0, Double(player.media?.length.intValue ?? 0) / 1000)
+        let totalSeconds = max(0, Double(mediaPlayer.media?.length.intValue ?? 0) / 1000)
         let target = min(totalSeconds, max(0, seconds))
         let targetMs = Int32(target * 1000)
-        player.time = VLCTime(int: targetMs)
+        mediaPlayer.time = VLCTime(int: targetMs)
         currentTime = target
         #endif
     }
@@ -137,30 +217,168 @@ final class PlayerController: ObservableObject {
 
     private func refresh() {
         #if canImport(MobileVLCKit)
-        guard let player = mediaPlayer else { return }
-        let ms = player.time.intValue
+        let ms = mediaPlayer.time.intValue
         if ms >= 0 {
             currentTime = Double(ms) / 1000
         }
         // `media` is optional on `VLCMediaPlayer`; skip the duration
         // update when nil so the scrubber keeps its last-known value
         // (typically 0) instead of briefly showing NaN.
-        let length = player.media?.length.intValue ?? 0
+        let length = mediaPlayer.media?.length.intValue ?? 0
         if length > 0 {
             duration = Double(length) / 1000
         }
-        if player.isPlaying != isPlaying {
-            isPlaying = player.isPlaying
+        if mediaPlayer.isPlaying != isPlaying {
+            isPlaying = mediaPlayer.isPlaying
         }
+        // Buffering = VLC's state machine is in opening or
+        // buffering. The state value is the most reliable signal —
+        // `isPlaying` flips false during the first 100-200ms before
+        // the network completes the manifest fetch, but it can
+        // also be true while `state == .buffering` if VLC has not
+        // yet decided to pause. The state check is robust to
+        // either case.
+        let state = mediaPlayer.state
+        isBuffering = (state == .opening || state == .buffering)
+        // `downloadRate` is in bytes/second. 0 when idle. The
+        // loading overlay formats this via `formatNetworkSpeed`.
+        networkSpeed = Double(mediaPlayer.statistics.downloadRate)
         #endif
+    }
+
+    deinit {
+        // `Timer.invalidate()` is thread-safe. We do not stop the
+        // mediaPlayer here because `tearDown` is the explicit
+        // teardown path — calling `stop()` from deinit on a
+        // @MainActor class would also have to bridge the actor,
+        // and the controller outliving the player is not the
+        // normal path (the parent's `tearDown` should fire first).
+        pollTimer?.invalidate()
+    }
+}
+
+/// Owns the periodic history-reporting `Timer` for one playback
+/// session. The official Bilibili iOS client calls
+/// `POST /x/v2/history/report` with `progress=0` on play start and
+/// every 30 seconds during playback — without that cadence the
+/// video plays fine but never shows up in the user's "历史记录"
+/// list (the "visitor watch" symptom in `MINIMAX_INSTRUCTIONS.md`
+/// §2). This helper isolates the timer so both the inline
+/// `PlayerView` and the fullscreen overlay can share the exact
+/// same scheduling logic without each view re-implementing it.
+///
+/// `start(...)` is fire-and-forget: failures are caught and
+/// `bpLog`'d so a flaky network never breaks playback. A missed
+/// tick just means the history entry's progress is a few seconds
+/// behind — Bilibili recomputes it on the next successful call.
+@MainActor
+final class WatchSession {
+    private let repository: BiliPaiRepository
+    private let aid: Int
+    private let cid: Int
+    private let getCurrentSeconds: () -> Double
+    private let isActive: () -> Bool
+    private var timer: Timer?
+    /// Tracks the last time we fired so we can throttle a
+    /// "play then immediately pause" pair — without this, a quick
+    /// tap on play/pause could fire two `progress=0` reports back
+    /// to back and overwrite the resume point.
+    private var lastFire: Date = .distantPast
+
+    private static let reportInterval: TimeInterval = 30
+    private static let minimumGap: TimeInterval = 5
+
+    init(
+        repository: BiliPaiRepository,
+        aid: Int,
+        cid: Int,
+        getCurrentSeconds: @escaping () -> Double,
+        isActive: @escaping () -> Bool
+    ) {
+        self.repository = repository
+        self.aid = aid
+        self.cid = cid
+        self.getCurrentSeconds = getCurrentSeconds
+        self.isActive = isActive
+    }
+
+    /// Begin reporting. Sends `progress=0` immediately, then every
+    /// `reportInterval` seconds. Idempotent — calling `start` while
+    /// already running is a no-op so SwiftUI re-renders don't queue
+    /// duplicate timers.
+    func start() {
+        guard timer == nil else { return }
+        guard aid > 0, cid > 0 else {
+            // The video either came from a feed entry that only
+            // had a `bvid` (no `aid`) or the detail load failed to
+            // populate a `cid` — the history endpoint requires both,
+            // so we silently skip rather than spam bpLog on every
+            // play. The user can still see the watch in their local
+            // client, it just won't sync to Bilibili's history.
+            return
+        }
+        // Fire the first report immediately so the watch shows up
+        // in the history list even if the user only watches for
+        // <30s.
+        fire(progress: 0)
+        timer = Timer.scheduledTimer(withTimeInterval: Self.reportInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.tick()
+            }
+        }
+    }
+
+    /// Cancel the timer. Safe to call from `onDisappear`; the next
+    /// `start` will fire a fresh `progress=0` to mark the new
+    /// session start.
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func tick() {
+        // Throttle: if the user just paused (or just opened the
+        // view and `start` fired <5s ago) skip the report to avoid
+        // a noisy pair of `progress=...` ticks.
+        guard Date().timeIntervalSince(lastFire) >= Self.minimumGap else { return }
+        guard isActive() else { return }
+        let progress = Int(max(0, getCurrentSeconds().rounded()))
+        fire(progress: progress)
+    }
+
+    private func fire(progress: Int) {
+        lastFire = Date()
+        Task { [repository, aid, cid] in
+            do {
+                try await repository.reportHistoryForWatchSession(
+                    aid: aid,
+                    cid: cid,
+                    progress: progress
+                )
+            } catch {
+                // Non-fatal: bpLog the failure so the in-app log
+                // export surfaces it, but do not propagate — the
+                // user is mid-watch, retrying on the next tick is
+                // the right behaviour.
+                bpLog("history report failed (aid=\(aid) progress=\(progress)): \(error)")
+            }
+        }
     }
 }
 
 /// A robust FFmpeg-based player view using MobileVLCKit.
 /// This replaces AVPlayer to support Bilibili's DASH streams and custom headers.
+///
+/// The `VLCMediaPlayer` itself is owned by `PlayerController` (not
+/// by this representable). `VLCPlayerView`'s only job is to point
+/// the player's `drawable` at the underlying `UIView` and release
+/// that pointer when SwiftUI tears the view down. Hoisting the
+/// player up to the controller is what lets the inline
+/// `PlayerView` and the `FullscreenPlayerView` share one player —
+/// when the user goes fullscreen, the inline `UIView` is
+/// dismantled and the fullscreen one is created, but the same
+/// `VLCMediaPlayer` keeps playing across the handoff.
 struct VLCPlayerView: UIViewRepresentable {
-    let url: URL
-    let referer: String
     @ObservedObject var controller: PlayerController
 
     func makeUIView(context: Context) -> UIView {
@@ -168,24 +386,7 @@ struct VLCPlayerView: UIViewRepresentable {
         view.backgroundColor = .black
 
         #if canImport(MobileVLCKit)
-        let mediaPlayer = VLCMediaPlayer()
-        mediaPlayer.drawable = view
-
-        let media = VLCMedia(url: url)
-        // Add Bilibili-specific headers to bypass CDN protection
-        media.addOptions([
-            "http-referrer": referer,
-            "http-user-agent": "bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)"
-        ])
-
-        mediaPlayer.media = media
-        context.coordinator.mediaPlayer = mediaPlayer
-        context.coordinator.lastBoundURL = url
-        controller.attach(mediaPlayer)
-
-        if controller.isPlaying {
-            mediaPlayer.play()
-        }
+        context.coordinator.attach(controller: controller, view: view)
         #else
         let label = UILabel()
         label.text = "VLCKit not linked — live playback is unavailable in this build."
@@ -207,40 +408,44 @@ struct VLCPlayerView: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
         #if canImport(MobileVLCKit)
-        guard let mediaPlayer = context.coordinator.mediaPlayer else { return }
-
-        // Hot-swap media when the URL changes (VOD → VOD, VOD → live,
-        // HLS ↔ FLV toggle in `LivePlayerView`). VLC's API requires
-        // `stop()` + reassign `media` — a plain `play()` after a media
-        // change is a no-op. The URL diff guards against rebuilding
-        // the media on every SwiftUI re-render.
-        if context.coordinator.lastBoundURL != url {
-            mediaPlayer.stop()
-            let media = VLCMedia(url: url)
-            media.addOptions([
-                "http-referrer": referer,
-                "http-user-agent": "bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)"
-            ])
-            mediaPlayer.media = media
-            context.coordinator.lastBoundURL = url
-        }
-
-        if controller.isPlaying && !mediaPlayer.isPlaying {
-            mediaPlayer.play()
-        } else if !controller.isPlaying && mediaPlayer.isPlaying {
-            mediaPlayer.pause()
+        // Re-attach on every re-render. This is cheap (a single
+        // property assignment) and essential for the inline ↔
+        // fullscreen handoff: when the fullscreen is dismissed,
+        // the inline view re-renders inside the parent and needs
+        // to re-claim the drawable. Without this, the inline
+        // surface would stay frozen on the last frame it showed
+        // before the fullscreen took over.
+        if controller.mediaPlayer.drawable !== uiView {
+            context.coordinator.attach(controller: controller, view: uiView)
         }
         #endif
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        // `coordinator.detach` only clears the drawable if the
+        // current drawable is still `uiView`, so this is safe to
+        // call from the inline view's dismantle while a
+        // fullscreen view has already taken over the drawable.
+        coordinator.detach()
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    class Coordinator: NSObject {
-        #if canImport(MobileVLCKit)
-        var mediaPlayer: VLCMediaPlayer?
-        var lastBoundURL: URL?
-        #endif
+    class Coordinator {
+        weak var controller: PlayerController?
+        weak var view: UIView?
+
+        func attach(controller: PlayerController, view: UIView) {
+            self.controller = controller
+            self.view = view
+            controller.attach(drawable: view)
+        }
+
+        func detach() {
+            guard let controller = controller, let view = view else { return }
+            controller.detach(currentView: view)
+        }
     }
 }
