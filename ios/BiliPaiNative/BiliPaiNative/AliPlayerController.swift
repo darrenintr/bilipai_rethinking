@@ -40,7 +40,7 @@ final class PlayerController: NSObject, ObservableObject {
     private var attachedSurface: PlayerDrawableSurface?
     private var pollTimer: Timer?
     /// AliPlayer has no direct `status` property; track it via delegate.
-    private var _playerStatus: AVPStatus = .AVPStatusIdle
+    private var _playerStatus: AVPStatus = AVPStatusIdle
 
     private static let userAgent = "bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)"
 
@@ -53,7 +53,7 @@ final class PlayerController: NSObject, ObservableObject {
             return
         }
         createdPlayer.playerView = nil
-        createdPlayer.scalingMode = .AVP_SCALINGMODE_SCALEASPECTFIT
+        createdPlayer.scalingMode = AVP_SCALINGMODE_SCALEASPECTFIT
         self.player = createdPlayer
         super.init()
 
@@ -115,7 +115,7 @@ final class PlayerController: NSObject, ObservableObject {
             return
         }
 
-        let wasPlaying = (_playerStatus == .AVPStatusStarted)
+        let wasPlaying = (_playerStatus == AVPStatusStarted)
         player.playerView = nil
         attachedView = view
         attachedSurface = surface
@@ -177,7 +177,7 @@ final class PlayerController: NSObject, ObservableObject {
         let currentMs = Int64(currentTime * 1000)
         let raw = currentMs + Int64(seconds * 1000)
         let clampedMs = min(totalMs, max(0, raw))
-        player.seek(toTime: clampedMs, seekMode: .AVP_SEEKMODE_ACCURATE)
+        player.seek(toTime: clampedMs, seekMode: AVP_SEEKMODE_ACCURATE)
         currentTime = Double(clampedMs) / 1000
     }
 
@@ -185,7 +185,7 @@ final class PlayerController: NSObject, ObservableObject {
     func seek(to seconds: Double) {
         let target = max(0, min(duration, seconds))
         let targetMs = Int64(target * 1000)
-        player.seek(toTime: targetMs, seekMode: .AVP_SEEKMODE_ACCURATE)
+        player.seek(toTime: targetMs, seekMode: AVP_SEEKMODE_ACCURATE)
         currentTime = target
     }
 
@@ -212,7 +212,7 @@ final class PlayerController: NSObject, ObservableObject {
         if dur > 0 {
             duration = Double(dur) / 1000
         }
-        let nowPlaying = (_playerStatus == .AVPStatusStarted)
+        let nowPlaying = (_playerStatus == AVPStatusStarted)
         if nowPlaying != isPlaying {
             isPlaying = nowPlaying
             diagLog(.playback, "AliPlayer isPlaying changed", details: ["isPlaying": isPlaying])
@@ -231,7 +231,7 @@ extension PlayerController: AVPDelegate {
     nonisolated func onPlayerStatusChanged(_ player: AliPlayer, oldStatus: AVPStatus, newStatus: AVPStatus) {
         Task { @MainActor in
             self._playerStatus = newStatus
-            let nowPlaying = (newStatus == .AVPStatusStarted)
+            let nowPlaying = (newStatus == AVPStatusStarted)
             if nowPlaying != self.isPlaying {
                 self.isPlaying = nowPlaying
                 diagLog(.playback, "AliPlayer status changed", details: [
@@ -263,13 +263,13 @@ extension PlayerController: AVPDelegate {
     nonisolated func onPlayerEvent(_ player: AliPlayer, eventType: AVPEventType) {
         Task { @MainActor in
             switch eventType {
-            case .AVPEventLoadingStart:
+            case AVPEventLoadingStart:
                 self.isBuffering = true
-            case .AVPEventLoadingEnd:
+            case AVPEventLoadingEnd:
                 self.isBuffering = false
-            case .AVPEventCompletion:
+            case AVPEventCompletion:
                 self.isPlaying = false
-            case .AVPEventPrepareDone:
+            case AVPEventPrepareDone:
                 let dur = player.duration
                 if dur > 0 {
                     self.duration = Double(dur) / 1000
