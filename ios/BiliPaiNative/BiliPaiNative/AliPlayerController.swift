@@ -1,5 +1,5 @@
 import UIKit
-import AliPlayerSDK
+import AliPlayerSDK_iOS
 
 enum PlayerDrawableSurface: String {
     case inline
