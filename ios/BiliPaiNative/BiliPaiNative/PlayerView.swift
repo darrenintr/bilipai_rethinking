@@ -12,83 +12,112 @@ import UIKit
 /// pause controls we actually need in the inline surface.
 struct PlayerView: View {
     let playback: BiliPlayback
-    @Binding var isPlaying: Bool
-
-    init(playback: BiliPlayback, isPlaying: Binding<Bool> = .constant(true)) {
-        self.playback = playback
-        self._isPlaying = isPlaying
-    }
+    @StateObject private var controller = PlayerController()
 
     var body: some View {
         VLCPlayerView(
             url: playback.videoURL,
             referer: "https://www.bilibili.com",
-            isPlaying: $isPlaying
+            controller: controller
         )
     }
 }
 
-/// Fullscreen overlay player. Reused by `VideoDetailView` when the user taps
-/// the fullscreen button — we present this inside `.fullScreenCover` and
-/// render our own minimal controls so the experience is consistent with the
+/// Fullscreen overlay player. Reused by `VideoDetailView` when the user
+/// taps the fullscreen button — we present this inside `.fullScreenCover`
+/// and render our own controls so the experience is consistent with the
 /// rest of the BiliPai visual language.
 ///
-/// Controls include a top bar (dismiss + title) and a bottom bar (large
-/// play/pause, scrubber). Tapping anywhere on the player surface toggles
-/// the controls; the X button stays usable even when the controls are
-/// visible because the tap-to-toggle is wired with `.simultaneousGesture`
-/// (a plain `.onTapGesture` on the ZStack would steal the button tap on
-/// the same hit-test region — that was the source of the "can't get out of
-/// fullscreen" bug).
+/// Controls layout (top → bottom):
+///   1. Top bar: dismiss X (large, left) + video title pill.
+///   2. Centre: 5s skip back, play/pause, 5s skip forward.
+///   3. Bottom bar: current time, scrubber, total time.
+///
+/// The previous version stacked everything in the centre of the ZStack
+/// because the VStack had no frame and the inner `Spacer` collapsed
+/// to zero height — making the top and bottom bars look like a single
+/// cramped row in the middle of the screen. The new
+/// `.frame(maxWidth: .infinity, maxHeight: .infinity)` pins the VStack
+/// to the ZStack's edges so the top bar hugs the top safe area, the
+/// centre controls sit in the middle, and the scrubber hugs the
+/// bottom safe area.
+///
+/// The X button used to be a `headline` 18pt icon in a small circle —
+/// easy to miss. It is now a 44pt hit target with the icon at 17pt
+/// bold, sitting at the leading edge of the top bar where every
+/// fullscreen player convention puts it. The tap-to-toggle lives on
+/// the video layer (behind the controls), so a tap on a control
+/// button is absorbed by the button and does not bubble down to
+/// hide the overlay.
 struct FullscreenPlayerView: View {
     let video: BiliVideo
     let playback: BiliPlayback
 
     @Environment(\.dismiss) private var dismiss
-    @State private var isPlaying = true
+    @StateObject private var controller = PlayerController()
     @State private var controlsVisible = true
     @State private var hideTask: Task<Void, Never>?
+    /// Local mirror of the scrubber position while the user is
+    /// dragging — see `scrubberBinding` for the two-source-of-truth
+    /// dance with `controller.currentTime`.
+    @State private var scrubValue: Double = 0
+    @State private var isScrubbing = false
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            PlayerView(playback: playback, isPlaying: $isPlaying)
-                .ignoresSafeArea()
+            // The video layer carries the tap-to-toggle. Tapping it
+            // while the controls are hidden brings them back. When
+            // the controls are visible, `controlsOverlay` is in
+            // front and intercepts taps first — the tap on the video
+            // never fires, so the user does not accidentally hide
+            // the controls by tapping the centre play button.
+            VLCPlayerView(
+                url: playback.videoURL,
+                referer: "https://www.bilibili.com",
+                controller: controller
+            )
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .onTapGesture { toggleControls() }
 
             if controlsVisible {
                 controlsOverlay
-                    .transition(.opacity)
-            } else {
-                tapToShowHint
                     .transition(.opacity)
             }
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .contentShape(Rectangle())
-        // `.simultaneousGesture` lets button taps inside the overlay still
-        // register instead of being eaten by the background tap-to-toggle.
-        .simultaneousGesture(
-            TapGesture().onEnded { toggleControls() }
-        )
         .onAppear {
+            // Sync the local scrub mirror to whatever the controller
+            // already knows (typically 0 on a fresh player).
+            scrubValue = controller.currentTime
             scheduleControlsHide()
         }
         .onDisappear {
             hideTask?.cancel()
+            // Stop the 0.5s poll timer in the controller so the
+            // playhead stops updating once the overlay is gone.
+            controller.detach()
         }
     }
 
     private var controlsOverlay: some View {
         VStack(spacing: 0) {
             topBar
-            Spacer()
+            Spacer(minLength: 0)
+            centerControls
+            Spacer(minLength: 0)
             bottomBar
         }
+        // Pin the VStack to the full ZStack so the topBar, centre, and
+        // bottomBar each sit at their respective edges instead of
+        // collapsing into a stacked group in the middle.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 16)
         .padding(.top, 12)
-        .padding(.bottom, 24)
+        .padding(.bottom, 20)
     }
 
     private var topBar: some View {
@@ -98,9 +127,9 @@ struct FullscreenPlayerView: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.headline.weight(.semibold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
                     .background(.black.opacity(0.55), in: Circle())
             }
             .accessibilityLabel("Exit fullscreen")
@@ -113,41 +142,109 @@ struct FullscreenPlayerView: View {
                 .padding(.vertical, 6)
                 .background(.black.opacity(0.55), in: Capsule())
 
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var centerControls: some View {
+        HStack(spacing: 36) {
+            Spacer()
+
+            // 5-second skip back ("past 5 seconds" in the user's
+            // phrasing). 44pt hit target, system symbol at 22pt.
+            Button {
+                controller.skip(by: -5)
+                scheduleControlsHide()
+            } label: {
+                Image(systemName: "gobackward.5")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.55), in: Circle())
+            }
+            .accessibilityLabel("Skip back 5 seconds")
+
+            // Play/pause. The 72pt target is the largest of the
+            // three centre controls and matches the AVPlayer look.
+            Button {
+                controller.toggle()
+                scheduleControlsHide()
+            } label: {
+                Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 72, height: 72)
+                    .background(.black.opacity(0.6), in: Circle())
+            }
+            .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
+
+            Button {
+                controller.skip(by: 5)
+                scheduleControlsHide()
+            } label: {
+                Image(systemName: "goforward.5")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.55), in: Circle())
+            }
+            .accessibilityLabel("Skip forward 5 seconds")
+
             Spacer()
         }
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 24) {
-            Spacer()
+        HStack(spacing: 12) {
+            Text(formatTime(scrubValue))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white)
 
-            Button {
-                isPlaying.toggle()
-                if controlsVisible { scheduleControlsHide() }
-            } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 36, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 64, height: 64)
-                    .background(.black.opacity(0.55), in: Circle())
-            }
-            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+            Slider(
+                value: scrubberBinding,
+                // `max(0.1, duration)` keeps Slider happy when the
+                // media is still loading and the duration is 0 —
+                // Slider's `in:` requires `lower < upper`.
+                in: 0...max(0.1, controller.duration),
+                onEditingChanged: { editing in
+                    isScrubbing = editing
+                    if !editing {
+                        // Only seek when the user lifts their finger,
+                        // not on every drag tick — that would queue
+                        // hundreds of seek calls per second.
+                        controller.seek(to: scrubValue)
+                        scheduleControlsHide()
+                    }
+                }
+            )
+            .tint(.white)
 
-            Spacer()
+            Text(formatTime(controller.duration))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white)
         }
     }
 
-    private var tapToShowHint: some View {
-        VStack {
-            Spacer()
-            Text("Tap to show controls")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.55))
-                .padding(.bottom, 28)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        // The hint must not block the tap-to-show gesture.
-        .allowsHitTesting(false)
+    /// Two-source-of-truth binding for the scrubber. While the user
+    /// is dragging, the slider writes to the local `scrubValue` so
+    /// the thumb tracks their finger precisely. While the controller
+    /// is updating the playhead on its 0.5s poll, the slider reads
+    /// from `controller.currentTime` so the thumb keeps moving
+    /// without the user having to release.
+    private var scrubberBinding: Binding<Double> {
+        Binding(
+            get: { isScrubbing ? scrubValue : controller.currentTime },
+            set: { newValue in
+                scrubValue = newValue
+            }
+        )
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        let minutes = total / 60
+        let secs = total % 60
+        return String(format: "%d:%02d", minutes, secs)
     }
 
     private func toggleControls() {
@@ -164,7 +261,7 @@ struct FullscreenPlayerView: View {
     private func scheduleControlsHide() {
         hideTask?.cancel()
         hideTask = Task {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.18)) {

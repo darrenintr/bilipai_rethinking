@@ -64,7 +64,7 @@ private struct LivePlayerView: View {
     @State private var playback: BiliLivePlayback?
     @State private var errorMessage: String?
     @State private var format: BiliLiveStreamFormat = .flv
-    @State private var isPlaying = true
+    @StateObject private var controller = PlayerController()
 
     var body: some View {
         ZStack {
@@ -92,7 +92,7 @@ private struct LivePlayerView: View {
             VLCPlayerView(
                 url: url,
                 referer: playback.referer.absoluteString,
-                isPlaying: $isPlaying
+                controller: controller
             )
         } else if let errorMessage {
             ContentUnavailableView(

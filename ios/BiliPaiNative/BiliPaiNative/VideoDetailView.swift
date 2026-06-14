@@ -1,5 +1,16 @@
 import SwiftUI
 
+/// Signal extracted from the comment-list `ScrollView`'s geometry.
+/// The auto-load trigger cares about two facts: has the user scrolled
+/// at all, and are they within a viewport-height of the bottom.
+/// Encoding both into an `Equatable` value lets
+/// `onScrollGeometryChange` fire the action only when the answer
+/// changes, which is cheaper than reacting to every pixel of scroll.
+private struct CommentScrollSignal: Equatable {
+    let hasScrolled: Bool
+    let isNearBottom: Bool
+}
+
 struct VideoDetailView: View {
     let video: BiliVideo
     let repository: BiliPaiRepository
@@ -39,6 +50,25 @@ struct VideoDetailView: View {
         .fullScreenCover(isPresented: $isFullscreenPresented) {
             if let playback = model.playback {
                 FullscreenPlayerView(video: model.detail, playback: playback)
+            }
+        }
+        // Auto-load the next comment batch only when the user has
+        // actually scrolled the list and is within 200pt of the bottom.
+        // The earlier per-row `.onAppear { if index >= count - 5 }`
+        // trigger was a footgun: when the initial 20 items fit on
+        // screen, the last 5 rows' onAppear all fire at once, queue up
+        // loadMore calls, and the list grows to load the entire thread
+        // before the user even touches the scroll view. The
+        // `hasScrolled` guard (contentOffset > 1pt) makes sure the
+        // very first render never auto-loads.
+        .onScrollGeometryChange(for: CommentScrollSignal.self) { geometry in
+            let hasScrolled = geometry.contentOffset.y > 1
+            let isNearBottom = geometry.contentOffset.y + geometry.containerSize.height
+                >= geometry.contentSize.height - 200
+            return CommentScrollSignal(hasScrolled: hasScrolled, isNearBottom: isNearBottom)
+        } action: { _, signal in
+            if signal.hasScrolled && signal.isNearBottom {
+                Task { await model.loadMoreComments(repository: repository) }
             }
         }
     }
@@ -184,24 +214,13 @@ struct VideoDetailView: View {
                 commentInputField
                     .padding(.bottom, 8)
 
-                ForEach(Array(model.comments.enumerated()), id: \.element.id) { index, comment in
+                ForEach(Array(model.comments.enumerated()), id: \.element.id) { _, comment in
                     CommentRow(comment: comment, video: model.detail, repository: repository, model: model)
-                        .onAppear {
-                            if index >= max(0, model.comments.count - 5) {
-                                Task { await model.loadMoreComments(repository: repository) }
-                            }
-                        }
                     if comment.id != model.comments.last?.id {
                         Divider()
                     }
                 }
-                if model.commentsLoadingMore {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    }
-                }
+                loadMoreFooter
             }
         }
         .padding(14)
@@ -210,6 +229,45 @@ struct VideoDetailView: View {
 
     @State private var newCommentText = ""
     @State private var isSubmittingComment = false
+
+    /// Footer shown at the bottom of the comment list. When the user
+    /// can scroll past the loaded items the auto-load trigger on the
+    /// outer `ScrollView` handles pagination; this footer covers the
+    /// case where the loaded 20 items fit entirely in the viewport
+    /// (no scroll possible) so the user can still request the next
+    /// batch explicitly. Also doubles as a manual retry target if the
+    /// auto-load hits a network error and stops firing.
+    @ViewBuilder
+    private var loadMoreFooter: some View {
+        if model.commentsHasMore {
+            HStack {
+                Spacer()
+                if model.commentsLoadingMore {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("加载中…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button {
+                        Task { await model.loadMoreComments(repository: repository) }
+                    } label: {
+                        Label("加载更多评论", systemImage: "arrow.down.circle")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 12)
+        } else if !model.comments.isEmpty {
+            Text("— 没有更多评论了 —")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        }
+    }
 
     private var commentInputField: some View {
         HStack(spacing: 12) {
