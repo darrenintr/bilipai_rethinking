@@ -34,7 +34,7 @@ struct VLCPlayerView: UIViewRepresentable {
         }
         #else
         let label = UILabel()
-        label.text = "VLCKit not linked. Please add MobileVLCKit via SPM."
+        label.text = "VLCKit not linked — live playback is unavailable in this build."
         label.textColor = .white
         label.textAlignment = .center
         label.numberOfLines = 0

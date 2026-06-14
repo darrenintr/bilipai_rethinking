@@ -36,7 +36,6 @@
 		10000000000000000000011B /* AccountContentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021C /* AccountContentViews.swift */; };
 		10000000000000000000011C /* ReplyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021D /* ReplyListView.swift */; };
 		10000000000000000000011D /* VLCPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021E /* VLCPlayerView.swift */; };
-		10000000000000000000011E /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 10000000000000000000011F /* MobileVLCKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -78,7 +77,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				10000000000000000000011E /* MobileVLCKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,25 +154,6 @@
 		};
 /* End PBXGroup section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		100000000000000000000602 /* XCRemoteSwiftPackageReference "vlc-ios" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/videolan/vlc-ios";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 3.6.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		10000000000000000000011F /* MobileVLCKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 100000000000000000000602 /* XCRemoteSwiftPackageReference "vlc-ios" */;
-			productName = MobileVLCKit;
-		};
-/* End XCSwiftPackageProductDependency section */
-
 /* Begin PBXNativeTarget section */
 		100000000000000000000501 /* BiliPaiNative */ = {
 			isa = PBXNativeTarget;
@@ -189,9 +168,6 @@
 			dependencies = (
 			);
 			name = BiliPaiNative;
-			packageProductDependencies = (
-				10000000000000000000011F /* MobileVLCKit */,
-			);
 			productName = BiliPaiNative;
 			productReference = 100000000000000000000001 /* BiliPaiNative.app */;
 			productType = "com.apple.product-type.application";

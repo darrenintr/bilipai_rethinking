@@ -50,22 +50,6 @@ jobs:
           xcodebuild -list -project "$PROJECT_PATH" -json \
             | python3 -c "import json,sys; schemes=json.load(sys.stdin)['project']['schemes']; assert '$SCHEME' in schemes, f'Scheme $SCHEME not found in {schemes}'; print('Scheme $SCHEME present')"
 
-      - name: Resolve SwiftPM dependencies
-        # `MobileVLCKit` (and any future SwiftPM products) get resolved
-        # implicitly during the build step, but resolving up front gives
-        # us a clear failure point when the upstream package moves or
-        # renames a product — better than a generic build error that
-        # hides which dependency is broken. The derived-data path is
-        # shared with the build step so this does not double-download.
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -project "$PROJECT_PATH" \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -derivedDataPath "$DERIVED_DATA" \
-            -resolvePackageDependencies
-
       - name: Build device app without signing
         run: |
           set -euo pipefail
