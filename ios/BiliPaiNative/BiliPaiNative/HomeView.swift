@@ -60,6 +60,10 @@ struct HomeView: View {
                 .onChange(of: router.pendingSearchQuery) { _, query in
                     Task { await model.applyIntentSearch(query, repository: repository, accountMid: accountMid) }
                 }
+                .onChange(of: accountMid) { _, _ in
+                    guard model.category == .follow else { return }
+                    Task { await model.load(repository: repository, accountMid: accountMid) }
+                }
         }
     }
 
@@ -310,6 +314,7 @@ private struct HomeEmptyState: View {
     let category: HomeCategory
     let searchQuery: String
     let hasError: Bool
+    var isLoggedIn = false
 
     var body: some View {
         ContentUnavailableView(
@@ -323,7 +328,7 @@ private struct HomeEmptyState: View {
 
     private var title: String {
         if hasError { return "内容加载失败" }
-        if category == .follow { return "关注内容需要登录" }
+        if category == .follow { return isLoggedIn ? "暂无关注动态" : "关注内容需要登录" }
         if category == .live { return "暂无直播间" }
         if category == .search && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "搜索 Bilibili"
@@ -341,7 +346,9 @@ private struct HomeEmptyState: View {
     private var description: String {
         if hasError { return "下拉重试 Bilibili 公共内容源。" }
         if category == .follow {
-            return "登录账号后查看关注 UP 主的视频、专栏、番剧和直播开播动态。"
+            return isLoggedIn
+                ? "当前账号暂时没有可展示的关注动态，下拉刷新或稍后再试。"
+                : "登录账号后查看关注 UP 主的视频、专栏、番剧和直播开播动态。"
         }
         if category == .live {
             return "下拉刷新 Bilibili 公共直播列表。"
@@ -366,9 +373,19 @@ private struct DynamicFeedList: View {
 
     var body: some View {
         if model.dynamicNeedsLogin {
-            HomeEmptyState(category: .follow, searchQuery: "", hasError: false)
+            HomeEmptyState(
+                category: .follow,
+                searchQuery: "",
+                hasError: false,
+                isLoggedIn: authStore.isLoggedIn
+            )
         } else if model.dynamicItems.isEmpty && !model.isLoading {
-            HomeEmptyState(category: .follow, searchQuery: "", hasError: false)
+            HomeEmptyState(
+                category: .follow,
+                searchQuery: "",
+                hasError: false,
+                isLoggedIn: authStore.isLoggedIn
+            )
         } else {
             LazyVStack(spacing: 14) {
                 ForEach(Array(model.dynamicItems.enumerated()), id: \.element.id) { index, post in

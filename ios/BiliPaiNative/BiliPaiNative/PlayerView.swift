@@ -320,7 +320,7 @@ struct FullscreenPlayerView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 12) {
-            Text(formatTime(scrubValue))
+            Text(formatTime(isScrubbing ? scrubValue : controller.currentTime))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white)
 

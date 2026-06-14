@@ -137,7 +137,7 @@ final class BilibiliAPIClient {
             signWithWBI: true
         )
         try payload.requireOK()
-        let videos = payload.value?.videos.map(\.model) ?? []
+        let videos = payload.value?.videos.compactMap(\.validModel) ?? []
         diagLog(.recommendation, "Web RCMD API success", details: ["count": videos.count])
         return videos
     }
@@ -1302,6 +1302,12 @@ private struct VideoDTO: Decodable {
             likeCount: likeCount,
             description: description
         )
+    }
+
+    var validModel: BiliVideo? {
+        guard !bvid.isEmpty || aid > 0 else { return nil }
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return model
     }
 
     init(from decoder: Decoder) throws {

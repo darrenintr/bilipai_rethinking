@@ -160,11 +160,11 @@ final class HomeViewModel: ObservableObject {
                     searchQuery: searchQuery,
                     popularSubCategory: popularSubCategory,
                     page: page,
-                    recommendFreshIndex: replacing && category == .recommend ? recommendFreshIndex : 0,
+                    recommendFreshIndex: category == .recommend ? recommendFreshIndex : 0,
                     isRefresh: replacing
                 )
                 guard isCurrentRequest(requestID) else { return }
-                if replacing && category == .recommend {
+                if category == .recommend {
                     recommendFreshIndex += 1
                 }
                 if replacing {

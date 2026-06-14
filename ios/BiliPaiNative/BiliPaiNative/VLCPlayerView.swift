@@ -400,15 +400,38 @@ final class WatchSession {
 /// when the user goes fullscreen, the inline `UIView` is
 /// dismantled and the fullscreen one is created, but the same
 /// `VLCMediaPlayer` keeps playing across the handoff.
+private final class VLCPlayerContainerView: UIView {
+    var onReadyForDrawable: ((VLCPlayerContainerView) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        notifyIfReady()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        notifyIfReady()
+    }
+
+    private func notifyIfReady() {
+        guard window != nil, bounds.width > 0, bounds.height > 0 else { return }
+        onReadyForDrawable?(self)
+    }
+}
+
 struct VLCPlayerView: UIViewRepresentable {
     @ObservedObject var controller: PlayerController
 
     func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+        let view = VLCPlayerContainerView()
         view.backgroundColor = .black
 
         #if canImport(MobileVLCKit)
-        context.coordinator.attach(controller: controller, view: view)
+        let coordinator = context.coordinator
+        view.onReadyForDrawable = { [weak coordinator] readyView in
+            coordinator?.attachIfReady(controller: controller, view: readyView)
+        }
+        context.coordinator.attachIfReady(controller: controller, view: view)
         #else
         let label = UILabel()
         label.text = "VLCKit not linked — live playback is unavailable in this build."
@@ -438,10 +461,11 @@ struct VLCPlayerView: UIViewRepresentable {
         // surface would stay frozen on the last frame it showed
         // before the fullscreen took over.
         // `drawable` is `Any?`; cast to `UIView` for `===`.
-        if let drawable = controller.mediaPlayer.drawable as? UIView, drawable !== uiView {
-            context.coordinator.attach(controller: controller, view: uiView)
+        guard let playerView = uiView as? VLCPlayerContainerView else { return }
+        if let drawable = controller.mediaPlayer.drawable as? UIView, drawable !== playerView {
+            context.coordinator.attachIfReady(controller: controller, view: playerView)
         } else if controller.mediaPlayer.drawable == nil {
-            context.coordinator.attach(controller: controller, view: uiView)
+            context.coordinator.attachIfReady(controller: controller, view: playerView)
         }
         #endif
     }
@@ -461,16 +485,21 @@ struct VLCPlayerView: UIViewRepresentable {
     @MainActor
     class Coordinator {
         weak var controller: PlayerController?
-        weak var view: UIView?
+        weak var view: VLCPlayerContainerView?
 
-        func attach(controller: PlayerController, view: UIView) {
+        func attachIfReady(controller: PlayerController, view: VLCPlayerContainerView) {
             self.controller = controller
             self.view = view
+            guard view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else {
+                diagLog(.playback, "Drawable attach deferred until layout", details: ["view": String(describing: view)])
+                return
+            }
             controller.attach(drawable: view)
         }
 
         func detach() {
             guard let controller = controller, let view = view else { return }
+            view.onReadyForDrawable = nil
             controller.detach(currentView: view)
         }
     }

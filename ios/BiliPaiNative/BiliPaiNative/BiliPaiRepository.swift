@@ -31,36 +31,32 @@ final class BiliPaiRepository: ObservableObject {
     ) async throws -> [BiliVideo] {
         switch category {
         case .recommend:
+            // Keep the 推荐 tab on the personalised recommendation surface
+            // for every batch. Falling back to `popularVideos(page: 2)` after
+            // the first 20 items makes the feed stop feeling account-ranked.
+            do {
+                let webRcmd = try await apiClient.recommendedVideos(freshIndex: recommendFreshIndex)
+                if !webRcmd.isEmpty { return webRcmd }
+            } catch {
+                bpLog("Web API rcmd failed: \(error)")
+            }
+
+            if let appRcmd = try? await apiClient.appRecommendedVideos(freshIndex: recommendFreshIndex, isRefresh: isRefresh), !appRcmd.isEmpty {
+                return appRcmd
+            }
+
             if page == 1 {
-                // [FIX] Prioritize the Web Recommendation API (recommendedVideos).
-                // The App API requires an access_token for personalization, but 
-                // the Web API works with cookies (which we have from QR login).
-                do {
-                    let webRcmd = try await apiClient.recommendedVideos(freshIndex: recommendFreshIndex)
-                    if !webRcmd.isEmpty { return webRcmd }
-                } catch {
-                    bpLog("Web API rcmd failed: \(error)")
-                }
-
-                // Fallback to App API if Web failed (unlikely but safe)
-                if let appRcmd = try? await apiClient.appRecommendedVideos(freshIndex: recommendFreshIndex, isRefresh: isRefresh), !appRcmd.isEmpty {
-                    return appRcmd
-                }
-
                 if let popular = try? await apiClient.popularVideos(page: page), !popular.isEmpty {
                     return popular
                 }
-                // ...
-
                 if let ranking = try? await apiClient.rankingVideos(), !ranking.isEmpty {
                     return ranking
                 }
                 if let weekly = try? await apiClient.weeklyMustWatchVideos(), !weekly.isEmpty {
                     return weekly
                 }
-                return []
             }
-            return try await apiClient.popularVideos(page: page)
+            return []
         case .follow:
             return []
         case .popular:
