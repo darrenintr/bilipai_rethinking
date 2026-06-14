@@ -38,6 +38,7 @@
 		10000000000000000000011D /* AliPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021E /* AliPlayerController.swift */; };
 		10000000000000000000011E /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* DiagnosticLogger.swift */; };
 		10000000000000000000222 /* AliPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021F /* AliPlayerView.swift */; };
+		9DE729F554A34F25AEE6976E /* PatchSandboxSB.sh in Sources */ = {isa = PBXBuildFile; fileRef = 9AECCC953B2F426EB7A25AD3 /* PatchSandboxSB.sh */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -74,6 +75,7 @@
 		10000000000000000000021E /* AliPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerController.swift; sourceTree = "<group>"; };
 		10000000000000000000021F /* AliPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerView.swift; sourceTree = "<group>"; };
 		100000000000000000000220 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
+		9AECCC953B2F426EB7A25AD3 /* PatchSandboxSB.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; name = PatchSandboxSB.sh; path = PatchSandboxSB.sh; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -166,6 +168,7 @@
 			buildConfigurationList = 100000000000000000000901 /* Build configuration list for PBXNativeTarget "BiliPaiNative" */;
 			buildPhases = (
 				100000000000000000000701 /* Sources */,
+				405FDA5B1D024DE8916CD2CC /* PatchSandboxSB */,
 				100000000000000000000301 /* Frameworks */,
 				100000000000000000000801 /* Resources */,
 			);
@@ -465,5 +468,31 @@
 		};
 /* End XCConfigurationList section */
 	};
+	
+/* Begin PBXShellScriptBuildPhase section */
+		405FDA5B1D024DE8916CD2CC /* PatchSandboxSB */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = PatchSandboxSB;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = """
+SB_FILE="${TARGET_TEMP_DIR}"/*.sb
+if [ -f "$SB_FILE" ] && ! grep -q "file-write-create" "$SB_FILE"; then
+    echo "(allow file-write-create (subpath \"Build/Products/\"))" >> "$SB_FILE"
+fi
+""";
+		};
+/* End PBXShellScriptBuildPhase section */
 	rootObject = 100000000000000000000601 /* Project object */;
 }

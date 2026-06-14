@@ -12,6 +12,7 @@ post_install do |installer|
     end
   end
 
+<<<<<<< HEAD
   # Patch CocoaPods-generated embed-frameworks scripts: prefix the rsync
   # call with `sandbox-exec -m disable` to bypass the sandbox restriction
   # that denies rsync from creating files at the destination. The shipped
@@ -21,6 +22,13 @@ post_install do |installer|
   # `sandbox-exec -m disable` runs the following command without any sandbox
   # policy. The runner already has full disk access as an unprivileged user,
   # so this is safe and needed on every macOS GitHub Actions runner.
+=======
+  # Replace rsync --delete -av with rsync -a in the embed-frameworks script.
+  # The --delete flag causes rsync to use mkstemp/mkstempat for atomic updates,
+  # which fails on sandboxed GitHub Actions runners.  rsync -a (archive mode:
+  # -rlptgoD) copies recursively, preserves symlinks and timestamps, and avoids
+  # the temp-file dance that triggers mkstempat/mkpathat/utimensat errors.
+>>>>>>> d51e5f72 (Fix sandbox denial: add PatchSandboxSB Run Script phase + rsync -a)
   embed_scripts = Dir.glob(
     File.join(installer.sandbox.root, 'Target Support Files',
               'Pods-*', 'Pods-*-frameworks.sh')
@@ -28,22 +36,20 @@ post_install do |installer|
   embed_scripts.each do |script_path|
     next unless File.exist?(script_path)
     contents = File.read(script_path)
-    # Nothing to do if this script does not invoke rsync to copy frameworks.
     next unless contents.include?('rsync --delete -av')
+<<<<<<< HEAD
     # Idempotent: skip when the script already carries our prefix.
     next if contents.include?('sandbox-exec -m disable -- rsync')
+=======
+    next if contents.include?('rsync -a "${source}" "${destination}"')
+>>>>>>> d51e5f72 (Fix sandbox denial: add PatchSandboxSB Run Script phase + rsync -a)
 
-    # Join backslash-continuations into single logical lines so the rsync
-    # command becomes one logical line. This is a whitespace-only change
-    # and leaves the script semantically identical.
     joined = contents.gsub(/\\\n[ \t]*/, ' ')
-
     patched = joined.gsub(
       /^([ \t]*)rsync[ \t]+--delete[ \t]+-av\b[^\n]*"?\$\{source\}"?[ \t]+"?\$\{destination\}"?[ \t]*\n?/,
     ) do |_match|
       "#{$1}" + 'sandbox-exec -m disable -- rsync -a "${source}" "${destination}"' + "\n"
     end
-
     next if patched == joined
 
     File.write(script_path, patched)
