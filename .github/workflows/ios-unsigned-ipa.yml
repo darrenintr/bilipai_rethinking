@@ -20,9 +20,8 @@ jobs:
     name: Build unsigned IPA
     runs-on: macos-15
     env:
-      # Use .xcworkspace when CocoaPods is used
-      PROJECT_PATH: ios/BiliPaiNative/BiliPaiNative.xcworkspace
-      SCHEME: BiliPaiNative
+      PROJECT_DIR: ios/BiliPaiNative
+      PROJECT_NAME: BiliPaiNative
       CONFIGURATION: Release
       DERIVED_DATA: build/ios-derived-data
       IPA_DIST_DIR: build/ios-unsigned-ipa
@@ -39,24 +38,24 @@ jobs:
       - name: Install CocoaPods dependencies
         run: |
           set -euo pipefail
-          cd ios/BiliPaiNative
+          cd "$PROJECT_DIR"
           pod install
 
-      - name: Verify project + scheme exist
+      - name: Verify workspace and scheme
         run: |
           set -euo pipefail
-          test -d "$PROJECT_PATH" || { echo "::error::Missing $PROJECT_PATH"; exit 1; }
-          xcodebuild -list -workspace "$PROJECT_PATH"
-          xcodebuild -list -workspace "$PROJECT_PATH" -json \
-            | python3 -c "import json,sys; schemes=json.load(sys.stdin)['workspace']['schemes']; assert '$SCHEME' in schemes, f'Scheme $SCHEME not found in {schemes}'; print('Scheme $SCHEME present')"
+          WORKSPACE="$PROJECT_DIR/$PROJECT_NAME.xcworkspace"
+          test -d "$WORKSPACE" || { echo "::error::Missing workspace: $WORKSPACE"; exit 1; }
+          xcodebuild -list -workspace "$WORKSPACE"
+          xcodebuild -list -workspace "$WORKSPACE" -json \
+            | python3 -c "import json,sys; schemes=json.load(sys.stdin)['workspace']['schemes']; assert '$PROJECT_NAME' in schemes, f'Scheme $PROJECT_NAME not found in {schemes}'; print('Scheme $PROJECT_NAME present')"
 
       - name: Build device app without signing
         run: |
           set -euo pipefail
-
           xcodebuild \
-            -workspace "$PROJECT_PATH" \
-            -scheme "$SCHEME" \
+            -workspace "$PROJECT_DIR/$PROJECT_NAME.xcworkspace" \
+            -scheme "$PROJECT_NAME" \
             -configuration "$CONFIGURATION" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -79,10 +78,10 @@ jobs:
             exit 1
           fi
 
-          APP_PATH="$(find "$PRODUCTS_DIR" -maxdepth 1 -name "${SCHEME}.app" -type d | head -n 1)"
+          APP_PATH="$(find "$PRODUCTS_DIR" -maxdepth 1 -name "${PROJECT_NAME}.app" -type d | head -n 1)"
 
           if [ -z "$APP_PATH" ]; then
-            echo "::error::$SCHEME.app was not found in $PRODUCTS_DIR."
+            echo "::error::$PROJECT_NAME.app was not found in $PRODUCTS_DIR."
             echo "::group::Contents of $PRODUCTS_DIR"
             ls -la "$PRODUCTS_DIR"
             echo "::endgroup::"
@@ -95,15 +94,16 @@ jobs:
 
           (
             cd "$IPA_DIST_DIR"
-            /usr/bin/zip -qry "${SCHEME}-unsigned.ipa" Payload
-            shasum -a 256 "${SCHEME}-unsigned.ipa" > checksums.txt
+            /usr/bin/zip -qry "${PROJECT_NAME}-unsigned.ipa" Payload
+            shasum -a 256 "${PROJECT_NAME}-unsigned.ipa" > checksums.txt
           )
 
       - name: Verify AliPlayerSDK is embedded in the IPA
         run: |
           set -euo pipefail
-          IPA_PATH="$IPA_DIST_DIR/${SCHEME}-unsigned.ipa"
-          if ! /usr/bin/unzip -l "$IPA_PATH" | /usr/bin/grep -q 'Payload/.*\.app/Frameworks/AliyunPlayer.framework/AliyunPlayer'; then
+          IPA_PATH="$IPA_DIST_DIR/${PROJECT_NAME}-unsigned.ipa"
+          # AliPlayerSDK embeds as AliyunPlayer.framework inside the app bundle
+          if ! /usr/bin/unzip -l "$IPA_PATH" | /usr/bin/grep -q 'AliyunPlayer.framework'; then
             echo "::error::AliyunPlayer.framework was not embedded in the IPA."
             echo "::group::IPA contents"
             /usr/bin/unzip -l "$IPA_PATH" | head -50
@@ -115,9 +115,9 @@ jobs:
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.SCHEME }}-unsigned-ipa
+          name: ${{ env.PROJECT_NAME }}-unsigned-ipa
           path: |
-            ${{ env.IPA_DIST_DIR }}/${{ env.SCHEME }}-unsigned.ipa
+            ${{ env.IPA_DIST_DIR }}/${{ env.PROJECT_NAME }}-unsigned.ipa
             ${{ env.IPA_DIST_DIR }}/checksums.txt
           retention-days: 7
           if-no-files-found: error
