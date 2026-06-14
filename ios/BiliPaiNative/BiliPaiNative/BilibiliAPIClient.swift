@@ -171,18 +171,6 @@ final class BilibiliAPIClient {
         Insecure.MD5.hash(data: Data(string.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-private extension String {
-    /// Returns `nil` when the receiver is empty (or whitespace-only).
-    /// Used when an optional API parameter should be omitted entirely
-    /// rather than sent as an empty string — Bilibili treats empty
-    /// `mid` / `buvid3` values as "anonymous fallback" rather than
-    /// "drop this parameter", which is why we treat `""` as `nil` at
-    /// the call site.
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
-}
-
     func popularVideos(page: Int = 1) async throws -> [BiliVideo] {
         let payload: APIResponse<VideoListPayload> = try await get(
             baseURL: baseURL,
@@ -934,6 +922,18 @@ private extension String {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: ":#[]@!$&'()*+,;=")
         return string.addingPercentEncoding(withAllowedCharacters: allowed) ?? string
+    }
+}
+
+fileprivate extension String {
+    /// Returns `nil` when the receiver is empty (or whitespace-only).
+    /// Used when an optional API parameter should be omitted entirely
+    /// rather than sent as an empty string — Bilibili treats empty
+    /// `mid` / `buvid3` values as "anonymous fallback" rather than
+    /// "drop this parameter", which is why we treat `""` as `nil` at
+    /// the call site.
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
