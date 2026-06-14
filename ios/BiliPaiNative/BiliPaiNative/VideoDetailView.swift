@@ -122,9 +122,17 @@ struct VideoDetailView: View {
     private var playerSurface: some View {
         ZStack(alignment: .topLeading) {
             if let playback = model.playback, let controller = playerController {
-                PlayerView(playback: playback, video: model.detail, controller: controller)
-                    .onAppear { model.isPlaying = true }
-                    .onDisappear { model.isPlaying = false }
+                // [FIX] Hide the inline player when fullscreen is presented.
+                // This prevents both views from fighting over the VLC drawable
+                // during transitions and re-renders, which causes black screens.
+                if !isFullscreenPresented {
+                    PlayerView(playback: playback, video: model.detail, controller: controller)
+                        .onAppear { model.isPlaying = true }
+                        .onDisappear { model.isPlaying = false }
+                } else {
+                    // Placeholder while fullscreen is active to maintain layout
+                    Color.black
+                }
 
                 fullscreenButton
                     .padding(10)

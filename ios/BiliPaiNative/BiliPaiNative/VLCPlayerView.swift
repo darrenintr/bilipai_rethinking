@@ -253,11 +253,13 @@ final class PlayerController: ObservableObject {
         // also be true while `state == .buffering` if VLC has not
         // yet decided to pause. The state check is robust to
         // either case.
+        // [FIX] Force isBuffering false if the player is actually playing,
+        // to avoid the spinner sticking while video is visible.
         let state = mediaPlayer.state
-        let newBuffering = (state == .opening || state == .buffering)
+        let newBuffering = (state == .opening || state == .buffering) && !isPlaying
         if newBuffering != isBuffering {
             isBuffering = newBuffering
-            diagLog(.playback, "isBuffering changed", details: ["isBuffering": isBuffering, "vlcState": state.rawValue])
+            diagLog(.playback, "isBuffering changed", details: ["isBuffering": isBuffering, "vlcState": state.rawValue, "isPlaying": isPlaying])
         }
         // `inputBitrate` is in bits/second; convert to bytes/sec
         // for the overlay. 0 while VLC has not yet computed a

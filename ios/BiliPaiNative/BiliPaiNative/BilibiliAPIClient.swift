@@ -118,19 +118,11 @@ final class BilibiliAPIClient {
         let hasCookie = cookieProvider?() != nil
         diagLog(.recommendation, "Fetching recommended videos", details: ["hasCookie": hasCookie, "freshIndex": freshIndex])
         
-        if hasCookie {
-            // If the user is logged in, use the App API for optimized recommendations.
-            // This endpoint provides a more personalized feed based on user history.
-            return try await appRecommendedVideos(freshIndex: freshIndex, isRefresh: true)
-        }
-
-        // The canonical path per the pskdje/bilibili-API-collect docs is
-        // `/x/web-interface/wbi/index/top/feed/rcmd` (note the `wbi`
-        // segment). The shorter non-wbi path is the legacy alias and
-        // Bilibili 風控 is stricter on it for anonymous iOS clients —
-        // hits it returns 200 with an empty `item` array, which the
-        // user sees as "same batch on every pull-to-refresh".
-        diagLog(.recommendation, "Using Web RCMD API (fallback/anonymous)")
+        // [FIX] Always use the Web Recommendation API even when logged in.
+        // The App API requires an access_token which the native iOS version
+        // (currently Web QR login only) does not capture. The Web API
+        // correctly uses cookies to provide personalized results.
+        diagLog(.recommendation, "Using Web RCMD API (personalized via cookies if present)")
         let payload: APIResponse<VideoListPayload> = try await get(
             baseURL: baseURL,
             path: "/x/web-interface/wbi/index/top/feed/rcmd",
@@ -564,7 +556,9 @@ final class BilibiliAPIClient {
         offset: String = "",
         followingFilter: Set<Int64>? = nil
     ) async throws -> DynamicFeedPage {
+        diagLog(.recommendation, "Fetching attention feed", details: ["offset": offset, "hasFilter": followingFilter != nil])
         if cookieProvider?() == nil {
+            diagLog(.recommendation, "Attention feed skipped: No cookie")
             return DynamicFeedPage(items: [], nextOffset: "", hasMore: false, needsLogin: true)
         }
         let payload: APIResponse<DynamicFeedPayload> = try await get(
@@ -582,6 +576,7 @@ final class BilibiliAPIClient {
         try payload.requireOK()
         let data = payload.value
         var items = data?.items.compactMap(\.post).filter { !$0.id.isEmpty } ?? []
+        diagLog(.recommendation, "Attention feed raw items", details: ["count": items.count])
         // When a followings filter is supplied, drop items whose author
         // is not in the user's follow set. We keep the original `mid`
         // (carried via the DynamicCardDTO) on `DynamicPost` so the
@@ -593,6 +588,7 @@ final class BilibiliAPIClient {
             // filter is therefore applied at the DTO level by
             // re-walking the original payload in `attentionFeedDTO`.
             items = attentionFeedDTO(payload: data, followingFilter: followingFilter)
+            diagLog(.recommendation, "Attention feed filtered items", details: ["count": items.count, "filterSize": followingFilter.count])
         }
         return DynamicFeedPage(
             items: items,
@@ -686,7 +682,11 @@ final class BilibiliAPIClient {
     /// rather than throwing, so the home view can render the login
     /// prompt without a try/catch dance.
     func followingMids(vmid: Int64) async throws -> Set<Int64> {
-        if cookieProvider?() == nil { return [] }
+        diagLog(.recommendation, "Fetching following MIDs", details: ["vmid": vmid])
+        if cookieProvider?() == nil {
+            diagLog(.recommendation, "Following MIDs skipped: No cookie")
+            return []
+        }
         var mids: Set<Int64> = []
         var page = 1
         let pageSize = 50
@@ -701,7 +701,10 @@ final class BilibiliAPIClient {
                     URLQueryItem(name: "order", value: "desc")
                 ]
             )
-            if payload.code == -101 { return [] }
+            if payload.code == -101 {
+                diagLog(.recommendation, "Following MIDs error: -101 (needs login)")
+                return []
+            }
             try payload.requireOK()
             guard let data = payload.value, !data.list.isEmpty else { break }
             for entry in data.list { mids.insert(entry.mid) }
@@ -717,6 +720,7 @@ final class BilibiliAPIClient {
             // the safer behaviour is to render what we have.
             if page > 100 { break }
         }
+        diagLog(.recommendation, "Following MIDs fetched", details: ["count": mids.count])
         return mids
     }
 
