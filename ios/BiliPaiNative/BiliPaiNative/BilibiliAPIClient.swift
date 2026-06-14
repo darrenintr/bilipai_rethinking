@@ -49,7 +49,7 @@ final class BilibiliAPIClient {
     /// client so unit tests and the cached-`BiliAppConfig` callers
     /// can read the same placeholder value the API originally used.
     static var defaultConfig: BiliAppConfig {
-        BiliAppConfig(buvid3: nil, mid: 0)
+        BiliAppConfig(buvid3: nil, mid: 0, csrf: nil)
     }
 
     init(session: URLSession? = nil) {
@@ -106,11 +106,12 @@ final class BilibiliAPIClient {
             // one and adding it triggers `code=-101` "参数错误" on
             // some accounts.
         ]
-        let _: APIResponse<EmptyPayload> = try await post(
+        let payload: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/history/report",
             parameters: params
         )
+        try payload.requireOK()
     }
 
     func recommendedVideos(freshIndex: Int = 0) async throws -> [BiliVideo] {
@@ -796,43 +797,6 @@ final class BilibiliAPIClient {
         )
     }
 
-    /// Report playback progress to Bilibili's history endpoint so the
-    /// watch shows up under the user's "历史记录" list and feeds the
-    /// "继续播放" recommendation algorithm. Without this call the
-    /// video plays normally but Bilibili treats the user as a
-    /// visitor — a behaviour the user explicitly flagged in
-    /// `MINIMAX_INSTRUCTIONS.md` §2 ("History Reporting"). The
-    /// `progress` field is the current playhead in seconds and is
-    /// the same value Bilibili uses to compute "看完"/"看到一半" in
-    /// the history list, so accuracy matters for the resume UX.
-    ///
-    /// `aid` and `cid` are both required. `csrf` is auto-extracted
-    /// from the active account's `bili_jct` cookie by the underlying
-    /// `post(...)` helper — no need to plumb it through. `platform`
-    /// and `mobi_app` are pinned to the iOS app identity so the
-    /// upstream records the report as coming from the official iOS
-    /// client (the only client where the history is fully visible).
-    func reportHistory(aid: Int, cid: Int, progress: Int) async throws {
-        let params: [String: String] = [
-            "aid": "\(aid)",
-            "cid": "\(cid)",
-            // `progress` is in seconds. Bilibili rounds down internally
-            // and clamps to the media length, so passing 0 is the
-            // canonical "video just started" signal.
-            "progress": "\(max(0, progress))",
-            "platform": "ios",
-            "mobi_app": "iphone",
-            // No `type` field — the official iOS client doesn't send
-            // one and adding it triggers `code=-101` "参数错误" on
-            // some accounts.
-        ]
-        let _: APIResponse<EmptyPayload> = try await post(
-            baseURL: baseURL,
-            path: "/x/v2/history/report",
-            parameters: params
-        )
-    }
-
     func postComment(aid: Int, message: String, root: Int? = nil, parent: Int? = nil) async throws {
         var params: [String: String] = [
             "type": "1",
@@ -843,15 +807,16 @@ final class BilibiliAPIClient {
         if let root { params["root"] = "\(root)" }
         if let parent { params["parent"] = "\(parent)" }
 
-        let _: APIResponse<EmptyPayload> = try await post(
+        let payload: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/reply/add",
             parameters: params
         )
+        try payload.requireOK()
     }
 
     func likeComment(aid: Int, rpid: Int, action: Int) async throws {
-        let _: APIResponse<EmptyPayload> = try await post(
+        let payload: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/reply/action",
             parameters: [
@@ -861,10 +826,11 @@ final class BilibiliAPIClient {
                 "action": "\(action)"
             ]
         )
+        try payload.requireOK()
     }
 
     func hateComment(aid: Int, rpid: Int, action: Int) async throws {
-        let _: APIResponse<EmptyPayload> = try await post(
+        let payload: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/reply/hate",
             parameters: [
@@ -874,6 +840,7 @@ final class BilibiliAPIClient {
                 "action": "\(action)"
             ]
         )
+        try payload.requireOK()
     }
 
     func reportComment(aid: Int, rpid: Int, reason: Int, content: String? = nil) async throws {
@@ -884,11 +851,12 @@ final class BilibiliAPIClient {
             "reason": "\(reason)"
         ]
         if let content { params["content"] = content }
-        let _: APIResponse<EmptyPayload> = try await post(
+        let payload: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/reply/report",
             parameters: params
         )
+        try payload.requireOK()
     }
 
     private func get<T: Decodable>(
@@ -950,7 +918,7 @@ final class BilibiliAPIClient {
     }
 
     @discardableResult
-    private func post<T: Decodable>(
+    func post<T: Decodable>(
         baseURL: URL,
         path: String,
         queryItems: [URLQueryItem] = [],
@@ -1130,9 +1098,9 @@ enum BilibiliAPIError: Error {
     case noPlayableFormat
 }
 
-private struct EmptyPayload: Codable {}
+struct EmptyPayload: Codable {}
 
-private struct APIResponse<T: Decodable>: Decodable {
+struct APIResponse<T: Decodable>: Decodable {
     let code: Int?
     let message: String?
     let data: T?
