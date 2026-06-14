@@ -18,18 +18,27 @@ post_install do |installer|
   # file-write-create (blocked for both rsync --delete mkstemp and
   # cp).  The frameworks are instead copied by the CI workflow step
   # (plain cp -R) which runs OUTSIDE any sandbox.
+  #
+  # Use user_project / user_target (the consumer-side objects) instead
+  # of aggregate_target.native_target.  native_target has been observed
+  # to come back as nil / partially constructed when the surrounding
+  # PBXNativeTarget has an unknown UUID reference in build_phases (a
+  # warning CocoaPods emits during pod install).  Guarding with nil and
+  # file-existence checks keeps the hook from aborting the install.
   # ------------------------------------------------------------------
   installer.aggregate_targets.each do |aggregate_target|
-    native_target = aggregate_target.native_target
-    next unless native_target.name == 'BiliPaiNative'
+    user_project = aggregate_target.user_project
+    user_target  = aggregate_target.user_target
+    next unless user_target && user_target.name == 'BiliPaiNative'
+    next unless user_project && File.exist?(user_project.path)
 
-    embed_phase = native_target.build_phases.find do |bp|
-      bp.is_a?(Xcodeproj::Target::BuildPhase::ShellScriptBuildPhase) &&
+    embed_phase = user_target.build_phases.find do |bp|
+      bp.is_a?(Xcodeproj::Project::Object::PBXShellScriptBuildPhase) &&
         bp.name&.include?('Embed Pods Frameworks')
     end
     if embed_phase
-      native_target.build_phases.delete(embed_phase)
-      Pod::UI.puts "[BiliPai patch] Removed [CP] Embed Pods Frameworks from #{native_target.name}"
+      user_target.build_phases.delete(embed_phase)
+      Pod::UI.puts "[BiliPai patch] Removed [CP] Embed Pods Frameworks from #{user_target.name}"
     end
   end
 end
