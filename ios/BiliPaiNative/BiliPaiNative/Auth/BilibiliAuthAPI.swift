@@ -94,6 +94,28 @@ struct BilibiliAuthAPI {
             faceURL: payload.data.faceURL
         )
     }
+
+    /// Fetches the device identifiers (buvid3/buvid4) from Bilibili's
+    /// SPI endpoint. These are required for Wbi signing and tracking.
+    func fetchDeviceID() async throws -> (buvid3: String, buvid4: String) {
+        let url = apiBaseURL.appendingPathComponent("/x/frontend/finger/spi")
+        var request = URLRequest(url: url)
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        let (data, _) = try await session.data(for: request)
+        let payload = try decoder.decode(SpiResponse.self, from: data)
+        return (buvid3: payload.data.b3, buvid4: payload.data.b4)
+    }
+}
+
+// MARK: - SPI DTOs
+
+private struct SpiResponse: Decodable {
+    let code: Int
+    let data: SpiData
+    struct SpiData: Decodable {
+        let b3: String
+        let b4: String
+    }
 }
 
 // MARK: - Web QR DTOs

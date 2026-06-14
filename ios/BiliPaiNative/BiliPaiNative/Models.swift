@@ -114,6 +114,7 @@ struct BiliLiveRoom: Identifiable, Hashable {
 struct BiliAppConfig: Hashable {
     let buvid3: String?
     let mid: Int64
+    let csrf: String?
 
     var isPersonalised: Bool {
         mid > 0 && (buvid3?.isEmpty == false)

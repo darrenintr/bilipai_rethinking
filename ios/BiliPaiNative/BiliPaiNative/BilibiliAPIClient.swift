@@ -68,12 +68,49 @@ final class BilibiliAPIClient {
             config.waitsForConnectivity = true
             config.requestCachePolicy = .reloadIgnoringLocalCacheData
             config.httpAdditionalHeaders = [
-                "User-Agent": "Mozilla/5.0 BiliPai-iOS/0.1",
+                "User-Agent": "bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)",
                 "Referer": "https://www.bilibili.com"
             ]
             self.session = URLSession(configuration: config)
         }
         self.decoder = JSONDecoder()
+    }
+
+    /// Report playback progress to Bilibili's history endpoint so the
+    /// watch shows up under the user's "历史记录" list and feeds the
+    /// "继续播放" recommendation algorithm. Without this call the
+    /// video plays normally but Bilibili treats the user as a
+    /// visitor — a behaviour the user explicitly flagged in
+    /// `MINIMAX_INSTRUCTIONS.md` §2 ("History Reporting"). The
+    /// `progress` field is the current playhead in seconds and is
+    /// the same value Bilibili uses to compute "看完"/"看到一半" in
+    /// the history list, so accuracy matters for the resume UX.
+    ///
+    /// `aid` and `cid` are both required. `csrf` is auto-extracted
+    /// from the active account's `bili_jct` cookie by the underlying
+    /// `post(...)` helper — no need to plumb it through. `platform`
+    /// and `mobi_app` are pinned to the iOS app identity so the
+    /// upstream records the report as coming from the official iOS
+    /// client (the only client where the history is fully visible).
+    func reportHistory(aid: Int, cid: Int, progress: Int) async throws {
+        let params: [String: String] = [
+            "aid": "\(aid)",
+            "cid": "\(cid)",
+            // `progress` is in seconds. Bilibili rounds down internally
+            // and clamps to the media length, so passing 0 is the
+            // canonical "video just started" signal.
+            "progress": "\(max(0, progress))",
+            "platform": "ios",
+            "mobi_app": "iphone",
+            // No `type` field — the official iOS client doesn't send
+            // one and adding it triggers `code=-101` "参数错误" on
+            // some accounts.
+        ]
+        let _: APIResponse<EmptyPayload> = try await post(
+            baseURL: baseURL,
+            path: "/x/v2/history/report",
+            parameters: params
+        )
     }
 
     func recommendedVideos(freshIndex: Int = 0) async throws -> [BiliVideo] {
@@ -112,16 +149,16 @@ final class BilibiliAPIClient {
         let finalIdx = Int(Date().timeIntervalSince1970) + freshIndex
 
         // The personalised App API path needs two values the anonymous
-        // path does not have: the active account's `buvid3` so the
-        // upstream can recognise the device, and the account `mid` so
-        // the response can be re-ranked against that user's history.
-        // When both are absent we still send the request, but the
-        // upstream will return the same `热门` list as the web
-        // fallback and `BiliPaiRepository.feed(...)` will catch that
-        // downstream.
+        // path does not have: a mobile device fingerprint (BUVID) so
+        // the upstream can recognise the device, and the account `mid`
+        // so the response can be re-ranked against that user's history.
+        // If the user is logged in, we prefer their account-derived
+        // BUVID if available, otherwise we generate a stable one.
         let config = appConfigProvider?() ?? BilibiliAPIClient.defaultConfig
-        let activeBuvid3 = config.buvid3?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        let effectiveBuvid = (activeBuvid3 ?? buvid)
+        
+        // Mobile BUVID starts with XY (MAC) or XX (ID). Official iOS app
+        // typically uses XY + MD5 hash.
+        let effectiveBuvid = config.buvid3?.hasPrefix("XY") == true ? config.buvid3! : generateMobileBuvid()
         let personalMid = config.mid > 0 ? "\(config.mid)" : nil
 
         var queryItems = [
@@ -132,13 +169,15 @@ final class BilibiliAPIClient {
             URLQueryItem(name: "login_event", value: personalMid == nil ? "0" : "1"),
             URLQueryItem(name: "appkey", value: appKey),
             URLQueryItem(name: "ts", value: "\(Int(Date().timeIntervalSince1970))"),
-            URLQueryItem(name: "buvid", value: effectiveBuvid)
+            URLQueryItem(name: "buvid", value: effectiveBuvid),
+            URLQueryItem(name: "device", value: "phone"),
+            URLQueryItem(name: "network", value: "wifi")
         ]
         if let personalMid {
             queryItems.append(URLQueryItem(name: "mid", value: personalMid))
         }
         
-        // Manual App sign
+        // Manual App sign: md5(sorted_query + appSec)
         let sorted = queryItems.sorted { $0.name < $1.name }
         let query = sorted.compactMap { item -> String? in
             guard let value = item.value else { return nil }
@@ -156,15 +195,23 @@ final class BilibiliAPIClient {
         let items = payload.value?.items ?? []
         let videos = items.compactMap { item -> BiliVideo? in
             // Handle multiple card types that contain video data
-            let validGotos = ["av", "bangumi", "ad", "live"] 
-            // We'll skip 'ad' but some 'ad' cards are actually suggested videos
+            let validGotos = ["av", "bangumi", "live"] 
             guard validGotos.contains(item.cardGoto) else { return nil }
-            if item.cardGoto == "ad" && item.cardType != "small_cover_v2" { return nil }
-            
             return item.model
         }
         bpLog("Received \(items.count) items, \(videos.count) mapped to videos")
         return videos
+    }
+
+    private func generateMobileBuvid() -> String {
+        // Official algorithm: XY + MD5(hwID) + 3 specific chars from hash
+        // For simplicity and stability, we use a fixed but valid format.
+        let seed = "BiliPai-iOS-Device-Seed"
+        let hash = md5(seed).uppercased()
+        let c1 = hash[hash.index(hash.startIndex, offsetBy: 2)]
+        let c2 = hash[hash.index(hash.startIndex, offsetBy: 12)]
+        let c3 = hash[hash.index(hash.startIndex, offsetBy: 22)]
+        return "XY\(c1)\(c2)\(c3)\(hash)"
     }
 
     private func md5(_ string: String) -> String {
@@ -779,7 +826,7 @@ final class BilibiliAPIClient {
             // one and adding it triggers `code=-101` "参数错误" on
             // some accounts.
         ]
-        try await post(
+        let _: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/history/report",
             parameters: params
@@ -796,7 +843,7 @@ final class BilibiliAPIClient {
         if let root { params["root"] = "\(root)" }
         if let parent { params["parent"] = "\(parent)" }
 
-        try await post(
+        let _: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/reply/add",
             parameters: params
@@ -804,7 +851,7 @@ final class BilibiliAPIClient {
     }
 
     func likeComment(aid: Int, rpid: Int, action: Int) async throws {
-        try await post(
+        let _: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/reply/action",
             parameters: [
@@ -817,7 +864,7 @@ final class BilibiliAPIClient {
     }
 
     func hateComment(aid: Int, rpid: Int, action: Int) async throws {
-        try await post(
+        let _: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/reply/hate",
             parameters: [
@@ -837,7 +884,7 @@ final class BilibiliAPIClient {
             "reason": "\(reason)"
         ]
         if let content { params["content"] = content }
-        try await post(
+        let _: APIResponse<EmptyPayload> = try await post(
             baseURL: baseURL,
             path: "/x/v2/reply/report",
             parameters: params
@@ -850,35 +897,23 @@ final class BilibiliAPIClient {
         queryItems: [URLQueryItem],
         signWithWBI: Bool = false
     ) async throws -> T {
-        // Cache-bust every public-endpoint request. URLSession's shared
-        // cache is shared across the app, and Bilibili returns
-        // `Cache-Control: max-age=...` on the popular / recommend endpoints
-        // — without the timestamp the second pull-to-refresh returns the
-        // same `pn=1` payload from disk and the user sees the same batch.
-        // We belt-and-braces this with three independent layers:
-        //   1. `_t` is the request time in epoch ms. Bilibili's CDN
-        //      ignores any GET that matches the previous timestamp.
-        //   2. `_r` is a UUID — even two pulls in the same millisecond
-        //      (e.g. UIKit coalescing two Tasks) get unique URLs.
-        //   3. The session + per-request `cachePolicy =
-        //      .reloadIgnoringLocalCacheData` and the explicit
-        //      `Cache-Control: no-cache` header stop URLSession from
-        //      serving a cached body before the network call even
-        //      leaves the device.
         var items = queryItems
-        let nonce = UUID().uuidString
+        let isAppAPI = baseURL.host?.contains("app.bilibili.com") == true
 
-        // Only add cache-busting if not already present in queryItems
-        if !items.contains(where: { $0.name == "_t" }) {
-            items.append(URLQueryItem(name: "_t", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
-        }
-        if !items.contains(where: { $0.name == "_r" }) {
-            items.append(URLQueryItem(name: "_r", value: nonce))
+        // Cache-bust web requests. App APIs have their own 'ts' parameter.
+        if !isAppAPI {
+            if !items.contains(where: { $0.name == "_t" }) {
+                items.append(URLQueryItem(name: "_t", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
+            }
+            if !items.contains(where: { $0.name == "_r" }) {
+                items.append(URLQueryItem(name: "_r", value: UUID().uuidString))
+            }
         }
 
         if signWithWBI {
             items = try await wbiSigner.sign(queryItems: items, using: session)
         }
+        
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
         components.queryItems = items
         guard let url = components.url else {
@@ -886,54 +921,21 @@ final class BilibiliAPIClient {
         }
 
         var request = URLRequest(url: url)
-        // Belt-and-braces: even with the cache-busting query, force the
-        // request itself to skip the URL cache. The session-level
-        // `requestCachePolicy` is `.reloadIgnoringLocalCacheData` already,
-        // but Bilibili also has its own CDN-side cache that the timestamp
-        // parameter is the only reliable way to defeat.
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 BiliPai-iOS/0.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
-        // Specialized headers for App API
-        if baseURL.host?.contains("app.bilibili.com") == true {
+        if isAppAPI {
             request.setValue("iphone", forHTTPHeaderField: "mobi_app")
             request.setValue("ios", forHTTPHeaderField: "platform")
-            // The app API is stricter about UA.
-            request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
-        }
-        
-        // Remove Web-specific cache-busting for App API if present
-        if baseURL.host?.contains("app.bilibili.com") == true {
-            if var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false) {
-                components.queryItems?.removeAll(where: { $0.name == "_t" || $0.name == "_r" })
-                request.url = components.url
-            }
         }
 
-        // Inject the active account's cookies. The `comments` endpoint
-        // returns `code: -352 风控` without a SESSDATA cookie, so this
-        // is the line that makes the comments list load for signed-in
-        // users. For signed-out users the closure returns nil and we
-        // send the request anonymously (the public feeds work fine).
         if let cookie = cookieProvider?() {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            // Log the failure for the device console (Xcode → Window → Devices
-            // and Simulators → Open Console). Pull-to-refresh still works
-            // after this, but without the log the user has no way to know
-            // whether the failure is a connectivity blip, a DNS issue, or a
-            // Bilibili-side rate limit.
-            bpLog("GET \(url.absoluteString) failed: \(error.localizedDescription)")
-            throw error
-        }
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             bpLog("GET \(url.absoluteString) returned HTTP \(status)")
@@ -942,20 +944,18 @@ final class BilibiliAPIClient {
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
-            // The decoder failures we have seen are almost always one
-            // missing/renamed field in a single video DTO, not a structural
-            // change. Log the body so the next debugging session has the
-            // raw JSON to work with.
             bpLog("decode failed for \(url.absoluteString): \(error)\n  body: \(String(data: data.prefix(512), encoding: .utf8) ?? "<binary>")")
             throw error
         }
     }
 
-    private func post(
+    @discardableResult
+    private func post<T: Decodable>(
         baseURL: URL,
         path: String,
-        parameters: [String: String]
-    ) async throws {
+        queryItems: [URLQueryItem] = [],
+        parameters: [String: String] = [:]
+    ) async throws -> T {
         var items = parameters
 
         // Extract CSRF token from cookies if present
@@ -974,12 +974,21 @@ final class BilibiliAPIClient {
             "\(key)=\(encodeURIComponent(items[key] ?? ""))"
         }.joined(separator: "&")
 
-        var request = URLRequest(url: baseURL.appending(path: path))
+        var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
+        
+        guard let url = components.url else {
+            throw BilibiliAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = bodyString.data(using: .utf8)
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 BiliPai-iOS/0.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
 
         if let cookies = cookieProvider?() {
             request.setValue(cookies, forHTTPHeaderField: "Cookie")
@@ -987,15 +996,16 @@ final class BilibiliAPIClient {
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            bpLog("POST \(url.absoluteString) returned HTTP \(status)")
             throw BilibiliAPIError.http
         }
 
-        // Generic error check for Bilibili response
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let code = json["code"] as? Int, code != 0 {
-            let message = json["message"] as? String ?? "Unknown error"
-            bpLog("POST \(path) failed with code \(code): \(message)")
-            throw BilibiliAPIError.http
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            bpLog("decode failed for POST \(url.absoluteString): \(error)")
+            throw error
         }
     }
 
@@ -1065,7 +1075,7 @@ private actor WbiSigner {
         var request = URLRequest(url: navURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 BiliPai-iOS/0.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
         let (data, _) = try await session.data(for: request)
         let payload = try JSONDecoder().decode(WbiNavResponse.self, from: data)
         let imgURL = payload.data.wbiImg.imgURL
@@ -1119,6 +1129,8 @@ enum BilibiliAPIError: Error {
     /// 播放清晰度" rather than a generic "缺少数据".
     case noPlayableFormat
 }
+
+private struct EmptyPayload: Codable {}
 
 private struct APIResponse<T: Decodable>: Decodable {
     let code: Int?

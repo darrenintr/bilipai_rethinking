@@ -48,7 +48,7 @@ struct BiliPaiNativeApp: App {
                     // `ProfileSettingsView` immediately takes effect.
                     repository.apiClient.appConfigProvider = { [weak authStore] in
                         guard let account = authStore?.activeAccount else { return nil }
-                        return BiliAppConfig(buvid3: account.buvid3, mid: account.mid)
+                        return BiliAppConfig(buvid3: account.buvid3, mid: account.mid, csrf: account.csrf)
                     }
                 }
                 // Invalidate the follow-feed's cached followings set

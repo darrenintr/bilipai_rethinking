@@ -65,7 +65,7 @@ struct VideoDetailView: View {
             guard let playback, playerController == nil else { return }
             let controller = PlayerController(
                 url: playback.videoURL,
-                referer: "https://www.bilibili.com"
+                referer: playback.referer.absoluteString
             )
             playerController = controller
             let session = WatchSession(

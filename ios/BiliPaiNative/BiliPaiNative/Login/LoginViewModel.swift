@@ -115,8 +115,20 @@ final class LoginViewModel: ObservableObject {
             statusText = "登录成功但未返回凭证"
             return
         }
-        let buvid3 = cookies["buvid3"]
+        var buvid3 = cookies["buvid3"]
         let dede = cookies["DedeUserID"]
+
+        // If buvid3 is missing from the login callback (common), fetch it
+        // from the SPI endpoint so Wbi signing works on first launch.
+        if buvid3 == nil || buvid3!.isEmpty {
+            do {
+                let spi = try await authAPI.fetchDeviceID()
+                buvid3 = spi.buvid3
+            } catch {
+                bpLog("Failed to fetch device ID during login: \(error)")
+            }
+        }
+
         let cookieHeader = StoredAccount(
             mid: 0,
             name: "",

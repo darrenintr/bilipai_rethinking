@@ -17,7 +17,7 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2Alpha</string>
+	<string>0.3 ALPHA</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

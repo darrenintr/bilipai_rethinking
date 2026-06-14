@@ -325,6 +325,12 @@ final class VideoDetailViewModel: ObservableObject {
             detail = try await repository.detail(for: detail)
             self.playback = try await repository.playback(for: detail)
             await loadComments(repository: repository)
+            
+            // Start of playback: report progress=0 to mark it in the history list.
+            // The periodic 30s heartbeat is handled by WatchSession in the View layer.
+            Task {
+                try? await repository.reportHistory(for: detail, cid: detail.cid, progress: 0)
+            }
         } catch let error as BilibiliAPIError {
             switch error {
             case .api(let message):
