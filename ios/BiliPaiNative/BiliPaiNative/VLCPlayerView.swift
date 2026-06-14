@@ -4,6 +4,12 @@ import UIKit
 import MobileVLCKit
 #endif
 
+enum PlayerDrawableSurface: String {
+    case inline
+    case fullscreen
+    case standalone
+}
+
 /// Owns a `VLCMediaPlayer` for its entire lifetime and exposes the
 /// bits the SwiftUI side needs: the playhead `currentTime`, total
 /// `duration`, the play/pause flag, the buffering indicator, and the
@@ -68,6 +74,8 @@ final class PlayerController: ObservableObject {
     /// called detach — the inline view detaching must not wipe a
     /// fullscreen view that just took over the drawable.
     private weak var attachedView: UIView?
+    private var preferredSurface: PlayerDrawableSurface = .standalone
+    private var attachedSurface: PlayerDrawableSurface?
     private var pollTimer: Timer?
 
     init(url: URL, referer: String) {
@@ -115,16 +123,33 @@ final class PlayerController: ObservableObject {
     }
     #endif
 
+    func preferDrawableSurface(_ surface: PlayerDrawableSurface) {
+        preferredSurface = surface
+        diagLog(.playback, "Preferred drawable surface changed", details: ["surface": surface.rawValue])
+    }
+
     /// Make `view` the player's drawable. Safe to call multiple
     /// times — re-attaching the same view (e.g. on every SwiftUI
     /// re-render) just re-points the property. This is what
     /// makes the inline ↔ fullscreen handoff work: the inline
     /// view re-claims the drawable after the fullscreen is
     /// dismissed.
-    func attach(drawable view: UIView) {
-        diagLog(.playback, "Attaching drawable", details: ["view": String(describing: view)])
+    func attach(drawable view: UIView, surface: PlayerDrawableSurface) {
+        guard surface == .standalone || surface == preferredSurface else {
+            diagLog(.playback, "Drawable attach ignored for inactive surface", details: [
+                "surface": surface.rawValue,
+                "preferred": preferredSurface.rawValue,
+                "view": String(describing: view)
+            ])
+            return
+        }
+        if attachedView === view, attachedSurface == surface {
+            return
+        }
+        diagLog(.playback, "Attaching drawable", details: ["surface": surface.rawValue, "view": String(describing: view)])
         #if canImport(MobileVLCKit)
         attachedView = view
+        attachedSurface = surface
         mediaPlayer.drawable = view
         #endif
     }
@@ -135,9 +160,17 @@ final class PlayerController: ObservableObject {
     /// not wipe the fullscreen view's drawable claim, and
     /// vice-versa. Safe to call when the controller is no longer
     /// holding that view as its drawable.
-    func detach(currentView: UIView) {
-        diagLog(.playback, "Detaching drawable", details: ["view": String(describing: currentView)])
+    func detach(currentView: UIView, surface: PlayerDrawableSurface) {
         #if canImport(MobileVLCKit)
+        guard attachedView === currentView else {
+            diagLog(.playback, "Drawable detach ignored for stale surface", details: [
+                "surface": surface.rawValue,
+                "attachedSurface": attachedSurface?.rawValue ?? "none",
+                "view": String(describing: currentView)
+            ])
+            return
+        }
+        diagLog(.playback, "Detaching drawable", details: ["surface": surface.rawValue, "view": String(describing: currentView)])
         // `VLCMediaPlayer.drawable` is typed `Any?` so it can hold
         // a CALayer, NSView, or UIView depending on the platform.
         // Cast to `UIView` so we can use `===` — `===` on `Any?`
@@ -148,6 +181,7 @@ final class PlayerController: ObservableObject {
         }
         if attachedView === currentView {
             attachedView = nil
+            attachedSurface = nil
         }
         #endif
     }
@@ -421,6 +455,12 @@ final class VLCPlayerContainerView: UIView {
 
 struct VLCPlayerView: UIViewRepresentable {
     @ObservedObject var controller: PlayerController
+    let surface: PlayerDrawableSurface
+
+    init(controller: PlayerController, surface: PlayerDrawableSurface = .standalone) {
+        self.controller = controller
+        self.surface = surface
+    }
 
     func makeUIView(context: Context) -> UIView {
         let view = VLCPlayerContainerView()
@@ -429,9 +469,9 @@ struct VLCPlayerView: UIViewRepresentable {
         #if canImport(MobileVLCKit)
         let coordinator = context.coordinator
         view.onReadyForDrawable = { [weak coordinator] readyView in
-            coordinator?.attachIfReady(controller: controller, view: readyView)
+            coordinator?.attachIfReady(controller: controller, view: readyView, surface: surface)
         }
-        context.coordinator.attachIfReady(controller: controller, view: view)
+        context.coordinator.attachIfReady(controller: controller, view: view, surface: surface)
         #else
         let label = UILabel()
         label.text = "VLCKit not linked — live playback is unavailable in this build."
@@ -462,10 +502,14 @@ struct VLCPlayerView: UIViewRepresentable {
         // before the fullscreen took over.
         // `drawable` is `Any?`; cast to `UIView` for `===`.
         guard let playerView = uiView as? VLCPlayerContainerView else { return }
+        let coordinator = context.coordinator
+        playerView.onReadyForDrawable = { [weak coordinator] readyView in
+            coordinator?.attachIfReady(controller: controller, view: readyView, surface: surface)
+        }
         if let drawable = controller.mediaPlayer.drawable as? UIView, drawable !== playerView {
-            context.coordinator.attachIfReady(controller: controller, view: playerView)
+            context.coordinator.attachIfReady(controller: controller, view: playerView, surface: surface)
         } else if controller.mediaPlayer.drawable == nil {
-            context.coordinator.attachIfReady(controller: controller, view: playerView)
+            context.coordinator.attachIfReady(controller: controller, view: playerView, surface: surface)
         }
         #endif
     }
@@ -486,21 +530,23 @@ struct VLCPlayerView: UIViewRepresentable {
     class Coordinator {
         weak var controller: PlayerController?
         weak var view: VLCPlayerContainerView?
+        var surface: PlayerDrawableSurface = .standalone
 
-        func attachIfReady(controller: PlayerController, view: VLCPlayerContainerView) {
+        func attachIfReady(controller: PlayerController, view: VLCPlayerContainerView, surface: PlayerDrawableSurface) {
             self.controller = controller
             self.view = view
+            self.surface = surface
             guard view.window != nil, view.bounds.width > 0, view.bounds.height > 0 else {
-                diagLog(.playback, "Drawable attach deferred until layout", details: ["view": String(describing: view)])
+                diagLog(.playback, "Drawable attach deferred until layout", details: ["surface": surface.rawValue, "view": String(describing: view)])
                 return
             }
-            controller.attach(drawable: view)
+            controller.attach(drawable: view, surface: surface)
         }
 
         func detach() {
             guard let controller = controller, let view = view else { return }
             view.onReadyForDrawable = nil
-            controller.detach(currentView: view)
+            controller.detach(currentView: view, surface: surface)
         }
     }
 }

@@ -24,7 +24,7 @@ struct PlayerView: View {
 
     var body: some View {
         ZStack {
-            VLCPlayerView(controller: controller)
+            VLCPlayerView(controller: controller, surface: .inline)
 
             // The inline surface gets a single play/pause control
             // (centre, large, auto-hides while playing). The
@@ -192,7 +192,7 @@ struct FullscreenPlayerView: View {
             // front and intercepts taps first — the tap on the video
             // never fires, so the user does not accidentally hide
             // the controls by tapping the centre play button.
-            VLCPlayerView(controller: controller)
+            VLCPlayerView(controller: controller, surface: .fullscreen)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { toggleControls() }

@@ -32,6 +32,7 @@ struct VideoDetailView: View {
     /// its own, which would double-fire on every inline ↔
     /// fullscreen transition.
     @State private var watchSession: WatchSession?
+    @State private var fullscreenTransitionUntil: Date = .distantPast
 
     init(video: BiliVideo, repository: BiliPaiRepository) {
         self.video = video
@@ -67,6 +68,7 @@ struct VideoDetailView: View {
                 url: playback.videoURL,
                 referer: playback.referer.absoluteString
             )
+            controller.preferDrawableSurface(.inline)
             playerController = controller
             let session = WatchSession(
                 repository: repository,
@@ -82,8 +84,11 @@ struct VideoDetailView: View {
             // [FIX] Only tear down if we are actually leaving the video detail screen.
             // On iPad, entering fullscreen via fullScreenCover triggers onDisappear.
             // Killing the player here would cause a black screen in the fullscreen view.
-            guard !isFullscreenPresented else {
-                diagLog(.fullscreen, "onDisappear suppressed: isFullscreenPresented is true")
+            guard !isFullscreenPresented, Date() >= fullscreenTransitionUntil else {
+                diagLog(.fullscreen, "onDisappear suppressed during fullscreen transition", details: [
+                    "isPresented": isFullscreenPresented,
+                    "until": fullscreenTransitionUntil.timeIntervalSince1970
+                ])
                 return
             }
             
@@ -102,7 +107,9 @@ struct VideoDetailView: View {
                 FullscreenPlayerView(video: model.detail, playback: playback, controller: controller)
             }
         }
-        .onChange(of: isFullscreenPresented) { newValue in
+        .onChange(of: isFullscreenPresented) { _, newValue in
+            fullscreenTransitionUntil = Date().addingTimeInterval(1)
+            playerController?.preferDrawableSurface(newValue ? .fullscreen : .inline)
             diagLog(.fullscreen, "Fullscreen presentation changed", details: ["isPresented": newValue])
         }
         // Auto-load the next comment batch only when the user has
@@ -177,6 +184,8 @@ struct VideoDetailView: View {
 
     private var fullscreenButton: some View {
         Button {
+            fullscreenTransitionUntil = Date().addingTimeInterval(1)
+            playerController?.preferDrawableSurface(.fullscreen)
             isFullscreenPresented = true
         } label: {
             Image(systemName: "arrow.up.left.and.arrow.down.right")
