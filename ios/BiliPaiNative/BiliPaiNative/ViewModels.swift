@@ -305,6 +305,25 @@ final class VideoDetailViewModel: ObservableObject {
     @Published var playbackSpeed: Float = 1
 
     private var nextCommentCursor: Int?
+    // Tracks which progressive-batch the user is on. Index 0 → first page
+    // (20 items), 1 → second (40), 2 → third (80), 3+ → fourth and beyond
+    // (capped at 160). See `commentPageSize(forPage:)` for the lookup
+    // table. The view-model owns this because the View layer should not
+    // know about the page-size backoff — it only needs to call
+    // `loadMoreComments`.
+    private var currentCommentPage = 0
+
+    /// Progressive comment batch sizes. The first few fetches are small
+    /// so the video-detail view appears interactive fast; once the user
+    /// starts scrolling we trade latency for throughput. The cap of 160
+    /// matches the Bilibili web client and is the sweet spot on modern
+    /// iPhones before List/ForEach updates start stuttering.
+    private static let commentPageSizes: [Int] = [20, 40, 80, 160]
+    private static func commentPageSize(forPage page: Int) -> Int {
+        let clamped = max(0, page)
+        guard clamped < commentPageSizes.count else { return 160 }
+        return commentPageSizes[clamped]
+    }
 
     init(video: BiliVideo) {
         self.detail = video
@@ -349,8 +368,12 @@ final class VideoDetailViewModel: ObservableObject {
         nextCommentCursor = nil
         commentsHasMore = false
         commentsTotalCount = 0
+        currentCommentPage = 0
         do {
-            let page = try await repository.commentsPage(for: detail)
+            let page = try await repository.commentsPage(
+                for: detail,
+                pageSize: Self.commentPageSize(forPage: currentCommentPage)
+            )
             comments = page.items
             nextCommentCursor = page.next
             commentsHasMore = !page.isEnd && page.next != nil
@@ -370,13 +393,22 @@ final class VideoDetailViewModel: ObservableObject {
         commentsLoadingMore = true
         defer { commentsLoadingMore = false }
         do {
-            let page = try await repository.commentsPage(for: detail, next: nextCommentCursor)
+            currentCommentPage += 1
+            let page = try await repository.commentsPage(
+                for: detail,
+                next: nextCommentCursor,
+                pageSize: Self.commentPageSize(forPage: currentCommentPage)
+            )
             let seen = Set(comments.map(\.id))
             comments.append(contentsOf: page.items.filter { !seen.contains($0.id) })
             self.nextCommentCursor = page.next
             commentsHasMore = !page.isEnd && page.next != nil
             commentsTotalCount = max(commentsTotalCount, page.totalCount)
         } catch {
+            // Roll the page index back so the next manual retry doesn't
+            // skip a size (e.g. a flaky network on the 80 → 160 step
+            // would otherwise jump straight to 160 on the next attempt).
+            currentCommentPage = max(0, currentCommentPage - 1)
             commentsErrorMessage = "Could not load more comments."
         }
     }

@@ -113,15 +113,15 @@ final class BiliPaiRepository: ObservableObject {
         try await apiClient.livePlaybackURL(roomID: room.id)
     }
 
-    func commentsPage(for video: BiliVideo, next: Int? = nil) async throws -> CommentPage {
+    func commentsPage(for video: BiliVideo, next: Int? = nil, pageSize: Int = 20) async throws -> CommentPage {
         let aid = video.aid
         if aid > 0 {
-            return try await apiClient.commentsPage(aid: aid, next: next)
+            return try await apiClient.commentsPage(aid: aid, next: next, pageSize: pageSize)
         }
         if !video.bvid.isEmpty {
             let detail = try await apiClient.videoDetail(bvid: video.bvid)
             if detail.aid > 0 {
-                return try await apiClient.commentsPage(aid: detail.aid, next: next)
+                return try await apiClient.commentsPage(aid: detail.aid, next: next, pageSize: pageSize)
             }
         }
         // Neither the feed entry nor the video-detail fallback produced an
