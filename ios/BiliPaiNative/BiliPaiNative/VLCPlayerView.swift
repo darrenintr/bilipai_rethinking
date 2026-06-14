@@ -94,7 +94,11 @@ final class PlayerController: ObservableObject {
     func skip(by seconds: Double) {
         #if canImport(MobileVLCKit)
         guard let player = mediaPlayer else { return }
-        let totalMs = max(0, player.media.length.intValue)
+        // `media` is optional on `VLCMediaPlayer`; nil means no media
+        // is loaded yet (e.g. tap arrived during the first
+        // `play()`). Treat as 0 length in that case so a positive
+        // skip is clamped to 0 instead of crashing.
+        let totalMs = max(0, player.media?.length.intValue ?? 0)
         let currentMs = player.time.intValue
         let raw = Double(currentMs) + seconds * 1000
         let clampedMs = Int32(min(Double(totalMs), max(0, raw)))
@@ -109,7 +113,7 @@ final class PlayerController: ObservableObject {
     func seek(to seconds: Double) {
         #if canImport(MobileVLCKit)
         guard let player = mediaPlayer else { return }
-        let totalSeconds = max(0, Double(player.media.length.intValue) / 1000)
+        let totalSeconds = max(0, Double(player.media?.length.intValue ?? 0) / 1000)
         let target = min(totalSeconds, max(0, seconds))
         let targetMs = Int32(target * 1000)
         player.time = VLCTime(int: targetMs)
@@ -138,7 +142,10 @@ final class PlayerController: ObservableObject {
         if ms >= 0 {
             currentTime = Double(ms) / 1000
         }
-        let length = player.media.length.intValue
+        // `media` is optional on `VLCMediaPlayer`; skip the duration
+        // update when nil so the scrubber keeps its last-known value
+        // (typically 0) instead of briefly showing NaN.
+        let length = player.media?.length.intValue ?? 0
         if length > 0 {
             duration = Double(length) / 1000
         }
