@@ -146,13 +146,57 @@ final class PlayerController: ObservableObject {
         if attachedView === view, attachedSurface == surface {
             return
         }
-        diagLog(.playback, "Attaching drawable", details: ["surface": surface.rawValue, "view": String(describing: view)])
         #if canImport(MobileVLCKit)
+        let previousView = attachedView
+        let previousSurface = attachedSurface
+        let isSurfaceSwap = previousView != nil && (previousView !== view || previousSurface != surface)
+        let shouldResumeAfterSwap = isSurfaceSwap && (mediaPlayer.isPlaying || isPlaying)
+
+        diagLog(.playback, "Attaching drawable", details: [
+            "surface": surface.rawValue,
+            "view": String(describing: view),
+            "isSurfaceSwap": isSurfaceSwap,
+            "wasPlaying": shouldResumeAfterSwap
+        ])
+
+        if isSurfaceSwap {
+            mediaPlayer.drawable = nil
+        }
         attachedView = view
         attachedSurface = surface
         mediaPlayer.drawable = view
+
+        if shouldResumeAfterSwap {
+            refreshRenderingAfterDrawableSwap(surface: surface)
+        }
         #endif
     }
+
+    #if canImport(MobileVLCKit)
+    /// MobileVLCKit can keep decoding audio while failing to repaint
+    /// after its drawable moves from the inline view to the fullscreen
+    /// view. A short pause/play after a real surface swap forces the
+    /// renderer to bind to the newly attached UIView without resetting
+    /// the media or losing the playhead.
+    private func refreshRenderingAfterDrawableSwap(surface: PlayerDrawableSurface) {
+        diagLog(.playback, "Refreshing VLC rendering after drawable swap", details: ["surface": surface.rawValue])
+        mediaPlayer.pause()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard let self else { return }
+            guard self.attachedSurface == surface else {
+                diagLog(.playback, "Skipped render refresh for stale surface", details: [
+                    "surface": surface.rawValue,
+                    "attachedSurface": self.attachedSurface?.rawValue ?? "none"
+                ])
+                return
+            }
+            self.mediaPlayer.play()
+            self.isPlaying = true
+            diagLog(.playback, "VLC rendering refresh completed", details: ["surface": surface.rawValue])
+        }
+    }
+    #endif
 
     /// Release the drawable if it still belongs to the calling
     /// view. Passing `currentView` is what makes the inline ↔

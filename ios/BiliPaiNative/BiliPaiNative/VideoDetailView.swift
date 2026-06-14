@@ -33,6 +33,7 @@ struct VideoDetailView: View {
     /// fullscreen transition.
     @State private var watchSession: WatchSession?
     @State private var fullscreenTransitionUntil: Date = .distantPast
+    @State private var lastFullscreenDismissedAt: Date = .distantPast
 
     init(video: BiliVideo, repository: BiliPaiRepository) {
         self.video = video
@@ -84,10 +85,14 @@ struct VideoDetailView: View {
             // [FIX] Only tear down if we are actually leaving the video detail screen.
             // On iPad, entering fullscreen via fullScreenCover triggers onDisappear.
             // Killing the player here would cause a black screen in the fullscreen view.
-            guard !isFullscreenPresented, Date() >= fullscreenTransitionUntil else {
+            let now = Date()
+            let isInsideFullscreenDismissGrace = now.timeIntervalSince(lastFullscreenDismissedAt) < 3
+            guard !isFullscreenPresented, now >= fullscreenTransitionUntil, !isInsideFullscreenDismissGrace else {
                 diagLog(.fullscreen, "onDisappear suppressed during fullscreen transition", details: [
                     "isPresented": isFullscreenPresented,
-                    "until": fullscreenTransitionUntil.timeIntervalSince1970
+                    "until": fullscreenTransitionUntil.timeIntervalSince1970,
+                    "lastDismissedAt": lastFullscreenDismissedAt.timeIntervalSince1970,
+                    "insideDismissGrace": isInsideFullscreenDismissGrace
                 ])
                 return
             }
@@ -109,6 +114,9 @@ struct VideoDetailView: View {
         }
         .onChange(of: isFullscreenPresented) { _, newValue in
             fullscreenTransitionUntil = Date().addingTimeInterval(1)
+            if !newValue {
+                lastFullscreenDismissedAt = Date()
+            }
             playerController?.preferDrawableSurface(newValue ? .fullscreen : .inline)
             diagLog(.fullscreen, "Fullscreen presentation changed", details: ["isPresented": newValue])
         }
