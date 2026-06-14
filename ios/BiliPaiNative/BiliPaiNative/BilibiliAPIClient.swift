@@ -195,7 +195,7 @@ final class BilibiliAPIClient {
         do {
             try payload.requireOK()
         } catch {
-            diagLog(.recommendation, "App Recommended API error", details: ["code": payload.code, "message": payload.message ?? "unknown"])
+            diagLog(.recommendation, "App Recommended API error", details: ["code": payload.code ?? 0, "message": payload.message ?? "unknown"])
             throw error
         }
 
