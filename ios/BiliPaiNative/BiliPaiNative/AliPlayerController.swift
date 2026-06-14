@@ -28,9 +28,8 @@ final class PlayerController: ObservableObject {
     @Published var isPlaying: Bool = true
     /// `true` while the player is buffering / opening.
     @Published private(set) var isBuffering: Bool = false
-    /// Network read rate in bytes/second. AliPlayer does not expose this
-    /// directly; published as 0 (the speed label in the loading overlay
-    /// will show "—" which degrades gracefully).
+    /// Network read rate in bytes/second. AliPlayer exposes
+    /// `currentDownloadSpeed` (bps); we convert to bytes/s.
     @Published private(set) var networkSpeed: Double = 0
 
     /// The underlying AliPlayer instance.
@@ -40,16 +39,22 @@ final class PlayerController: ObservableObject {
     private var preferredSurface: PlayerDrawableSurface = .standalone
     private var attachedSurface: PlayerDrawableSurface?
     private var pollTimer: Timer?
+    /// AliPlayer has no direct `status` property; track it via delegate.
+    private var _playerStatus: AVPStatus = .idle
 
     init(url: URL, referer: String) {
         diagLog(.playback, "Initializing AliPlayerController", details: ["url": url.absoluteString])
 
         let player = AliPlayer()
-        player.scalingMode = .aspectFit
+        player.playerView = nil
+        player.scalingMode = AVP_SCALINGMODE_SCALEASPECTFIT
         self.player = player
 
-        let source = AVPUrlSource(urlString: url.absoluteString)
-        player.setUrl(source)
+        let source = AVPUrlSource.url(withString: url.absoluteString)
+        player.setUrlSource(source)
+
+        // Set up delegate to receive status updates
+        player.delegate = self
 
         if isPlaying {
             player.prepare()
@@ -61,8 +66,8 @@ final class PlayerController: ObservableObject {
 
     func swapMedia(to url: URL, referer: String) {
         player.stop()
-        let source = AVPUrlSource(urlString: url.absoluteString)
-        player.setUrl(source)
+        let source = AVPUrlSource.url(withString: url.absoluteString)
+        player.setUrlSource(source)
         if isPlaying {
             player.prepare()
             player.start()
@@ -90,7 +95,7 @@ final class PlayerController: ObservableObject {
             return
         }
 
-        let wasPlaying = (player.status == .playing)
+        let wasPlaying = (_playerStatus == .started)
         player.playerView = nil
         attachedView = view
         attachedSurface = surface
@@ -148,19 +153,19 @@ final class PlayerController: ObservableObject {
 
     /// Skip the playhead by `seconds`, clamped to `[0, duration]`.
     func skip(by seconds: Double) {
-        let totalMs = max(0, duration * 1000)
-        let currentMs = currentTime * 1000
-        let raw = currentMs + seconds * 1000
+        let totalMs = Int64(max(0, duration * 1000))
+        let currentMs = Int64(currentTime * 1000)
+        let raw = currentMs + Int64(seconds * 1000)
         let clampedMs = min(totalMs, max(0, raw))
-        player.seek(toTargetTime: clampedMs, mode: .accurate)
-        currentTime = clampedMs / 1000
+        player.seekToTime(clampedMs, seekMode: AVP_SEEKMODE_ACCURATE)
+        currentTime = Double(clampedMs) / 1000
     }
 
     /// Seek to an absolute time in seconds, clamped to `[0, duration]`.
     func seek(to seconds: Double) {
         let target = max(0, min(duration, seconds))
-        let targetMs = target * 1000
-        player.seek(toTargetTime: targetMs, mode: .accurate)
+        let targetMs = Int64(target * 1000)
+        player.seekToTime(targetMs, seekMode: AVP_SEEKMODE_ACCURATE)
         currentTime = target
     }
 
@@ -179,7 +184,7 @@ final class PlayerController: ObservableObject {
     }
 
     private func refresh() {
-        let ct = player.currentTime
+        let ct = player.currentPosition
         if ct >= 0 {
             currentTime = Double(ct) / 1000
         }
@@ -187,19 +192,18 @@ final class PlayerController: ObservableObject {
         if dur > 0 {
             duration = Double(dur) / 1000
         }
-        let status = player.status
-        let nowPlaying = (status == .playing)
+        let nowPlaying = (_playerStatus == .started)
         if nowPlaying != isPlaying {
             isPlaying = nowPlaying
             diagLog(.playback, "AliPlayer isPlaying changed", details: ["isPlaying": isPlaying])
         }
-        // AliPlayer sets status to .buffering when buffering
-        let buffering = (status == .buffering)
+        // AliPlayer sets status to .started when playing, other status when buffering
+        let buffering = (_playerStatus == .idle || _playerStatus == .initialzed)
         if buffering != isBuffering {
             isBuffering = buffering
             diagLog(.playback, "AliPlayer isBuffering changed", details: ["isBuffering": isBuffering])
         }
-        networkSpeed = 0
+        networkSpeed = Double(player.currentDownloadSpeed) / 8.0
     }
 
     deinit {
@@ -207,8 +211,73 @@ final class PlayerController: ObservableObject {
     }
 }
 
+// MARK: - AVPDelegate
+
+extension PlayerController: AVPDelegate {
+    nonisolated func onPlayerStatusChanged(_ player: AliPlayer, oldStatus: AVPStatus, newStatus: AVPStatus) {
+        Task { @MainActor in
+            self._playerStatus = newStatus
+            let nowPlaying = (newStatus == .started)
+            if nowPlaying != self.isPlaying {
+                self.isPlaying = nowPlaying
+                diagLog(.playback, "AliPlayer status changed", details: [
+                    "oldStatus": String(describing: oldStatus),
+                    "newStatus": String(describing: newStatus),
+                    "isPlaying": nowPlaying
+                ])
+            }
+        }
+    }
+
+    nonisolated func onCurrentPositionUpdate(_ player: AliPlayer, position: Int64) {
+        Task { @MainActor in
+            if position >= 0 {
+                self.currentTime = Double(position) / 1000
+            }
+        }
+    }
+
+    nonisolated func onLoadingProgress(_ player: AliPlayer, progress: Float) {
+        Task { @MainActor in
+            let buffering = progress < 1.0
+            if buffering != self.isBuffering {
+                self.isBuffering = buffering
+            }
+        }
+    }
+
+    nonisolated func onPlayerEvent(_ player: AliPlayer, eventType: AVPEventType) {
+        Task { @MainActor in
+            switch eventType {
+            case .loadingStart:
+                self.isBuffering = true
+            case .loadingEnd:
+                self.isBuffering = false
+            case .completion:
+                self.isPlaying = false
+            case .prepareDone:
+                let dur = player.duration
+                if dur > 0 {
+                    self.duration = Double(dur) / 1000
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    nonisolated func onError(_ player: AliPlayer, errorModel: AVPErrorModel) {
+        Task { @MainActor in
+            diagLog(.playback, "AliPlayer error", details: [
+                "code": errorModel.code,
+                "message": errorModel.message ?? ""
+            ])
+        }
+    }
+}
+
 // =============================================================================
-// WatchSession — no AliPlayer dependency, kept from the VLC file verbatim
+// WatchSession — no AliPlayer dependency, kept verbatim from archived file
 // =============================================================================
 
 /// Owns the periodic history-reporting `Timer` for one playback
