@@ -239,6 +239,15 @@ final class PlayerController: ObservableObject {
         stopPolling()
         #if canImport(MobileVLCKit)
         mediaPlayer.stop()
+        // Clear the drawable so the next video's updateUIView
+        // sees drawable == nil and re-attaches cleanly. Without
+        // this, the stale attachedView from the previous video
+        // pollutes the next attach() call's isSurfaceSwap logic.
+        if let drawable = mediaPlayer.drawable as? UIView, drawable === attachedView {
+            mediaPlayer.drawable = nil
+        }
+        attachedView = nil
+        attachedSurface = nil
         #endif
     }
 
