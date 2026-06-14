@@ -317,8 +317,22 @@ final class VideoDetailViewModel: ObservableObject {
             detail = try await repository.detail(for: detail)
             self.playback = try await repository.playback(for: detail)
             await loadComments(repository: repository)
+        } catch let error as BilibiliAPIError {
+            switch error {
+            case .api(let message):
+                errorMessage = message
+            case .missingData:
+                errorMessage = "该视频暂无可播放源。"
+            case .missingIdentity:
+                errorMessage = "无法识别该视频（缺少 aid/bvid）。"
+            case .noPlayableFormat:
+                errorMessage = "该视频的可用清晰度均不可播放（可能为地区限制或大会员专享）。"
+            case .invalidURL, .http:
+                errorMessage = "网络异常，请检查连接后重试。"
+            }
+            await loadComments(repository: repository)
         } catch {
-            errorMessage = "Playback is unavailable for this item without a valid public play URL."
+            errorMessage = "播放失败：\(error.localizedDescription)"
             await loadComments(repository: repository)
         }
         isLoading = false

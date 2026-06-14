@@ -36,6 +36,7 @@
 		10000000000000000000011B /* AccountContentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021C /* AccountContentViews.swift */; };
 		10000000000000000000011C /* ReplyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021D /* ReplyListView.swift */; };
 		10000000000000000000011D /* VLCPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021E /* VLCPlayerView.swift */; };
+		100000000000000000000C11 /* MobileVLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 100000000000000000000C02 /* MobileVLCKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,6 +78,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				100000000000000000000C11 /* MobileVLCKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -168,6 +170,9 @@
 			dependencies = (
 			);
 			name = BiliPaiNative;
+			packageProductDependencies = (
+				100000000000000000000C02 /* MobileVLCKit */,
+			);
 			productName = BiliPaiNative;
 			productReference = 100000000000000000000001 /* BiliPaiNative.app */;
 			productType = "com.apple.product-type.application";
@@ -196,6 +201,9 @@
 				Base,
 			);
 			mainGroup = 100000000000000000000401;
+			packageReferences = (
+				100000000000000000000C01 /* XCLocalSwiftPackageReference "MobileVLCKit" */,
+			);
 			productRefGroup = 100000000000000000000403 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -215,6 +223,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		100000000000000000000C01 /* XCLocalSwiftPackageReference "MobileVLCKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/MobileVLCKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		100000000000000000000C02 /* MobileVLCKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 100000000000000000000C01 /* XCLocalSwiftPackageReference "MobileVLCKit" */;
+			productName = MobileVLCKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXSourcesBuildPhase section */
 		100000000000000000000701 /* Sources */ = {
@@ -378,6 +401,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = "";
+				EMBEDDED_CONTENT_CONTAINS_SWIFT = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BiliPaiNative/Info.plist;
@@ -406,6 +430,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = "";
+				EMBEDDED_CONTENT_CONTAINS_SWIFT = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BiliPaiNative/Info.plist;

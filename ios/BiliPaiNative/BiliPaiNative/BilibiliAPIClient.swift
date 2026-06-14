@@ -257,11 +257,20 @@ final class BilibiliAPIClient {
         return payload.value?.videos.map(\.model) ?? []
     }
 
-    func videoDetail(bvid: String) async throws -> BiliVideo {
+    func videoDetail(bvid: String, aid: Int = 0) async throws -> BiliVideo {
+        var queryItems: [URLQueryItem] = []
+        if !bvid.isEmpty {
+            queryItems.append(URLQueryItem(name: "bvid", value: bvid))
+        } else if aid > 0 {
+            queryItems.append(URLQueryItem(name: "aid", value: "\(aid)"))
+        } else {
+            throw BilibiliAPIError.missingIdentity
+        }
+
         let payload: APIResponse<VideoDTO> = try await get(
             baseURL: baseURL,
             path: "/x/web-interface/view",
-            queryItems: [URLQueryItem(name: "bvid", value: bvid)]
+            queryItems: queryItems
         )
         try payload.requireOK()
         guard let detail = payload.value?.model else {
@@ -270,39 +279,74 @@ final class BilibiliAPIClient {
         return detail
     }
 
-    func playbackURL(bvid: String, cid: Int) async throws -> BiliPlayback {
+    func playbackURL(bvid: String, aid: Int = 0, cid: Int) async throws -> BiliPlayback {
         // The current canonical path is `/x/player/wbi/playurl` — the
-        // non-wbi alias is being phased out. `fnval=1` requests the MP4
-        // stream (DASH); `fnval=0` was the legacy FLV-only flag and the
-        // endpoint now returns an empty `durl` array with that value,
-        // which is why every video was previously failing the
-        // `bestURL` check and falling through to "Playback is
-        // unavailable". `gaia_source=view-card` is the same hint the
-        // web player sends — Bilibili loosens the 1080P gate slightly
-        // for this source.
-        let payload: APIResponse<PlayURLPayload> = try await get(
-            baseURL: baseURL,
-            path: "/x/player/wbi/playurl",
-            queryItems: [
-                URLQueryItem(name: "bvid", value: bvid),
+        // non-wbi alias is being phased out. The `fnval` bitmask is:
+        //   1   = legacy MP4 (returns an empty `durl` for most items
+        //         today, which is why `fnval=0/1` produces the
+        //         "Playback is unavailable" error).
+        //   16  = DASH manifest.
+        //   64  = HLS master playlist (what AVPlayer can natively
+        //         consume on iOS).
+        //   4048 = HLS + DASH + MP4 + FLV — the bitmask the
+        //          bilibili-API-collect docs use for "request every
+        //          format" (see `ios/BiliPaiNative/API_REFERENCE.md`
+        //          line 52, and `diagnose.md`).
+        // We send `fnval=4048` so `bestPlayback` always has both `durl`
+        // and `dash` to choose from. We then walk a `qn` chain from
+        // 1080P down to 360P because the upstream returns an empty
+        // `durl` / empty `dash` when the requested quality is gated
+        // (region lock, VIP paywall, 4K-only source). Cap at three
+        // retries so a misbehaving upstream cannot wedge the device.
+        // `gaia_source=view-card` is the same hint the web player
+        // sends — Bilibili loosens the 1080P gate slightly for it.
+        let identity: [URLQueryItem]
+        if !bvid.isEmpty {
+            identity = [URLQueryItem(name: "bvid", value: bvid)]
+        } else if aid > 0 {
+            identity = [URLQueryItem(name: "avid", value: "\(aid)")]
+        } else {
+            throw BilibiliAPIError.missingIdentity
+        }
+        let finalBvid = bvid.isEmpty ? "av\(aid)" : bvid
+
+        let qnChain: [Int] = [80, 64, 32, 16]
+        var lastError: Error = BilibiliAPIError.missingData
+        for qn in qnChain {
+            let queryItems: [URLQueryItem] = identity + [
                 URLQueryItem(name: "cid", value: "\(cid)"),
-                URLQueryItem(name: "qn", value: "64"),
-                URLQueryItem(name: "fnval", value: "64"), // Request HLS (Master Playlist)
+                URLQueryItem(name: "qn", value: "\(qn)"),
+                URLQueryItem(name: "fnval", value: "4048"),
                 URLQueryItem(name: "fnver", value: "0"),
                 URLQueryItem(name: "fourk", value: "1"),
                 URLQueryItem(name: "gaia_source", value: "view-card")
-            ],
-            signWithWBI: true
-        )
-        try payload.requireOK()
-        guard let playback = payload.value?.bestPlayback else {
-            throw BilibiliAPIError.missingData
+            ]
+            do {
+                let payload: APIResponse<PlayURLPayload> = try await get(
+                    baseURL: baseURL,
+                    path: "/x/player/wbi/playurl",
+                    queryItems: queryItems,
+                    signWithWBI: true
+                )
+                try payload.requireOK()
+                if let playback = payload.value?.bestPlayback {
+                    return BiliPlayback(
+                        videoURL: playback.videoURL,
+                        audioURL: playback.audioURL,
+                        referer: URL(string: "https://www.bilibili.com/video/\(finalBvid)")!
+                    )
+                }
+                lastError = BilibiliAPIError.noPlayableFormat
+            } catch {
+                // Bubble up immediately on identity / network errors so
+                // the UI can surface them; only fall through on
+                // quality-gated responses.
+                if case BilibiliAPIError.missingIdentity = error { throw error }
+                if case BilibiliAPIError.http = error { throw error }
+                lastError = error
+            }
         }
-        return BiliPlayback(
-            videoURL: playback.videoURL,
-            audioURL: playback.audioURL,
-            referer: URL(string: "https://www.bilibili.com/video/\(bvid)")!
-        )
+        throw lastError
     }
 
     func liveRooms() async throws -> [BiliLiveRoom] {
@@ -1032,6 +1076,11 @@ enum BilibiliAPIError: Error {
     /// caller show a clear "评论不可用" message instead of a generic
     /// "Could not load public comments." after a doomed network call.
     case missingIdentity
+    /// The playurl endpoint returned a payload but every supported
+    /// `qn` quality was gated (region lock, VIP paywall, 4K-only
+    /// source). Distinct from `missingData` so the UI can say "暂无可
+    /// 播放清晰度" rather than a generic "缺少数据".
+    case noPlayableFormat
 }
 
 private struct APIResponse<T: Decodable>: Decodable {

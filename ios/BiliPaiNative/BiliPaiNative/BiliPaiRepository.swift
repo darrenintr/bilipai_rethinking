@@ -88,17 +88,17 @@ final class BiliPaiRepository: ObservableObject {
     }
 
     func detail(for video: BiliVideo) async throws -> BiliVideo {
-        guard !video.bvid.isEmpty else { return video }
-        return try await apiClient.videoDetail(bvid: video.bvid)
+        guard !video.bvid.isEmpty || video.aid > 0 else { return video }
+        return try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
     }
 
     func playback(for video: BiliVideo) async throws -> BiliPlayback {
         let cid = video.cid
         if cid > 0 {
-            return try await apiClient.playbackURL(bvid: video.bvid, cid: cid)
+            return try await apiClient.playbackURL(bvid: video.bvid, aid: video.aid, cid: cid)
         }
-        let detail = try await apiClient.videoDetail(bvid: video.bvid)
-        return try await apiClient.playbackURL(bvid: detail.bvid, cid: detail.cid)
+        let detail = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
+        return try await apiClient.playbackURL(bvid: detail.bvid, aid: detail.aid, cid: detail.cid)
     }
 
     func liveRooms() async throws -> [BiliLiveRoom] {

@@ -50,6 +50,35 @@ jobs:
           xcodebuild -list -project "$PROJECT_PATH" -json \
             | python3 -c "import json,sys; schemes=json.load(sys.stdin)['project']['schemes']; assert '$SCHEME' in schemes, f'Scheme $SCHEME not found in {schemes}'; print('Scheme $SCHEME present')"
 
+      - name: Fetch MobileVLCKit xcframework
+        # The local SPM package at ios/BiliPaiNative/LocalPackages/MobileVLCKit
+        # wraps a binary target whose .xcframework is not committed to the
+        # repo. Pull it from the pinned VLC CDN URL set in the script's
+        # `VLC_XCFRAMEWORK_URL` default; the script also handles a
+        # SHA-256 integrity check when `VLC_XCFRAMEWORK_SHA256` is
+        # provided. The previous attempt (commit 1a95b9f6) used a
+        # remote `videolan/vlc-ios` SwiftPM reference and failed with
+        # "Missing package product MobileVLCKit" — that repo does not
+        # publish MobileVLCKit as an SPM product, only CocoaPods.
+        run: |
+          set -euo pipefail
+          bash scripts/fetch_mobilelockit.sh
+
+      - name: Resolve Swift Package Dependencies
+        # Force a clean SPM resolution against the local MobileVLCKit
+        # package so any layout / Package.swift error surfaces with a
+        # clear message *before* the long build step. Mirrors what an
+        # interactive Xcode "Resolve Package Versions" does.
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -resolvePackageDependencies
+
       - name: Build device app without signing
         run: |
           set -euo pipefail
@@ -101,6 +130,24 @@ jobs:
             /usr/bin/zip -qry "${SCHEME}-unsigned.ipa" Payload
             shasum -a 256 "${SCHEME}-unsigned.ipa" > checksums.txt
           )
+
+      - name: Verify MobileVLCKit is embedded in the IPA
+        # Smoke-test the IPA: the framework must be inside the bundle's
+        # Frameworks directory or `VLCPlayerView` will load a placeholder
+        # at runtime. If this fails the user sees "VLCKit not linked"
+        # and live playback is silently disabled — fail the workflow
+        # loudly instead.
+        run: |
+          set -euo pipefail
+          IPA_PATH="$IPA_DIST_DIR/${SCHEME}-unsigned.ipa"
+          if ! /usr/bin/unzip -l "$IPA_PATH" | /usr/bin/grep -q 'Payload/.*\.app/Frameworks/MobileVLCKit.framework/MobileVLCKit'; then
+            echo "::error::MobileVLCKit.framework was not embedded in the IPA."
+            echo "::group::IPA contents"
+            /usr/bin/unzip -l "$IPA_PATH" | head -50
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "MobileVLCKit.framework is embedded."
 
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4

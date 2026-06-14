@@ -29,6 +29,11 @@ final class AuthStore: ObservableObject {
         accounts = list.sorted(by: { $0.lastUsedAt > $1.lastUsedAt })
         activeAccount = list.first(where: { $0.mid == activeMid })
             ?? list.sorted(by: { $0.lastUsedAt > $1.lastUsedAt }).first
+        // Diagnostic so the user can confirm via the in-app log
+        // export that persisted state is actually being read on a
+        // fresh launch (the symptom of the regression was "the latest
+        // build lost the ability to keep the login status").
+        bpLog("AuthStore.refresh: accounts=\(accounts.count) activeMid=\(activeAccount?.mid ?? 0)")
     }
 
     /// Mark a freshly-completed login as the active one and persist it.

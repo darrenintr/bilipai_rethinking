@@ -12,7 +12,11 @@ struct BiliPaiNativeApp: App {
         PlayerAudioSession.activate()
         let client = BilibiliAPIClient()
         let repo = BiliPaiRepository(apiClient: client)
-        client.cookieProvider = nil
+        // Do NOT clear `cookieProvider` here — the wired closure is
+        // installed in `body.onAppear` below. Clearing it in `init`
+        // opens a window where the first API request goes out
+        // anonymously, which the user perceives as "logged out on
+        // every fresh launch" until onAppear fires.
         _repository = StateObject(wrappedValue: repo)
     }
 
@@ -25,6 +29,16 @@ struct BiliPaiNativeApp: App {
                 .tint(BiliPaiTheme.biliPink)
                 .preferredColorScheme(themeMode.colorScheme)
                 .onAppear {
+                    // Defensive re-hydration: in case the first render
+                    // happened before `@StateObject` had a chance to
+                    // run `AuthStore.refresh()` (e.g. when the SwiftUI
+                    // view is mounted in the same runloop tick as the
+                    // App init), re-read the persisted account list
+                    // from the Keychain here. This is a single, cheap
+                    // read and guarantees `activeAccount` is populated
+                    // before the cookieProvider closure captures it.
+                    authStore.refresh()
+
                     repository.apiClient.cookieProvider = { [weak authStore] in
                         authStore?.activeAccount?.cookieHeader
                     }
