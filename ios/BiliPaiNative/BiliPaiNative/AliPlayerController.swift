@@ -1,0 +1,282 @@
+import UIKit
+import AliPlayerSDK
+
+enum PlayerDrawableSurface: String {
+    case inline
+    case fullscreen
+    case standalone
+}
+
+/// Owns an `AliPlayer` for its entire lifetime and exposes the same
+/// interface as the previous VLC-based controller: playhead `currentTime`,
+/// `duration`, `isPlaying`, `isBuffering`, `networkSpeed`, and the
+/// skip/seek/toggle commands.
+///
+/// The `AliPlayer` render surface is bound via `player.playerView = view`
+/// — a simple property assignment. No pause/play refresh trick is needed
+/// for surface swaps; the renderer rebinds automatically when reassigned.
+///
+/// The controller outlives both the inline and fullscreen `UIView`s so the
+/// player keeps decoding across the inline ↔ fullscreen transition.
+@MainActor
+final class PlayerController: ObservableObject {
+    /// Playhead position in seconds.
+    @Published private(set) var currentTime: Double = 0
+    /// Total media length in seconds. 0 while the media is still parsing.
+    @Published private(set) var duration: Double = 0
+    /// `true` when playback is active.
+    @Published var isPlaying: Bool = true
+    /// `true` while the player is buffering / opening.
+    @Published private(set) var isBuffering: Bool = false
+    /// Network read rate in bytes/second. AliPlayer does not expose this
+    /// directly; published as 0 (the speed label in the loading overlay
+    /// will show "—" which degrades gracefully).
+    @Published private(set) var networkSpeed: Double = 0
+
+    /// The underlying AliPlayer instance.
+    let player: AliPlayer
+
+    private weak var attachedView: UIView?
+    private var preferredSurface: PlayerDrawableSurface = .standalone
+    private var attachedSurface: PlayerDrawableSurface?
+    private var pollTimer: Timer?
+
+    init(url: URL, referer: String) {
+        diagLog(.playback, "Initializing AliPlayerController", details: ["url": url.absoluteString])
+
+        let player = AliPlayer()
+        player.scalingMode = .aspectFit
+        self.player = player
+
+        let source = AVPUrlSource(urlString: url.absoluteString)
+        player.setUrl(source)
+
+        if isPlaying {
+            player.prepare()
+            player.start()
+        }
+
+        startPolling()
+    }
+
+    func swapMedia(to url: URL, referer: String) {
+        player.stop()
+        let source = AVPUrlSource(urlString: url.absoluteString)
+        player.setUrl(source)
+        if isPlaying {
+            player.prepare()
+            player.start()
+        }
+    }
+
+    func preferDrawableSurface(_ surface: PlayerDrawableSurface) {
+        preferredSurface = surface
+        diagLog(.playback, "Preferred drawable surface changed", details: ["surface": surface.rawValue])
+    }
+
+    /// Make `view` the player's render surface. AliPlayer rebinds
+    /// automatically when `playerView` is reassigned — no pause/play
+    /// trick needed.
+    func attach(drawable view: UIView, surface: PlayerDrawableSurface) {
+        guard surface == .standalone || surface == preferredSurface else {
+            diagLog(.playback, "AliPlayer attach ignored for inactive surface", details: [
+                "surface": surface.rawValue,
+                "preferred": preferredSurface.rawValue,
+                "view": String(describing: view)
+            ])
+            return
+        }
+        if attachedView === view, attachedSurface == surface {
+            return
+        }
+
+        let wasPlaying = (player.status == .playing)
+        player.playerView = nil
+        attachedView = view
+        attachedSurface = surface
+        player.playerView = view
+
+        diagLog(.playback, "AliPlayer attaching drawable", details: [
+            "surface": surface.rawValue,
+            "view": String(describing: view),
+            "wasPlaying": wasPlaying
+        ])
+    }
+
+    /// Release the drawable if it still belongs to `currentView`.
+    func detach(currentView: UIView, surface: PlayerDrawableSurface) {
+        guard attachedView === currentView else {
+            diagLog(.playback, "AliPlayer detach ignored for stale surface", details: [
+                "surface": surface.rawValue,
+                "attachedSurface": attachedSurface?.rawValue ?? "none",
+                "view": String(describing: currentView)
+            ])
+            return
+        }
+        diagLog(.playback, "AliPlayer detaching drawable", details: ["surface": surface.rawValue, "view": String(describing: currentView)])
+        if player.playerView === currentView {
+            player.playerView = nil
+        }
+        attachedView = nil
+        attachedSurface = nil
+    }
+
+    /// Stop the player and release resources. Called from
+    /// `VideoDetailView.onDisappear` when navigating away.
+    func tearDown() {
+        stopPolling()
+        player.stop()
+        player.destroy()
+        player.playerView = nil
+        attachedView = nil
+        attachedSurface = nil
+        diagLog(.playback, "AliPlayerController teardown complete")
+    }
+
+    func play() {
+        player.start()
+    }
+
+    func pause() {
+        player.pause()
+    }
+
+    func toggle() {
+        isPlaying.toggle()
+        if isPlaying { player.start() } else { player.pause() }
+    }
+
+    /// Skip the playhead by `seconds`, clamped to `[0, duration]`.
+    func skip(by seconds: Double) {
+        let totalMs = max(0, duration * 1000)
+        let currentMs = currentTime * 1000
+        let raw = currentMs + seconds * 1000
+        let clampedMs = min(totalMs, max(0, raw))
+        player.seek(toTargetTime: clampedMs, mode: .accurate)
+        currentTime = clampedMs / 1000
+    }
+
+    /// Seek to an absolute time in seconds, clamped to `[0, duration]`.
+    func seek(to seconds: Double) {
+        let target = max(0, min(duration, seconds))
+        let targetMs = target * 1000
+        player.seek(toTargetTime: targetMs, mode: .accurate)
+        currentTime = target
+    }
+
+    private func startPolling() {
+        stopPolling()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refresh()
+            }
+        }
+    }
+
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    private func refresh() {
+        let ct = player.currentTime
+        if ct >= 0 {
+            currentTime = Double(ct) / 1000
+        }
+        let dur = player.duration
+        if dur > 0 {
+            duration = Double(dur) / 1000
+        }
+        let status = player.status
+        let nowPlaying = (status == .playing)
+        if nowPlaying != isPlaying {
+            isPlaying = nowPlaying
+            diagLog(.playback, "AliPlayer isPlaying changed", details: ["isPlaying": isPlaying])
+        }
+        // AliPlayer sets status to .buffering when buffering
+        let buffering = (status == .buffering)
+        if buffering != isBuffering {
+            isBuffering = buffering
+            diagLog(.playback, "AliPlayer isBuffering changed", details: ["isBuffering": isBuffering])
+        }
+        networkSpeed = 0
+    }
+
+    deinit {
+        pollTimer?.invalidate()
+    }
+}
+
+// =============================================================================
+// WatchSession — no AliPlayer dependency, kept from the VLC file verbatim
+// =============================================================================
+
+/// Owns the periodic history-reporting `Timer` for one playback
+/// session. The official Bilibili iOS client calls
+/// `POST /x/v2/history/report` with `progress=0` on play start and
+/// every 30 seconds during playback.
+@MainActor
+final class WatchSession {
+    private let repository: BiliPaiRepository
+    private let aid: Int
+    private let cid: Int
+    private let getCurrentSeconds: () -> Double
+    private let isActive: () -> Bool
+    private var timer: Timer?
+    private var lastFire: Date = .distantPast
+
+    private static let reportInterval: TimeInterval = 30
+    private static let minimumGap: TimeInterval = 5
+
+    init(
+        repository: BiliPaiRepository,
+        aid: Int,
+        cid: Int,
+        getCurrentSeconds: @escaping () -> Double,
+        isActive: @escaping () -> Bool
+    ) {
+        self.repository = repository
+        self.aid = aid
+        self.cid = cid
+        self.getCurrentSeconds = getCurrentSeconds
+        self.isActive = isActive
+    }
+
+    func start() {
+        guard timer == nil else { return }
+        guard aid > 0, cid > 0 else { return }
+        fire(progress: 0)
+        timer = Timer.scheduledTimer(withTimeInterval: Self.reportInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.tick()
+            }
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func tick() {
+        guard Date().timeIntervalSince(lastFire) >= Self.minimumGap else { return }
+        guard isActive() else { return }
+        let progress = Int(max(0, getCurrentSeconds().rounded()))
+        fire(progress: progress)
+    }
+
+    private func fire(progress: Int) {
+        lastFire = Date()
+        Task { [repository, aid, cid] in
+            do {
+                try await repository.reportHistoryForWatchSession(
+                    aid: aid,
+                    cid: cid,
+                    progress: progress
+                )
+            } catch {
+                bpLog("history report failed (aid=\(aid) progress=\(progress)): \(error)")
+            }
+        }
+    }
+}
