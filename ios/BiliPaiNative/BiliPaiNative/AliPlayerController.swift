@@ -19,7 +19,7 @@ enum PlayerDrawableSurface: String {
 /// The controller outlives both the inline and fullscreen `UIView`s so the
 /// player keeps decoding across the inline ↔ fullscreen transition.
 @MainActor
-final class PlayerController: ObservableObject {
+final class PlayerController: NSObject, ObservableObject {
     /// Playhead position in seconds.
     @Published private(set) var currentTime: Double = 0
     /// Total media length in seconds. 0 while the media is still parsing.
@@ -49,8 +49,10 @@ final class PlayerController: ObservableObject {
         player.playerView = nil
         player.scalingMode = AVP_SCALINGMODE_SCALEASPECTFIT
         self.player = player
+        super.init()
 
-        let source = AVPUrlSource.url(withString: url.absoluteString)
+        let source = AVPUrlSource()
+        source.playerUrl = url
         player.setUrlSource(source)
 
         // Set up delegate to receive status updates
@@ -66,7 +68,8 @@ final class PlayerController: ObservableObject {
 
     func swapMedia(to url: URL, referer: String) {
         player.stop()
-        let source = AVPUrlSource.url(withString: url.absoluteString)
+        let source = AVPUrlSource()
+        source.playerUrl = url
         player.setUrlSource(source)
         if isPlaying {
             player.prepare()
@@ -196,12 +199,6 @@ final class PlayerController: ObservableObject {
         if nowPlaying != isPlaying {
             isPlaying = nowPlaying
             diagLog(.playback, "AliPlayer isPlaying changed", details: ["isPlaying": isPlaying])
-        }
-        // AliPlayer sets status to .started when playing, other status when buffering
-        let buffering = (_playerStatus == .idle || _playerStatus == .initialzed)
-        if buffering != isBuffering {
-            isBuffering = buffering
-            diagLog(.playback, "AliPlayer isBuffering changed", details: ["isBuffering": isBuffering])
         }
         networkSpeed = Double(player.currentDownloadSpeed) / 8.0
     }
