@@ -11,4 +11,43 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
+
+  # Patch CocoaPods-generated embed-frameworks scripts: replace the rsync
+  # copy with `cp -R`. The shipped rsync form (older CocoaPods uses
+  # `--filter "P .*.??????"`; newer CocoaPods uses
+  # `"${RSYNC_PROTECT_TMP_FILES[@]}"`) fails on sandboxed / read-mostly
+  # destination filesystems with:
+  #     mkstempat: Operation not permitted
+  #     utimensat: No such file or directory
+  # `cp -R` is recursive, preserves symlinks on macOS, and skips the
+  # temp-file dance rsync uses for atomic replace.
+  embed_scripts = Dir.glob(
+    File.join(installer.sandbox.root, 'Target Support Files',
+              'Pods-*', 'Pods-*-frameworks.sh')
+  )
+  embed_scripts.each do |script_path|
+    next unless File.exist?(script_path)
+    contents = File.read(script_path)
+    # Nothing to do if this script does not invoke rsync to copy frameworks.
+    next unless contents.include?('rsync --delete -av')
+    # Idempotent: skip when the script already carries our replacement.
+    next if contents.include?('cp -R "${source}" "${destination}"')
+
+    # Join backslash-continuations into single lines so the rsync
+    # command becomes one logical line. This is a whitespace-only change
+    # and leaves the script semantically identical.
+    joined = contents.gsub(/\\\n[ \t]*/, ' ')
+
+    patched = joined.gsub(
+      /^([ \t]*)rsync[ \t]+--delete[ \t]+-av\b[^\n]*"?\$\{source\}"?[ \t]+"?\$\{destination\}"?[ \t]*\n?/,
+    ) do |_match|
+      "#{$1}" + 'cp -R "${source}" "${destination}"' + "\n"
+    end
+
+    next if patched == joined
+
+    File.write(script_path, patched)
+    File.chmod(0755, script_path)
+    Pod::UI.puts "[BiliPai patch] Replaced rsync with cp -R in #{File.basename(script_path)}"
+  end
 end
