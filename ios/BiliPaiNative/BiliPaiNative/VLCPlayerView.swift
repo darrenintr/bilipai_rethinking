@@ -559,11 +559,23 @@ struct VLCPlayerView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        // `coordinator.detach` only clears the drawable if the
-        // current drawable is still `uiView`, so this is safe to
-        // call from the inline view's dismantle while a
-        // fullscreen view has already taken over the drawable.
-        coordinator.detach()
+        // [REGRESSION] Do NOT call `coordinator.detach()` here.
+        //
+        // SwiftUI calls `dismantleUIView` when it recycles the
+        // UIViewRepresentable instance during the inline ↔ fullscreen
+        // transition — NOT just when the view is permanently removed.
+        // The previous fix (7a3c1f2) assumed the fullscreen view would
+        // already hold the drawable by the time this fires, but after
+        // fullscreen dismissal the drawable is back on the inline view.
+        // Detaching here wipes the drawable and produces a black screen
+        // while audio keeps playing.
+        //
+        // `updateUIView` re-attaches the drawable on every render, so
+        // the next view to appear will re-claim it.  `tearDown()` (via
+        // `VideoDetailView.onDisappear`) handles the true navigate-away
+        // case by stopping the player and nil-ing the drawable.
+        //
+        // coordinator.detach()
     }
 
     func makeCoordinator() -> Coordinator {
