@@ -37,6 +37,7 @@
 		10000000000000000000011C /* ReplyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021D /* ReplyListView.swift */; };
 		10000000000000000000011D /* AliPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021E /* AliPlayerController.swift */; };
 		10000000000000000000011E /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* DiagnosticLogger.swift */; };
+		10000000000000000000222 /* AliPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021F /* AliPlayerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */

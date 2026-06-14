@@ -40,20 +40,19 @@ final class PlayerController: NSObject, ObservableObject {
     private var attachedSurface: PlayerDrawableSurface?
     private var pollTimer: Timer?
     /// AliPlayer has no direct `status` property; track it via delegate.
-    private var _playerStatus: AVPStatus = .idle
+    private var _playerStatus: AliyunPlayer.AVPStatus = .idle
 
     init(url: URL, referer: String) {
         diagLog(.playback, "Initializing AliPlayerController", details: ["url": url.absoluteString])
 
-        let player = AliPlayer()
-        player.playerView = nil
-        player.scalingMode = AVP_SCALINGMODE_SCALEASPECTFIT
-        self.player = player
+        let createdPlayer = AliPlayer()
+        createdPlayer.playerView = nil
+        createdPlayer.scalingMode = .scaleAspectFit
+        self.player = createdPlayer
         super.init()
 
-        let source = AVPUrlSource()
-        source.playerUrl = url
-        player.setUrlSource(source)
+        let source = AVPUrlSource.urlWithString(url.absoluteString)
+        createdPlayer.setUrlSource(source)
 
         // Set up delegate to receive status updates
         player.delegate = self
@@ -68,8 +67,7 @@ final class PlayerController: NSObject, ObservableObject {
 
     func swapMedia(to url: URL, referer: String) {
         player.stop()
-        let source = AVPUrlSource()
-        source.playerUrl = url
+        let source = AVPUrlSource.urlWithString(url.absoluteString)
         player.setUrlSource(source)
         if isPlaying {
             player.prepare()
@@ -160,7 +158,7 @@ final class PlayerController: NSObject, ObservableObject {
         let currentMs = Int64(currentTime * 1000)
         let raw = currentMs + Int64(seconds * 1000)
         let clampedMs = min(totalMs, max(0, raw))
-        player.seekToTime(clampedMs, seekMode: AVP_SEEKMODE_ACCURATE)
+        player.seek(toTime: clampedMs, seekMode: .accurate)
         currentTime = Double(clampedMs) / 1000
     }
 
@@ -168,7 +166,7 @@ final class PlayerController: NSObject, ObservableObject {
     func seek(to seconds: Double) {
         let target = max(0, min(duration, seconds))
         let targetMs = Int64(target * 1000)
-        player.seekToTime(targetMs, seekMode: AVP_SEEKMODE_ACCURATE)
+        player.seek(toTime: targetMs, seekMode: .accurate)
         currentTime = target
     }
 
@@ -211,7 +209,7 @@ final class PlayerController: NSObject, ObservableObject {
 // MARK: - AVPDelegate
 
 extension PlayerController: AVPDelegate {
-    nonisolated func onPlayerStatusChanged(_ player: AliPlayer, oldStatus: AVPStatus, newStatus: AVPStatus) {
+    nonisolated func onPlayerStatusChanged(_ player: AliPlayer, oldStatus: AliyunPlayer.AVPStatus, newStatus: AliyunPlayer.AVPStatus) {
         Task { @MainActor in
             self._playerStatus = newStatus
             let nowPlaying = (newStatus == .started)
@@ -243,7 +241,7 @@ extension PlayerController: AVPDelegate {
         }
     }
 
-    nonisolated func onPlayerEvent(_ player: AliPlayer, eventType: AVPEventType) {
+    nonisolated func onPlayerEvent(_ player: AliPlayer, eventType: AliyunPlayer.AVPEventType) {
         Task { @MainActor in
             switch eventType {
             case .loadingStart:
