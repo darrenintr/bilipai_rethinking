@@ -72,11 +72,26 @@ jobs:
           # silently to BASE_INT if the call fails (no
           # network, missing perm, etc.) so a single bad
           # run doesn't break the pipeline.
+          #
+          # `gh release list --json tagName -q '.[].tagName'`
+          # emits one tag per line, each wrapped in JSON
+          # double quotes (e.g. "v0.3-alpha-ios-74").  Bash
+          # word-splits on whitespace, so the leading/trailing
+          # quote is part of the token.  Strip the quotes
+          # before the regex test — otherwise the literal
+          # `"v0.3-alpha-ios-74"` never matches
+          # `^v0\.3-alpha-ios-([0-9]+)$` and HIGHEST stays 0
+          # forever, even when a hundred older prereleases
+          # are sitting on the releases tab.
           HIGHEST=0
           if command -v gh >/dev/null 2>&1; then
             TAGS="$(gh release list --limit 200 \
                       --json tagName -q '.[].tagName' 2>/dev/null || true)"
             for tag in $TAGS; do
+              # Strip the JSON double-quotes gh wraps every
+              # tag in.  `tr -d '"'` is enough — the tag
+              # itself never contains a quote.
+              tag="${tag//\"/}"
               if [[ "$tag" =~ ^v0\.3-alpha-ios-([0-9]+)$ ]]; then
                 n="${BASH_REMATCH[1]}"
                 if [ "$n" -gt "$HIGHEST" ]; then HIGHEST="$n"; fi
