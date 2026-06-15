@@ -19,32 +19,35 @@ post_install do |installer|
   # cp).  The frameworks are instead copied by the CI workflow step
   # (plain cp -R) which runs OUTSIDE any sandbox.
   #
-  # NOTE: CocoaPods 1.16.2 occasionally emits
-  #   "attempted to initialize an object with an unknown UUID ...
-  #    for attribute: build_phases"
-  # which leaves the surrounding AggregateTarget partially constructed,
-  # so attribute readers (target / native_target / user_target) can
-  # raise NoMethodError depending on the version.  Wrap the whole block
-  # in begin/rescue so a single bad hook cannot abort `pod install`.
-  # If the embed-phase removal fails here, the CI workflow's
-  # "Manually embed AliPlayerSDK frameworks" step still copies the
-  # frameworks into <App>.app/Frameworks/, so the IPA is unaffected.
+  # Implementation notes (CocoaPods 1.16.2):
+  # * The public API is `aggregate_target.user_target_uuids`
+  #   (an Array<String>) and `aggregate_target.user_project`
+  #   (an Xcodeproj::Project).
+  # * The convenience reader `user_targets` resolves each uuid via
+  #   `user_project.objects_by_uuid[uuid]` and *raises* Informative
+  #   if any uuid is missing — which is exactly the
+  #   "attempted to initialize an object with an unknown UUID"
+  #   condition that the install sometimes hits when integrating
+  #   the AliPlayerSDK pod.  We therefore look up each uuid by hand
+  #   and skip the missing ones, so a partial user_project never
+  #   aborts `pod install`.
   # ------------------------------------------------------------------
-  begin
-    installer.aggregate_targets.each do |aggregate_target|
-      target = aggregate_target.respond_to?(:target) ? aggregate_target.target : nil
-      next unless target
+  installer.aggregate_targets.each do |aggregate_target|
+    next unless aggregate_target.user_project
 
-      embed_phase = target.build_phases.find do |bp|
+    aggregate_target.user_target_uuids.each do |uuid|
+      user_target = aggregate_target.user_project.objects_by_uuid[uuid]
+      next unless user_target
+      next unless user_target.respond_to?(:name) && user_target.name == 'BiliPaiNative'
+
+      embed_phase = user_target.build_phases.find do |bp|
         bp.is_a?(Xcodeproj::Project::Object::PBXShellScriptBuildPhase) &&
           bp.name.to_s.include?('Embed Pods Frameworks')
       end
       if embed_phase
-        target.build_phases.delete(embed_phase)
-        Pod::UI.puts "[BiliPai patch] Removed [CP] Embed Pods Frameworks from #{target.name}"
+        user_target.build_phases.delete(embed_phase)
+        Pod::UI.puts "[BiliPai patch] Removed [CP] Embed Pods Frameworks from #{user_target.name}"
       end
     end
-  rescue => e
-    Pod::UI.warn "[BiliPai patch] Embed-phase removal skipped: #{e.class}: #{e.message}"
   end
 end
