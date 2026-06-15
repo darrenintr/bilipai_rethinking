@@ -249,7 +249,7 @@ final class PlayerController: ObservableObject {
         ) { _ in
             let entries = item.errorLog()?.events ?? []
             let summary = entries.prefix(3).map { e -> String in
-                "\(e.domain)/\(e.errorCode) \"\(e.errorComment ?? "")\""
+                "\(e.errorDomain)/\(e.errorCode) \"\(e.errorComment ?? "")\""
             }.joined(separator: " | ")
             diagLog(.playback, "AVPlayerItem new error log entry", details: [
                 "count": entries.count,
