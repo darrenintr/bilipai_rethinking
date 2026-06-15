@@ -20,8 +20,16 @@ struct RootView: View {
             router.consumePendingIntentRoute()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            switch phase {
+            case .active:
+                diagLog(.lifecycle, "app.foreground")
                 router.consumePendingIntentRoute()
+            case .background:
+                diagLog(.lifecycle, "app.background")
+            case .inactive:
+                diagLog(.lifecycle, "app.inactive")
+            @unknown default:
+                break
             }
         }
         .onOpenURL { url in

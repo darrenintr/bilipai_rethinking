@@ -36,6 +36,8 @@
 		10000000000000000000011B /* AccountContentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021C /* AccountContentViews.swift */; };
 		10000000000000000000011C /* ReplyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021D /* ReplyListView.swift */; };
 		10000000000000000000011E /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* DiagnosticLogger.swift */; };
+		10000000000000000000011F /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000221 /* LogViewerView.swift */; };
+		100000000000000000000120 /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000222 /* DeviceInfo.swift */; };
 		200000000000000000000301 /* AVPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000401 /* AVPlayerController.swift */; };
 		300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000501 /* AVPlayerSurfaceView.swift */; };
 		300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000502 /* LocalHLSProxyServer.swift */; };
@@ -74,6 +76,8 @@
 		10000000000000000000021C /* AccountContentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountContentViews.swift; sourceTree = "<group>"; };
 		10000000000000000000021D /* ReplyListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyListView.swift; sourceTree = "<group>"; };
 		100000000000000000000220 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
+		100000000000000000000221 /* LogViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
+		100000000000000000000222 /* DeviceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
 		200000000000000000000401 /* AVPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerController.swift; sourceTree = "<group>"; };
 		300000000000000000000501 /* AVPlayerSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerSurfaceView.swift; sourceTree = "<group>"; };
 		300000000000000000000502 /* LocalHLSProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHLSProxyServer.swift; sourceTree = "<group>"; };
@@ -122,6 +126,8 @@
 				100000000000000000000210 /* Info.plist */,
 				100000000000000000000211 /* PlayerView.swift */,
 				100000000000000000000220 /* DiagnosticLogger.swift */,
+				100000000000000000000221 /* LogViewerView.swift */,
+				100000000000000000000222 /* DeviceInfo.swift */,
 				200000000000000000000401 /* AVPlayerController.swift */,
 				300000000000000000000501 /* AVPlayerSurfaceView.swift */,
 				300000000000000000000502 /* LocalHLSProxyServer.swift */,
@@ -265,6 +271,8 @@
 				10000000000000000000011B /* AccountContentViews.swift in Sources */,
 				10000000000000000000011C /* ReplyListView.swift in Sources */,
 				10000000000000000000011E /* DiagnosticLogger.swift in Sources */,
+				10000000000000000000011F /* LogViewerView.swift in Sources */,
+				100000000000000000000120 /* DeviceInfo.swift in Sources */,
 				200000000000000000000301 /* AVPlayerController.swift in Sources */,
 				300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */,
 				300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */,

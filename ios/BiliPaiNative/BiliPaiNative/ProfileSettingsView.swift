@@ -58,37 +58,29 @@ struct ProfileSettingsView: View {
             }
 
             Section("系统与诊断") {
-                Button {
-                    if let url = Logger.shared.export() {
-                        logExportURL = url
-                        showShareSheet = true
-                    } else {
-                        Logger.shared.copyToClipboard()
-                        showLogCopyAlert = true
-                    }
+                // Both rows push the same `LogViewerView`.  The
+                // previous implementation used a sheet with an
+                // `if let url = logExportURL` content closure
+                // which had a SwiftUI re-evaluation race: the
+                // first tap showed a blank sheet, the second
+                // tap showed the iOS share sheet.  Pushing a
+                // dedicated screen makes the URL lifecycle
+                // local to the view and removes the race.
+                NavigationLink {
+                    LogViewerView()
                 } label: {
-                    PluginRow(title: "导出运行日志", subtitle: "用于反馈问题与调试", symbol: "doc.text")
+                    PluginRow(title: "运行日志",
+                              subtitle: "查看 / 搜索 / 分享 bpLog 输出",
+                              symbol: "doc.text")
                 }
-                .buttonStyle(.plain)
-                
-                Button {
-                    if let url = DiagnosticLogger.shared.export() {
-                        logExportURL = url
-                        showShareSheet = true
-                    } else {
-                        UIPasteboard.general.string = DiagnosticLogger.shared.generateReport()
-                        showLogCopyAlert = true
-                    }
+                NavigationLink {
+                    LogViewerView()
                 } label: {
-                    PluginRow(title: "导出深度诊断报告", subtitle: "推荐算法/Loading/全屏黑屏排查", symbol: "doc.text.magnifyingglass")
+                    PluginRow(title: "深度诊断报告",
+                              subtitle: "推荐算法 / 播放 / 全屏排查 · 含系统信息",
+                              symbol: "doc.text.magnifyingglass")
                 }
-                .buttonStyle(.plain)
-                .alert("日志已复制到剪貼板", isPresented: $showLogCopyAlert) {
-                    Button("確定", role: .cancel) { }
-                } message: {
-                    Text("無法生成文件，已將日誌內容複製到剪貼板，請直接貼上發送。")
-                }
-                
+
                 Link(destination: URL(string: "https://github.com/darrenintr/bilipai_rethinking")!) {
                     PluginRow(title: "GitHub 仓库", subtitle: "开源项目地址", symbol: "link")
                 }
@@ -96,16 +88,7 @@ struct ProfileSettingsView: View {
             }
         }
         .navigationTitle("我的")
-        .sheet(isPresented: $showShareSheet) {
-            if let url = logExportURL {
-                ShareSheet(activityItems: [url])
-            }
-        }
     }
-
-    @State private var showShareSheet = false
-    @State private var showLogCopyAlert = false
-    @State private var logExportURL: URL? = nil
 
     @ViewBuilder
     private var profileHeader: some View {

@@ -18,6 +18,20 @@ struct BiliPaiNativeApp: App {
         // anonymously, which the user perceives as "logged out on
         // every fresh launch" until onAppear fires.
         _repository = StateObject(wrappedValue: repo)
+        // Log the cold start so the diagnostic report has a
+        // clear "the session started here" anchor.  Also start
+        // the network monitor now so the first `.session` event
+        // ("network.changed type=Wi-Fi") is captured even if the
+        // user never opens the log viewer.
+        diagLog(.app, "app.launch", details: [
+            "marketingVersion":
+                Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+                as? String ?? "?",
+            "build":
+                Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
+                as? String ?? "?"
+        ])
+        DeviceInfo.shared.startIfNeeded()
     }
 
     var body: some Scene {
