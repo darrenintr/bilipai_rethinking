@@ -63,7 +63,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            -skip-proof-rock \
             build
+
+      - name: Manually embed AliPlayerSDK frameworks
+        run: |
+          set -euo pipefail
+          PRODUCTS="$DERIVED_DATA/Build/Products/$CONFIGURATION-iphoneos"
+          FRAMEWORKS="$PRODUCTS/$PROJECT_NAME.app/Frameworks"
+          mkdir -p "$FRAMEWORKS"
+          cp -R "$PROJECT_DIR/Pods/AliPlayerSDK_iOS/AliyunPlayer.framework" "$FRAMEWORKS/"
+          cp -R "$PROJECT_DIR/Pods/AliPlayerSDK_iOS/alivcffmpeg.framework" "$FRAMEWORKS/"
+          cp -R "$PROJECT_DIR/Pods/AliPlayerSDK_iOS/AliyunMediaDownloader.framework" "$FRAMEWORKS/"
 
       - name: Package unsigned IPA
         run: |
