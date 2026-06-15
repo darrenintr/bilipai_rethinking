@@ -2,7 +2,9 @@ platform :ios, '15.0'
 use_frameworks!
 
 target 'BiliPaiNative' do
-  pod 'AliPlayerSDK_iOS', '~> 5.5'
+  # AliyunPlayer removed in favour of AVPlayer + the DASH→HLS
+  # bridge in BiliResourceLoaderDelegate.swift.  No third-party
+  # player SDK is needed for the iOS native target.
 end
 
 post_install do |installer|

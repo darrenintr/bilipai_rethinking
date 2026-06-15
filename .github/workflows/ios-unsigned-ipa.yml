@@ -35,67 +35,28 @@ jobs:
           xcodebuild -showsdks
           sw_vers
 
-      - name: Install CocoaPods dependencies
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          pod install
-
       # ------------------------------------------------------------------
-      # Drop the [CP] Embed Pods Frameworks build phase from the
-      # BiliPaiNative target.  CocoaPods adds this phase to run
-      # `Pods-BiliPaiNative-frameworks.sh`, which in turn invokes rsync
-      # to copy vendored frameworks into <App>.app/Frameworks.  On Xcode
-      # 15+ the build sandbox denies that file-write, so the rsync step
-      # aborts the build with "Sandbox: rsync(...) deny(1)".
-      #
-      # The next workflow step ("Manually embed AliPlayerSDK frameworks")
-      # copies the same frameworks with `cp -R` outside the sandbox, so
-      # the embed phase is redundant; we just need it gone before
-      # xcodebuild reads the project.  Doing this in the workflow (post
-      # `pod install`) is more reliable than mutating the project from
-      # the Podfile's post_install hook, because the on-disk project is
-      # fully written and stable at this point.
+      # No CocoaPods step: AliyunPlayer has been replaced by AVPlayer
+      # (BiliResourceLoaderDelegate.swift synthesises an HLS manifest
+      # from Bilibili's DASH response and proxies fMP4 segments
+      # byte-for-byte from the CDN with the right Referer).  The build
+      # now consumes the bare .xcodeproj — no workspace needed.
       # ------------------------------------------------------------------
-      - name: Drop [CP] Embed Pods Frameworks phase
+
+      - name: Verify scheme
         run: |
           set -euo pipefail
-          ruby -e '
-            require "xcodeproj"
-            project_path = File.join(ENV["PROJECT_DIR"], ENV["PROJECT_NAME"] + ".xcodeproj")
-            abort "Project not found: #{project_path}" unless File.directory?(project_path)
-
-            project = Xcodeproj::Project.open(project_path)
-            removed = 0
-            project.targets.each do |t|
-              next unless t.name == ENV["PROJECT_NAME"]
-              t.build_phases.dup.each do |bp|
-                name_hit   = bp.respond_to?(:name) && bp.name.to_s.include?("Embed Pods Frameworks")
-                script_hit = bp.respond_to?(:shell_script) && bp.shell_script.to_s.include?("-frameworks.sh")
-                next unless name_hit || script_hit
-                t.build_phases.delete(bp)
-                removed += 1
-              end
-            end
-            abort "No embed-frameworks phase found in #{ENV["PROJECT_NAME"]} target" if removed.zero?
-            project.save
-            puts "[embed-phase patch] Removed #{removed} phase(s) from #{ENV["PROJECT_NAME"]}"
-          '
-
-      - name: Verify workspace and scheme
-        run: |
-          set -euo pipefail
-          WORKSPACE="$PROJECT_DIR/$PROJECT_NAME.xcworkspace"
-          test -d "$WORKSPACE" || { echo "::error::Missing workspace: $WORKSPACE"; exit 1; }
-          xcodebuild -list -workspace "$WORKSPACE"
-          xcodebuild -list -workspace "$WORKSPACE" -json \
-            | python3 -c "import json,sys; schemes=json.load(sys.stdin)['workspace']['schemes']; assert '$PROJECT_NAME' in schemes, f'Scheme $PROJECT_NAME not found in {schemes}'; print('Scheme $PROJECT_NAME present')"
+          PROJECT="$PROJECT_DIR/$PROJECT_NAME.xcodeproj"
+          test -d "$PROJECT" || { echo "::error::Missing project: $PROJECT"; exit 1; }
+          xcodebuild -list -project "$PROJECT"
+          xcodebuild -list -project "$PROJECT" -json \
+            | python3 -c "import json,sys; schemes=json.load(sys.stdin)['project']['schemes']; assert '$PROJECT_NAME' in schemes, f'Scheme $PROJECT_NAME not found in {schemes}'; print('Scheme $PROJECT_NAME present')"
 
       - name: Build device app without signing
         run: |
           set -euo pipefail
           xcodebuild \
-            -workspace "$PROJECT_DIR/$PROJECT_NAME.xcworkspace" \
+            -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
             -scheme "$PROJECT_NAME" \
             -configuration "$CONFIGURATION" \
             -sdk iphoneos \
@@ -110,7 +71,7 @@ jobs:
       # Derive a release tag from CFBundleVersion in Info.plist plus the
       # short commit SHA, so each push to working produces a unique tag
       # (e.g. v1+abc1234).  The TAG env is consumed by the packaging,
-      # verify, upload-artifact, and release steps.
+      # upload-artifact, and release steps.
       # ------------------------------------------------------------------
       - name: Resolve release tag
         id: tag
@@ -131,16 +92,6 @@ jobs:
           echo "BUNDLE_VERSION=$BUNDLE_VERSION" >> "$GITHUB_ENV"
           echo "TAG=$TAG"                >> "$GITHUB_ENV"
           echo "Resolved tag: $TAG (CFBundleVersion=$BUNDLE_VERSION, sha=$SHORT_SHA)"
-
-      - name: Manually embed AliPlayerSDK frameworks
-        run: |
-          set -euo pipefail
-          PRODUCTS="$DERIVED_DATA/Build/Products/$CONFIGURATION-iphoneos"
-          FRAMEWORKS="$PRODUCTS/$PROJECT_NAME.app/Frameworks"
-          mkdir -p "$FRAMEWORKS"
-          cp -R "$PROJECT_DIR/Pods/AliPlayerSDK_iOS/AliyunPlayer.framework" "$FRAMEWORKS/"
-          cp -R "$PROJECT_DIR/Pods/AliPlayerSDK_iOS/alivcffmpeg.framework" "$FRAMEWORKS/"
-          cp -R "$PROJECT_DIR/Pods/AliPlayerSDK_iOS/AliyunMediaDownloader.framework" "$FRAMEWORKS/"
 
       - name: Package unsigned IPA
         run: |
@@ -174,20 +125,6 @@ jobs:
             /usr/bin/zip -qry "${PROJECT_NAME}-unsigned-${TAG}.ipa" Payload
             shasum -a 256 "${PROJECT_NAME}-unsigned-${TAG}.ipa" > checksums.txt
           )
-
-      - name: Verify AliPlayerSDK is embedded in the IPA
-        run: |
-          set -euo pipefail
-          IPA_PATH="$IPA_DIST_DIR/${PROJECT_NAME}-unsigned-${TAG}.ipa"
-          # AliPlayerSDK embeds as AliyunPlayer.framework inside the app bundle
-          if ! /usr/bin/unzip -l "$IPA_PATH" | /usr/bin/grep -q 'AliyunPlayer.framework'; then
-            echo "::error::AliyunPlayer.framework was not embedded in the IPA."
-            echo "::group::IPA contents"
-            /usr/bin/unzip -l "$IPA_PATH" | head -50
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "AliyunPlayer.framework is embedded."
 
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4

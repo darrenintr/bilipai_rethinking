@@ -38,7 +38,8 @@
 		10000000000000000000011D /* AliPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021E /* AliPlayerController.swift */; };
 		10000000000000000000011E /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* DiagnosticLogger.swift */; };
 		10000000000000000000222 /* AliPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021F /* AliPlayerView.swift */; };
-		E33935DF48384FDE9A9EE27C /* PatchSandboxSB.sh in Sources */ = {isa = PBXBuildFile; fileRef = 8EB52640125148BEACD3E094 /* PatchSandboxSB.sh */; };
+		200000000000000000000301 /* AVPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000401 /* AVPlayerController.swift */; };
+		200000000000000000000302 /* BiliResourceLoaderDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000402 /* BiliResourceLoaderDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -75,7 +76,8 @@
 		10000000000000000000021E /* AliPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerController.swift; sourceTree = "<group>"; };
 		10000000000000000000021F /* AliPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerView.swift; sourceTree = "<group>"; };
 		100000000000000000000220 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
-		8EB52640125148BEACD3E094 /* PatchSandboxSB.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; name = PatchSandboxSB.sh; path = PatchSandboxSB.sh; sourceTree = "<group>"; };
+		200000000000000000000401 /* AVPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerController.swift; sourceTree = "<group>"; };
+		200000000000000000000402 /* BiliResourceLoaderDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiliResourceLoaderDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,6 +124,8 @@
 				10000000000000000000021E /* AliPlayerController.swift */,
 				10000000000000000000021F /* AliPlayerView.swift */,
 				100000000000000000000220 /* DiagnosticLogger.swift */,
+				200000000000000000000401 /* AVPlayerController.swift */,
+				200000000000000000000402 /* BiliResourceLoaderDelegate.swift */,
 				100000000000000000000212 /* Assets.xcassets */,
 				100000000000000000000213 /* DesignModifier.swift */,
 				100000000000000000000214 /* BundledFeedService.swift */,
@@ -168,7 +172,6 @@
 			buildConfigurationList = 100000000000000000000901 /* Build configuration list for PBXNativeTarget "BiliPaiNative" */;
 			buildPhases = (
 				100000000000000000000701 /* Sources */,
-				86549F58ED4F4D2BBFBD9F7D /* PatchSandboxSB */,
 				100000000000000000000301 /* Frameworks */,
 				100000000000000000000801 /* Resources */,
 			);
@@ -264,6 +267,8 @@
 				10000000000000000000011D /* AliPlayerController.swift in Sources */,
 				10000000000000000000011E /* DiagnosticLogger.swift in Sources */,
 				10000000000000000000222 /* AliPlayerView.swift in Sources */,
+				200000000000000000000301 /* AVPlayerController.swift in Sources */,
+				200000000000000000000302 /* BiliResourceLoaderDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -409,7 +414,6 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "BiliPaiNative/BiliPaiNative-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -439,54 +443,13 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "BiliPaiNative/BiliPaiNative-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
-
-/* Begin XCConfigurationList section */
-		100000000000000000000901 /* Build configuration list for PBXNativeTarget "BiliPaiNative" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				100000000000000000000B01 /* Debug */,
-				100000000000000000000B02 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		100000000000000000000902 /* Build configuration list for PBXProject "BiliPaiNative" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				100000000000000000000A01 /* Debug */,
-				100000000000000000000A02 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-/* End XCConfigurationList section */
 	};
 	
-/* Begin PBXShellScriptBuildPhase section */
-		86549F58ED4F4D2BBFBD9F7D /* PatchSandboxSB */ = {isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = PatchSandboxSB;
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = ". \"${PROJECT_DIR}/PatchSandboxSB.sh\"";
-		};
-/* End PBXShellScriptBuildPhase section */
 	rootObject = 100000000000000000000601 /* Project object */;
 }
