@@ -83,10 +83,20 @@ struct BiliVideo: Identifiable, Hashable, Codable {
     let description: String
 }
 
+/// One playable Bilibili source.  The D++ pipeline turns this
+/// into an HLS manifest behind `AVAssetResourceLoaderDelegate`,
+/// so a single `BiliPlayback` is enough to start a video.
 struct BiliPlayback: Hashable {
-    let videoURL: URL
-    let audioURL: URL?
+    /// `nil` for the rare legacy `durl` MP4 case; populated for
+    /// the much-more-common DASH case (the case D++ exists for).
+    let dash: BiliDashSource?
+    /// Legacy `durl` MP4 URL — used as a fallback when the
+    /// upstream returns no `dash` field.
+    let fallbackURL: URL?
     let referer: URL
+
+    /// True if this playback can be served by the D++ bridge.
+    var isDASH: Bool { dash != nil }
 }
 
 struct BiliLiveRoom: Identifiable, Hashable {

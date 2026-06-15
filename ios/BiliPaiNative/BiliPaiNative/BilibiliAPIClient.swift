@@ -336,25 +336,26 @@ final class BilibiliAPIClient {
 
     func playbackURL(bvid: String, aid: Int = 0, cid: Int) async throws -> BiliPlayback {
         // The current canonical path is `/x/player/wbi/playurl` — the
-        // non-wbi alias is being phased out. The `fnval` bitmask is:
+        // non-wbi alias is being phased out.  The `fnval` bitmask is:
         //   1   = legacy MP4 (returns an empty `durl` for most items
         //         today, which is why `fnval=0/1` produces the
         //         "Playback is unavailable" error).
         //   16  = DASH manifest.
         //   64  = HLS master playlist (what AVPlayer can natively
-        //         consume on iOS).
-        //   4048 = HLS + DASH + MP4 + FLV — the bitmask the
-        //          bilibili-API-collect docs use for "request every
-        //          format" (see `ios/BiliPaiNative/API_REFERENCE.md`
-        //          line 52, and `diagnose.md`).
-        // We send `fnval=4048` so `bestPlayback` always has both `durl`
-        // and `dash` to choose from. We then walk a `qn` chain from
-        // 1080P down to 360P because the upstream returns an empty
-        // `durl` / empty `dash` when the requested quality is gated
-        // (region lock, VIP paywall, 4K-only source). Cap at three
-        // retries so a misbehaving upstream cannot wedge the device.
-        // `gaia_source=view-card` is the same hint the web player
-        // sends — Bilibili loosens the 1080P gate slightly for it.
+        //         consume on iOS — increasingly empty for high
+        //         quality sources).
+        //   4048 = HLS + DASH + MP4 + FLV — the bitmask we use to
+        //         ask for "everything at once".  The D++ bridge
+        //         (`BiliDashToHLSBridge`) re-serves the DASH half
+        //         as HLS through `AVAssetResourceLoaderDelegate`,
+        //         so we never have to give up the third-party SDK.
+        // We then walk a `qn` chain from 1080P down to 360P because
+        // the upstream returns an empty `dash` when the requested
+        // quality is gated (region lock, VIP paywall, 4K-only
+        // source).  Cap at three retries so a misbehaving upstream
+        // cannot wedge the device.  `gaia_source=view-card` is the
+        // same hint the web player sends — Bilibili loosens the
+        // 1080P gate slightly for it.
         let identity: [URLQueryItem]
         if !bvid.isEmpty {
             identity = [URLQueryItem(name: "bvid", value: bvid)]
@@ -371,7 +372,12 @@ final class BilibiliAPIClient {
             let queryItems: [URLQueryItem] = identity + [
                 URLQueryItem(name: "cid", value: "\(cid)"),
                 URLQueryItem(name: "qn", value: "\(qn)"),
-                URLQueryItem(name: "fnval", value: "1"), // [FIX] Use 1 (MP4) instead of 4048 (DASH) for combined audio/video
+                // D++: ask for everything; we only consume the
+                // DASH branch in `bestPlayback` below.  The
+                // legacy `durl` MP4 path is kept as a last-resort
+                // fallback in case the upstream refuses to
+                // surface DASH for the requested quality.
+                URLQueryItem(name: "fnval", value: "4048"),
                 URLQueryItem(name: "fnver", value: "0"),
                 URLQueryItem(name: "fourk", value: "1"),
                 URLQueryItem(name: "gaia_source", value: "view-card")
@@ -384,12 +390,10 @@ final class BilibiliAPIClient {
                     signWithWBI: true
                 )
                 try payload.requireOK()
-                if let playback = payload.value?.bestPlayback {
-                    return BiliPlayback(
-                        videoURL: playback.videoURL,
-                        audioURL: playback.audioURL,
-                        referer: URL(string: "https://www.bilibili.com/video/\(finalBvid)")!
-                    )
+                if let playback = payload.value?.bestPlayback(
+                    referer: "https://www.bilibili.com/video/\(finalBvid)"
+                ) {
+                    return playback
                 }
                 lastError = BilibiliAPIError.noPlayableFormat
             } catch {
@@ -1334,20 +1338,40 @@ private struct VideoDTO: Decodable {
 private struct PlayURLPayload: Decodable {
     let durl: [DURL]?
     let dash: Dash?
+    /// Total media duration in seconds, surfaced at the payload
+    /// top level (Bili mirrors it in both the legacy `timelength`
+    /// and the DASH `mediaInfo.duration` paths).
+    let duration: Double?
 
-    var bestPlayback: (videoURL: URL, audioURL: URL?)? {
-        // iOS 15+ has native support for HLS. Bilibili returns HLS master
-        // playlist in `durl` when `fnval=64` is requested.
-        if let url = durl?.first?.url {
-            return (videoURL: url, audioURL: nil)
+    /// D++ path.  Return a `BiliPlayback` even if the upstream
+    /// only gives us a single `durl` MP4 — that case falls
+    /// through to the legacy direct-URL fallback and the player
+    /// uses it with no bridge.
+    func bestPlayback(referer: String) -> BiliPlayback? {
+        let refererURL = URL(string: referer)!
+
+        // 1) Try the DASH branch first.  DASH is what Bili ships
+        //    for 1080P+ and most modern sources; the bridge
+        //    synthesises an HLS master out of it.
+        if let dash, let dashSource = dash.biliDashSource(duration: duration) {
+            return BiliPlayback(
+                dash: dashSource,
+                fallbackURL: nil,
+                referer: refererURL
+            )
         }
-        guard let dash else { return nil }
-        let preferredVideo = dash.video.first { video in
-            video.codecs.localizedCaseInsensitiveContains("avc")
-                || video.codecs.localizedCaseInsensitiveContains("h264")
-        } ?? dash.video.first
-        guard let preferredVideo else { return nil }
-        return (videoURL: preferredVideo.baseURL, audioURL: dash.audio.first?.baseURL)
+
+        // 2) Fall back to the legacy `durl` MP4 when the upstream
+        //    returned no DASH.  This is rarer every year, but the
+        //    Web preview endpoints sometimes still surface it.
+        if let url = durl?.first?.url {
+            return BiliPlayback(
+                dash: nil,
+                fallbackURL: url,
+                referer: refererURL
+            )
+        }
+        return nil
     }
 
     struct DURL: Decodable {
@@ -1357,24 +1381,108 @@ private struct PlayURLPayload: Decodable {
     struct Dash: Decodable {
         let video: [DashVideo]
         let audio: [DashMedia]
+        /// The DASH manifest's own duration field, in milliseconds.
+        /// Bilibili writes it next to the AdaptationSets.  We
+        /// divide by 1000 to get seconds for the HLS master.
+        let duration: Double?
+        /// `minBufferTime`, used as a hint for EXT-X-TARGETDURATION
+        /// when the segment count is not exposed.
+        let minBufferTime: String?
+
+        enum CodingKeys: String, CodingKey {
+            case video, audio, duration
+            case minBufferTime = "minBufferTime"
+        }
     }
 
     struct DashVideo: Decodable {
         let baseURL: URL
         let codecs: String
+        /// Bandwidth in bits/second.  Bili writes the integer
+        /// `bandwidth` per Representation.
+        let bandwidth: Int?
+        /// Segment count, derived from `SegmentTemplate` when
+        /// the upstream uses one.  Bili's CDN consistently
+        /// publishes this so we do not have to fetch the MPD
+        /// to count segments.
+        let segmentBase: SegmentBase?
 
         enum CodingKeys: String, CodingKey {
             case baseURL = "baseUrl"
             case codecs
+            case bandwidth
+            case segmentBase = "SegmentBase"
         }
     }
 
     struct DashMedia: Decodable {
         let baseURL: URL
+        let codecs: String?
+        let bandwidth: Int?
+        let segmentBase: SegmentBase?
 
         enum CodingKeys: String, CodingKey {
             case baseURL = "baseUrl"
+            case codecs, bandwidth
+            case segmentBase = "SegmentBase"
         }
+    }
+
+    struct SegmentBase: Decodable {
+        /// Average segment duration in seconds.  Bilibili writes
+        /// a single number here (e.g. 1.984) for fMP4 VOD.
+        let duration: Double?
+        /// `timescale` for `t`/`d` — the MPD spec writes integers
+        /// in `timescale` units.  Bili uses 1000 or 1000000.
+        let timescale: Int?
+    }
+
+    /// Translate the parsed MPD-shaped DTO into the flat
+    /// `BiliDashSource` the bridge wants.  Picking the
+    /// "preferred" video is the same rule the previous
+    /// `bestPlayback` used: prefer `avc1` (H.264) so the
+    /// bridge does not have to worry about H.265 in master
+    /// (AVPlayer does support `hvc1` in fMP4 segments, but
+    /// AVC keeps the battery cooler).
+    func biliDashSource(duration: Double?) -> BiliDashSource? {
+        let preferredVideo = video.first { v in
+            v.codecs.localizedCaseInsensitiveContains("avc")
+                || v.codecs.localizedCaseInsensitiveContains("h264")
+        } ?? video.first
+        guard let v = preferredVideo else { return nil }
+        let a = audio.first
+        // `dash.duration` is published in *milliseconds* by
+        // Bili (a legacy of the original MPD spec); the
+        // playurl top-level `duration` (when present) is in
+        // *seconds*.  Try the top-level first, fall back to
+        // ms/1000, and ultimately to 0.
+        let totalDuration: Double
+        if let d = duration, d > 0 {
+            totalDuration = d
+        } else if let dashMs = self.duration, dashMs > 0 {
+            totalDuration = dashMs / 1000.0
+        } else {
+            totalDuration = 0
+        }
+
+        return BiliDashSource(
+            video: .init(
+                baseURL: v.baseURL,
+                codecs: v.codecs,
+                bandwidth: v.bandwidth ?? 0,
+                mimeType: "video/mp4",
+                totalDuration: totalDuration
+            ),
+            audio: a.map { audio in
+                .init(
+                    baseURL: audio.baseURL,
+                    codecs: audio.codecs ?? "mp4a.40.2",
+                    bandwidth: audio.bandwidth ?? 0,
+                    mimeType: "audio/mp4",
+                    totalDuration: totalDuration
+                )
+            }
+        )
     }
 }
 
