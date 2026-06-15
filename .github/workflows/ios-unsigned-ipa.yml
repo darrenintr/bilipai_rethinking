@@ -68,26 +68,52 @@ jobs:
             exit 1
           fi
           # Discover the highest existing prerelease N via
-          # `gh release list` (paginated, JSON).  Falls back
-          # silently to BASE_INT if the call fails (no
-          # network, missing perm, etc.) so a single bad
-          # run doesn't break the pipeline.
+          # the GitHub Releases API.  We hit the API with
+          # curl + the GITHUB_TOKEN because the previous
+          # `gh release list` approach returned `[]` on
+          # the runner even though the same call works
+          # locally — `gh` in a `run:` block does not pick
+          # up the job's GITHUB_TOKEN automatically, and
+          # an unauthenticated call rate-limits / scopes
+          # out to an empty list.  The curl path uses the
+          # standard `Authorization: Bearer` header so
+          # we know exactly what's happening.
           HIGHEST=0
-          if command -v gh >/dev/null 2>&1; then
-            TAGS="$(gh release list --limit 200 \
-                      --json tagName -q '.[].tagName' 2>/dev/null || true)"
-            # Diagnostic: dump exactly what gh returned so
-            # we can see why the high-water mark is
-            # wrong on the runner.  Without this echo the
-            # bump step fails silently.
-            echo "gh release list returned: [$TAGS]"
-            for tag in $TAGS; do
-              if [[ "$tag" =~ ^v0\.3-alpha-ios-([0-9]+)$ ]]; then
-                n="${BASH_REMATCH[1]}"
-                if [ "$n" -gt "$HIGHEST" ]; then HIGHEST="$n"; fi
-              fi
-            done
-          fi
+          REPO="${{ github.repository }}"
+          # Paginate up to 4 pages × 100 = 400 tags, more
+          # than enough for the prerelease list size.
+          TAGS_JSON=""
+          for page in 1 2 3 4; do
+            PAGE_JSON="$(curl -fsSL \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/releases?per_page=100&page=$page" \
+              2>/dev/null || true)"
+            if [ -z "$PAGE_JSON" ]; then break; fi
+            # If the page is `[]` (no more releases) we can
+            # stop early.  `jq` is installed on the macOS
+            # image; if not, fall back to a length check.
+            if command -v jq >/dev/null 2>&1; then
+              if [ "$(echo "$PAGE_JSON" | jq 'length')" = "0" ]; then break; fi
+              TAGS_JSON+="$(echo "$PAGE_JSON" | jq -r '.[].tag_name')"$'\n'
+            else
+              if [ "$PAGE_JSON" = "[]" ]; then break; fi
+              # No jq: pull tag_name with sed (good enough).
+              TAGS_JSON+="$(echo "$PAGE_JSON" \
+                | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"$'\n'
+            fi
+          done
+          # Diagnostic: dump exactly what the API returned
+          # so a future failure here is easy to triage.
+          echo "GitHub releases API returned:"
+          printf '%s' "$TAGS_JSON" | sed '/^$/d' | sed 's/^/  /'
+          TAGS="$(printf '%s' "$TAGS_JSON" | sed '/^$/d')"
+          for tag in $TAGS; do
+            if [[ "$tag" =~ ^v0\.3-alpha-ios-([0-9]+)$ ]]; then
+              n="${BASH_REMATCH[1]}"
+              if [ "$n" -gt "$HIGHEST" ]; then HIGHEST="$n"; fi
+            fi
+          done
           BASE="$BASE_INT"
           if [ "$HIGHEST" -gt "$BASE" ]; then BASE="$HIGHEST"; fi
           NEW=$((BASE + 1))
