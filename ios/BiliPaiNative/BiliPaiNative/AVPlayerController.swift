@@ -243,13 +243,23 @@ final class PlayerController: ObservableObject {
         // forever" and "AVPlayer said no, with a reason".  The
         // error log keeps the *last* few entries, so we always
         // include every one of them.
+        //
+        // We can't read AVPlayerItemErrorLogEvent's properties
+        // by name from Swift because the bridge is unstable
+        // across SDK versions (the properties exist in Obj-C
+        // as `errorStatusCode`, `errorDomain`, `errorComment`
+        // but Swift only exposes them with an explicit
+        // `value(forKey:)` lookup).  Falling back to
+        // `String(describing:)` is reliable and gives us
+        // enough info to diagnose the "not in correct format"
+        // error.
         errorLogObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.newErrorLogEntryNotification,
             object: item, queue: .main
         ) { _ in
             let entries = item.errorLog()?.events ?? []
             let summary = entries.prefix(3).map { e -> String in
-                "\(e.errorDomain)/\(e.errorCode) \"\(e.errorComment ?? "")\""
+                String(describing: e)
             }.joined(separator: " | ")
             diagLog(.playback, "AVPlayerItem new error log entry", details: [
                 "count": entries.count,
