@@ -35,9 +35,7 @@
 		10000000000000000000011A /* LoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021B /* LoginSheet.swift */; };
 		10000000000000000000011B /* AccountContentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021C /* AccountContentViews.swift */; };
 		10000000000000000000011C /* ReplyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021D /* ReplyListView.swift */; };
-		10000000000000000000011D /* AliPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021E /* AliPlayerController.swift */; };
 		10000000000000000000011E /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* DiagnosticLogger.swift */; };
-		10000000000000000000222 /* AliPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021F /* AliPlayerView.swift */; };
 		200000000000000000000301 /* AVPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000401 /* AVPlayerController.swift */; };
 		300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000501 /* AVPlayerSurfaceView.swift */; };
 		300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000502 /* LocalHLSProxyServer.swift */; };
@@ -74,8 +72,6 @@
 		10000000000000000000021B /* LoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginSheet.swift; sourceTree = "<group>"; };
 		10000000000000000000021C /* AccountContentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountContentViews.swift; sourceTree = "<group>"; };
 		10000000000000000000021D /* ReplyListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyListView.swift; sourceTree = "<group>"; };
-		10000000000000000000021E /* AliPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerController.swift; sourceTree = "<group>"; };
-		10000000000000000000021F /* AliPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerView.swift; sourceTree = "<group>"; };
 		100000000000000000000220 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
 		200000000000000000000401 /* AVPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerController.swift; sourceTree = "<group>"; };
 		300000000000000000000501 /* AVPlayerSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerSurfaceView.swift; sourceTree = "<group>"; };
@@ -123,8 +119,6 @@
 				10000000000000000000020F /* BiliPaiAppIntents.swift */,
 				100000000000000000000210 /* Info.plist */,
 				100000000000000000000211 /* PlayerView.swift */,
-				10000000000000000000021E /* AliPlayerController.swift */,
-				10000000000000000000021F /* AliPlayerView.swift */,
 				100000000000000000000220 /* DiagnosticLogger.swift */,
 				200000000000000000000401 /* AVPlayerController.swift */,
 				300000000000000000000501 /* AVPlayerSurfaceView.swift */,
@@ -267,9 +261,7 @@
 				10000000000000000000011A /* LoginSheet.swift in Sources */,
 				10000000000000000000011B /* AccountContentViews.swift in Sources */,
 				10000000000000000000011C /* ReplyListView.swift in Sources */,
-				10000000000000000000011D /* AliPlayerController.swift in Sources */,
 				10000000000000000000011E /* DiagnosticLogger.swift in Sources */,
-				10000000000000000000222 /* AliPlayerView.swift in Sources */,
 				200000000000000000000301 /* AVPlayerController.swift in Sources */,
 				300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */,
 				300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */,
