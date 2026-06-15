@@ -1338,10 +1338,54 @@ private struct VideoDTO: Decodable {
 private struct PlayURLPayload: Decodable {
     let durl: [DURL]?
     let dash: Dash?
+    /// Native HLS slot surfaced when the request used `fnval &
+    /// 64`.  The shape is the same as the legacy `durl` array
+    /// (one URL per quality) but B站 has been known to also
+    /// serve a single `hls_url` string here.  We accept both —
+    /// the only thing the player needs is the master playlist
+    /// URL.
+    ///
+    /// Why this matters:  AVPlayer consumes HLS natively.  When
+    /// B站 returns an HLS master, we hand it directly to
+    /// `AVURLAsset` with a `Referer` header injection and
+    /// `LocalHLSProxyServer` is not involved at all.  The
+    /// synthesised HLS we emit on the DASH path was found
+    /// (2026-06-15) to be missing the `#EXT-X-MAP` fMP4 init
+    /// tag and a bogus `RESOLUTION=1920x1080`, which made
+    /// AVPlayer spin forever waiting for the master to parse.
+    let hls: [DURL]?
     /// Total media duration in seconds, surfaced at the payload
     /// top level (Bili mirrors it in both the legacy `timelength`
     /// and the DASH `mediaInfo.duration` paths).
     let duration: Double?
+
+    /// Tolerant decoder.  Bilibili serves `hls` and `durl` in
+    /// two observed shapes (array of objects, single object,
+    /// bare URL string).  We normalise all three into a
+    /// `[DURL]?` so the call sites can use a single
+    /// `?.first?.url` lookup.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        if let arr = try? container.decode([DURL].self, forKey: DynamicKey("durl")) {
+            self.durl = arr
+        } else if let single = try? container.decode(DURL.self, forKey: DynamicKey("durl")) {
+            self.durl = [single]
+        } else {
+            self.durl = nil
+        }
+        if let arr = try? container.decode([DURL].self, forKey: DynamicKey("hls")) {
+            self.hls = arr
+        } else if let single = try? container.decode(DURL.self, forKey: DynamicKey("hls")) {
+            self.hls = [single]
+        } else if let s = container.decodeString(keys: ["hls_url", "hlsUrl"]),
+                  let url = URL(string: s) {
+            self.hls = [DURL.fromURL(url)]
+        } else {
+            self.hls = nil
+        }
+        self.dash = try? container.decode(Dash.self, forKey: DynamicKey("dash"))
+        self.duration = container.decodeDouble(keys: ["duration", "timelength"])
+    }
 
     /// D++ path.  Return a `BiliPlayback` even if the upstream
     /// only gives us a single `durl` MP4 — that case falls
@@ -1350,16 +1394,44 @@ private struct PlayURLPayload: Decodable {
     func bestPlayback(referer: String) -> BiliPlayback? {
         let refererURL = URL(string: referer)!
 
-        // 1) Try the DASH branch first.  DASH is what Bili ships
-        //    for 1080P+ and most modern sources; the bridge
-        //    synthesises an HLS master out of it.
-        if let dash, let dashSource = dash.biliDashSource(duration: duration) {
+        // 1) Prefer the upstream HLS master if B站 gave us one
+        //    (fnval & 64).  AVPlayer consumes HLS natively and
+        //    we just inject the `Referer` header on the
+        //    `AVURLAsset` — no proxy, no synthesised playlist,
+        //    no spinning-stall.  This is the path that actually
+        //    plays today.
+        if let url = hls?.first?.url {
             diagLog(.playback,
-                    "Selected DASH playback",
+                    "Selected HLS playback",
                     details: [
-                        "videoCodec": dashSource.video.codecs,
-                        "videoBandwidth": dashSource.video.bandwidth,
-                        "audioCodec": dashSource.audio?.codecs ?? "(none)",
+                        "url": url.absoluteString,
+                        "hlsCount": hls?.count ?? 0
+                    ])
+            return BiliPlayback(
+                dash: nil,
+                fallbackURL: url,
+                referer: refererURL
+            )
+        }
+
+        // 2) DASH path.  B站 ships DASH manifests for 1080P+
+        //    and most modern sources.  We can normally use
+        //    the upstream HLS slot above, but when B站 only
+        //    returns DASH (e.g. region-locked 4K sources)
+        //    we have to either:
+        //      (a) hand the proxy a synthesised HLS — broken
+        //          today, see the comment on `hls` above; or
+        //      (b) refuse to play and surface a clear
+        //          "暂无可播放清晰度" error in the UI.
+        //    We pick (b) until the DASH proxy is fixed
+        //    (tracked separately).  The DASH source is
+        //    decoded and logged so the diagnostic report
+        //    shows what was on the wire, even though we
+        //    don't use it.
+        if let dash, let _ = dash.biliDashSource(duration: duration) {
+            diagLog(.playback,
+                    "DASH source available but proxy not yet implemented",
+                    details: [
                         "videoCount": dash.video.count,
                         "audioCount": dash.audio.count,
                         "videoCodecs":
@@ -1367,19 +1439,18 @@ private struct PlayURLPayload: Decodable {
                         "audioCodecs":
                             dash.audio
                                 .compactMap { $0.codecs }
-                                .joined(separator: ",")
+                                .joined(separator: ","),
+                        "hlsAvailable": false
                     ])
-            return BiliPlayback(
-                dash: dashSource,
-                fallbackURL: nil,
-                referer: refererURL
-            )
         }
-        // Diagnose why DASH was rejected.  This shows up in the
-        // diagnostic export and is the difference between "AVC
-        // missing for this qn" and "audio is EAC3 only" and so
-        // on.
-        if let dash {
+        // Diagnose why DASH was unusable.  This shows up in
+        // the diagnostic export and is the difference between
+        // "the qn we asked for only ships HEVC" and "no
+        // AVC track at this qn at all" and so on.  We log
+        // even when the proxy is going to be the path —
+        // useful when comparing qn=80 vs qn=64 across
+        // different videos.
+        if let dash, dash.biliDashSource(duration: duration) == nil {
             diagLog(.playback,
                     "DASH rejected by AVPlayer-compat filter",
                     details: [
@@ -1394,9 +1465,10 @@ private struct PlayURLPayload: Decodable {
                     ])
         }
 
-        // 2) Fall back to the legacy `durl` MP4 when the upstream
-        //    returned no DASH.  This is rarer every year, but the
-        //    Web preview endpoints sometimes still surface it.
+        // 3) Fall back to the legacy `durl` MP4 when the upstream
+        //    returned no DASH and no HLS.  This is rarer every
+        //    year, but the Web preview endpoints sometimes
+        //    still surface it.
         if let url = durl?.first?.url {
             diagLog(.playback,
                     "Selected legacy durl MP4",
@@ -1411,7 +1483,47 @@ private struct PlayURLPayload: Decodable {
     }
 
     struct DURL: Decodable {
+        /// Tolerant decoder:  B站 writes `durl` entries as
+        /// `{url, size, length, ...}` but the HLS slot
+        /// occasionally surfaces just a string.  Accept both
+        /// so the same struct can decode the two response
+        /// shapes.
         let url: URL
+
+        /// Manual memberwise init.  Adding the custom
+        /// `init(from decoder:)` below suppresses Swift's
+        /// synthesised memberwise init, so we declare it
+        /// explicitly for the `fromURL(_:)` factory path.
+        init(url: URL) { self.url = url }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let s = try? container.decode(String.self),
+               let u = URL(string: s) {
+                self.url = u
+            } else {
+                let nested = try decoder.container(keyedBy: DynamicKey.self)
+                guard let s = nested.decodeString(keys: ["url", "backup_url", "base_url"]) else {
+                    throw DecodingError.dataCorruptedError(
+                        in: container,
+                        debugDescription: "DURL: missing url field"
+                    )
+                }
+                guard let u = URL(string: s) else {
+                    throw DecodingError.dataCorruptedError(
+                        in: container,
+                        debugDescription: "DURL: not a valid URL: \(s)"
+                    )
+                }
+                self.url = u
+            }
+        }
+
+        /// Factory used by `PlayURLPayload.init(from:)` to
+        /// wrap a bare URL discovered under `hls_url` etc.
+        static func fromURL(_ u: URL) -> DURL {
+            DURL(url: u)
+        }
     }
 
     struct Dash: Decodable {
@@ -2253,6 +2365,27 @@ private extension KeyedDecodingContainer where K == DynamicKey {
                 return value
             }
             if let string = try? decode(String.self, forKey: DynamicKey(key)), let value = Int(string) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    /// `decodeDouble` mirrors `decodeInt` but for the cases
+    /// where the upstream writes the value as a number
+    /// (`1.5`) instead of a string (`"1.5"`).  Bilibili's
+    /// playurl response uses both shapes for `duration`
+    /// (stringified seconds under `timelength`, raw seconds
+    /// under `duration`).
+    func decodeDouble(keys: [String]) -> Double? {
+        for key in keys {
+            if let value = try? decode(Double.self, forKey: DynamicKey(key)) {
+                return value
+            }
+            if let value = try? decode(Int.self, forKey: DynamicKey(key)) {
+                return Double(value)
+            }
+            if let string = try? decode(String.self, forKey: DynamicKey(key)), let value = Double(string) {
                 return value
             }
         }
