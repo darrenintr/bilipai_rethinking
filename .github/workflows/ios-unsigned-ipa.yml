@@ -85,13 +85,15 @@ jobs:
           # are sitting on the releases tab.
           HIGHEST=0
           if command -v gh >/dev/null 2>&1; then
-            TAGS="$(gh release list --limit 200 \
-                      --json tagName -q '.[].tagName' 2>/dev/null || true)"
+            # Capture stdout AND stderr to TAGS_RAW; we want
+            # to see the error in the CI log if the call
+            # fails, not silently fall back.  TAGS keeps the
+            # stripped stdout for the actual regex loop.
+            TAGS_RAW="$(gh release list --limit 200 \
+                          --json tagName -q '.[].tagName' 2>&1 || true)"
+            TAGS="$(echo "$TAGS_RAW" | tr -d '"')"
+            echo "gh release list returned $(echo "$TAGS" | wc -l) tags"
             for tag in $TAGS; do
-              # Strip the JSON double-quotes gh wraps every
-              # tag in.  `tr -d '"'` is enough — the tag
-              # itself never contains a quote.
-              tag="${tag//\"/}"
               if [[ "$tag" =~ ^v0\.3-alpha-ios-([0-9]+)$ ]]; then
                 n="${BASH_REMATCH[1]}"
                 if [ "$n" -gt "$HIGHEST" ]; then HIGHEST="$n"; fi
