@@ -20,12 +20,13 @@ struct VideoDetailView: View {
     /// Single `PlayerController` shared by the inline `PlayerView`
     /// and the `FullscreenPlayerView`. Created lazily once
     /// `model.playback` is loaded, because the controller's
-    /// initialiser needs the playback URL. Hoisting the player
-    /// up to this level is what makes the playhead and
+    /// initialiser needs the playback object. Hoisting the
+    /// player up to this level is what makes the playhead and
     /// play/pause state stay continuous across the inline ↔
     /// fullscreen transition — both surfaces point at the same
-    /// `VLCMediaPlayer`, only the visible `UIView` (drawable) is
-    /// swapped when the user enters / leaves fullscreen.
+    /// `AVPlayer`, only the visible `AVPlayerLayer`'s parent
+    /// `UIView` (drawable) is swapped when the user enters /
+    /// leaves fullscreen.
     @State private var playerController: PlayerController?
     /// The history-reporting `WatchSession` also lives at this
     /// level for the same reason. Previously each view created
@@ -65,10 +66,7 @@ struct VideoDetailView: View {
             // `onChange` with a new playback object while the old
             // controller is still alive.
             guard let playback, playerController == nil else { return }
-            let controller = PlayerController(
-                url: playback.videoURL,
-                referer: playback.referer.absoluteString
-            )
+            let controller = PlayerController(playback: playback)
             controller.preferDrawableSurface(.inline)
             playerController = controller
             let session = WatchSession(

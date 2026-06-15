@@ -83,20 +83,66 @@ struct BiliVideo: Identifiable, Hashable, Codable {
     let description: String
 }
 
-/// One playable Bilibili source.  The D++ pipeline turns this
-/// into an HLS manifest behind `AVAssetResourceLoaderDelegate`,
-/// so a single `BiliPlayback` is enough to start a video.
+/// One playable Bilibili source.  The local HLS proxy turns
+/// this into an HLS manifest on a 127.0.0.1 loopback HTTP
+/// server (`LocalHLSProxyServer`), so a single `BiliPlayback`
+/// is enough to start a video.
 struct BiliPlayback: Hashable {
     /// `nil` for the rare legacy `durl` MP4 case; populated for
-    /// the much-more-common DASH case (the case D++ exists for).
+    /// the much-more-common DASH case (the case the proxy exists
+    /// for).
     let dash: BiliDashSource?
     /// Legacy `durl` MP4 URL — used as a fallback when the
-    /// upstream returns no `dash` field.
+    /// upstream returns no `dash` field.  Also the slot for
+    /// live HLS URLs (the proxy is unnecessary for those —
+    /// AVPlayer consumes HLS natively and we just inject the
+    /// `Referer` header on the AVURLAsset).
     let fallbackURL: URL?
     let referer: URL
 
-    /// True if this playback can be served by the D++ bridge.
+    /// True if this playback can be served by the local HLS
+    /// proxy.
     var isDASH: Bool { dash != nil }
+}
+
+/// `BiliDashSource` is the DASH description we extract from
+/// B站's playurl response and feed to `LocalHLSProxyServer`.
+/// The proxy synthesises an HLS master playlist from these
+/// tracks, so AVPlayer consumes a format it already understands
+/// natively.
+///
+/// Important: B站's `dash.video[].baseUrl` and
+/// `dash.audio[].baseUrl` are each *one whole m4s file* (B站
+/// does not publish a per-segment `SegmentTemplate` here). The
+/// m3u8 generator therefore emits a media playlist with a
+/// single `EXTINF` entry whose duration is the track's
+/// `totalDuration`, and lets AVPlayer stream the file via HTTP
+/// `Range` requests through the proxy.
+struct BiliDashSource: Hashable {
+    /// A single AdaptationSet, plus its Representation.
+    /// We flatten audio + video variants into this struct
+    /// because B站's DASH responses are simple enough that we
+    /// can skip the full MPD Period/AdaptationSet tree.
+    struct Track: Hashable {
+        let baseURL: URL
+        /// ISO BMFF `codecs` box string (e.g. `avc1.640028`,
+        /// `mp4a.40.2`). Embedded into HLS via `CODECS`.
+        let codecs: String
+        /// Bandwidth in bits per second (B站's `bandwidth`
+        /// field). Used in the master playlist's
+        /// `EXT-X-STREAM-INF` `BANDWIDTH` attribute.
+        let bandwidth: Int
+        /// `mimeType` from the Representation, e.g.
+        /// `video/mp4` / `audio/mp4`.
+        let mimeType: String
+        /// Total presentation duration in seconds — B站's
+        /// `dash.duration` divided by 1000 (B站 publishes
+        /// milliseconds here).
+        let totalDuration: Double
+    }
+
+    let video: Track
+    let audio: Track?
 }
 
 struct BiliLiveRoom: Identifiable, Hashable {

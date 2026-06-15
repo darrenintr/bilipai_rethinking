@@ -1,19 +1,25 @@
 import SwiftUI
 import UIKit
 
-/// SwiftUI wrapper around `VLCPlayerView`, which in turn hosts the
-/// shared `VLCMediaPlayer` owned by `PlayerController`.
+/// SwiftUI wrapper around `AVPlayerSurfaceView`, which in turn
+/// hosts the `AVPlayerLayer` owned by the shared
+/// `PlayerController`.
 ///
-/// We moved off `AVPlayerViewController` in commit 5f1d9f2d because the
-/// official iOS player chokes on Bilibili's custom `Referer`-gated DASH
-/// manifests, whereas VLC's FFmpeg-based pipeline negotiates the headers
-/// transparently.
+/// We previously used `VLCPlayerView` (FFmpeg-based) for the
+/// same role, but VLC's MP4 stack could not consume B站's
+/// DASH-format manifests without manual plumbing. The new
+/// `AVPlayer` + local HLS proxy path lets the system player
+/// handle the manifest natively, with the proxy injecting the
+/// `Referer` header on our behalf.
 ///
 /// The `PlayerController` is created and owned by
 /// `VideoDetailView` (not by this view) so the same player is
 /// shared with the `FullscreenPlayerView`. The user can go
 /// inline → fullscreen → inline and the playhead and play/pause
-/// state stay continuous across the transition.
+/// state stay continuous across the transition — the
+/// `AVPlayer` instance stays alive; only the visible
+/// `AVPlayerLayer` is moved between the inline and fullscreen
+/// `UIView`s.
 struct PlayerView: View {
     let playback: BiliPlayback
     let video: BiliVideo
@@ -24,7 +30,7 @@ struct PlayerView: View {
 
     var body: some View {
         ZStack {
-            VLCPlayerView(controller: controller, surface: .inline)
+            AVPlayerSurfaceView(controller: controller, surface: .inline)
 
             // The inline surface gets a single play/pause control
             // (centre, large, auto-hides while playing). The
@@ -166,8 +172,8 @@ struct PlayerView: View {
 /// `VideoDetailView`, not by this view. The user can go
 /// inline → fullscreen → inline and the playhead and play/pause
 /// state stay continuous across the transition — the same
-/// `VLCMediaPlayer` keeps playing while only the visible
-/// `UIView` (drawable) is swapped.
+/// `AVPlayer` keeps playing while only the visible
+/// `AVPlayerLayer`'s parent `UIView` is swapped.
 struct FullscreenPlayerView: View {
     let video: BiliVideo
     let playback: BiliPlayback
@@ -192,7 +198,7 @@ struct FullscreenPlayerView: View {
             // front and intercepts taps first — the tap on the video
             // never fires, so the user does not accidentally hide
             // the controls by tapping the centre play button.
-            VLCPlayerView(controller: controller, surface: .fullscreen)
+            AVPlayerSurfaceView(controller: controller, surface: .fullscreen)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { toggleControls() }

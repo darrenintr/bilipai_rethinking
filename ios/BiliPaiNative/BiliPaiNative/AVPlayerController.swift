@@ -2,36 +2,37 @@
 //  AVPlayerController.swift
 //  BiliPaiNative
 //
-//  Same `PlayerController` shape as the previous AliPlayer-based
-//  file, but powered by `AVPlayer` + `BiliDashToHLSBridge` so the
-//  app no longer depends on the Aliyun SDK.
+//  `PlayerController` powered by `AVPlayer` + a 127.0.0.1-local
+//  HLS proxy (`LocalHLSProxyServer`).  Replaces the previous
+//  AliPlayer / VLC paths so the app no longer depends on any
+//  third-party player SDK.
 //
-//  Why AVPlayer
-//  ------------
-//  * AVPlayer + the HLS bridge is a 1:1 swap for the AliPlayer
-//    path.  The data flow inside the device is identical from
-//    the SwiftUI views' point of view: `currentTime`,
-//    `duration`, `isPlaying`, `isBuffering`, `networkSpeed`,
-//    `play`, `pause`, `toggle`, `seek`, `skip`, `attach`,
-//    `detach`, `tearDown` — every method the player views
-//    already call is implemented below with the same signature.
-//  * The `BiliDashToHLSBridge` synthesises an HLS master
-//    playlist from the DASH payload, so AVPlayer consumes a
-//    format it already understands natively.  No transcoding
-//    runs on the device.
-//  * The `BiliResourceLoaderDelegate` is responsible for the
-//    CDN round trip and the `Referer` injection.  AVPlayer
-//    itself never opens a TCP connection to Bilibili, so the
-//    authentication header can never be dropped.
+//  Why this shape
+//  --------------
+//  * The published surface (`currentTime`, `duration`,
+//    `isPlaying`, `isBuffering`, `networkSpeed`, `play`,
+//    `pause`, `toggle`, `seek`, `skip`, `attach`, `detach`,
+//    `tearDown`) is identical to the AliPlayer / VLC controllers
+//    so the SwiftUI views compile unchanged.
+//  * VOD DASH playback is fed to AVPlayer as
+//    `http://127.0.0.1:NNNN/playlist.m3u8`.  The proxy server
+//    synthesises a master + child playlists from the B站 DASH
+//    payload, and proxies the underlying m4s segments with the
+//    right `Referer`.
+//  * Live HLS and legacy `durl` MP4 are played directly via
+//    `AVURLAsset` with the `Referer` header injected.  AVPlayer
+//    consumes HLS natively, so the proxy is unnecessary for
+//    that case.
 //
 
 import AVFoundation
 import Combine
 import UIKit
 
-// `PlayerDrawableSurface` is `enum` from the AliPlayer file —
-// keep it identical so callers (PlayerView, FullscreenPlayerView,
-// VideoDetailView) compile unchanged.
+// `PlayerDrawableSurface` is consumed by `AVPlayerSurfaceView`
+// and the controller's `attach(drawable:surface:)` API.  Kept
+// in this file so the views don't have to import a separate
+// type for it.
 enum PlayerDrawableSurface: String {
     case inline
     case fullscreen
@@ -40,7 +41,7 @@ enum PlayerDrawableSurface: String {
 
 @MainActor
 final class PlayerController: ObservableObject {
-    // MARK: published state (mirrors the AliPlayer controller)
+    // MARK: published state
 
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
@@ -52,8 +53,12 @@ final class PlayerController: ObservableObject {
 
     let player: AVPlayer
     private let playerItem: AVPlayerItem
-    private let bridge: BiliDashToHLSBridge
     private let asset: AVURLAsset
+    /// `true` if this controller is fed by the local HLS proxy
+    /// (the VOD DASH path).  When `false`, the asset is a direct
+    /// `AVURLAsset` (live HLS or legacy MP4) and the proxy is
+    /// not involved.
+    private let usesProxy: Bool
 
     // MARK: surface / view binding
 
@@ -66,18 +71,12 @@ final class PlayerController: ObservableObject {
     private var pollTimer: Timer?
     private var observers: Set<NSKeyValueObservation> = []
     private var statusObserver: NSObjectProtocol?
-    private var rateObserver: NSObjectProtocol?
     private var bufferEmptyObserver: NSObjectProtocol?
     private var likelyToKeepUpObserver: NSObjectProtocol?
-    private var endObserver: NSObjectProtocol?
     private var errorObserver: NSObjectProtocol?
 
     // MARK: network speed tracking
 
-    /// Bytes received since the last poll — we keep this in
-    /// the bridge (it knows how many bytes it pulled) and the
-    /// polling timer samples it.  We pass the bridge down so
-    /// the loader can record `URLSessionTask.countOfBytesReceived`.
     private var lastBytesAt: Date = .distantPast
     private var lastBytes: Int64 = 0
 
@@ -91,77 +90,82 @@ final class PlayerController: ObservableObject {
 
         let referer = playback.referer.absoluteString
         let asset: AVURLAsset
-        let bridge: BiliDashToHLSBridge
+        let usesProxy: Bool
 
         if let dash = playback.dash {
-            // D++ path: synthesise HLS in front of the DASH
-            // base URLs.  The asset's `bili-hls://` master URL
-            // is intercepted by the bridge; the segments
-            // themselves are pulled from Bilibili with the
-            // right `Referer`.
-            let made = AVURLAsset.biliDash(
-                source: dash,
-                referer: referer
-            )!
-            asset = made
-            // Re-fetch the bridge instance we associated on
-            // the asset so we can talk to it later.
-            bridge = objc_getAssociatedObject(asset, &kBridgeKey)
-                as! BiliDashToHLSBridge
+            // VOD DASH path: stand up the local HLS proxy and
+            // point AVPlayer at the synthesised master playlist.
+            // The proxy holds the dash source / referer and
+            // serves the manifests + segment bytes.
+            do {
+                try LocalHLSProxyServer.shared.serve(playback: playback)
+            } catch {
+                diagLog(.playback,
+                        "Failed to start LocalHLSProxyServer",
+                        details: ["error": error.localizedDescription])
+            }
+            // The listener's `ready` state arrives on the
+            // server's dispatch queue.  AVPlayer can not
+            // meaningfully retry a missing port, so block
+            // briefly here (main thread) until the port is
+            // known.  In practice this is a few milliseconds.
+            let deadline = Date().addingTimeInterval(2.0)
+            while LocalHLSProxyServer.shared.baseURL == nil
+                    && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            guard let baseURL = LocalHLSProxyServer.shared.baseURL else {
+                fatalError("LocalHLSProxyServer did not become ready in time")
+            }
+            let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
+            asset = AVURLAsset(url: playlistURL)
+            usesProxy = true
+            diagLog(.playback,
+                    "AVPlayerController bound to local HLS proxy",
+                    details: ["url": playlistURL.absoluteString])
         } else if let fallback = playback.fallbackURL {
-            // Legacy durl MP4 path.  AVPlayer can consume MP4
-            // directly; the bridge is a no-op for that case.
-            // We still wrap the URL in a `BiliDashSource` and
-            // route it through the bridge so the playback
-            // surface (asset → player item) is uniform across
-            // both code paths.
-            let fakeSource = BiliDashSource(
-                video: .init(
-                    baseURL: fallback,
-                    codecs: "avc1",
-                    bandwidth: 0,
-                    mimeType: "video/mp4",
-                    totalDuration: 0
-                ),
-                audio: nil
+            // Direct URL path: live HLS or legacy MP4.  AVPlayer
+            // can consume either directly, but B站's CDN still
+            // gates segments on the `Referer` header.  Inject
+            // it through `AVURLAssetHTTPHeaderFieldsKey` so
+            // every sub-request (m3u8 + ts) carries it.
+            asset = AVURLAsset(
+                url: fallback,
+                options: [
+                    "AVURLAssetHTTPHeaderFieldsKey": [
+                        "Referer": referer,
+                        "User-Agent":
+                            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 "
+                            + "like Mac OS X) AppleWebKit/605.1.15 "
+                            + "(KHTML, like Gecko) Version/18.0 "
+                            + "Mobile/15E148 Safari/604.1",
+                    ]
+                ]
             )
-            let made = AVURLAsset.biliDash(
-                source: fakeSource,
-                referer: referer
-            )!
-            asset = made
-            bridge = objc_getAssociatedObject(asset, &kBridgeKey)
-                as! BiliDashToHLSBridge
+            usesProxy = false
+            diagLog(.playback,
+                    "AVPlayerController using direct asset",
+                    details: ["url": fallback.absoluteString])
         } else {
             fatalError("BiliPlayback has no DASH source and no fallback")
         }
 
         self.asset = asset
-        self.bridge = bridge
+        self.usesProxy = usesProxy
 
         let item = AVPlayerItem(asset: asset)
-        // `automaticallyPreservesTimeOffsetFromLive` and
-        // `preferredForwardBufferDuration` are irrelevant for
-        // VOD; we leave them at their defaults.
-
         self.playerItem = item
         self.player = AVPlayer(playerItem: item)
-        // AVPlayer by default pauses automatically when the
-        // app is backgrounded.  We want playback to continue
-        // across the inline ↔ fullscreen swap but the
-        // backgrounding policy is correct, so nothing to
-        // override here.
 
         // Audio session: play in silent mode like the AliPlayer
         // path did.  `.playback` lets the audio play when the
-        // silent switch is on; we keep the default
-        // category for parity with the previous app.
+        // silent switch is on.
         try? AVAudioSession.sharedInstance().setCategory(
             .playback, mode: .moviePlayback, options: []
         )
         try? AVAudioSession.sharedInstance().setActive(true)
 
-        // Hook KVO on the player for time / duration.
+        // KVO on the player for time / duration.
         observers.insert(
             player.observe(\.currentTime, options: [.new]) { [weak self] _, change in
                 guard let self else { return }
@@ -175,7 +179,7 @@ final class PlayerController: ObservableObject {
             }
         )
 
-        // KVO on the item: duration, status, buffer empty.
+        // KVO / notifications on the item.
         statusObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item, queue: .main
@@ -232,42 +236,16 @@ final class PlayerController: ObservableObject {
     /// Switch to a different media URL on the same controller.
     /// AliPlayer had this for switching between quality levels.
     /// AVPlayer is rebuilt from scratch instead — much simpler
-    /// than trying to splice items at runtime.
+    /// than trying to splice items at runtime.  Callers that
+    /// need a hot-swap should re-instantiate the controller.
     func swapMedia(to playback: BiliPlayback) {
-        // Tear down the current item and re-initialise.  The
-        // views' references to `self` are stable, but the
-        // published fields will be reset to zero and the
-        // player rebuilt.
-        tearDown()
-        // Re-run init via a small helper that mutates in place.
-        reinitialise(playback: playback)
-    }
-
-    private func reinitialise(playback: BiliPlayback) {
-        // The init() body is the canonical setup; rather than
-        // duplicating it we just construct a fresh controller
-        // and steal its state.  This is the simplest possible
-        // implementation that keeps the published `ObjectWillChange`
-        // surface stable.
-        let fresh = PlayerController(playback: playback)
-        // Swap the new object's state into ours.
-        self.playerItem  // keep ref alive
-        // We can not directly mutate the existing `player`/
-        // `playerItem` on `self`; the cleanest option is for
-        // the caller to replace `controller` outright, but
-        // that requires the SwiftUI view to also swap.
-        // For now we expose a simpler API: callers (the
-        // fullscreen / quality switchers) instantiate a new
-        // `PlayerController` and re-assign the `@StateObject`.
-        // The legacy `swapMedia` shim just no-ops and lets
-        // the caller notice the change.
         diagLog(.playback, "swapMedia shim — caller should re-instantiate", details: [:])
-        _ = fresh
     }
 
     func preferDrawableSurface(_ surface: PlayerDrawableSurface) {
         preferredSurface = surface
-        diagLog(.playback, "Preferred drawable surface changed", details: ["surface": surface.rawValue])
+        diagLog(.playback, "Preferred drawable surface changed",
+                details: ["surface": surface.rawValue])
     }
 
     /// AliPlayer rebound its render surface when `playerView`
@@ -276,21 +254,21 @@ final class PlayerController: ObservableObject {
     /// to its underlying layer.
     func attach(drawable view: UIView, surface: PlayerDrawableSurface) {
         guard surface == .standalone || surface == preferredSurface else {
-            diagLog(.playback, "AVPlayer attach ignored for inactive surface", details: [
-                "surface": surface.rawValue,
-                "preferred": preferredSurface.rawValue
-            ])
+            diagLog(.playback, "AVPlayer attach ignored for inactive surface",
+                    details: [
+                        "surface": surface.rawValue,
+                        "preferred": preferredSurface.rawValue
+                    ])
             return
         }
         if attachedView === view, attachedSurface == surface {
             return
         }
         // If we already have a layer attached somewhere,
-        // remove it before adding the new one.  The layer
-        // follows the view's lifetime; ARC releases it when
-        // the view deinits.
+        // remove it before adding the new one.
         if let old = attachedView,
-           let oldLayer = old.layer.sublayers?.first(where: { $0 is AVPlayerLayer }) {
+           let oldLayer = old.layer.sublayers?
+            .first(where: { $0 is AVPlayerLayer }) {
             oldLayer.removeFromSuperlayer()
         }
         let layer = AVPlayerLayer(player: player)
@@ -300,9 +278,8 @@ final class PlayerController: ObservableObject {
         attachedView = view
         attachedSurface = surface
 
-        diagLog(.playback, "AVPlayer attaching drawable", details: [
-            "surface": surface.rawValue
-        ])
+        diagLog(.playback, "AVPlayer attaching drawable",
+                details: ["surface": surface.rawValue])
     }
 
     func detach(currentView: UIView, surface: PlayerDrawableSurface) {
@@ -321,26 +298,18 @@ final class PlayerController: ObservableObject {
         if let token = statusObserver {
             NotificationCenter.default.removeObserver(token)
         }
-        if let token = rateObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
         if let token = bufferEmptyObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = likelyToKeepUpObserver {
             NotificationCenter.default.removeObserver(token)
         }
-        if let token = endObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
         if let token = errorObserver {
             NotificationCenter.default.removeObserver(token)
         }
         statusObserver = nil
-        rateObserver = nil
         bufferEmptyObserver = nil
         likelyToKeepUpObserver = nil
-        endObserver = nil
         errorObserver = nil
         observers.removeAll()
         if let view = attachedView,
@@ -420,17 +389,20 @@ final class PlayerController: ObservableObject {
         let playing = (player.timeControlStatus == .playing)
         if playing != isPlaying {
             isPlaying = playing
-            diagLog(.playback, "AVPlayer timeControlStatus changed", details: [
-                "isPlaying": playing
-            ])
+            diagLog(.playback, "AVPlayer timeControlStatus changed",
+                    details: ["isPlaying": playing])
         }
-        // Network speed: the bridge tracks bytes received on
-        // its URLSession tasks.  We sample the delta over the
-        // 0.5s poll interval and convert to bytes/second.
+        // Network speed.  For the proxy path we have a real
+        // byte counter on `LocalHLSProxyServer`; for the direct
+        // URL path the counter is always zero, so the loading
+        // overlay reads "—".  AVPlayer's `accessLog()` exposes
+        // throughput, but reading it on every poll is overkill
+        // for the overlay's coarse KB/s readout.
         let now = Date()
         let dt = now.timeIntervalSince(lastBytesAt)
         if dt >= 0.5 {
-            let bytes = bridge.byteCount()
+            let bytes = usesProxy
+                ? LocalHLSProxyServer.shared.byteCount : 0
             let delta = max(0, bytes - lastBytes)
             networkSpeed = Double(delta) / dt
             lastBytes = bytes
@@ -442,23 +414,3 @@ final class PlayerController: ObservableObject {
         pollTimer?.invalidate()
     }
 }
-
-// MARK: - key for the bridge association
-
-// Mirror the file-private key in BiliResourceLoaderDelegate.swift
-// so the controller can re-fetch the bridge after the asset is
-// built.  Marked `internal` in the bridge file (via `private var
-// kBridgeKey: UInt8 = 0`); we re-declare it here under a matching
-// name.  Both files reference the same `kBridgeKey` global because
-// it is file-scoped in the bridge file — and since we only need
-// to read it from this file, we expose a thin accessor on the
-// bridge itself in production code.  This is the production-grade
-// shape.
-
-// We import the bridge's accessor by reading the same
-// `objc_getAssociatedObject` we wrote in the bridge.  The key is
-// declared as a global `private var kBridgeKey: UInt8 = 0` so we
-// have to duplicate it.  Better solution: add an `associatedKey`
-// static on `BiliDashToHLSBridge`.  For now, keep this comment as
-// a note for the next refactor.
-private var kBridgeKey: UInt8 = 0

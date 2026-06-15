@@ -36,6 +36,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>BiliPai 在本机启动一个轻量 HTTP 服务，把 B 站的音视频流拼成 HLS 播放列表喂给 AVPlayer。需要连接 127.0.0.1 才能把 Referer 头注入到 B 站 CDN 请求中。</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

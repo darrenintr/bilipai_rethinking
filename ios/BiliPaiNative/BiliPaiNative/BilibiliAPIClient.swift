@@ -345,10 +345,10 @@ final class BilibiliAPIClient {
         //         consume on iOS — increasingly empty for high
         //         quality sources).
         //   4048 = HLS + DASH + MP4 + FLV — the bitmask we use to
-        //         ask for "everything at once".  The D++ bridge
-        //         (`BiliDashToHLSBridge`) re-serves the DASH half
-        //         as HLS through `AVAssetResourceLoaderDelegate`,
-        //         so we never have to give up the third-party SDK.
+        //         ask for "everything at once".  The local HLS
+        //         proxy (`LocalHLSProxyServer`) re-serves the DASH
+        //         half as HLS over a 127.0.0.1 listener, so we
+        //         never have to fall back to a third-party SDK.
         // We then walk a `qn` chain from 1080P down to 360P because
         // the upstream returns an empty `dash` when the requested
         // quality is gated (region lock, VIP paywall, 4K-only
@@ -1438,12 +1438,12 @@ private struct PlayURLPayload: Decodable {
     }
 
     /// Translate the parsed MPD-shaped DTO into the flat
-    /// `BiliDashSource` the bridge wants.  Picking the
-    /// "preferred" video is the same rule the previous
+    /// `BiliDashSource` the local HLS proxy wants.  Picking
+    /// the "preferred" video is the same rule the previous
     /// `bestPlayback` used: prefer `avc1` (H.264) so the
-    /// bridge does not have to worry about H.265 in master
-    /// (AVPlayer does support `hvc1` in fMP4 segments, but
-    /// AVC keeps the battery cooler).
+    /// synthesised HLS master does not have to carry H.265
+    /// in the CODECS attribute (AVPlayer does support `hvc1`
+    /// in fMP4 segments, but AVC keeps the battery cooler).
     func biliDashSource(duration: Double?) -> BiliDashSource? {
         let preferredVideo = video.first { v in
             v.codecs.localizedCaseInsensitiveContains("avc")

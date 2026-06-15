@@ -39,7 +39,8 @@
 		10000000000000000000011E /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* DiagnosticLogger.swift */; };
 		10000000000000000000222 /* AliPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000021F /* AliPlayerView.swift */; };
 		200000000000000000000301 /* AVPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000401 /* AVPlayerController.swift */; };
-		200000000000000000000302 /* BiliResourceLoaderDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000402 /* BiliResourceLoaderDelegate.swift */; };
+		300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000501 /* AVPlayerSurfaceView.swift */; };
+		300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000502 /* LocalHLSProxyServer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,7 +78,8 @@
 		10000000000000000000021F /* AliPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerView.swift; sourceTree = "<group>"; };
 		100000000000000000000220 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
 		200000000000000000000401 /* AVPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerController.swift; sourceTree = "<group>"; };
-		200000000000000000000402 /* BiliResourceLoaderDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiliResourceLoaderDelegate.swift; sourceTree = "<group>"; };
+		300000000000000000000501 /* AVPlayerSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerSurfaceView.swift; sourceTree = "<group>"; };
+		300000000000000000000502 /* LocalHLSProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHLSProxyServer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -125,7 +127,8 @@
 				10000000000000000000021F /* AliPlayerView.swift */,
 				100000000000000000000220 /* DiagnosticLogger.swift */,
 				200000000000000000000401 /* AVPlayerController.swift */,
-				200000000000000000000402 /* BiliResourceLoaderDelegate.swift */,
+				300000000000000000000501 /* AVPlayerSurfaceView.swift */,
+				300000000000000000000502 /* LocalHLSProxyServer.swift */,
 				100000000000000000000212 /* Assets.xcassets */,
 				100000000000000000000213 /* DesignModifier.swift */,
 				100000000000000000000214 /* BundledFeedService.swift */,
@@ -268,7 +271,8 @@
 				10000000000000000000011E /* DiagnosticLogger.swift in Sources */,
 				10000000000000000000222 /* AliPlayerView.swift in Sources */,
 				200000000000000000000301 /* AVPlayerController.swift in Sources */,
-				200000000000000000000302 /* BiliResourceLoaderDelegate.swift in Sources */,
+				300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */,
+				300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
