@@ -39,6 +39,7 @@
 		200000000000000000000301 /* AVPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000401 /* AVPlayerController.swift */; };
 		300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000501 /* AVPlayerSurfaceView.swift */; };
 		300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000502 /* LocalHLSProxyServer.swift */; };
+		300000000000000000000603 /* WatchSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000503 /* WatchSession.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,6 +77,7 @@
 		200000000000000000000401 /* AVPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerController.swift; sourceTree = "<group>"; };
 		300000000000000000000501 /* AVPlayerSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerSurfaceView.swift; sourceTree = "<group>"; };
 		300000000000000000000502 /* LocalHLSProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHLSProxyServer.swift; sourceTree = "<group>"; };
+		300000000000000000000503 /* WatchSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSession.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -123,6 +125,7 @@
 				200000000000000000000401 /* AVPlayerController.swift */,
 				300000000000000000000501 /* AVPlayerSurfaceView.swift */,
 				300000000000000000000502 /* LocalHLSProxyServer.swift */,
+				300000000000000000000503 /* WatchSession.swift */,
 				100000000000000000000212 /* Assets.xcassets */,
 				100000000000000000000213 /* DesignModifier.swift */,
 				100000000000000000000214 /* BundledFeedService.swift */,
@@ -265,6 +268,7 @@
 				200000000000000000000301 /* AVPlayerController.swift in Sources */,
 				300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */,
 				300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */,
+				300000000000000000000603 /* WatchSession.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

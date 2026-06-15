@@ -298,7 +298,7 @@ final class LocalHLSProxyServer {
         // string and means we don't have to URL-encode the
         // base64 ourselves.
         let seg = "/seg?u=" + base64urlEncode(track.baseURL.absoluteString)
-        var lines: [String] = [
+        let lines: [String] = [
             "#EXTM3U",
             "#EXT-X-VERSION:6",
             "#EXT-X-TARGETDURATION:\(target)",

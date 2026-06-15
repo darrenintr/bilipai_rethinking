@@ -71,9 +71,13 @@ final class PlayerController: ObservableObject {
     private var pollTimer: Timer?
     private var observers: Set<NSKeyValueObservation> = []
     private var statusObserver: NSObjectProtocol?
-    private var bufferEmptyObserver: NSObjectProtocol?
-    private var likelyToKeepUpObserver: NSObjectProtocol?
     private var errorObserver: NSObjectProtocol?
+    /// Token returned by `addPeriodicTimeObserver`.  We hold it
+    /// to keep the observer alive and to remove it on
+    /// `tearDown`.  `AVPlayer.currentTime` is a method, not a
+    /// KVO-observable property, so the per-frame time updates
+    /// come from a periodic time observer instead.
+    private var timeObserver: Any?
 
     // MARK: network speed tracking
 
@@ -165,43 +169,56 @@ final class PlayerController: ObservableObject {
         )
         try? AVAudioSession.sharedInstance().setActive(true)
 
-        // KVO on the player for time / duration.
+        // KVO on the player.  `currentTime` is a method (not a
+        // KVO-observable property) so we use a periodic time
+        // observer instead, fired every 0.5s on the main queue.
+        // The closure receives the current `CMTime` directly
+        // and updates `self.currentTime` on the main actor.
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] cm in
+            let seconds = CMTimeGetSeconds(cm)
+            if seconds.isFinite, seconds >= 0 {
+                self?.currentTime = seconds
+            }
+        }
+
+        // KVO on the item for buffer state.  AVPlayer exposes
+        // these as KVO-observable Bool properties on
+        // `AVPlayerItem`, not as `NSNotification`s.
         observers.insert(
-            player.observe(\.currentTime, options: [.new]) { [weak self] _, change in
-                guard let self else { return }
-                let cm = change.newValue ?? .zero
-                let seconds = CMTimeGetSeconds(cm)
-                if seconds.isFinite, seconds >= 0 {
-                    Task { @MainActor in
-                        self.currentTime = seconds
-                    }
+            item.observe(
+                \.isPlaybackBufferEmpty,
+                options: [.new, .initial]
+            ) { [weak self] _, change in
+                let empty = change.newValue ?? false
+                Task { @MainActor in
+                    self?.isBuffering = empty
+                }
+            }
+        )
+        observers.insert(
+            item.observe(
+                \.isPlaybackLikelyToKeepUp,
+                options: [.new, .initial]
+            ) { [weak self] _, change in
+                let likely = change.newValue ?? false
+                Task { @MainActor in
+                    if likely { self?.isBuffering = false }
                 }
             }
         )
 
-        // KVO / notifications on the item.
+        // End-of-stream notification.  This one is a real
+        // `NSNotification`, declared as a top-level
+        // `Notification.Name` constant.
         statusObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.isPlaying = false
-            }
-        }
-        bufferEmptyObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemPlaybackBufferEmpty,
-            object: item, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.isBuffering = true
-            }
-        }
-        likelyToKeepUpObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemPlaybackLikelyToKeepUp,
-            object: item, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.isBuffering = false
             }
         }
         errorObserver = NotificationCenter.default.addObserver(
@@ -295,21 +312,17 @@ final class PlayerController: ObservableObject {
     func tearDown() {
         stopPolling()
         player.pause()
+        if let token = timeObserver {
+            player.removeTimeObserver(token)
+        }
+        timeObserver = nil
         if let token = statusObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
-        if let token = bufferEmptyObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
-        if let token = likelyToKeepUpObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = errorObserver {
             NotificationCenter.default.removeObserver(token)
         }
         statusObserver = nil
-        bufferEmptyObserver = nil
-        likelyToKeepUpObserver = nil
         errorObserver = nil
         observers.removeAll()
         if let view = attachedView,

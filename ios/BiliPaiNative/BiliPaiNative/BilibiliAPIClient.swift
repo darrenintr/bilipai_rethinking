@@ -1393,6 +1393,54 @@ private struct PlayURLPayload: Decodable {
             case video, audio, duration
             case minBufferTime = "minBufferTime"
         }
+
+        /// Translate the parsed MPD-shaped DTO into the flat
+        /// `BiliDashSource` the local HLS proxy wants.  Picking
+        /// the "preferred" video is the same rule the previous
+        /// `bestPlayback` used: prefer `avc1` (H.264) so the
+        /// synthesised HLS master does not have to carry H.265
+        /// in the CODECS attribute (AVPlayer does support `hvc1`
+        /// in fMP4 segments, but AVC keeps the battery cooler).
+        func biliDashSource(duration: Double?) -> BiliDashSource? {
+            let preferredVideo = video.first { v in
+                v.codecs.localizedCaseInsensitiveContains("avc")
+                    || v.codecs.localizedCaseInsensitiveContains("h264")
+            } ?? video.first
+            guard let v = preferredVideo else { return nil }
+            let a = audio.first
+            // `dash.duration` is published in *milliseconds* by
+            // Bili (a legacy of the original MPD spec); the
+            // playurl top-level `duration` (when present) is in
+            // *seconds*.  Try the top-level first, fall back to
+            // ms/1000, and ultimately to 0.
+            let totalDuration: Double
+            if let d = duration, d > 0 {
+                totalDuration = d
+            } else if let dashMs = self.duration, dashMs > 0 {
+                totalDuration = dashMs / 1000.0
+            } else {
+                totalDuration = 0
+            }
+
+            return BiliDashSource(
+                video: .init(
+                    baseURL: v.baseURL,
+                    codecs: v.codecs,
+                    bandwidth: v.bandwidth ?? 0,
+                    mimeType: "video/mp4",
+                    totalDuration: totalDuration
+                ),
+                audio: a.map { audio in
+                    BiliDashSource.Track(
+                        baseURL: audio.baseURL,
+                        codecs: audio.codecs ?? "mp4a.40.2",
+                        bandwidth: audio.bandwidth ?? 0,
+                        mimeType: "audio/mp4",
+                        totalDuration: totalDuration
+                    )
+                }
+            )
+        }
     }
 
     struct DashVideo: Decodable {
@@ -1435,54 +1483,6 @@ private struct PlayURLPayload: Decodable {
         /// `timescale` for `t`/`d` — the MPD spec writes integers
         /// in `timescale` units.  Bili uses 1000 or 1000000.
         let timescale: Int?
-    }
-
-    /// Translate the parsed MPD-shaped DTO into the flat
-    /// `BiliDashSource` the local HLS proxy wants.  Picking
-    /// the "preferred" video is the same rule the previous
-    /// `bestPlayback` used: prefer `avc1` (H.264) so the
-    /// synthesised HLS master does not have to carry H.265
-    /// in the CODECS attribute (AVPlayer does support `hvc1`
-    /// in fMP4 segments, but AVC keeps the battery cooler).
-    func biliDashSource(duration: Double?) -> BiliDashSource? {
-        let preferredVideo = video.first { v in
-            v.codecs.localizedCaseInsensitiveContains("avc")
-                || v.codecs.localizedCaseInsensitiveContains("h264")
-        } ?? video.first
-        guard let v = preferredVideo else { return nil }
-        let a = audio.first
-        // `dash.duration` is published in *milliseconds* by
-        // Bili (a legacy of the original MPD spec); the
-        // playurl top-level `duration` (when present) is in
-        // *seconds*.  Try the top-level first, fall back to
-        // ms/1000, and ultimately to 0.
-        let totalDuration: Double
-        if let d = duration, d > 0 {
-            totalDuration = d
-        } else if let dashMs = self.duration, dashMs > 0 {
-            totalDuration = dashMs / 1000.0
-        } else {
-            totalDuration = 0
-        }
-
-        return BiliDashSource(
-            video: .init(
-                baseURL: v.baseURL,
-                codecs: v.codecs,
-                bandwidth: v.bandwidth ?? 0,
-                mimeType: "video/mp4",
-                totalDuration: totalDuration
-            ),
-            audio: a.map { audio in
-                .init(
-                    baseURL: audio.baseURL,
-                    codecs: audio.codecs ?? "mp4a.40.2",
-                    bandwidth: audio.bandwidth ?? 0,
-                    mimeType: "audio/mp4",
-                    totalDuration: totalDuration
-                )
-            }
-        )
     }
 }
 
