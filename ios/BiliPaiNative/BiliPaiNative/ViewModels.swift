@@ -324,8 +324,16 @@ final class VideoDetailViewModel: ObservableObject {
         do {
             detail = try await repository.detail(for: detail)
             self.playback = try await repository.playback(for: detail)
+            diagLog(.playback,
+                    "VideoDetailViewModel.load succeeded",
+                    details: [
+                        "aid": detail.aid,
+                        "cid": detail.cid,
+                        "isDASH": self.playback?.isDASH ?? false,
+                        "hasFallback": self.playback?.fallbackURL != nil
+                    ])
             await loadComments(repository: repository)
-            
+
             // Start of playback: report progress=0 to mark it in the history list.
             // The periodic 30s heartbeat is handled by WatchSession in the View layer.
             Task {
@@ -344,9 +352,26 @@ final class VideoDetailViewModel: ObservableObject {
             case .invalidURL, .http:
                 errorMessage = "网络异常，请检查连接后重试。"
             }
+            diagLog(.playback,
+                    "VideoDetailViewModel.load failed (BilibiliAPIError)",
+                    details: [
+                        "kind": "\(error)",
+                        "message": errorMessage ?? "",
+                        "aid": detail.aid,
+                        "bvid": detail.bvid,
+                        "cid": detail.cid
+                    ])
             await loadComments(repository: repository)
         } catch {
             errorMessage = "播放失败：\(error.localizedDescription)"
+            diagLog(.playback,
+                    "VideoDetailViewModel.load failed (unknown)",
+                    details: [
+                        "error": error.localizedDescription,
+                        "aid": detail.aid,
+                        "bvid": detail.bvid,
+                        "cid": detail.cid
+                    ])
             await loadComments(repository: repository)
         }
         isLoading = false

@@ -72,6 +72,7 @@ final class PlayerController: ObservableObject {
     private var observers: Set<NSKeyValueObservation> = []
     private var statusObserver: NSObjectProtocol?
     private var errorObserver: NSObjectProtocol?
+    private var errorLogObserver: NSObjectProtocol?
     /// Token returned by `addPeriodicTimeObserver`.  We hold it
     /// to keep the observer alive and to remove it on
     /// `tearDown`.  `AVPlayer.currentTime` is a method, not a
@@ -235,6 +236,26 @@ final class PlayerController: ObservableObject {
                 self?.isBuffering = false
             }
         }
+        // The "new error log entry" notification is what fires
+        // when AVPlayer refuses to play a media format (codec
+        // rejection, container rejection, network error, etc).
+        // It is the difference between "video keeps buffering
+        // forever" and "AVPlayer said no, with a reason".  The
+        // error log keeps the *last* few entries, so we always
+        // include every one of them.
+        errorLogObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.newErrorLogEntryNotification,
+            object: item, queue: .main
+        ) { _ in
+            let entries = item.errorLog()?.events ?? []
+            let summary = entries.prefix(3).map { e -> String in
+                "\(e.domain)/\(e.errorCode) \"\(e.errorComment ?? "")\""
+            }.joined(separator: " | ")
+            diagLog(.playback, "AVPlayerItem new error log entry", details: [
+                "count": entries.count,
+                "last3": summary
+            ])
+        }
 
         // Periodically poll: AVPlayer does not push a
         // "rate changed" event for the `rate=0 → rate=1`
@@ -322,8 +343,12 @@ final class PlayerController: ObservableObject {
         if let token = errorObserver {
             NotificationCenter.default.removeObserver(token)
         }
+        if let token = errorLogObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
         statusObserver = nil
         errorObserver = nil
+        errorLogObserver = nil
         observers.removeAll()
         if let view = attachedView,
            let old = view.layer.sublayers?

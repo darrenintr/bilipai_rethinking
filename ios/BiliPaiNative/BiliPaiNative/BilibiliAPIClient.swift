@@ -1354,17 +1354,53 @@ private struct PlayURLPayload: Decodable {
         //    for 1080P+ and most modern sources; the bridge
         //    synthesises an HLS master out of it.
         if let dash, let dashSource = dash.biliDashSource(duration: duration) {
+            diagLog(.playback,
+                    "Selected DASH playback",
+                    details: [
+                        "videoCodec": dashSource.video.codecs,
+                        "videoBandwidth": dashSource.video.bandwidth,
+                        "audioCodec": dashSource.audio?.codecs ?? "(none)",
+                        "videoCount": dash.video.count,
+                        "audioCount": dash.audio.count,
+                        "videoCodecs":
+                            dash.video.map { $0.codecs }.joined(separator: ","),
+                        "audioCodecs":
+                            dash.audio
+                                .compactMap { $0.codecs }
+                                .joined(separator: ",")
+                    ])
             return BiliPlayback(
                 dash: dashSource,
                 fallbackURL: nil,
                 referer: refererURL
             )
         }
+        // Diagnose why DASH was rejected.  This shows up in the
+        // diagnostic export and is the difference between "AVC
+        // missing for this qn" and "audio is EAC3 only" and so
+        // on.
+        if let dash {
+            diagLog(.playback,
+                    "DASH rejected by AVPlayer-compat filter",
+                    details: [
+                        "videoCount": dash.video.count,
+                        "audioCount": dash.audio.count,
+                        "videoCodecs":
+                            dash.video.map { $0.codecs }.joined(separator: ","),
+                        "audioCodecs":
+                            dash.audio
+                                .compactMap { $0.codecs }
+                                .joined(separator: ",")
+                    ])
+        }
 
         // 2) Fall back to the legacy `durl` MP4 when the upstream
         //    returned no DASH.  This is rarer every year, but the
         //    Web preview endpoints sometimes still surface it.
         if let url = durl?.first?.url {
+            diagLog(.playback,
+                    "Selected legacy durl MP4",
+                    details: ["url": url.absoluteString])
             return BiliPlayback(
                 dash: nil,
                 fallbackURL: url,
@@ -1401,13 +1437,41 @@ private struct PlayURLPayload: Decodable {
         /// synthesised HLS master does not have to carry H.265
         /// in the CODECS attribute (AVPlayer does support `hvc1`
         /// in fMP4 segments, but AVC keeps the battery cooler).
+        ///
+        /// AVPlayer compatibility filter (2026-06):
+        ///   * Video: only accept `avc1` (H.264) tracks.  HEVC
+        ///     (`hev1` / `hvc1`) is rejected by AVPlayer on A9
+        ///     and older chips, and even on newer devices its
+        ///     software fallback for fMP4 HLS is unreliable.  If
+        ///     the upstream only ships HEVC for the requested
+        ///     quality, we return `nil` so `bestPlayback` can
+        ///     try the `durl` MP4 fallback (which is AVC
+        ///     muxed).
+        ///   * Audio: only accept AAC (`mp4a.*`).  B站's
+        ///     premium tracks ship EAC3 (`ec-3`) or Hi-Res
+        ///     FLAC; AVPlayer will decode EAC3 from a
+        ///     standalone `.m4a` but not from a fragmented
+        ///     MP4 in an HLS segment, and refuses FLAC
+        ///     outright.  Pick the first AAC track, drop
+        ///     EAC3/FLAC/Opus.
         func biliDashSource(duration: Double?) -> BiliDashSource? {
-            let preferredVideo = video.first { v in
+            let avcVideo = video.first { v in
                 v.codecs.localizedCaseInsensitiveContains("avc")
                     || v.codecs.localizedCaseInsensitiveContains("h264")
-            } ?? video.first
-            guard let v = preferredVideo else { return nil }
-            let a = audio.first
+            }
+            guard let v = avcVideo else {
+                return nil
+            }
+            let aacAudio = audio.first { a in
+                guard let c = a.codecs else { return false }
+                return c.localizedCaseInsensitiveContains("mp4a")
+                    || c.localizedCaseInsensitiveContains("aac")
+            }
+            // If a non-AAC audio is the *only* audio available,
+            // we have to drop audio entirely — AVPlayer will
+            // refuse the manifest otherwise.  Muxed MP4 would
+            // not have this problem but we are on the DASH path.
+            let a = aacAudio
             // `dash.duration` is published in *milliseconds* by
             // Bili (a legacy of the original MPD spec); the
             // playurl top-level `duration` (when present) is in
