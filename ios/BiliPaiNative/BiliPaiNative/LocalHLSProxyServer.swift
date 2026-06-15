@@ -407,7 +407,14 @@ final class LocalHLSProxyServer {
             + "Version/18.0 Mobile/15E148 Safari/604.1",
             forHTTPHeaderField: "User-Agent"
         )
-        var responseStatusOverride: Int?
+        // Track the downstream Range so we can decide whether
+        // to mirror 206/Content-Range or fall back to 200.
+        // `AVPlayer` is strict: when it asks for `Range: bytes=…`,
+        // it MUST see `206 Partial Content` plus a matching
+        // `Content-Range` header, otherwise it abandons the
+        // stream.  When it asks for the whole resource (no
+        // Range), we MUST return `200 OK` with the full body.
+        let clientRange = req.headers["range"]
         var contentRangeShift: Int64?
         var passContentRange = false
         switch mode {
@@ -415,11 +422,15 @@ final class LocalHLSProxyServer {
             // Forward Range if AVPlayer sent one (it does for
             // seeks).  B站 supports byte-range, so the forward is
             // safe.
-            if let range = req.headers["range"] {
+            if let range = clientRange {
                 upstreamReq.setValue(range, forHTTPHeaderField: "Range")
                 passContentRange = true
             }
         case .initRange:
+            // `/init` is a *logical* sub-resource that only
+            // covers the fMP4 `moov`/init bytes.  AVPlayer asks
+            // for the whole thing, so we return `200 OK` with
+            // the shifted body length and no `Content-Range`.
             guard let range = parseByteRange(params["range"]) else {
                 respondError(connection: connection, status: 400,
                              reason: "missing init range")
@@ -429,11 +440,6 @@ final class LocalHLSProxyServer {
                 httpRangeHeader(offset: range.offset, end: range.endOffset),
                 forHTTPHeaderField: "Range"
             )
-            // `/init` is a logical resource representing only
-            // the init section, so the downstream response is a
-            // normal 200 even though the upstream fetch uses
-            // Range.
-            responseStatusOverride = 200
         case .mediaRange:
             guard let startString = params["from"],
                   let start = Int64(startString) else {
@@ -441,7 +447,7 @@ final class LocalHLSProxyServer {
                              reason: "missing media range")
                 return
             }
-            if let range = req.headers["range"],
+            if let range = clientRange,
                let shifted = shiftedRangeHeader(range, by: start) {
                 upstreamReq.setValue(shifted, forHTTPHeaderField: "Range")
                 contentRangeShift = start
@@ -450,10 +456,6 @@ final class LocalHLSProxyServer {
                     httpRangeHeader(offset: start, end: nil),
                     forHTTPHeaderField: "Range"
                 )
-                // `/media` is a logical resource beginning at
-                // `start`; when AVPlayer asks for the whole
-                // resource, return 200 with the shifted body.
-                responseStatusOverride = 200
             }
         }
         _ = source  // Keep the playback snapshot alive while
@@ -477,7 +479,7 @@ final class LocalHLSProxyServer {
             upstream: upstream,
             request: upstreamReq,
             mode: mode.logName,
-            statusOverride: responseStatusOverride,
+            clientSentRange: clientRange != nil,
             contentRangeShift: contentRangeShift,
             passContentRange: passContentRange
         )
@@ -784,7 +786,14 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     private let upstream: URL
     private let request: URLRequest
     private let mode: String
-    private let statusOverride: Int?
+    /// `true` if the loopback client (AVPlayer) sent a
+    /// `Range` header.  When `true`, our downstream response
+    /// MUST use `206 Partial Content` and include a
+    /// `Content-Range` header — AVPlayer aborts any
+    /// partial-content request that does not get a 206.
+    /// When `false`, the response MUST be `200 OK` with no
+    /// `Content-Range` header.
+    private let clientSentRange: Bool
     private let contentRangeShift: Int64?
     private let passContentRange: Bool
     private let sendGroup = DispatchGroup()
@@ -794,6 +803,12 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     private var task: URLSessionDataTask?
     private var didSendHeader = false
     private var didFinish = false
+    /// Set as soon as we see a downstream send failure
+    /// (e.g. AVPlayer tore the socket down in
+    /// `onDisappear`).  Guards against continuing to
+    /// drain a 71 MB upstream response into a dead
+    /// `NWConnection`.
+    private var downstreamBroken = false
 
     init(
         server: LocalHLSProxyServer,
@@ -801,7 +816,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         upstream: URL,
         request: URLRequest,
         mode: String,
-        statusOverride: Int?,
+        clientSentRange: Bool,
         contentRangeShift: Int64?,
         passContentRange: Bool
     ) {
@@ -810,7 +825,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         self.upstream = upstream
         self.request = request
         self.mode = mode
-        self.statusOverride = statusOverride
+        self.clientSentRange = clientSentRange
         self.contentRangeShift = contentRangeShift
         self.passContentRange = passContentRange
         self.delegateQueue = OperationQueue()
@@ -846,22 +861,55 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             return
         }
         didSendHeader = true
-        var extraHeaders: [String: String] = [:]
+        var extraHeaders: [String: String] = ["Accept-Ranges": "bytes"]
         let upstreamContentRange = http.value(forHTTPHeaderField: "Content-Range")
-        if let shift = contentRangeShift,
-           let upstreamContentRange,
-           let shifted = server.shiftedContentRange(
-                upstreamContentRange,
-                by: shift
-           ) {
-            extraHeaders["Content-Range"] = shifted
-            extraHeaders["Accept-Ranges"] = "bytes"
-        } else if passContentRange,
-                  let upstreamContentRange {
-            extraHeaders["Content-Range"] = upstreamContentRange
-            extraHeaders["Accept-Ranges"] = "bytes"
+
+        // Decide downstream status.  We obey the client's
+        // Range semantics first; if it asked for a partial
+        // response we MUST answer 206 (or 200 when we are
+        // serving a *logical* sub-range — currently only
+        // `/init`, which we expose as a flat 200).  Otherwise
+        // we forward the upstream status code.
+        // `/init` and `/media` are both *logical* sub-resources
+        // of the upstream file: from the client's perspective
+        // they are whole documents, not byte ranges.  Only
+        // `/seg?...` (passthrough) and explicit
+        // `Range:` requests from AVPlayer should answer 206.
+        let isLogicalSubResource = (mode == "init" || mode == "media")
+        let status: Int
+        if clientSentRange {
+            status = 206
+            if let shift = contentRangeShift,
+               let upstreamContentRange,
+               let shifted = server.shiftedContentRange(
+                    upstreamContentRange,
+                    by: shift
+               ) {
+                // `/media` with client Range: shift the
+                // upstream's absolute Content-Range down to
+                // a *relative* range the client can use.
+                extraHeaders["Content-Range"] = shifted
+            } else if passContentRange,
+                      let upstreamContentRange {
+                // `/seg` passthrough: forward the upstream's
+                // Content-Range verbatim — it is already in
+                // the client's coordinates.
+                extraHeaders["Content-Range"] = upstreamContentRange
+            } else if let upstreamContentRange {
+                // The upstream answered 206 but we did not
+                // record a shift.  Forward as-is so the
+                // client sees a matching Content-Range.
+                extraHeaders["Content-Range"] = upstreamContentRange
+            }
+        } else if isLogicalSubResource {
+            // `/init` and `/media` (without a client Range) are
+            // exposed as flat resources: they return 200, with
+            // `Content-Length` matching the section length.
+            // `Content-Range` is intentionally omitted.
+            status = 200
+        } else {
+            status = http.statusCode
         }
-        let status = statusOverride ?? http.statusCode
         let contentLength = http.expectedContentLength >= 0
             ? http.expectedContentLength
             : nil
@@ -892,6 +940,15 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         dataTask: URLSessionDataTask,
         didReceive data: Data
     ) {
+        // Once the loopback client (AVPlayer) goes away
+        // (e.g. `VideoDetailView.onDisappear`), the
+        // downstream socket is dead.  Stop feeding the
+        // upstream pipe immediately — every extra `send`
+        // is an `NWError 57 — Socket is not connected` log
+        // line, and a 71 MB video with a few hundred
+        // segments will spam the diagnostic log for several
+        // seconds otherwise.
+        if downstreamBroken { return }
         if !didSendHeader {
             server?.sendHeader(
                 connection: connection,
@@ -908,15 +965,25 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         connection.send(
             content: data,
             completion: .contentProcessed { [weak self] error in
+                guard let self else { return }
                 if let error {
+                    self.downstreamBroken = true
                     diagLog(.network,
                             "LocalHLSProxyServer downstream send error",
                             details: [
-                                "mode": self?.mode ?? "",
+                                "mode": self.mode,
                                 "error": error.localizedDescription
                             ])
+                    // Cancel the upstream task and the
+                    // loopback connection in the same tick
+                    // — do not wait for `sendGroup.notify`,
+                    // because more `didReceive data` calls
+                    // are already queued behind us.
+                    self.task?.cancel()
+                    self.connection.cancel()
+                    self.session?.finishTasksAndInvalidate()
                 }
-                self?.sendGroup.leave()
+                self.sendGroup.leave()
             }
         )
     }
@@ -927,12 +994,17 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         didCompleteWithError error: Error?
     ) {
         if let error {
-            diagLog(.network,
-                    "Upstream segment error",
-                    details: [
-                        "mode": mode,
-                        "error": error.localizedDescription
-                    ])
+            // Cancellation triggered by `downstreamBroken`
+            // is expected when AVPlayer goes away mid-fetch;
+            // it is *not* a real upstream failure.
+            if (error as NSError).code != NSURLErrorCancelled {
+                diagLog(.network,
+                        "Upstream segment error",
+                        details: [
+                            "mode": mode,
+                            "error": error.localizedDescription
+                        ])
+            }
             if !didSendHeader {
                 server?.sendHeader(
                     connection: connection,
