@@ -19,46 +19,48 @@ post_install do |installer|
   # cp).  The frameworks are instead copied by the CI workflow step
   # (plain cp -R) which runs OUTSIDE any sandbox.
   #
-  # We bypass the CocoaPods AggregateTarget API entirely because
-  # integrating the AliPlayerSDK pod triggers an
+  # Implementation notes (CocoaPods 1.16.2):
+  # * The post_install hook fires BEFORE the user xcodeproj has been
+  #   saved to disk, but AFTER the in-memory object graph has been
+  #   built.  We must therefore mutate the in-memory
+  #   `aggregate_target.user_project` so that the subsequent
+  #   integrate_user_project -> save flow serialises the project
+  #   without the offending phase.  Reading the project from disk with
+  #   Xcodeproj::Project.open would see the pre-install state and miss
+  #   the phase entirely.
+  # * `aggregate_target.user_targets` is a convenience method that
+  #   *raises* `Informative` if any uuid is missing from
+  #   `user_project.objects_by_uuid` — which is exactly what happens
+  #   when the AliPlayerSDK pod triggers the
   #   "attempted to initialize an object with an unknown UUID ...
-  #    for attribute: build_phases"
-  # warning that leaves the AggregateTarget's user_project half-loaded.
-  # Going through `Xcodeproj::Project.open` on the .xcodeproj file on
-  # disk gives us an unmodified, fully-resolved view of the project.
-  #
-  # We do NOT match on class identity (`is_a?`) because in some
-  # Xcodeproj versions the class is loaded under slightly different
-  # namespaces.  Instead we match on `shell_script` content — a
-  # #${PODS_ROOT}/Target Support Files/...-frameworks.sh invocation
-  # is the only place CocoaPods writes that exact path.  Belt and
-  # braces: also remove by name substring.
+  #    for attribute: build_phases" warning.  We look up each uuid by
+  #   hand and skip the missing ones.
   # ------------------------------------------------------------------
-  require 'xcodeproj'
+  installer.aggregate_targets.each do |aggregate_target|
+    user_project = aggregate_target.user_project
+    next unless user_project
 
-  podfile_dir = installer.sandbox.root.dirname
-  Dir.glob(File.join(podfile_dir, '*.xcodeproj')).each do |project_path|
-    next unless File.directory?(project_path)
+    aggregate_target.user_target_uuids.each do |uuid|
+      user_target = user_project.objects_by_uuid[uuid]
+      next unless user_target
+      next unless user_target.respond_to?(:name) && user_target.name == 'BiliPaiNative'
 
-    project = Xcodeproj::Project.open(project_path)
-    project.targets.each do |user_target|
-      next unless user_target.name == 'BiliPaiNative'
-
-      embed_phases = user_target.build_phases.select do |bp|
+      removed = 0
+      user_target.build_phases.dup.each do |bp|
         # Match shell-script build phases that look like the CocoaPods
-        # embed-frameworks script.  Two heuristics:
-        #  1. name contains "Embed Pods Frameworks"
-        #  2. shell_script references "Target Support Files" + "frameworks"
-        next false unless bp.respond_to?(:shell_script) || bp.respond_to?(:name)
-        name_hit    = bp.respond_to?(:name) && bp.name.to_s.include?('Embed Pods Frameworks')
-        script_hit  = bp.respond_to?(:shell_script) && bp.shell_script.to_s.include?('-frameworks.sh')
-        name_hit || script_hit
+        # embed-frameworks script.  We avoid `is_a?` class checks because
+        # Xcodeproj's PBXShellScriptBuildPhase may load under slightly
+        # different namespaces across versions; the two content checks
+        # below are stable identifiers of the offending phase.
+        next unless bp.respond_to?(:shell_script) || bp.respond_to?(:name)
+        name_hit   = bp.respond_to?(:name) && bp.name.to_s.include?('Embed Pods Frameworks')
+        script_hit = bp.respond_to?(:shell_script) && bp.shell_script.to_s.include?('-frameworks.sh')
+        next unless name_hit || script_hit
+
+        user_target.build_phases.delete(bp)
+        removed += 1
       end
-      embed_phases.each do |phase|
-        user_target.build_phases.delete(phase)
-        Pod::UI.puts "[BiliPai patch] Removed embed-frameworks phase from #{user_target.name} (in #{File.basename(project_path)})"
-      end
+      Pod::UI.puts "[BiliPai patch] Removed #{removed} embed-frameworks phase(s) from #{user_target.name}" if removed > 0
     end
-    project.save
   end
 end
