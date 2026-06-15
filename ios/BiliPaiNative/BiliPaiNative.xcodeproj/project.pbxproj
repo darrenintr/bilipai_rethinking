@@ -453,6 +453,26 @@
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
+/* Begin XCConfigurationList section */
+		100000000000000000000901 /* Build configuration list for PBXNativeTarget "BiliPaiNative" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				100000000000000000000B01 /* Debug */,
+				100000000000000000000B02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		100000000000000000000902 /* Build configuration list for PBXProject "BiliPaiNative" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				100000000000000000000A01 /* Debug */,
+				100000000000000000000A02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
 	};
 	
 	rootObject = 100000000000000000000601 /* Project object */;
