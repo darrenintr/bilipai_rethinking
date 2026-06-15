@@ -214,9 +214,13 @@ final class LocalHLSProxyServer {
             respondMediaPlaylist(for: .video, connection: connection)
         case "/audio.m3u8":
             respondMediaPlaylist(for: .audio, connection: connection)
+        case "/init":
+            proxySegment(req: req, connection: connection, mode: .initRange)
+        case "/media":
+            proxySegment(req: req, connection: connection, mode: .mediaRange)
         default:
             if pathOnly.hasPrefix("/seg") {
-                proxySegment(req: req, connection: connection)
+                proxySegment(req: req, connection: connection, mode: .passthrough)
             } else {
                 respondError(connection: connection, status: 404,
                              reason: "no route")
@@ -237,7 +241,7 @@ final class LocalHLSProxyServer {
 
     private func respondMasterPlaylist(connection: NWConnection) {
         guard let (source, _) = snapshot(),
-              let base = baseURL?.absoluteString else {
+              baseURL != nil else {
             respondError(connection: connection, status: 503,
                          reason: "no playback")
             return
@@ -254,17 +258,23 @@ final class LocalHLSProxyServer {
             lines.append(
                 "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\","
                 + "NAME=\"default\",DEFAULT=YES,AUTOSELECT=YES,"
-                + "URI=\"\(base)audio.m3u8\""
+                + "URI=\"\(localURL(path: "audio.m3u8"))\""
             )
         }
         var streamInf = "#EXT-X-STREAM-INF:"
         streamInf += "BANDWIDTH=\(totalBandwidth)"
         streamInf += ",CODECS=\"\(source.video.codecs)"
         if let a = source.audio { streamInf += ",\(a.codecs)" }
-        streamInf += "\",RESOLUTION=1920x1080"
-        streamInf += ",AUDIO=\"aac\""
+        streamInf += "\""
+        if let width = source.video.width, width > 0,
+           let height = source.video.height, height > 0 {
+            streamInf += ",RESOLUTION=\(width)x\(height)"
+        }
+        if source.audio != nil {
+            streamInf += ",AUDIO=\"aac\""
+        }
         lines.append(streamInf)
-        lines.append("\(base)video.m3u8")
+        lines.append(localURL(path: "video.m3u8"))
         lines.append("")
         respondText(connection: connection,
                     body: lines.joined(separator: "\n"))
@@ -275,7 +285,7 @@ final class LocalHLSProxyServer {
         connection: NWConnection
     ) {
         guard let (source, _) = snapshot(),
-              let base = baseURL?.absoluteString else {
+              baseURL != nil else {
             respondError(connection: connection, status: 503,
                          reason: "no playback")
             return
@@ -292,20 +302,41 @@ final class LocalHLSProxyServer {
         }
         let total = max(track.totalDuration, 0.1)
         let target = Int(total.rounded(.up))
-        // Encode the upstream URL as a base64url query
-        // parameter.  Using a query (not a path component)
-        // sidesteps `+`, `/`, `=` characters in the encoded
-        // string and means we don't have to URL-encode the
-        // base64 ourselves.
-        let seg = "/seg?u=" + base64urlEncode(track.baseURL.absoluteString)
+        // Encode the upstream URL as a base64url query parameter.
+        // The init/media endpoints then apply absolute upstream
+        // byte ranges, so AVPlayer sees normal HLS resources while
+        // Bili's CDN receives the Range requests it expects.
+        let encoded = base64urlEncode(track.baseURL.absoluteString)
+        let initURL = localURL(
+            path: "init",
+            queryItems: [
+                URLQueryItem(name: "u", value: encoded),
+                URLQueryItem(
+                    name: "range",
+                    value: "\(track.initializationRange.offset)"
+                        + "-\(track.initializationRange.endOffset)"
+                )
+            ]
+        )
+        let mediaURL = localURL(
+            path: "media",
+            queryItems: [
+                URLQueryItem(name: "u", value: encoded),
+                URLQueryItem(
+                    name: "from",
+                    value: "\(track.mediaStartOffset)"
+                )
+            ]
+        )
         let lines: [String] = [
             "#EXTM3U",
             "#EXT-X-VERSION:6",
             "#EXT-X-TARGETDURATION:\(target)",
             "#EXT-X-PLAYLIST-TYPE:VOD",
             "#EXT-X-MEDIA-SEQUENCE:0",
+            "#EXT-X-MAP:URI=\"\(initURL)\"",
             "#EXTINF:\(String(format: "%.3f", total)),",
-            "\(base)\(seg)",
+            mediaURL,
             "#EXT-X-ENDLIST",
             "",
         ]
@@ -315,14 +346,23 @@ final class LocalHLSProxyServer {
 
     // MARK: segment proxy
 
+    private enum ProxyMode {
+        case passthrough
+        case initRange
+        case mediaRange
+    }
+
     /// Proxy a single segment request.  AVPlayer issues
-    /// `GET /seg?u=<base64(cdn_url)>` and we forward it to the
-    /// CDN with the right `Referer` and `User-Agent`.  The body
-    /// is buffered in memory (URLSession default); for
-    /// B站-sized segments (a few MB) this is fine.
+    /// `GET /init?...` for the fMP4 map and `GET /media?...`
+    /// for the playable media data.  We translate those into
+    /// absolute upstream byte ranges, then forward to the CDN
+    /// with the right `Referer` and `User-Agent`.  The body is
+    /// buffered in memory (URLSession default); for B站-sized
+    /// segments (a few MB) this is fine.
     private func proxySegment(
         req: HTTPRequest,
-        connection: NWConnection
+        connection: NWConnection,
+        mode: ProxyMode
     ) {
         guard let (source, referer) = snapshot() else {
             respondError(connection: connection, status: 503,
@@ -344,9 +384,7 @@ final class LocalHLSProxyServer {
         // check; the segment URL is generated by us, so it
         // should always be a B站 URL anyway.
         guard let host = upstream.host,
-              host.hasSuffix("bilivideo.com")
-                || host == "127.0.0.1"
-                || host == "localhost" else {
+              isAllowedUpstreamHost(host) else {
             respondError(connection: connection, status: 400,
                          reason: "bad upstream host")
             return
@@ -359,15 +397,57 @@ final class LocalHLSProxyServer {
             + "Version/18.0 Mobile/15E148 Safari/604.1",
             forHTTPHeaderField: "User-Agent"
         )
-        // Forward Range if AVPlayer sent one (it does for
-        // seeks).  B站 supports byte-range, so the forward is
-        // safe.
-        if let range = req.headers["range"] {
-            upstreamReq.setValue(range, forHTTPHeaderField: "Range")
+        var responseStatusOverride: Int?
+        var contentRangeShift: Int64?
+        var passContentRange = false
+        switch mode {
+        case .passthrough:
+            // Forward Range if AVPlayer sent one (it does for
+            // seeks).  B站 supports byte-range, so the forward is
+            // safe.
+            if let range = req.headers["range"] {
+                upstreamReq.setValue(range, forHTTPHeaderField: "Range")
+                passContentRange = true
+            }
+        case .initRange:
+            guard let range = parseByteRange(params["range"]) else {
+                respondError(connection: connection, status: 400,
+                             reason: "missing init range")
+                return
+            }
+            upstreamReq.setValue(
+                httpRangeHeader(offset: range.offset, end: range.endOffset),
+                forHTTPHeaderField: "Range"
+            )
+            // `/init` is a logical resource representing only
+            // the init section, so the downstream response is a
+            // normal 200 even though the upstream fetch uses
+            // Range.
+            responseStatusOverride = 200
+        case .mediaRange:
+            guard let startString = params["from"],
+                  let start = Int64(startString) else {
+                respondError(connection: connection, status: 400,
+                             reason: "missing media range")
+                return
+            }
+            if let range = req.headers["range"],
+               let shifted = shiftedRangeHeader(range, by: start) {
+                upstreamReq.setValue(shifted, forHTTPHeaderField: "Range")
+                contentRangeShift = start
+            } else {
+                upstreamReq.setValue(
+                    httpRangeHeader(offset: start, end: nil),
+                    forHTTPHeaderField: "Range"
+                )
+                // `/media` is a logical resource beginning at
+                // `start`; when AVPlayer asks for the whole
+                // resource, return 200 with the shifted body.
+                responseStatusOverride = 200
+            }
         }
-        _ = source  // (we keep the snapshot in scope so the
-                    //  lock is held until after the URLSession
-                    //  callback is queued)
+        _ = source  // Keep the playback snapshot alive while
+                    // the URLSession request is queued.
 
         let task = URLSession.shared.dataTask(
             with: upstreamReq
@@ -389,12 +469,28 @@ final class LocalHLSProxyServer {
             self.lock.lock()
             self.byteCount += Int64(body.count)
             self.lock.unlock()
+            var extraHeaders: [String: String] = [:]
+            if let shift = contentRangeShift,
+               let range = response.value(
+                    forHTTPHeaderField: "Content-Range"
+               ),
+               let shifted = self.shiftedContentRange(range, by: shift) {
+                extraHeaders["Content-Range"] = shifted
+                extraHeaders["Accept-Ranges"] = "bytes"
+            } else if passContentRange,
+                      let range = response.value(
+                        forHTTPHeaderField: "Content-Range"
+                      ) {
+                extraHeaders["Content-Range"] = range
+                extraHeaders["Accept-Ranges"] = "bytes"
+            }
             self.respondBytes(
                 connection: connection,
-                status: response.statusCode,
+                status: responseStatusOverride ?? response.statusCode,
                 contentType: response.mimeType
                     ?? mimeType(for: upstream.pathExtension),
-                body: body
+                body: body,
+                extraHeaders: extraHeaders
             )
         }
         task.resume()
@@ -429,18 +525,25 @@ final class LocalHLSProxyServer {
         connection: NWConnection,
         status: Int,
         contentType: String,
-        body: Data
+        body: Data,
+        extraHeaders: [String: String] = [:]
     ) {
         let reason = reasonPhrase(for: status)
-        let header = [
+        var headerLines = [
             "HTTP/1.1 \(status) \(reason)",
             "Content-Type: \(contentType)",
+        ]
+        for key in extraHeaders.keys.sorted() {
+            headerLines.append("\(key): \(extraHeaders[key] ?? "")")
+        }
+        headerLines += [
             "Content-Length: \(body.count)",
             "Connection: close",
             "Cache-Control: no-store",
             "",
             "",
-        ].joined(separator: "\r\n")
+        ]
+        let header = headerLines.joined(separator: "\r\n")
         var response = Data(header.utf8)
         response.append(body)
         connection.send(
@@ -473,6 +576,137 @@ final class LocalHLSProxyServer {
             }
         }
         return out
+    }
+
+    private func localURL(
+        path: String,
+        queryItems: [URLQueryItem] = []
+    ) -> String {
+        guard let baseURL else { return "" }
+        let url = baseURL.appendingPathComponent(path)
+        guard !queryItems.isEmpty else {
+            return url.absoluteString
+        }
+        var components = URLComponents(
+            url: url,
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = queryItems
+        return components?.url?.absoluteString ?? url.absoluteString
+    }
+
+    private func parseByteRange(
+        _ raw: String?
+    ) -> BiliDashSource.ByteRange? {
+        guard let raw else { return nil }
+        let bounds = raw.split(separator: "-", maxSplits: 1)
+        guard bounds.count == 2,
+              let start = Int64(bounds[0]),
+              let end = Int64(bounds[1]),
+              end >= start else {
+            return nil
+        }
+        return BiliDashSource.ByteRange(
+            offset: start,
+            length: end - start + 1
+        )
+    }
+
+    private func httpRangeHeader(offset: Int64, end: Int64?) -> String {
+        if let end {
+            return "bytes=\(offset)-\(end)"
+        }
+        return "bytes=\(offset)-"
+    }
+
+    private func shiftedRangeHeader(
+        _ header: String,
+        by offset: Int64
+    ) -> String? {
+        let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix("bytes=") else {
+            return nil
+        }
+        let spec = trimmed.dropFirst("bytes=".count)
+        guard !spec.contains(",") else { return nil }
+        let bounds = spec.split(
+            separator: "-",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard bounds.count == 2,
+              !bounds[0].isEmpty,
+              let relativeStart = Int64(bounds[0]) else {
+            return nil
+        }
+        let absoluteStart = offset + relativeStart
+        if bounds[1].isEmpty {
+            return httpRangeHeader(offset: absoluteStart, end: nil)
+        }
+        guard let relativeEnd = Int64(bounds[1]),
+              relativeEnd >= relativeStart else {
+            return nil
+        }
+        return httpRangeHeader(
+            offset: absoluteStart,
+            end: offset + relativeEnd
+        )
+    }
+
+    private func shiftedContentRange(
+        _ header: String,
+        by offset: Int64
+    ) -> String? {
+        let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix("bytes ") else {
+            return nil
+        }
+        let payload = trimmed.dropFirst("bytes ".count)
+        let rangeAndTotal = payload.split(
+            separator: "/",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard rangeAndTotal.count == 2 else { return nil }
+        let bounds = rangeAndTotal[0].split(
+            separator: "-",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard bounds.count == 2,
+              let absoluteStart = Int64(bounds[0]),
+              let absoluteEnd = Int64(bounds[1]),
+              absoluteStart >= offset,
+              absoluteEnd >= absoluteStart else {
+            return nil
+        }
+        let relativeStart = absoluteStart - offset
+        let relativeEnd = absoluteEnd - offset
+        let totalPart: String
+        if let absoluteTotal = Int64(rangeAndTotal[1]) {
+            totalPart = "\(max(absoluteTotal - offset, 0))"
+        } else {
+            totalPart = String(rangeAndTotal[1])
+        }
+        return "bytes \(relativeStart)-\(relativeEnd)/\(totalPart)"
+    }
+
+    private func isAllowedUpstreamHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        if lower == "127.0.0.1" || lower == "localhost" {
+            return true
+        }
+        let allowedDomains = [
+            "bilivideo.com",
+            "bilivideo.cn",
+            "hdslb.com",
+            "bilibili.com",
+            "akamaized.net",
+            "szbdyd.com",
+        ]
+        return allowedDomains.contains { domain in
+            lower == domain || lower.hasSuffix(".\(domain)")
+        }
     }
 
     private func base64urlEncode(_ s: String) -> String {

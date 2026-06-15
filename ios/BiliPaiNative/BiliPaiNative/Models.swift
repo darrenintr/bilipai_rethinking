@@ -119,6 +119,15 @@ struct BiliPlayback: Hashable {
 /// `totalDuration`, and lets AVPlayer stream the file via HTTP
 /// `Range` requests through the proxy.
 struct BiliDashSource: Hashable {
+    struct ByteRange: Hashable {
+        let offset: Int64
+        let length: Int64
+
+        var endOffset: Int64 {
+            offset + length - 1
+        }
+    }
+
     /// A single AdaptationSet, plus its Representation.
     /// We flatten audio + video variants into this struct
     /// because B站's DASH responses are simple enough that we
@@ -135,10 +144,24 @@ struct BiliDashSource: Hashable {
         /// `mimeType` from the Representation, e.g.
         /// `video/mp4` / `audio/mp4`.
         let mimeType: String
+        /// Byte range containing the fMP4 init section
+        /// (`ftyp`/`moov`). HLS fMP4 playlists must expose this
+        /// through `#EXT-X-MAP`; without it AVPlayer stalls while
+        /// parsing the media playlist.
+        let initializationRange: ByteRange
+        /// Absolute byte offset where the playable media data
+        /// starts in the upstream Bili m4s file. The local proxy
+        /// shifts AVPlayer's segment-relative Range requests by
+        /// this offset before forwarding them upstream.
+        let mediaStartOffset: Int64
         /// Total presentation duration in seconds — B站's
         /// `dash.duration` divided by 1000 (B站 publishes
         /// milliseconds here).
         let totalDuration: Double
+        /// Optional dimensions for video tracks. Audio tracks
+        /// leave these nil.
+        let width: Int?
+        let height: Int?
     }
 
     let video: Track

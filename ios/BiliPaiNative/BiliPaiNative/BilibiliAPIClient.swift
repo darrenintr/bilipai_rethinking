@@ -1397,11 +1397,10 @@ private struct PlayURLPayload: Decodable {
     /// Why this matters:  AVPlayer consumes HLS natively.  When
     /// B站 returns an HLS master, we hand it directly to
     /// `AVURLAsset` with a `Referer` header injection and
-    /// `LocalHLSProxyServer` is not involved at all.  The
-    /// synthesised HLS we emit on the DASH path was found
-    /// (2026-06-15) to be missing the `#EXT-X-MAP` fMP4 init
-    /// tag and a bogus `RESOLUTION=1920x1080`, which made
-    /// AVPlayer spin forever waiting for the master to parse.
+    /// `LocalHLSProxyServer` is not involved at all.  When
+    /// B站 only returns DASH, the local proxy now exposes the
+    /// fMP4 init/media byte ranges as HLS so AVPlayer can parse
+    /// the stream without a third-party decoder.
     let hls: [DURL]?
     /// Total media duration in seconds, surfaced at the payload
     /// top level (Bili mirrors it in both the legacy `timelength`
@@ -1494,33 +1493,35 @@ private struct PlayURLPayload: Decodable {
                 ])
 
         // 2) DASH path.  B站 ships DASH manifests for 1080P+
-        //    and most modern sources.  We can normally use
-        //    the upstream HLS slot above, but when B站 only
-        //    returns DASH (e.g. region-locked 4K sources)
-        //    we have to either:
-        //      (a) hand the proxy a synthesised HLS — broken
-        //          today, see the comment on `hls` above; or
-        //      (b) refuse to play and surface a clear
-        //          "暂无可播放清晰度" error in the UI.
-        //    We pick (b) until the DASH proxy is fixed
-        //    (tracked separately).  The DASH source is
-        //    decoded and logged so the diagnostic report
-        //    shows what was on the wire, even though we
-        //    don't use it.
-        if let dash, let _ = dash.biliDashSource(duration: duration) {
+        //    and most modern sources.  The loopback HLS proxy
+        //    re-serves the DASH fMP4 tracks with `EXT-X-MAP`
+        //    init sections and byte-range shifted media
+        //    requests, which is the AVPlayer-compatible path
+        //    when no upstream HLS master is present.
+        if let dashSource = dash?.biliDashSource(duration: duration) {
             diagLog(.playback,
-                    "DASH source available but proxy not yet implemented",
+                    "Selected DASH playback",
                     details: [
-                        "videoCount": dash.video.count,
-                        "audioCount": dash.audio.count,
+                        "videoCount": dash?.video.count ?? 0,
+                        "audioCount": dash?.audio.count ?? 0,
                         "videoCodecs":
-                            dash.video.map { $0.codecs }.joined(separator: ","),
+                            dash?.video.map { $0.codecs }.joined(separator: ",") ?? "",
                         "audioCodecs":
-                            dash.audio
+                            dash?.audio
                                 .compactMap { $0.codecs }
-                                .joined(separator: ","),
+                                .joined(separator: ",") ?? "",
+                        "videoCodec": dashSource.video.codecs,
+                        "audioCodec": dashSource.audio?.codecs ?? "",
+                        "videoBandwidth": dashSource.video.bandwidth,
+                        "hasVideoInit": true,
+                        "hasAudioInit": dashSource.audio != nil,
                         "hlsAvailable": false
                     ])
+            return BiliPlayback(
+                dash: dashSource,
+                fallbackURL: nil,
+                referer: refererURL
+            )
         }
         // Diagnose why DASH was unusable.  This shows up in
         // the diagnostic export and is the difference between
@@ -1540,7 +1541,15 @@ private struct PlayURLPayload: Decodable {
                         "audioCodecs":
                             dash.audio
                                 .compactMap { $0.codecs }
-                                .joined(separator: ",")
+                                .joined(separator: ","),
+                        "hasVideoInit":
+                            dash.video.contains {
+                                $0.segmentBase?.initializationByteRange != nil
+                            },
+                        "hasAudioInit":
+                            dash.audio.contains {
+                                $0.segmentBase?.initializationByteRange != nil
+                            }
                     ])
         }
 
@@ -1657,7 +1666,8 @@ private struct PlayURLPayload: Decodable {
                 v.codecs.localizedCaseInsensitiveContains("avc")
                     || v.codecs.localizedCaseInsensitiveContains("h264")
             }
-            guard let v = avcVideo else {
+            guard let v = avcVideo,
+                  let videoInit = v.segmentBase?.initializationByteRange else {
                 return nil
             }
             let aacAudio = audio.first { a in
@@ -1669,7 +1679,16 @@ private struct PlayURLPayload: Decodable {
             // we have to drop audio entirely — AVPlayer will
             // refuse the manifest otherwise.  Muxed MP4 would
             // not have this problem but we are on the DASH path.
-            let a = aacAudio
+            let audioTrack: (
+                media: DashMedia,
+                initRange: BiliDashSource.ByteRange
+            )?
+            if let aacAudio,
+               let audioInit = aacAudio.segmentBase?.initializationByteRange {
+                audioTrack = (aacAudio, audioInit)
+            } else {
+                audioTrack = nil
+            }
             // `dash.duration` is published in *milliseconds* by
             // Bili (a legacy of the original MPD spec); the
             // playurl top-level `duration` (when present) is in
@@ -1690,15 +1709,29 @@ private struct PlayURLPayload: Decodable {
                     codecs: v.codecs,
                     bandwidth: v.bandwidth ?? 0,
                     mimeType: "video/mp4",
-                    totalDuration: totalDuration
+                    initializationRange: videoInit,
+                    mediaStartOffset:
+                        v.segmentBase?.mediaStartOffset(after: videoInit)
+                            ?? videoInit.endOffset + 1,
+                    totalDuration: totalDuration,
+                    width: v.width,
+                    height: v.height
                 ),
-                audio: a.map { audio in
+                audio: audioTrack.map { item in
+                    let audio = item.media
+                    let audioInit = item.initRange
                     BiliDashSource.Track(
                         baseURL: audio.baseURL,
                         codecs: audio.codecs ?? "mp4a.40.2",
                         bandwidth: audio.bandwidth ?? 0,
                         mimeType: "audio/mp4",
-                        totalDuration: totalDuration
+                        initializationRange: audioInit,
+                        mediaStartOffset:
+                            audio.segmentBase?.mediaStartOffset(after: audioInit)
+                                ?? audioInit.endOffset + 1,
+                        totalDuration: totalDuration,
+                        width: nil,
+                        height: nil
                     )
                 }
             )
@@ -1711,17 +1744,35 @@ private struct PlayURLPayload: Decodable {
         /// Bandwidth in bits/second.  Bili writes the integer
         /// `bandwidth` per Representation.
         let bandwidth: Int?
-        /// Segment count, derived from `SegmentTemplate` when
-        /// the upstream uses one.  Bili's CDN consistently
-        /// publishes this so we do not have to fetch the MPD
-        /// to count segments.
+        /// DASH byte-range metadata. Bili's playurl response
+        /// exposes the init section and segment index here so
+        /// the local HLS proxy can serve valid fMP4 playlists
+        /// without fetching a separate MPD.
         let segmentBase: SegmentBase?
+        let width: Int?
+        let height: Int?
 
-        enum CodingKeys: String, CodingKey {
-            case baseURL = "baseUrl"
-            case codecs
-            case bandwidth
-            case segmentBase = "SegmentBase"
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicKey.self)
+            guard let rawURL = container.decodeString(keys: [
+                "baseUrl", "base_url", "url"
+            ]), let url = URL(string: rawURL) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: DynamicKey("baseUrl"),
+                    in: container,
+                    debugDescription: "DashVideo: missing base URL"
+                )
+            }
+            baseURL = url
+            codecs = container.decodeString(keys: ["codecs"]) ?? ""
+            bandwidth = container.decodeInt(keys: ["bandwidth"])
+            width = container.decodeInt(keys: ["width"])
+            height = container.decodeInt(keys: ["height"])
+            segmentBase =
+                (try? container.decode(SegmentBase.self,
+                                       forKey: DynamicKey("SegmentBase")))
+                ?? (try? container.decode(SegmentBase.self,
+                                          forKey: DynamicKey("segment_base")))
         }
     }
 
@@ -1731,10 +1782,25 @@ private struct PlayURLPayload: Decodable {
         let bandwidth: Int?
         let segmentBase: SegmentBase?
 
-        enum CodingKeys: String, CodingKey {
-            case baseURL = "baseUrl"
-            case codecs, bandwidth
-            case segmentBase = "SegmentBase"
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicKey.self)
+            guard let rawURL = container.decodeString(keys: [
+                "baseUrl", "base_url", "url"
+            ]), let url = URL(string: rawURL) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: DynamicKey("baseUrl"),
+                    in: container,
+                    debugDescription: "DashMedia: missing base URL"
+                )
+            }
+            baseURL = url
+            codecs = container.decodeString(keys: ["codecs"])
+            bandwidth = container.decodeInt(keys: ["bandwidth"])
+            segmentBase =
+                (try? container.decode(SegmentBase.self,
+                                       forKey: DynamicKey("SegmentBase")))
+                ?? (try? container.decode(SegmentBase.self,
+                                          forKey: DynamicKey("segment_base")))
         }
     }
 
@@ -1745,6 +1811,54 @@ private struct PlayURLPayload: Decodable {
         /// `timescale` for `t`/`d` — the MPD spec writes integers
         /// in `timescale` units.  Bili uses 1000 or 1000000.
         let timescale: Int?
+        /// Byte range for the fMP4 initialization section, usually
+        /// written as `"0-821"`.
+        let initialization: String?
+        /// Byte range for the DASH segment index (`sidx`). The
+        /// playable media data starts immediately after this range.
+        let indexRange: String?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicKey.self)
+            duration = container.decodeDouble(keys: ["duration"])
+            timescale = container.decodeInt(keys: ["timescale"])
+            initialization = container.decodeString(keys: [
+                "Initialization", "initialization"
+            ])
+            indexRange = container.decodeString(keys: [
+                "indexRange", "index_range"
+            ])
+        }
+
+        var initializationByteRange: BiliDashSource.ByteRange? {
+            Self.byteRange(from: initialization)
+        }
+
+        func mediaStartOffset(
+            after initRange: BiliDashSource.ByteRange
+        ) -> Int64 {
+            if let index = Self.byteRange(from: indexRange) {
+                return index.endOffset + 1
+            }
+            return initRange.endOffset + 1
+        }
+
+        private static func byteRange(
+            from raw: String?
+        ) -> BiliDashSource.ByteRange? {
+            guard let raw else { return nil }
+            let parts = raw.split(separator: "-", maxSplits: 1)
+            guard parts.count == 2,
+                  let start = Int64(parts[0]),
+                  let end = Int64(parts[1]),
+                  end >= start else {
+                return nil
+            }
+            return BiliDashSource.ByteRange(
+                offset: start,
+                length: end - start + 1
+            )
+        }
     }
 }
 
