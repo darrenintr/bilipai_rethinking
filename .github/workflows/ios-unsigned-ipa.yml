@@ -106,6 +106,32 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build
 
+      # ------------------------------------------------------------------
+      # Derive a release tag from CFBundleVersion in Info.plist plus the
+      # short commit SHA, so each push to working produces a unique tag
+      # (e.g. v1+abc1234).  The TAG env is consumed by the packaging,
+      # verify, upload-artifact, and release steps.
+      # ------------------------------------------------------------------
+      - name: Resolve release tag
+        id: tag
+        run: |
+          set -euo pipefail
+          PLIST="$PROJECT_DIR/$PROJECT_NAME/Info.plist"
+          if [ ! -f "$PLIST" ]; then
+            echo "::error::Info.plist not found at $PLIST"
+            exit 1
+          fi
+          BUNDLE_VERSION="$(/usr/bin/plutil -extract CFBundleVersion raw "$PLIST")"
+          if [ -z "$BUNDLE_VERSION" ]; then
+            echo "::error::CFBundleVersion is empty in $PLIST"
+            exit 1
+          fi
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="v${BUNDLE_VERSION}+${SHORT_SHA}"
+          echo "BUNDLE_VERSION=$BUNDLE_VERSION" >> "$GITHUB_ENV"
+          echo "TAG=$TAG"                >> "$GITHUB_ENV"
+          echo "Resolved tag: $TAG (CFBundleVersion=$BUNDLE_VERSION, sha=$SHORT_SHA)"
+
       - name: Manually embed AliPlayerSDK frameworks
         run: |
           set -euo pipefail
@@ -145,14 +171,14 @@ jobs:
 
           (
             cd "$IPA_DIST_DIR"
-            /usr/bin/zip -qry "${PROJECT_NAME}-unsigned.ipa" Payload
-            shasum -a 256 "${PROJECT_NAME}-unsigned.ipa" > checksums.txt
+            /usr/bin/zip -qry "${PROJECT_NAME}-unsigned-${TAG}.ipa" Payload
+            shasum -a 256 "${PROJECT_NAME}-unsigned-${TAG}.ipa" > checksums.txt
           )
 
       - name: Verify AliPlayerSDK is embedded in the IPA
         run: |
           set -euo pipefail
-          IPA_PATH="$IPA_DIST_DIR/${PROJECT_NAME}-unsigned.ipa"
+          IPA_PATH="$IPA_DIST_DIR/${PROJECT_NAME}-unsigned-${TAG}.ipa"
           # AliPlayerSDK embeds as AliyunPlayer.framework inside the app bundle
           if ! /usr/bin/unzip -l "$IPA_PATH" | /usr/bin/grep -q 'AliyunPlayer.framework'; then
             echo "::error::AliyunPlayer.framework was not embedded in the IPA."
@@ -166,13 +192,27 @@ jobs:
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PROJECT_NAME }}-unsigned-ipa
+          name: ${{ env.PROJECT_NAME }}-unsigned-ipa-${{ env.TAG }}
           path: |
-            ${{ env.IPA_DIST_DIR }}/${{ env.PROJECT_NAME }}-unsigned.ipa
+            ${{ env.IPA_DIST_DIR }}/${{ env.PROJECT_NAME }}-unsigned-${{ env.TAG }}.ipa
             ${{ env.IPA_DIST_DIR }}/checksums.txt
           retention-days: 7
           if-no-files-found: error
 
-      - name: Create Release
+      - name: Create prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/working'
         uses: softprops/action-gh-release@v2
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.PROJECT_NAME }} ${{ env.TAG }}
+          body: |
+            Unsigned iOS IPA built from ${{ github.sha }} on ${{ github.ref_name }}.
+
+            - Commit: `${{ github.sha }}`
+            - CFBundleVersion: `${{ env.BUNDLE_VERSION }}`
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            ${{ env.IPA_DIST_DIR }}/${{ env.PROJECT_NAME }}-unsigned-${{ env.TAG }}.ipa
+            ${{ env.IPA_DIST_DIR }}/checksums.txt
