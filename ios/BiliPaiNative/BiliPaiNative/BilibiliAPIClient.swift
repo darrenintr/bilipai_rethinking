@@ -1720,7 +1720,7 @@ private struct PlayURLPayload: Decodable {
                 audio: audioTrack.map { item in
                     let audio = item.media
                     let audioInit = item.initRange
-                    BiliDashSource.Track(
+                    return BiliDashSource.Track(
                         baseURL: audio.baseURL,
                         codecs: audio.codecs ?? "mp4a.40.2",
                         bandwidth: audio.bandwidth ?? 0,
