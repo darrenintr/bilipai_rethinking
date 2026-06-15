@@ -1422,8 +1422,15 @@ private struct PlayURLPayload: Decodable {
         /// divide by 1000 to get seconds for the HLS master.
         let duration: Double?
         /// `minBufferTime`, used as a hint for EXT-X-TARGETDURATION
-        /// when the segment count is not exposed.
-        let minBufferTime: String?
+        /// when the segment count is not exposed.  Bilibili
+        /// writes this as a number (e.g. `1.5`), not a string,
+        /// even though the legacy MPD spec called for a duration
+        /// string.  Decode it as `Double?` so the manifest
+        /// round-trips; the value is currently unused downstream
+        /// (`bestPlayback` only consults `video` / `audio` /
+        /// `duration`), but we keep the field so the JSON
+        /// decoder doesn't blow up on a future API change.
+        let minBufferTime: Double?
 
         enum CodingKeys: String, CodingKey {
             case video, audio, duration
