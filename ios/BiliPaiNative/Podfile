@@ -12,10 +12,36 @@ post_install do |installer|
     end
   end
 
-  # Replace rsync --delete -av with cp -R in the embed-frameworks script.
-  # The --delete flag causes rsync to use mkstemp/mkstempat for atomic updates,
-  # which fails on sandboxed GitHub Actions runners.  cp -R copies recursively,
-  # preserves symlinks and timestamps, and avoids the temp-file dance.
+  # ------------------------------------------------------------------
+  # Remove [CP] Embed Pods Frameworks from the BiliPaiNative target.
+  # This phase runs inside an Xcode-managed sandbox that denies
+  # file-write-create (rsync mkstemp / cp copy).  The frameworks are
+  # instead copied into the app bundle by the CI workflow step
+  # (manual cp -R) which runs OUTSIDE any sandbox.
+  # ------------------------------------------------------------------
+  installer.aggregate_targets.each do |aggregate_target|
+    aggregate_target.xcconfigs.each do |config_name, xcconfig|
+      xcconfig.source_build_settings.each do |key, value|
+        # nil
+      end
+    end
+  end
+
+  # Find and remove the Embed Frameworks phase from the BiliPaiNative target.
+  native_targets_to_patch = installer.aggregate_targets.map(&:native_target)
+  native_targets_to_patch.uniq!
+  native_targets_to_patch.each do |native_target|
+    embed_phase = native_target.shell_script_build_phase(
+      script_path: 'Pods/Target Support Files/Pods-BiliPaiNative/Pods-BiliPaiNative-frameworks.sh'
+    )
+    if embed_phase
+      native_target.build_phases.delete(embed_phase)
+      Pod::UI.puts "[BiliPai patch] Removed [CP] Embed Pods Frameworks from #{native_target.name}"
+    end
+  end
+
+  # Also replace rsync --delete -av with cp -R as a safety net in case
+  # any embed script still calls rsync (this regex handles both -av and -a -v).
   embed_scripts = Dir.glob(
     File.join(installer.sandbox.root, 'Target Support Files',
               'Pods-*', 'Pods-*-frameworks.sh')
@@ -23,12 +49,13 @@ post_install do |installer|
   embed_scripts.each do |script_path|
     next unless File.exist?(script_path)
     contents = File.read(script_path)
-    next unless contents.include?('rsync --delete -av')
+    # Handle both "-av" (joined) and "-a -v" (separate) variants
+    next unless contents.match?(/rsync\s+--delete\s+-a\s*-v/)
     next if contents.include?('cp -R "${source}" "${destination}"')
 
     joined = contents.gsub(/\\\n[ \t]*/, ' ')
     patched = joined.gsub(
-      /^([ \t]*)rsync[ \t]+--delete[ \t]+-av\b[^\n]*"?\$\{source\}"?[ \t]+"?\$\{destination\}"?[ \t]*\n?/,
+      /^([ \t]*)rsync\s+--delete\s+-a\s*-v\b[^\n]*"?\$\{source\}"?[ \t]+"?\$\{destination\}"?[ \t]*\n?/,
     ) do |_match|
       "#{$1}" + 'cp -R "${source}" "${destination}"' + "\n"
     end
