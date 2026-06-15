@@ -7,6 +7,11 @@ struct ProfileSettingsView: View {
     @AppStorage("bilipai.danmakuEnabled") private var danmakuEnabled = true
     @AppStorage("bilipai.backgroundAudio") private var backgroundAudio = false
     @AppStorage("bilipai.todayWatch") private var todayWatch = true
+    /// When on, the next playurl request dumps its first 4 KB
+    /// of body to the diagnostic log.  Used to figure out what
+    /// the upstream HLS slot is actually called.  Default off
+    /// so the diagnostic export stays readable in normal use.
+    @AppStorage("bilipai.dumpPlayURL") private var dumpPlayURL = false
 
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var authStore: AuthStore
@@ -79,6 +84,20 @@ struct ProfileSettingsView: View {
                     PluginRow(title: "深度诊断报告",
                               subtitle: "推荐算法 / 播放 / 全屏排查 · 含系统信息",
                               symbol: "doc.text.magnifyingglass")
+                }
+
+                // Diagnostic dump toggle.  When on, the next
+                // playurl request logs its raw response body to
+                // the diagnostic export.  Used to figure out
+                // what shape B站's HLS slot actually takes.
+                Toggle(isOn: $dumpPlayURL) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("记录 playurl 原始响应")
+                            .font(.subheadline)
+                        Text("下次播放视频时,把 B 站返回的 JSON 前 4 KB 写入日志")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Link(destination: URL(string: "https://github.com/darrenintr/bilipai_rethinking")!) {

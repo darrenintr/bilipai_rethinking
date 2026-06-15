@@ -366,6 +366,23 @@ final class BilibiliAPIClient {
         }
         let finalBvid = bvid.isEmpty ? "av\(aid)" : bvid
 
+        // Read the diagnostic-dump flag once per call.  The flag
+        // is a UserDefaults Bool that can be flipped from the
+        // iOS Settings app (search "bilipai.dumpPlayURL") or by
+        // the runtime "Run-time flags" panel on the deep
+        // diagnostic report screen.  When on, the first
+        // playurl response of the session is dumped to the
+        // log verbatim (first 4 KB) so we can see exactly
+        // which fields the upstream returned and what they're
+        // called.  We persist the "dumped" marker back to
+        // UserDefaults so a transient network failure on the
+        // first attempt doesn't end up dumping all 4 qns.
+        let defaults = UserDefaults.standard
+        let dumpPlayURLKey = "bilipai.dumpPlayURL"
+        let dumpPlayURLDoneKey = "bilipai.dumpPlayURL.done"
+        let dumpPlayURL = defaults.bool(forKey: dumpPlayURLKey)
+        let alreadyDumped = defaults.bool(forKey: dumpPlayURLDoneKey)
+
         let qnChain: [Int] = [80, 64, 32, 16]
         var lastError: Error = BilibiliAPIError.missingData
         for qn in qnChain {
@@ -387,8 +404,18 @@ final class BilibiliAPIClient {
                     baseURL: baseURL,
                     path: "/x/player/wbi/playurl",
                     queryItems: queryItems,
-                    signWithWBI: true
+                    signWithWBI: true,
+                    dumpRawBody: dumpPlayURL && !alreadyDumped,
+                    dumpTag: "playurl qn=\(qn) bvid=\(finalBvid)"
                 )
+                // Persist the "dumped" marker so the next
+                // session (or a retry within this session
+                // after a transient failure) does not dump
+                // again.  Reset by toggling the user-facing
+                // flag in Settings.
+                if dumpPlayURL && !alreadyDumped {
+                    defaults.set(true, forKey: dumpPlayURLDoneKey)
+                }
                 try payload.requireOK()
                 if let playback = payload.value?.bestPlayback(
                     referer: "https://www.bilibili.com/video/\(finalBvid)"
@@ -886,7 +913,14 @@ final class BilibiliAPIClient {
         baseURL: URL,
         path: String,
         queryItems: [URLQueryItem],
-        signWithWBI: Bool = false
+        signWithWBI: Bool = false,
+        // Diagnostic flags: when both are set, the first 4 KB
+        // of the response body is dumped to the diagnostic log
+        // so we can see exactly what the upstream returned.
+        // Used to figure out what the playurl HLS slot is
+        // actually called.
+        dumpRawBody: Bool = false,
+        dumpTag: String = ""
     ) async throws -> T {
         var items = queryItems
         let isAppAPI = baseURL.host?.contains("app.bilibili.com") == true
@@ -931,6 +965,21 @@ final class BilibiliAPIClient {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             bpLog("GET \(url.absoluteString) returned HTTP \(status)")
             throw BilibiliAPIError.http
+        }
+        if dumpRawBody {
+            // Dump the first 4 KB.  Large enough to capture the
+            // top-level keys + the start of the DASH manifest +
+            // the (usually short) `hls` slot if present.
+            // Truncate the dump to keep the diagnostic export
+            // readable.
+            let sample = String(data: data.prefix(4096), encoding: .utf8)
+                ?? "<binary>"
+            diagLog(.playback,
+                    "playurl raw response dump (\(dumpTag))",
+                    details: [
+                        "bytes": data.count,
+                        "body_prefix_4k": sample
+                    ])
         }
         do {
             return try decoder.decode(T.self, from: data)
@@ -1360,10 +1409,15 @@ private struct PlayURLPayload: Decodable {
     let duration: Double?
 
     /// Tolerant decoder.  Bilibili serves `hls` and `durl` in
-    /// two observed shapes (array of objects, single object,
-    /// bare URL string).  We normalise all three into a
-    /// `[DURL]?` so the call sites can use a single
-    /// `?.first?.url` lookup.
+    /// several observed shapes:
+    ///   * `hls`: array of `{url, size, length}` (preferred)
+    ///   * `hls`: single `{url, ...}` object
+    ///   * `hls_url` / `hlsUrl`: bare URL string
+    ///   * `h5_url` / `h4_url` / `h3_url`: B站's per-quality
+    ///     HLS slots, named after the `qn` ladder.  These are
+    ///     bare URL strings, usually `m3u8` master playlists.
+    /// We normalise all of them into a `[DURL]?` so the call
+    /// sites can use a single `?.first?.url` lookup.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: DynamicKey.self)
         if let arr = try? container.decode([DURL].self, forKey: DynamicKey("durl")) {
@@ -1377,8 +1431,16 @@ private struct PlayURLPayload: Decodable {
             self.hls = arr
         } else if let single = try? container.decode(DURL.self, forKey: DynamicKey("hls")) {
             self.hls = [single]
-        } else if let s = container.decodeString(keys: ["hls_url", "hlsUrl"]),
-                  let url = URL(string: s) {
+        } else if let s = container.decodeString(keys: [
+            "hls_url", "hlsUrl",
+            // Per-quality HLS slots observed on B站 playurl
+            // responses.  The number after `h` is the qn
+            // (e.g. 80 = 1080P, 64 = 720P, 32 = 480P, 16 =
+            // 360P).  We accept all of them in priority
+            // order — the first non-nil wins.
+            "h5_url", "h4_url", "h3_url", "h2_url", "h1_url",
+            "h5Url", "h4Url", "h3Url", "h2Url", "h1Url"
+        ]), let url = URL(string: s) {
             self.hls = [DURL.fromURL(url)]
         } else {
             self.hls = nil
@@ -1413,6 +1475,23 @@ private struct PlayURLPayload: Decodable {
                 referer: refererURL
             )
         }
+
+        // 1.5) Diagnostic breadcrumb: log the response shape we
+        //      actually got.  The user has reported multiple
+        //      videos returning DASH but no HLS — knowing which
+        //      fields were present (and which were absent) is
+        //      the difference between "decoder missed a key" and
+        //      "B站 never returned HLS for this qn".
+        diagLog(.playback,
+                "playurl response shape",
+                details: [
+                    "hasDash": dash != nil,
+                    "hasDurl": (durl?.isEmpty ?? true) == false,
+                    "hasHls": (hls?.isEmpty ?? true) == false,
+                    "dashVideoCount": dash?.video.count ?? 0,
+                    "dashAudioCount": dash?.audio.count ?? 0,
+                    "durlCount": durl?.count ?? 0
+                ])
 
         // 2) DASH path.  B站 ships DASH manifests for 1080P+
         //    and most modern sources.  We can normally use
