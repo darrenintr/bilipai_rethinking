@@ -154,6 +154,7 @@ final class LocalHLSProxyServer {
     private var listener: NWListener?
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
+    private var activeStreams: [UUID: StreamingProxyTask] = [:]
 
     private init() {}
 
@@ -350,15 +351,24 @@ final class LocalHLSProxyServer {
         case passthrough
         case initRange
         case mediaRange
+
+        var logName: String {
+            switch self {
+            case .passthrough: return "passthrough"
+            case .initRange: return "init"
+            case .mediaRange: return "media"
+            }
+        }
     }
 
     /// Proxy a single segment request.  AVPlayer issues
     /// `GET /init?...` for the fMP4 map and `GET /media?...`
     /// for the playable media data.  We translate those into
     /// absolute upstream byte ranges, then forward to the CDN
-    /// with the right `Referer` and `User-Agent`.  The body is
-    /// buffered in memory (URLSession default); for B站-sized
-    /// segments (a few MB) this is fine.
+    /// with the right `Referer` and `User-Agent`.  The upstream
+    /// body is streamed into the loopback response as it arrives;
+    /// buffering the whole m4s first makes AVPlayer sit forever
+    /// in `waitingToPlayAtSpecifiedRate`.
     private func proxySegment(
         req: HTTPRequest,
         connection: NWConnection,
@@ -449,51 +459,30 @@ final class LocalHLSProxyServer {
         _ = source  // Keep the playback snapshot alive while
                     // the URLSession request is queued.
 
-        let task = URLSession.shared.dataTask(
-            with: upstreamReq
-        ) { [weak self] body, response, error in
-            guard let self else { connection.cancel(); return }
-            if let error = error {
-                diagLog(.network, "Upstream segment error",
-                        details: ["error": error.localizedDescription])
-                self.respondError(connection: connection, status: 502,
-                                  reason: "upstream")
-                return
-            }
-            guard let response = response as? HTTPURLResponse,
-                  let body = body else {
-                self.respondError(connection: connection, status: 502,
-                                  reason: "upstream")
-                return
-            }
-            self.lock.lock()
-            self.byteCount += Int64(body.count)
-            self.lock.unlock()
-            var extraHeaders: [String: String] = [:]
-            if let shift = contentRangeShift,
-               let range = response.value(
-                    forHTTPHeaderField: "Content-Range"
-               ),
-               let shifted = self.shiftedContentRange(range, by: shift) {
-                extraHeaders["Content-Range"] = shifted
-                extraHeaders["Accept-Ranges"] = "bytes"
-            } else if passContentRange,
-                      let range = response.value(
-                        forHTTPHeaderField: "Content-Range"
-                      ) {
-                extraHeaders["Content-Range"] = range
-                extraHeaders["Accept-Ranges"] = "bytes"
-            }
-            self.respondBytes(
-                connection: connection,
-                status: responseStatusOverride ?? response.statusCode,
-                contentType: response.mimeType
-                    ?? mimeType(for: upstream.pathExtension),
-                body: body,
-                extraHeaders: extraHeaders
-            )
-        }
-        task.resume()
+        diagLog(.playback,
+                "LocalHLSProxyServer upstream request",
+                details: [
+                    "mode": mode.logName,
+                    "host": upstream.host ?? "",
+                    "hasReferer": upstreamReq.value(
+                        forHTTPHeaderField: "Referer"
+                    ) != nil,
+                    "range": upstreamReq.value(
+                        forHTTPHeaderField: "Range"
+                    ) ?? ""
+                ])
+        let stream = StreamingProxyTask(
+            server: self,
+            connection: connection,
+            upstream: upstream,
+            request: upstreamReq,
+            mode: mode.logName,
+            statusOverride: responseStatusOverride,
+            contentRangeShift: contentRangeShift,
+            passContentRange: passContentRange
+        )
+        retain(stream: stream)
+        stream.start()
     }
 
     // MARK: response helpers
@@ -528,6 +517,43 @@ final class LocalHLSProxyServer {
         body: Data,
         extraHeaders: [String: String] = [:]
     ) {
+        var response = httpHeaderData(
+            status: status,
+            contentType: contentType,
+            contentLength: Int64(body.count),
+            extraHeaders: extraHeaders
+        )
+        response.append(body)
+        connection.send(
+            content: response,
+            completion: .contentProcessed { _ in connection.cancel() }
+        )
+    }
+
+    fileprivate func sendHeader(
+        connection: NWConnection,
+        status: Int,
+        contentType: String,
+        contentLength: Int64?,
+        extraHeaders: [String: String] = [:]
+    ) {
+        connection.send(
+            content: httpHeaderData(
+                status: status,
+                contentType: contentType,
+                contentLength: contentLength,
+                extraHeaders: extraHeaders
+            ),
+            completion: .contentProcessed { _ in }
+        )
+    }
+
+    private func httpHeaderData(
+        status: Int,
+        contentType: String,
+        contentLength: Int64?,
+        extraHeaders: [String: String] = [:]
+    ) -> Data {
         let reason = reasonPhrase(for: status)
         var headerLines = [
             "HTTP/1.1 \(status) \(reason)",
@@ -536,20 +562,34 @@ final class LocalHLSProxyServer {
         for key in extraHeaders.keys.sorted() {
             headerLines.append("\(key): \(extraHeaders[key] ?? "")")
         }
+        if let contentLength {
+            headerLines.append("Content-Length: \(contentLength)")
+        }
         headerLines += [
-            "Content-Length: \(body.count)",
             "Connection: close",
             "Cache-Control: no-store",
             "",
             "",
         ]
-        let header = headerLines.joined(separator: "\r\n")
-        var response = Data(header.utf8)
-        response.append(body)
-        connection.send(
-            content: response,
-            completion: .contentProcessed { _ in connection.cancel() }
-        )
+        return Data(headerLines.joined(separator: "\r\n").utf8)
+    }
+
+    private func retain(stream: StreamingProxyTask) {
+        lock.lock()
+        activeStreams[stream.id] = stream
+        lock.unlock()
+    }
+
+    fileprivate func finishStream(id: UUID) {
+        lock.lock()
+        activeStreams.removeValue(forKey: id)
+        lock.unlock()
+    }
+
+    fileprivate func addStreamedBytes(_ count: Int) {
+        lock.lock()
+        byteCount += Int64(count)
+        lock.unlock()
     }
 
     private func reasonPhrase(for status: Int) -> String {
@@ -653,7 +693,7 @@ final class LocalHLSProxyServer {
         )
     }
 
-    private func shiftedContentRange(
+    fileprivate func shiftedContentRange(
         _ header: String,
         by offset: Int64
     ) -> String? {
@@ -725,13 +765,209 @@ final class LocalHLSProxyServer {
         return String(data: d, encoding: .utf8)
     }
 
-    private func mimeType(for pathExtension: String) -> String {
+    fileprivate func mimeType(for pathExtension: String) -> String {
         switch pathExtension.lowercased() {
         case "m3u8":               return "application/vnd.apple.mpegurl"
         case "m4s", "mp4", "mov":  return "video/mp4"
         case "aac":                return "audio/aac"
         case "ts":                 return "video/mp2t"
         default:                   return "application/octet-stream"
+        }
+    }
+}
+
+private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
+    let id = UUID()
+
+    private weak var server: LocalHLSProxyServer?
+    private let connection: NWConnection
+    private let upstream: URL
+    private let request: URLRequest
+    private let mode: String
+    private let statusOverride: Int?
+    private let contentRangeShift: Int64?
+    private let passContentRange: Bool
+    private let sendGroup = DispatchGroup()
+    private let delegateQueue: OperationQueue
+
+    private var session: URLSession?
+    private var task: URLSessionDataTask?
+    private var didSendHeader = false
+    private var didFinish = false
+
+    init(
+        server: LocalHLSProxyServer,
+        connection: NWConnection,
+        upstream: URL,
+        request: URLRequest,
+        mode: String,
+        statusOverride: Int?,
+        contentRangeShift: Int64?,
+        passContentRange: Bool
+    ) {
+        self.server = server
+        self.connection = connection
+        self.upstream = upstream
+        self.request = request
+        self.mode = mode
+        self.statusOverride = statusOverride
+        self.contentRangeShift = contentRangeShift
+        self.passContentRange = passContentRange
+        self.delegateQueue = OperationQueue()
+        self.delegateQueue.maxConcurrentOperationCount = 1
+        super.init()
+    }
+
+    func start() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        let session = URLSession(
+            configuration: configuration,
+            delegate: self,
+            delegateQueue: delegateQueue
+        )
+        self.session = session
+        let task = session.dataTask(with: request)
+        self.task = task
+        task.resume()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let server,
+              let http = response as? HTTPURLResponse else {
+            completionHandler(.cancel)
+            finishWithError(reason: "bad upstream response")
+            return
+        }
+        didSendHeader = true
+        var extraHeaders: [String: String] = [:]
+        let upstreamContentRange = http.value(forHTTPHeaderField: "Content-Range")
+        if let shift = contentRangeShift,
+           let upstreamContentRange,
+           let shifted = server.shiftedContentRange(
+                upstreamContentRange,
+                by: shift
+           ) {
+            extraHeaders["Content-Range"] = shifted
+            extraHeaders["Accept-Ranges"] = "bytes"
+        } else if passContentRange,
+                  let upstreamContentRange {
+            extraHeaders["Content-Range"] = upstreamContentRange
+            extraHeaders["Accept-Ranges"] = "bytes"
+        }
+        let status = statusOverride ?? http.statusCode
+        let contentLength = http.expectedContentLength >= 0
+            ? http.expectedContentLength
+            : nil
+        diagLog(.playback,
+                "LocalHLSProxyServer upstream response",
+                details: [
+                    "mode": mode,
+                    "status": http.statusCode,
+                    "downstreamStatus": status,
+                    "contentLength": contentLength ?? -1,
+                    "contentRange": upstreamContentRange ?? "",
+                    "mimeType": http.mimeType ?? "",
+                    "host": upstream.host ?? ""
+                ])
+        server.sendHeader(
+            connection: connection,
+            status: status,
+            contentType: http.mimeType
+                ?? server.mimeType(for: upstream.pathExtension),
+            contentLength: contentLength,
+            extraHeaders: extraHeaders
+        )
+        completionHandler(.allow)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+        if !didSendHeader {
+            server?.sendHeader(
+                connection: connection,
+                status: 200,
+                contentType: server?.mimeType(
+                    for: upstream.pathExtension
+                ) ?? "application/octet-stream",
+                contentLength: nil
+            )
+            didSendHeader = true
+        }
+        server?.addStreamedBytes(data.count)
+        sendGroup.enter()
+        connection.send(
+            content: data,
+            completion: .contentProcessed { [weak self] error in
+                if let error {
+                    diagLog(.network,
+                            "LocalHLSProxyServer downstream send error",
+                            details: [
+                                "mode": self?.mode ?? "",
+                                "error": error.localizedDescription
+                            ])
+                }
+                self?.sendGroup.leave()
+            }
+        )
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error {
+            diagLog(.network,
+                    "Upstream segment error",
+                    details: [
+                        "mode": mode,
+                        "error": error.localizedDescription
+                    ])
+            if !didSendHeader {
+                server?.sendHeader(
+                    connection: connection,
+                    status: 502,
+                    contentType: "application/json",
+                    contentLength: nil
+                )
+            }
+        }
+        finishWhenSendsDrain()
+    }
+
+    private func finishWithError(reason: String) {
+        diagLog(.network,
+                "LocalHLSProxyServer stream failed",
+                details: ["mode": mode, "reason": reason])
+        if !didSendHeader {
+            server?.sendHeader(
+                connection: connection,
+                status: 502,
+                contentType: "application/json",
+                contentLength: nil
+            )
+        }
+        finishWhenSendsDrain()
+    }
+
+    private func finishWhenSendsDrain() {
+        guard !didFinish else { return }
+        didFinish = true
+        sendGroup.notify(queue: .global(qos: .utility)) { [weak self] in
+            guard let self else { return }
+            self.connection.cancel()
+            self.session?.finishTasksAndInvalidate()
+            self.server?.finishStream(id: self.id)
         }
     }
 }
