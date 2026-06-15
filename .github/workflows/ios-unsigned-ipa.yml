@@ -36,6 +36,61 @@ jobs:
           sw_vers
 
       # ------------------------------------------------------------------
+      # Auto-increment the iOS build number so the prerelease list
+      # always shows the newest at the top.  We pull the highest
+      # existing `v0.3-alpha-ios-N` prerelease number via the GitHub
+      # API and add 1, then write that back to Info.plist *in the
+      # runner's working copy only* (no commit, no push, so we
+      # never race with the user pushing).  The next workflow
+      # run re-derives from gh, so the sequence is monotonic
+      # across runs and never resets.
+      #
+      # If the API call fails (offline / permissions), we fall
+      # back to the value currently in Info.plist + 1 so a single
+      # bad run doesn't break the pipeline.
+      # ------------------------------------------------------------------
+      - name: Bump build number
+        run: |
+          set -euo pipefail
+          PLIST="$PROJECT_DIR/$PROJECT_NAME/Info.plist"
+          if [ ! -f "$PLIST" ]; then
+            echo "::error::Info.plist not found at $PLIST"
+            exit 1
+          fi
+          CURRENT="$(/usr/bin/plutil -extract CFBundleVersion raw "$PLIST")"
+          if [ -z "$CURRENT" ]; then
+            echo "::error::CFBundleVersion is empty in $PLIST"
+            exit 1
+          fi
+          BASE_INT="${CURRENT%%.*}"
+          if ! [[ "$BASE_INT" =~ ^[0-9]+$ ]]; then
+            echo "::error::CFBundleVersion '$CURRENT' is not numeric"
+            exit 1
+          fi
+          # Discover the highest existing prerelease N via
+          # `gh release list` (paginated, JSON).  Falls back
+          # silently to BASE_INT if the call fails (no
+          # network, missing perm, etc.) so a single bad
+          # run doesn't break the pipeline.
+          HIGHEST=0
+          if command -v gh >/dev/null 2>&1; then
+            TAGS="$(gh release list --limit 200 \
+                      --json tagName -q '.[].tagName' 2>/dev/null || true)"
+            for tag in $TAGS; do
+              if [[ "$tag" =~ ^v0\.3-alpha-ios-([0-9]+)$ ]]; then
+                n="${BASH_REMATCH[1]}"
+                if [ "$n" -gt "$HIGHEST" ]; then HIGHEST="$n"; fi
+              fi
+            done
+          fi
+          BASE="$BASE_INT"
+          if [ "$HIGHEST" -gt "$BASE" ]; then BASE="$HIGHEST"; fi
+          NEW=$((BASE + 1))
+          /usr/bin/plutil -replace CFBundleVersion -string "$NEW" "$PLIST"
+          echo "Bumped CFBundleVersion: $CURRENT → $NEW (highest existing prerelease = $HIGHEST)"
+          echo "BUNDLE_VERSION=$NEW" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
       # No CocoaPods step: AliyunPlayer has been replaced by AVPlayer
       # (BiliResourceLoaderDelegate.swift synthesises an HLS manifest
       # from Bilibili's DASH response and proxies fMP4 segments
@@ -68,30 +123,26 @@ jobs:
             build
 
       # ------------------------------------------------------------------
-      # Derive a release tag from CFBundleVersion in Info.plist plus the
-      # short commit SHA, so each push to working produces a unique tag
-      # (e.g. v1+abc1234).  The TAG env is consumed by the packaging,
-      # upload-artifact, and release steps.
+      # Derive a release tag from the build number we just bumped
+      # in `Bump build number`.  The format `v0.3-alpha-ios-N` puts
+      # the build number in the tag itself, so the prerelease
+      # list at github.com/<repo>/releases sorts newest-first by
+      # name (and the names are human-comparable: "Build 75" is
+      # obviously newer than "Build 74").  The TAG env is consumed
+      # by the packaging, upload-artifact, and release steps.
       # ------------------------------------------------------------------
       - name: Resolve release tag
         id: tag
         run: |
           set -euo pipefail
-          PLIST="$PROJECT_DIR/$PROJECT_NAME/Info.plist"
-          if [ ! -f "$PLIST" ]; then
-            echo "::error::Info.plist not found at $PLIST"
+          # BUNDLE_VERSION was set by the `Bump build number` step.
+          if [ -z "${BUNDLE_VERSION:-}" ]; then
+            echo "::error::BUNDLE_VERSION is not set — did Bump build number run?"
             exit 1
           fi
-          BUNDLE_VERSION="$(/usr/bin/plutil -extract CFBundleVersion raw "$PLIST")"
-          if [ -z "$BUNDLE_VERSION" ]; then
-            echo "::error::CFBundleVersion is empty in $PLIST"
-            exit 1
-          fi
-          SHORT_SHA="${GITHUB_SHA::7}"
-          TAG="v${BUNDLE_VERSION}+${SHORT_SHA}"
-          echo "BUNDLE_VERSION=$BUNDLE_VERSION" >> "$GITHUB_ENV"
-          echo "TAG=$TAG"                >> "$GITHUB_ENV"
-          echo "Resolved tag: $TAG (CFBundleVersion=$BUNDLE_VERSION, sha=$SHORT_SHA)"
+          TAG="v0.3-alpha-ios-${BUNDLE_VERSION}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Resolved tag: $TAG (CFBundleVersion=$BUNDLE_VERSION)"
 
       - name: Package unsigned IPA
         run: |
@@ -141,7 +192,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          name: ${{ env.PROJECT_NAME }} ${{ env.TAG }}
+          name: iOS 0.3 ALPHA (Build ${{ env.BUNDLE_VERSION }})
           body: |
             Unsigned iOS IPA built from ${{ github.sha }} on ${{ github.ref_name }}.
 
