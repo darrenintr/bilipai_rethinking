@@ -15,54 +15,21 @@ post_install do |installer|
   # ------------------------------------------------------------------
   # Remove [CP] Embed Pods Frameworks from the BiliPaiNative target.
   # This phase runs inside an Xcode-managed sandbox that denies
-  # file-write-create (rsync mkstemp / cp copy).  The frameworks are
-  # instead copied into the app bundle by the CI workflow step
-  # (manual cp -R) which runs OUTSIDE any sandbox.
+  # file-write-create (blocked for both rsync --delete mkstemp and
+  # cp).  The frameworks are instead copied by the CI workflow step
+  # (plain cp -R) which runs OUTSIDE any sandbox.
   # ------------------------------------------------------------------
   installer.aggregate_targets.each do |aggregate_target|
-    aggregate_target.xcconfigs.each do |config_name, xcconfig|
-      xcconfig.source_build_settings.each do |key, value|
-        # nil
-      end
-    end
-  end
+    native_target = aggregate_target.native_target
+    next unless native_target.name == 'BiliPaiNative'
 
-  # Find and remove the Embed Frameworks phase from the BiliPaiNative target.
-  native_targets_to_patch = installer.aggregate_targets.map(&:native_target)
-  native_targets_to_patch.uniq!
-  native_targets_to_patch.each do |native_target|
-    embed_phase = native_target.shell_script_build_phase(
-      script_path: 'Pods/Target Support Files/Pods-BiliPaiNative/Pods-BiliPaiNative-frameworks.sh'
-    )
+    embed_phase = native_target.build_phases.find do |bp|
+      bp.is_a?(Xcodeproj::Target::BuildPhase::ShellScriptBuildPhase) &&
+        bp.name&.include?('Embed Pods Frameworks')
+    end
     if embed_phase
       native_target.build_phases.delete(embed_phase)
       Pod::UI.puts "[BiliPai patch] Removed [CP] Embed Pods Frameworks from #{native_target.name}"
     end
-  end
-
-  # Also replace rsync --delete -av with cp -R as a safety net in case
-  # any embed script still calls rsync (this regex handles both -av and -a -v).
-  embed_scripts = Dir.glob(
-    File.join(installer.sandbox.root, 'Target Support Files',
-              'Pods-*', 'Pods-*-frameworks.sh')
-  )
-  embed_scripts.each do |script_path|
-    next unless File.exist?(script_path)
-    contents = File.read(script_path)
-    # Handle both "-av" (joined) and "-a -v" (separate) variants
-    next unless contents.match?(/rsync\s+--delete\s+-a\s*-v/)
-    next if contents.include?('cp -R "${source}" "${destination}"')
-
-    joined = contents.gsub(/\\\n[ \t]*/, ' ')
-    patched = joined.gsub(
-      /^([ \t]*)rsync\s+--delete\s+-a\s*-v\b[^\n]*"?\$\{source\}"?[ \t]+"?\$\{destination\}"?[ \t]*\n?/,
-    ) do |_match|
-      "#{$1}" + 'cp -R "${source}" "${destination}"' + "\n"
-    end
-    next if patched == joined
-
-    File.write(script_path, patched)
-    File.chmod(0755, script_path)
-    Pod::UI.puts "[BiliPai patch] Replaced rsync --delete -av with cp -R in #{File.basename(script_path)}"
   end
 end
