@@ -41,6 +41,47 @@ jobs:
           cd "$PROJECT_DIR"
           pod install
 
+      # ------------------------------------------------------------------
+      # Drop the [CP] Embed Pods Frameworks build phase from the
+      # BiliPaiNative target.  CocoaPods adds this phase to run
+      # `Pods-BiliPaiNative-frameworks.sh`, which in turn invokes rsync
+      # to copy vendored frameworks into <App>.app/Frameworks.  On Xcode
+      # 15+ the build sandbox denies that file-write, so the rsync step
+      # aborts the build with "Sandbox: rsync(...) deny(1)".
+      #
+      # The next workflow step ("Manually embed AliPlayerSDK frameworks")
+      # copies the same frameworks with `cp -R` outside the sandbox, so
+      # the embed phase is redundant; we just need it gone before
+      # xcodebuild reads the project.  Doing this in the workflow (post
+      # `pod install`) is more reliable than mutating the project from
+      # the Podfile's post_install hook, because the on-disk project is
+      # fully written and stable at this point.
+      # ------------------------------------------------------------------
+      - name: Drop [CP] Embed Pods Frameworks phase
+        run: |
+          set -euo pipefail
+          ruby -e '
+            require "xcodeproj"
+            project_path = File.join(ENV["PROJECT_DIR"], ENV["PROJECT_NAME"] + ".xcodeproj")
+            abort "Project not found: #{project_path}" unless File.directory?(project_path)
+
+            project = Xcodeproj::Project.open(project_path)
+            removed = 0
+            project.targets.each do |t|
+              next unless t.name == ENV["PROJECT_NAME"]
+              t.build_phases.dup.each do |bp|
+                name_hit   = bp.respond_to?(:name) && bp.name.to_s.include?("Embed Pods Frameworks")
+                script_hit = bp.respond_to?(:shell_script) && bp.shell_script.to_s.include?("-frameworks.sh")
+                next unless name_hit || script_hit
+                t.build_phases.delete(bp)
+                removed += 1
+              end
+            end
+            abort "No embed-frameworks phase found in #{ENV["PROJECT_NAME"]} target" if removed.zero?
+            project.save
+            puts "[embed-phase patch] Removed #{removed} phase(s) from #{ENV["PROJECT_NAME"]}"
+          '
+
       - name: Verify workspace and scheme
         run: |
           set -euo pipefail
