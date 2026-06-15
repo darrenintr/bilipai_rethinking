@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Patch project.pbxproj: add PatchSandboxSB Run Script phase before Embed phase."""
-import re
+"""Add PatchSandboxSB Run Script phase to project.pbxproj BEFORE the Embed phase."""
 import sys
 import uuid
 
@@ -19,36 +18,29 @@ def do_patch(path):
         print(f"[patch_sandbox] Already patched: {path}")
         return
 
-    phase_id    = gen_id()   # PBXShellScriptBuildPhase ID
-    file_ref_id = gen_id()   # PBXFileReference ID
-    build_id    = gen_id()   # PBXBuildFile ID
+    phase_id    = gen_id()
+    file_ref_id = gen_id()
+    build_id    = gen_id()
 
-    script_literal = '\n'.join([
-        'SB_FILE="${TARGET_TEMP_DIR}"/*.sb',
-        'if [ -f "$SB_FILE" ] && ! grep -q "file-write-create" "$SB_FILE"; then',
-        '    echo "(allow file-write-create (subpath \\"Build/Products/\\"))" >> "$SB_FILE"',
-        'fi',
-        '',
-    ])
-
-    # PBXFileReference for the shell script
+    # PBXFileReference for the external shell script file
     file_ref = (
         f'\t\t{file_ref_id} /* PatchSandboxSB.sh */ = {{isa = PBXFileReference; '
         f'fileEncoding = 4; lastKnownFileType = text.script.sh; '
         f'name = PatchSandboxSB.sh; path = PatchSandboxSB.sh; sourceTree = "<group>"; }};\n'
     )
 
-    # PBXBuildFile (links fileRef into Sources phase - required for pbxproj validity)
+    # PBXBuildFile (required: must appear in a Sources build phase for pbxproj validity)
     build_file = (
         f'\t\t{build_id} /* PatchSandboxSB.sh in Sources */ = {{isa = PBXBuildFile; '
         f'fileRef = {file_ref_id} /* PatchSandboxSB.sh */; }};\n'
     )
 
     # PBXShellScriptBuildPhase
+    # shellPath = /bin/sh  +  shellScript = "...; source ./script.sh" avoids
+    # embedding any complex string content in the pbxproj.
     shell_phase = (
         f'\n/* Begin PBXShellScriptBuildPhase section */\n'
-        f'\t\t{phase_id} /* PatchSandboxSB */ = {{\n'
-        f'\t\t\tisa = PBXShellScriptBuildPhase;\n'
+        f'\t\t{phase_id} /* PatchSandboxSB */ = {{isa = PBXShellScriptBuildPhase;\n'
         f'\t\t\tbuildActionMask = 2147483647;\n'
         f'\t\t\tfiles = (\n'
         f'\t\t\t);\n'
@@ -63,7 +55,7 @@ def do_patch(path):
         f'\t\t\t);\n'
         f'\t\t\trunOnlyForDeploymentPostprocessing = 0;\n'
         f'\t\t\tshellPath = /bin/sh;\n'
-        f'\t\t\tshellScript = """\n{script_literal}""";\n'
+        f'\t\t\tshellScript = ". \\"${{PROJECT_DIR}}/PatchSandboxSB.sh\\"";\n'
         f'\t\t}};\n'
         f'/* End PBXShellScriptBuildPhase section */\n'
     )
@@ -76,14 +68,10 @@ def do_patch(path):
         '/* End PBXBuildFile section */',
         build_file + '/* End PBXBuildFile section */',
     )
-
-    # Append shell phase before rootObject
     content = content.replace(
         'rootObject = 100000000000000000000601 /* Project object */;',
         shell_phase + '\trootObject = 100000000000000000000601 /* Project object */;',
     )
-
-    # Add phase to target buildPhases after Sources phase
     content = content.replace(
         '100000000000000000000701 /* Sources */,',
         '100000000000000000000701 /* Sources */,\n\t\t\t\t' + phase_id + ' /* PatchSandboxSB */,',
@@ -93,9 +81,6 @@ def do_patch(path):
         f.write(content)
 
     print(f"[patch_sandbox] Patched {path}")
-    print(f"  phase_id  = {phase_id}")
-    print(f"  file_ref  = {file_ref_id}")
-    print(f"  build_id  = {build_id}")
 
 
 if __name__ == "__main__":
