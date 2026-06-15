@@ -12,11 +12,10 @@ post_install do |installer|
     end
   end
 
-  # Replace rsync --delete -av with rsync -a in the embed-frameworks script.
+  # --- Replace rsync --delete -av with cp -R in the embed-frameworks script. ---
   # The --delete flag causes rsync to use mkstemp/mkstempat for atomic updates,
-  # which fails on sandboxed GitHub Actions runners.  rsync -a (archive mode:
-  # -rlptgoD) copies recursively, preserves symlinks and timestamps, and avoids
-  # the temp-file dance that triggers mkstempat/mkpathat/utimensat errors.
+  # which fails on sandboxed GitHub Actions runners.  cp -R copies recursively,
+  # preserves symlinks/timestamps, and avoids the temp-file dance.
   embed_scripts = Dir.glob(
     File.join(installer.sandbox.root, 'Target Support Files',
               'Pods-*', 'Pods-*-frameworks.sh')
@@ -25,18 +24,41 @@ post_install do |installer|
     next unless File.exist?(script_path)
     contents = File.read(script_path)
     next unless contents.include?('rsync --delete -av')
-    next if contents.include?('rsync -a "${source}" "${destination}"')
+    next if contents.include?('cp -R "${source}" "${destination}"')
 
     joined = contents.gsub(/\\\n[ \t]*/, ' ')
     patched = joined.gsub(
       /^([ \t]*)rsync[ \t]+--delete[ \t]+-av\b[^\n]*"?\$\{source\}"?[ \t]+"?\$\{destination\}"?[ \t]*\n?/,
     ) do |_match|
-      "#{$1}" + 'rsync -a "${source}" "${destination}"' + "\n"
+      "#{$1}" + 'cp -R "${source}" "${destination}"' + "\n"
     end
     next if patched == joined
 
     File.write(script_path, patched)
     File.chmod(0755, script_path)
-    Pod::UI.puts "[BiliPai patch] Replaced rsync --delete -av with rsync -a in #{File.basename(script_path)}"
+    Pod::UI.puts "[BiliPai patch] Replaced rsync --delete -av with cp -R in #{File.basename(script_path)}"
   end
+
+  # --- Create a patched .sb sandbox policy that allows file-write-create ---
+  # in Build/Products/ so cp -R can write frameworks there under sandbox-exec.
+  # The Embed phase will copy this to TARGET_TEMP_DIR in its pre-build phase.
+  sandbox_dir = File.join(installer.sandbox.root, 'BiliPaiNative.build', 'sandboxes')
+  mkdir_p(sandbox_dir)
+  sandbox_sb = File.join(sandbox_dir, 'CustomPolicy.sb')
+  unless File.exist?(sandbox_sb)
+    File.write(sandbox_sb, << 'SB_POLICY'
+(version 1)
+(allow default)
+(deny file-write-create)
+(deny file-write-data)
+(allow file-write-create (subpath "Build/Products/"))
+(allow file-write-data (subpath "Build/Products/"))
+SB_POLICY
+    Pod::UI.puts "[BiliPai patch] Created patched CustomPolicy.sb"
+  end
+end
+
+def mkdir_p(path)
+  require 'fileutils'
+  FileUtils.mkdir_p(path)
 end
