@@ -660,14 +660,14 @@ final class LocalHLSProxyServer {
         )
     }
 
-    fileprivate func httpRangeHeader(offset: Int64, end: Int64?) -> String {
+    fileprivate static func httpRangeHeader(offset: Int64, end: Int64?) -> String {
         if let end {
             return "bytes=\(offset)-\(end)"
         }
         return "bytes=\(offset)-"
     }
 
-    fileprivate func shiftedRangeHeader(
+    fileprivate static func shiftedRangeHeader(
         _ header: String,
         by offset: Int64
     ) -> String? {
@@ -689,13 +689,13 @@ final class LocalHLSProxyServer {
         }
         let absoluteStart = offset + relativeStart
         if bounds[1].isEmpty {
-            return httpRangeHeader(offset: absoluteStart, end: nil)
+            return Self.httpRangeHeader(offset: absoluteStart, end: nil)
         }
         guard let relativeEnd = Int64(bounds[1]),
               relativeEnd >= relativeStart else {
             return nil
         }
-        return httpRangeHeader(
+        return Self.httpRangeHeader(
             offset: absoluteStart,
             end: offset + relativeEnd
         )
@@ -916,7 +916,9 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         let originalRange = request.value(forHTTPHeaderField: "Range")
         let newRange: String
         if let originalRange,
-           let shifted = shiftedRangeHeader(originalRange, by: offset) {
+           let shifted = LocalHLSProxyServer.shiftedRangeHeader(
+                originalRange, by: offset
+           ) {
             // Original was `bytes=start-end` or
             // `bytes=start-` — shift the start by
             // `bytesReceivedFromUpstream` so the next
@@ -928,7 +930,9 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             // the whole file).  Switch to a Range request
             // starting at `offset` so the CDN does not
             // resend the bytes the downstream already has.
-            newRange = httpRangeHeader(offset: offset, end: nil)
+            newRange = LocalHLSProxyServer.httpRangeHeader(
+                offset: offset, end: nil
+            )
         }
         newRequest.setValue(newRange, forHTTPHeaderField: "Range")
         return newRequest
@@ -972,7 +976,16 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     "backoffMs": Int(backoff * 1000),
                     "reason": reason
                 ])
-        delegateQueue.asyncAfter(
+        // `delegateQueue` is an `OperationQueue`, so we
+        // schedule the retry on a global dispatch queue.
+        // The new task's `URLSessionDataDelegate` callbacks
+        // still arrive on the serial `delegateQueue`, so the
+        // retry does not race with any in-flight callbacks
+        // from the previous attempt — by the time we get
+        // here `didCompleteWithError` has already returned
+        // and URLSession will not send more events for the
+        // old task.
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(
             deadline: .now() + backoff
         ) { [weak self] in
             self?.startUpstreamTask(attempt: attempt)
