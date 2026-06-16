@@ -1667,7 +1667,7 @@ private struct PlayURLPayload: Decodable {
                     || v.codecs.localizedCaseInsensitiveContains("h264")
             }
             guard let v = avcVideo,
-                  let videoInit = v.segmentBase?.initializationByteRange else {
+                  let videoInit = v.segmentBase?.effectiveInitializationByteRange else {
                 return nil
             }
             let aacAudio = audio.first { a in
@@ -1684,7 +1684,7 @@ private struct PlayURLPayload: Decodable {
                 initRange: BiliDashSource.ByteRange
             )?
             if let aacAudio,
-               let audioInit = aacAudio.segmentBase?.initializationByteRange {
+               let audioInit = aacAudio.segmentBase?.effectiveInitializationByteRange {
                 audioTrack = (aacAudio, audioInit)
             } else {
                 audioTrack = nil
@@ -1834,20 +1834,39 @@ private struct PlayURLPayload: Decodable {
             Self.byteRange(from: initialization)
         }
 
+        var indexByteRange: BiliDashSource.ByteRange? {
+            Self.byteRange(from: indexRange)
+        }
+
+        /// Byte range to serve in the fMP4 init response.
+        /// B站's m4s layout is `ftyp` + `moov` + `sidx`
+        /// + `styp` + `moof` + `mdat`, with the `sidx`
+        /// (Segment Index Box) sitting between the init
+        /// section and the playable data.  AVPlayer wants
+        /// the `sidx` inside the init response (it is the
+        /// HLS fMP4 convention — Apple's authoring spec
+        /// requires `sidx` in the init segment).  Serving
+        /// `sidx` at the start of the media response makes
+        /// AVPlayer abort with `CoreMediaError -19602`,
+        /// so we extend the init range through the
+        /// `sidx` here.
+        var effectiveInitializationByteRange: BiliDashSource.ByteRange? {
+            guard let initR = initializationByteRange else { return nil }
+            guard let idxR = indexByteRange,
+                  idxR.endOffset > initR.endOffset else {
+                return initR
+            }
+            return BiliDashSource.ByteRange(
+                offset: initR.offset,
+                length: idxR.endOffset - initR.offset + 1
+            )
+        }
+
         /// Byte offset where the playable media segment begins
-        /// in the upstream m4s file.  B站's ftyp layout is
-        /// `ftyp` + `moov` + `sidx` + `styp` + `moof` + `mdat`,
-        /// where the `sidx` (Segment Index Box) lives between
-        /// the init section and the playable data.  We MUST
-        /// serve the `sidx` to AVPlayer — without it the
-        /// concatenated init+media stream is unparseable and
-        /// AVPlayer aborts the download with
-        /// `NWError 54 - Connection reset by peer`, which
-        /// manifests as `timeControlStatus = isPlaying: false`
-        /// forever.  `sidx.first_offset` is relative to the
-        /// end of the sidx box itself, so moving it from
-        /// "between init and media" to "at the start of media"
-        /// does not change any of its subsegment math.
+        /// in the upstream m4s file.  With
+        /// `effectiveInitializationByteRange` extending the
+        /// init response through the `sidx`, this is just
+        /// one past the end of the init range.
         func mediaStartOffset(
             after initRange: BiliDashSource.ByteRange
         ) -> Int64 {

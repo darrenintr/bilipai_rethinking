@@ -26,6 +26,17 @@ import UIKit
 /// `CALayer` is the default `CALayer`, not an
 /// `AVPlayerLayer`; the controller adds the player layer as a
 /// sublayer in `attach(drawable:surface:)`.
+///
+/// `layoutSubviews` keeps the player layer's frame in sync
+/// with the view's bounds.  This is necessary because
+/// `AVPlayerSurfaceView.makeUIView` constructs the view with
+/// zero bounds and calls `attach` immediately, so the player
+/// layer is first added at `(0, 0, 0, 0)`.  SwiftUI then runs
+/// Auto Layout, but the second `attach` in `updateUIView`
+/// short-circuits via the "same target" guard and never
+/// refreshes the layer frame.  Without this override the
+/// layer would stay at zero size and the user would see a
+/// black frame with audio playing.
 final class PlayerDrawableView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -36,6 +47,18 @@ final class PlayerDrawableView: UIView {
         isOpaque = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Resize every sublayer to match the new bounds.
+        // The controller adds at most one `AVPlayerLayer`
+        // but we walk the sublayer list so any future
+        // overlay (e.g. a loading spinner layer) tracks
+        // the view too.
+        for sub in layer.sublayers ?? [] {
+            sub.frame = bounds
+        }
+    }
 }
 
 /// SwiftUI host for `PlayerDrawableView`.  One instance per

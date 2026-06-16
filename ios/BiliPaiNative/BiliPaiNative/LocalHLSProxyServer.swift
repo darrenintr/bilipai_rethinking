@@ -427,10 +427,14 @@ final class LocalHLSProxyServer {
                 passContentRange = true
             }
         case .initRange:
-            // `/init` is a *logical* sub-resource that only
-            // covers the fMP4 `moov`/init bytes.  AVPlayer asks
-            // for the whole thing, so we return `200 OK` with
-            // the shifted body length and no `Content-Range`.
+            // `/init` is a *logical* sub-resource that covers
+            // only the fMP4 `ftyp`/`moov`/`sidx` bytes.
+            // Record the sub-resource's absolute upstream
+            // offset as the Content-Range shift so the
+            // response can convert the upstream's absolute
+            // `Content-Range` into the relative coordinates
+            // AVPlayer expects for `/init` (the same way we
+            // already do for `/media`).
             guard let range = parseByteRange(params["range"]) else {
                 respondError(connection: connection, status: 400,
                              reason: "missing init range")
@@ -440,6 +444,7 @@ final class LocalHLSProxyServer {
                 httpRangeHeader(offset: range.offset, end: range.endOffset),
                 forHTTPHeaderField: "Range"
             )
+            contentRangeShift = range.offset
         case .mediaRange:
             guard let startString = params["from"],
                   let start = Int64(startString) else {
@@ -456,6 +461,7 @@ final class LocalHLSProxyServer {
                     httpRangeHeader(offset: start, end: nil),
                     forHTTPHeaderField: "Range"
                 )
+                contentRangeShift = start
             }
         }
         _ = source  // Keep the playback snapshot alive while
@@ -864,20 +870,26 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         var extraHeaders: [String: String] = ["Accept-Ranges": "bytes"]
         let upstreamContentRange = http.value(forHTTPHeaderField: "Content-Range")
 
-        // Decide downstream status.  We obey the client's
-        // Range semantics first; if it asked for a partial
-        // response we MUST answer 206 (or 200 when we are
-        // serving a *logical* sub-range — currently only
-        // `/init`, which we expose as a flat 200).  Otherwise
-        // we forward the upstream status code.
-        // `/init` and `/media` are both *logical* sub-resources
-        // of the upstream file: from the client's perspective
-        // they are whole documents, not byte ranges.  Only
-        // `/seg?...` (passthrough) and explicit
-        // `Range:` requests from AVPlayer should answer 206.
+        // Decide downstream status.  AVPlayer's strict rule:
+        //   - if the client sent `Range: bytes=…`, the response
+        //     MUST be `206 Partial Content` with a matching
+        //     `Content-Range` header.  Anything else and the
+        //     stream is abandoned.
+        //   - if the client did not send Range, the response
+        //     MUST be `200 OK` with the full body.  Returning
+        //     206 here is also legal but `Content-Range` must
+        //     match, so we play it safe with 200.
+        // `/init` and `/media` are *logical* sub-resources of
+        // the upstream m4s file, but from the client's
+        // perspective they look like whole documents — so when
+        // the client does NOT send Range we answer `200`, and
+        // when it DOES send Range we answer `206` with a
+        // `Content-Range` that has been shifted down to the
+        // sub-resource's byte coordinates.
         let isLogicalSubResource = (mode == "init" || mode == "media")
         let status: Int
         if clientSentRange {
+            // Client asked for a byte range — MUST be 206.
             status = 206
             if let shift = contentRangeShift,
                let upstreamContentRange,
@@ -885,29 +897,28 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     upstreamContentRange,
                     by: shift
                ) {
-                // `/media` with client Range: shift the
-                // upstream's absolute Content-Range down to
-                // a *relative* range the client can use.
+                // `/init` or `/media` with a known shift:
+                // convert the upstream's absolute Content-Range
+                // down to the sub-resource's relative bytes so
+                // AVPlayer can apply it to the `/init` or
+                // `/media` URL it asked for.
                 extraHeaders["Content-Range"] = shifted
-            } else if passContentRange,
-                      let upstreamContentRange {
-                // `/seg` passthrough: forward the upstream's
-                // Content-Range verbatim — it is already in
-                // the client's coordinates.
-                extraHeaders["Content-Range"] = upstreamContentRange
             } else if let upstreamContentRange {
-                // The upstream answered 206 but we did not
-                // record a shift.  Forward as-is so the
-                // client sees a matching Content-Range.
+                // `/seg` passthrough or no shift recorded:
+                // forward the upstream's Content-Range
+                // verbatim — it is already in the client's
+                // coordinates.
                 extraHeaders["Content-Range"] = upstreamContentRange
             }
         } else if isLogicalSubResource {
-            // `/init` and `/media` (without a client Range) are
-            // exposed as flat resources: they return 200, with
-            // `Content-Length` matching the section length.
-            // `Content-Range` is intentionally omitted.
+            // No client Range, but the URL is a logical
+            // sub-resource (`/init` or `/media`).  Expose it
+            // as a flat document: 200 OK, `Content-Length` set
+            // to the sub-resource length, no `Content-Range`.
             status = 200
         } else {
+            // `/seg` passthrough with no client Range — forward
+            // the upstream's status (typically 200).
             status = http.statusCode
         }
         let contentLength = http.expectedContentLength >= 0
