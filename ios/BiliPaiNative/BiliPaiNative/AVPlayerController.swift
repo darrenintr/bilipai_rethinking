@@ -310,6 +310,19 @@ final class PlayerController: ObservableObject {
             return
         }
         if attachedView === view, attachedSurface == surface {
+            // Same target — keep the existing `AVPlayerLayer` but
+            // refresh its frame.  SwiftUI calls `makeUIView` with
+            // a zero-bounds `UIView` and immediately invokes
+            // `attach`, so the layer was created at (0,0,0,0).
+            // When `updateUIView` runs after layout has assigned
+            // real bounds, we have to push those bounds into the
+            // layer here, otherwise the video surface stays
+            // zero-sized and the user sees a black frame with
+            // audio playing.
+            if let existing = view.layer.sublayers?
+                .first(where: { $0 is AVPlayerLayer }) {
+                existing.frame = view.bounds
+            }
             return
         }
         // If we already have a layer attached somewhere,
