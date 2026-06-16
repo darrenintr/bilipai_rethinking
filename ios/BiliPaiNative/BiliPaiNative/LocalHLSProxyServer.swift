@@ -167,7 +167,7 @@ final class LocalHLSProxyServer {
     // MARK: internals
 
     private let queue = DispatchQueue(label: "BiliPai.LocalHLSProxy")
-    private let lock = NSLock()
+    fileprivate let lock = NSLock()
     private var listener: NWListener?
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
@@ -177,7 +177,7 @@ final class LocalHLSProxyServer {
     /// requests (e.g., two overlapping `/media` ranges for the same
     /// CDN URL).  Key is the upstream URL string, value is the range
     /// start/end plus the stream ID holding that range.
-    private var inFlightRanges: [String: (start: Int64, end: Int64, streamID: UUID)] = [:]
+    fileprivate var inFlightRanges: [String: (start: Int64, end: Int64, streamID: UUID)] = [:]
 
     // MARK: upstream media size probe
     //
@@ -941,7 +941,7 @@ final class LocalHLSProxyServer {
                             details: [
                                 "conn": connID,
                                 "mode": mode.logName,
-                                "overlappingConn": existing.connID,
+                                "overlappingConn": existingStream.connID,
                                 "existingRange": "\(existing.start)-\(existing.end)",
                                 "newRange": "\(rs)-\(re)"
                             ])
