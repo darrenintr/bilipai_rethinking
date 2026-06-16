@@ -660,14 +660,14 @@ final class LocalHLSProxyServer {
         )
     }
 
-    private func httpRangeHeader(offset: Int64, end: Int64?) -> String {
+    fileprivate func httpRangeHeader(offset: Int64, end: Int64?) -> String {
         if let end {
             return "bytes=\(offset)-\(end)"
         }
         return "bytes=\(offset)-"
     }
 
-    private func shiftedRangeHeader(
+    fileprivate func shiftedRangeHeader(
         _ header: String,
         by offset: Int64
     ) -> String? {
@@ -815,6 +815,34 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     /// drain a 71 MB upstream response into a dead
     /// `NWConnection`.
     private var downstreamBroken = false
+    /// Total bytes that have arrived from the upstream
+    /// across every attempt so far.  On a mid-stream
+    /// upstream failure we re-issue the same Range shifted
+    /// to `bytesReceivedFromUpstream` so the downstream
+    /// (AVPlayer) sees one continuous byte stream — it
+    /// never knows the upstream socket was reset.
+    private var bytesReceivedFromUpstream: Int64 = 0
+    /// 0 = the very first request, 1..3 = retries.  Capped
+    /// at `Self.maxRetries` total attempts to avoid an
+    /// infinite loop if the upstream keeps failing.
+    private var upstreamAttempt: Int = 0
+    /// Set when we abort the current upstream task on
+    /// purpose to schedule a retry (e.g. 5xx response, or a
+    /// retryable transport error).  Without this flag the
+    /// resulting `URLError.cancelled` in
+    /// `didCompleteWithError` would look identical to the
+    /// "we cancelled because the downstream went away"
+    /// path and we'd never retry.
+    private var cancelledForRetry = false
+
+    /// Maximum number of times we re-issue the upstream
+    /// request after the first attempt.  With base backoff
+    /// 100ms and a 3× multiplier the worst-case extra wait
+    /// is 100+300+900 = 1300ms — short enough that the
+    /// `controller.isBuffering` overlay shows briefly but
+    /// AVPlayer does not give up.
+    private static let maxRetries: Int = 3
+    private static let baseBackoffSeconds: Double = 0.1
 
     init(
         server: LocalHLSProxyServer,
@@ -840,6 +868,17 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     }
 
     func start() {
+        startSession()
+        startUpstreamTask(attempt: 0)
+    }
+
+    /// One-shot URLSession construction.  Kept separate from
+    /// `startUpstreamTask(attempt:)` so the session survives
+    /// across retries — creating a fresh `URLSession` per
+    /// attempt would burn a new TCP + TLS handshake per
+    /// retry, which both slows down recovery and defeats
+    /// connection pooling on subsequent segments.
+    private func startSession() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
@@ -849,9 +888,95 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             delegateQueue: delegateQueue
         )
         self.session = session
-        let task = session.dataTask(with: request)
+    }
+
+    /// (Re)issue the upstream request.  On a retry the
+    /// Range header is shifted by `bytesReceivedFromUpstream`
+    /// so the CDN hands us the bytes that were lost when
+    /// the previous attempt's socket died.  The downstream
+    /// (AVPlayer) sees those bytes appended to the stream it
+    /// already has — no AVPlayer-side retry, no gap.
+    private func startUpstreamTask(attempt: Int) {
+        guard let session else { return }
+        upstreamAttempt = attempt
+        cancelledForRetry = false
+        let shifted = shiftedRequest(startingAt: bytesReceivedFromUpstream)
+        let task = session.dataTask(with: shifted)
         self.task = task
         task.resume()
+    }
+
+    /// Build a new `URLRequest` for the upstream that picks
+    /// up where the previous attempt left off.  We mutate a
+    /// copy of the original request so the referer / user
+    /// agent / host we already validated are preserved.
+    private func shiftedRequest(startingAt offset: Int64) -> URLRequest {
+        var newRequest = request
+        guard offset > 0 else { return newRequest }
+        let originalRange = request.value(forHTTPHeaderField: "Range")
+        let newRange: String
+        if let originalRange,
+           let shifted = shiftedRangeHeader(originalRange, by: offset) {
+            // Original was `bytes=start-end` or
+            // `bytes=start-` — shift the start by
+            // `bytesReceivedFromUpstream` so the next
+            // attempt asks for the bytes we have not yet
+            // received.
+            newRange = shifted
+        } else {
+            // Original had no Range header (we asked for
+            // the whole file).  Switch to a Range request
+            // starting at `offset` so the CDN does not
+            // resend the bytes the downstream already has.
+            newRange = httpRangeHeader(offset: offset, end: nil)
+        }
+        newRequest.setValue(newRange, forHTTPHeaderField: "Range")
+        return newRequest
+    }
+
+    /// True for transport-level errors that are safe to
+    /// retry: the network connection died mid-flight, the
+    /// request timed out, or we could not connect.  These
+    /// are the exact failure modes we saw in the build-82
+    /// diagnostic report — B站's CDN reset our socket
+    /// mid-stream (`URLError.networkConnectionLost`, code
+    /// -1005) and we previously gave up after one try.
+    private func isRetryable(_ nsError: NSError) -> Bool {
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        switch nsError.code {
+        case NSURLErrorTimedOut,                 // -1001
+             NSURLErrorCannotConnectToHost,      // -1004
+             NSURLErrorNetworkConnectionLost,    // -1005
+             NSURLErrorDNSLookupFailed,          // -1006
+             NSURLErrorNotConnectedToInternet:   // -1009
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Schedule the next upstream attempt on the delegate
+    /// queue (serial, `maxConcurrentOperationCount = 1`)
+    /// so we never race with `didCompleteWithError` from
+    /// the previous attempt.  Emits a single retry log line
+    /// so the diagnostic stream shows the recovery.
+    private func scheduleRetry(reason: String, attempt: Int) {
+        let backoff = Self.baseBackoffSeconds * pow(3.0, Double(attempt - 1))
+        diagLog(.network,
+                "LocalHLSProxyServer upstream retry",
+                details: [
+                    "mode": mode,
+                    "attempt": attempt,
+                    "maxRetries": Self.maxRetries,
+                    "bytesReceived": bytesReceivedFromUpstream,
+                    "backoffMs": Int(backoff * 1000),
+                    "reason": reason
+                ])
+        delegateQueue.asyncAfter(
+            deadline: .now() + backoff
+        ) { [weak self] in
+            self?.startUpstreamTask(attempt: attempt)
+        }
     }
 
     func urlSession(
@@ -864,6 +989,47 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
               let http = response as? HTTPURLResponse else {
             completionHandler(.cancel)
             finishWithError(reason: "bad upstream response")
+            return
+        }
+        // Short-circuit upstream 5xx before we write any
+        // header to the downstream — sending even a partial
+        // 5xx body through the loopback would leave
+        // AVPlayer's parser in a state where it cannot
+        // accept the retried response on the next attempt.
+        if (500...599).contains(http.statusCode) {
+            cancelledForRetry = true
+            completionHandler(.cancel)
+            if upstreamAttempt < Self.maxRetries {
+                // Still have retries left — wait for a
+                // fresh upstream attempt with the Range
+                // shifted by `bytesReceivedFromUpstream`,
+                // then write its response to the same
+                // downstream socket that is still waiting.
+                scheduleRetry(
+                    reason: "5xx: \(http.statusCode)",
+                    attempt: upstreamAttempt + 1
+                )
+                return
+            }
+            // Retries exhausted — send a clean 502 to
+            // AVPlayer so its parser sees a valid HTTP
+            // response (not a 206 wrapping a 5xx body),
+            // then tear down.
+            server.sendHeader(
+                connection: connection,
+                status: 502,
+                contentType: "application/json",
+                contentLength: nil
+            )
+            didSendHeader = true
+            diagLog(.network,
+                    "Upstream segment error",
+                    details: [
+                        "mode": mode,
+                        "attempts": Self.maxRetries + 1,
+                        "error": "5xx: \(http.statusCode)"
+                    ])
+            finishWhenSendsDrain()
             return
         }
         didSendHeader = true
@@ -951,6 +1117,12 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         dataTask: URLSessionDataTask,
         didReceive data: Data
     ) {
+        // Track every byte that arrives from upstream, even
+        // when the downstream is broken, so the retry path
+        // can shift the Range header by however much we did
+        // manage to pull before the connection died.  See
+        // `shiftedRequest(startingAt:)`.
+        bytesReceivedFromUpstream += Int64(data.count)
         // Once the loopback client (AVPlayer) goes away
         // (e.g. `VideoDetailView.onDisappear`), the
         // downstream socket is dead.  Stop feeding the
@@ -1005,17 +1177,48 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         didCompleteWithError error: Error?
     ) {
         if let error {
-            // Cancellation triggered by `downstreamBroken`
-            // is expected when AVPlayer goes away mid-fetch;
-            // it is *not* a real upstream failure.
-            if (error as NSError).code != NSURLErrorCancelled {
-                diagLog(.network,
-                        "Upstream segment error",
-                        details: [
-                            "mode": mode,
-                            "error": error.localizedDescription
-                        ])
+            let nsError = error as NSError
+            // 1. Cancellation we triggered from the 5xx
+            //    short-circuit in `didReceive response`
+            //    means "give up on this response and retry".
+            //    The flag distinguishes that from a real
+            //    cancellation (downstream dead, etc.).
+            if cancelledForRetry {
+                // scheduleRetry was already called from
+                // didReceive response — nothing to do here.
+                return
             }
+            // 2. Cancellation triggered by `downstreamBroken`
+            //    is expected when AVPlayer goes away
+            //    mid-fetch; it is *not* a real upstream
+            //    failure and must not be retried (the
+            //    downstream is gone anyway).
+            if nsError.code == NSURLErrorCancelled {
+                finishWhenSendsDrain()
+                return
+            }
+            // 3. Retryable transport-level failure with the
+            //    downstream still alive.  Re-issue the
+            //    request with a shifted Range header so
+            //    AVPlayer sees one continuous byte stream.
+            if isRetryable(nsError),
+               upstreamAttempt < Self.maxRetries,
+               !downstreamBroken {
+                scheduleRetry(
+                    reason: nsError.localizedDescription,
+                    attempt: upstreamAttempt + 1
+                )
+                return
+            }
+            // 4. Non-retryable error or retries exhausted —
+            //    surface it as the final upstream failure.
+            diagLog(.network,
+                    "Upstream segment error",
+                    details: [
+                        "mode": mode,
+                        "attempts": upstreamAttempt + 1,
+                        "error": nsError.localizedDescription
+                    ])
             if !didSendHeader {
                 server?.sendHeader(
                     connection: connection,
