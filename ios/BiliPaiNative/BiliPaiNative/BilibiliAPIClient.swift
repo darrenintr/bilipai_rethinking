@@ -1834,12 +1834,23 @@ private struct PlayURLPayload: Decodable {
             Self.byteRange(from: initialization)
         }
 
+        /// Byte offset where the playable media segment begins
+        /// in the upstream m4s file.  B站's ftyp layout is
+        /// `ftyp` + `moov` + `sidx` + `styp` + `moof` + `mdat`,
+        /// where the `sidx` (Segment Index Box) lives between
+        /// the init section and the playable data.  We MUST
+        /// serve the `sidx` to AVPlayer — without it the
+        /// concatenated init+media stream is unparseable and
+        /// AVPlayer aborts the download with
+        /// `NWError 54 - Connection reset by peer`, which
+        /// manifests as `timeControlStatus = isPlaying: false`
+        /// forever.  `sidx.first_offset` is relative to the
+        /// end of the sidx box itself, so moving it from
+        /// "between init and media" to "at the start of media"
+        /// does not change any of its subsegment math.
         func mediaStartOffset(
             after initRange: BiliDashSource.ByteRange
         ) -> Int64 {
-            if let index = Self.byteRange(from: indexRange) {
-                return index.endOffset + 1
-            }
             return initRange.endOffset + 1
         }
 

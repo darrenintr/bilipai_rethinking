@@ -150,9 +150,12 @@ struct BiliDashSource: Hashable {
         /// parsing the media playlist.
         let initializationRange: ByteRange
         /// Absolute byte offset where the playable media data
-        /// starts in the upstream Bili m4s file. The local proxy
-        /// shifts AVPlayer's segment-relative Range requests by
-        /// this offset before forwarding them upstream.
+        /// starts in the upstream Bili m4s file.  This is the
+        /// first byte **after** the init section, so the
+        /// `sidx` (Segment Index Box) that B站 puts between
+        /// init and media is served as the first bytes of the
+        /// media response.  Dropping the `sidx` makes AVPlayer
+        /// abort the download mid-stream.
         let mediaStartOffset: Int64
         /// Total presentation duration in seconds — B站's
         /// `dash.duration` divided by 1000 (B站 publishes
