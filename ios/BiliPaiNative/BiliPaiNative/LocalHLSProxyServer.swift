@@ -374,7 +374,7 @@ final class LocalHLSProxyServer {
         mediaTotalBytes: Int64,
         mediaStartOffset: Int64,
         totalDuration: Double,
-        segmentURL: (Int64, Int64) -> String,
+        segmentURL: String,
         initURL: String
     ) -> [String]? {
         guard mediaTotalBytes > mediaStartOffset,
@@ -423,7 +423,7 @@ final class LocalHLSProxyServer {
                 : baseSegmentDuration
             lines.append("#EXTINF:\(String(format: "%.3f", duration)),")
             lines.append("#EXT-X-BYTERANGE:\(relEnd - relStart + 1)@\(relStart)")
-            lines.append(segmentURL(relStart, relEnd))
+            lines.append(segmentURL)
         }
         lines.append("#EXT-X-ENDLIST")
         return lines
@@ -696,27 +696,11 @@ final class LocalHLSProxyServer {
             for: track.baseURL, timeoutSeconds: 5.0
         )
         if let probedTotal, probedTotal > track.mediaStartOffset {
-            let segmentURL: (Int64, Int64) -> String = { relStart, relEnd in
-                self.localURL(
-                    path: "media",
-                    queryItems: [
-                        URLQueryItem(name: "u", value: encoded),
-                        URLQueryItem(
-                            name: "from",
-                            value: "\(track.mediaStartOffset + relStart)"
-                        ),
-                        URLQueryItem(
-                            name: "to",
-                            value: "\(track.mediaStartOffset + relEnd)"
-                        ),
-                    ]
-                )
-            }
             if let lines = Self.buildMultiSegmentPlaylist(
                 mediaTotalBytes: probedTotal,
                 mediaStartOffset: track.mediaStartOffset,
                 totalDuration: total,
-                segmentURL: segmentURL,
+                segmentURL: mediaURL,
                 initURL: initURL
             ) {
                 diagLog(.playback,
