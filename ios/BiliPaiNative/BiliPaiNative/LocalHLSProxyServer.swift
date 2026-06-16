@@ -172,6 +172,12 @@ final class LocalHLSProxyServer {
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
     private var activeStreams: [UUID: StreamingProxyTask] = [:]
+    /// Tracks in-flight upstream byte ranges so we can detect and
+    /// resolve overlaps when AVPlayer issues concurrent sub-segment
+    /// requests (e.g., two overlapping `/media` ranges for the same
+    /// CDN URL).  Key is the upstream URL string, value is the range
+    /// start/end plus the stream ID holding that range.
+    private var inFlightRanges: [String: (start: Int64, end: Int64, streamID: UUID)] = [:]
 
     // MARK: upstream media size probe
     //
@@ -892,6 +898,60 @@ final class LocalHLSProxyServer {
         _ = source  // Keep the playback snapshot alive while
                     // the URLSession request is queued.
 
+        // Detect overlapping in-flight requests for the same
+        // upstream URL.  AVPlayer can issue concurrent sub-segment
+        // requests that partially overlap (e.g., one task fetching
+        // bytes 0-500000 while a second fetches 200000-700000).
+        // Allowing both to run results in double-delivery of the
+        // overlap bytes, which causes CoreMedia to emit
+        // `-19602` decode errors.  We resolve this by cancelling
+        // any stream whose byte range intersects the new request.
+        let upstreamKey = upstream.absoluteString
+        let reqStart: Int64?
+        let reqEnd: Int64?
+        switch mode {
+        case .mediaRange:
+            // start was already parsed above; end is optional
+            reqStart = params["from"].flatMap { Int64($0) }
+            reqEnd = params["to"].flatMap { Int64($0) }
+        case .initRange:
+            if let r = parseByteRange(params["range"]) {
+                reqStart = r.offset
+                reqEnd = r.endOffset
+            } else {
+                reqStart = nil
+                reqEnd = nil
+            }
+        case .passthrough:
+            reqStart = nil
+            reqEnd = nil
+        }
+        if let rs = reqStart, let re = reqEnd {
+            lock.lock()
+            if let existing = inFlightRanges[upstreamKey],
+               rs <= existing.end, re >= existing.start {
+                // Overlap found — cancel the older stream so it
+                // does not deliver competing bytes into the same
+                // socket.  The new request will pick up from where
+                // the cancelled one left off (upstream handles this
+                // via Range header).
+                if let existingStream = activeStreams[existing.streamID] {
+                    diagLog(.network,
+                            "LocalHLSProxyServer cancelling overlapping stream",
+                            details: [
+                                "conn": connID,
+                                "mode": mode.logName,
+                                "overlappingConn": existing.connID,
+                                "existingRange": "\(existing.start)-\(existing.end)",
+                                "newRange": "\(rs)-\(re)"
+                            ])
+                    existingStream.cancel()
+                }
+                inFlightRanges.removeValue(forKey: upstreamKey)
+            }
+            lock.unlock()
+        }
+
         diagLog(.playback,
                 "LocalHLSProxyServer upstream request",
                 details: [
@@ -914,7 +974,9 @@ final class LocalHLSProxyServer {
             clientSentRange: clientRange != nil,
             contentRangeShift: contentRangeShift,
             passContentRange: passContentRange,
-            connID: connID
+            connID: connID,
+            rangeStart: reqStart,
+            rangeEnd: reqEnd
         )
         retain(stream: stream)
         stream.start()
@@ -1260,7 +1322,13 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     /// so we can correlate lifecycle events on the same
     /// socket — particularly useful for the keep-alive-reuse
     /// hypothesis (trap 3).
-    private let connID: String
+    fileprivate let connID: String
+    /// Absolute byte range this stream is fetching from the
+    /// upstream.  Used to detect overlaps with other in-flight
+    /// streams so we can cancel the older one and avoid
+    /// double-delivery decode errors (-19602).
+    private let rangeStart: Int64?
+    private let rangeEnd: Int64?
     /// `true` if the loopback client (AVPlayer) sent a
     /// `Range` header.  When `true`, our downstream response
     /// MUST use `206 Partial Content` and include a
@@ -1330,7 +1398,9 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         clientSentRange: Bool,
         contentRangeShift: Int64?,
         passContentRange: Bool,
-        connID: String
+        connID: String,
+        rangeStart: Int64?,
+        rangeEnd: Int64?
     ) {
         self.server = server
         self.connection = connection
@@ -1341,6 +1411,8 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         self.contentRangeShift = contentRangeShift
         self.passContentRange = passContentRange
         self.connID = connID
+        self.rangeStart = rangeStart
+        self.rangeEnd = rangeEnd
         self.delegateQueue = OperationQueue()
         self.delegateQueue.maxConcurrentOperationCount = 1
         super.init()
@@ -1348,7 +1420,36 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
 
     func start() {
         startSession()
+        // Register this stream's byte range so overlapping
+        // requests from concurrent AVPlayer tasks can be caught.
+        if let rs = rangeStart, let re = rangeEnd {
+            let key = upstream.absoluteString
+            server?.lock.lock()
+            server?.inFlightRanges[key] = (rs, re, id)
+            server?.lock.unlock()
+        }
         startUpstreamTask(attempt: 0)
+    }
+
+    /// Cancel this stream and unregister its byte range so any
+    /// overlapping new request can proceed without competing
+    /// with a dead socket.
+    fileprivate func cancel() {
+        task?.cancel()
+        connection.cancel()
+        session?.finishTasksAndInvalidate()
+        unregisterRange()
+    }
+
+    private func unregisterRange() {
+        guard let rs = rangeStart, let re = rangeEnd else { return }
+        let key = upstream.absoluteString
+        server?.lock.lock()
+        if let existing = server?.inFlightRanges[key],
+           existing.streamID == id {
+            server?.inFlightRanges.removeValue(forKey: key)
+        }
+        server?.lock.unlock()
     }
 
     /// One-shot URLSession construction.  Kept separate from
@@ -1827,6 +1928,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     private func finishWhenSendsDrain() {
         guard !didFinish else { return }
         didFinish = true
+        unregisterRange()
         sendGroup.notify(queue: .global(qos: .utility)) { [weak self] in
             guard let self else { return }
             self.connection.cancel()
