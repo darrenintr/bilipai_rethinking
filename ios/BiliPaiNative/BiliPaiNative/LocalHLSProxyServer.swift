@@ -405,10 +405,19 @@ final class LocalHLSProxyServer {
         ]
         for i in 0..<segmentCount {
             let relStart = Int64(i) * bytesPerSegment
+            // Guard against ceiling-rounding overshoot: if
+            // relStart is already at or past the playable byte
+            // boundary, skip this segment — nothing left to send.
+            guard relStart < mediaBytes else { break }
             let isLast = (i == segmentCount - 1)
+            // Clamp relEnd to the actual media boundary so we
+            // never ask the CDN for bytes past EOF.  The CDN
+            // would clip the response and return fewer bytes
+            // than declared in the playlist, causing AVPlayer
+            // to see a truncated range and abort with -12939.
             let relEnd = isLast
                 ? mediaBytes - 1
-                : min(relStart + bytesPerSegment - 1, mediaBytes - 1)
+                : min(relStart + bytesPerSegment, mediaBytes) - 1
             let duration = isLast
                 ? totalDuration - baseSegmentDuration * Double(segmentCount - 1)
                 : baseSegmentDuration
