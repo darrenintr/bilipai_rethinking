@@ -1445,7 +1445,21 @@ private struct PlayURLPayload: Decodable {
             self.hls = nil
         }
         self.dash = try? container.decode(Dash.self, forKey: DynamicKey("dash"))
-        self.duration = container.decodeDouble(keys: ["duration", "timelength"])
+        // B站 publish two top-level fields for the same value:
+        //   * `duration` — seconds (modern API)
+        //   * `timelength` — milliseconds (legacy, still seen on
+        //     some `dash` responses)
+        // `decodeDouble(keys:)` reads either key as a raw Double,
+        // so reading both as the same unit is the difference
+        // between a 60s clip and a 16.7h one.  Decode the seconds
+        // field first, fall back to ms / 1000.
+        if let seconds = container.decodeDouble(keys: ["duration"]) {
+            self.duration = seconds
+        } else if let ms = container.decodeDouble(keys: ["timelength"]) {
+            self.duration = ms / 1000.0
+        } else {
+            self.duration = nil
+        }
     }
 
     /// D++ path.  Return a `BiliPlayback` even if the upstream
