@@ -1226,6 +1226,15 @@ final class LocalHLSProxyServer {
         )
     }
 
+    /// Converts an upstream `Content-Range: bytes X-Y/Z` header to
+    /// client-side relative coordinates by subtracting `offset`.
+    ///
+    /// The denominator (Z) is preserved exactly as-is — it must always
+    /// be the original CDN file's total byte count.  AVPlayer tracks
+    /// the file's total duration via this value; shrinking it per
+    /// segment (e.g. Z→Z−offset) causes the playback timeline to
+    /// contract with every new segment and ultimately triggers
+    /// `-19602` decode errors.
     fileprivate func shiftedContentRange(
         _ header: String,
         by offset: Int64
@@ -1255,12 +1264,9 @@ final class LocalHLSProxyServer {
         }
         let relativeStart = absoluteStart - offset
         let relativeEnd = absoluteEnd - offset
-        let totalPart: String
-        if let absoluteTotal = Int64(rangeAndTotal[1]) {
-            totalPart = "\(max(absoluteTotal - offset, 0))"
-        } else {
-            totalPart = String(rangeAndTotal[1])
-        }
+        // Z is the CDN file's total size — NEVER subtract offset.
+        // AVPlayer derives the timeline duration from this value.
+        let totalPart = String(rangeAndTotal[1])
         return "bytes \(relativeStart)-\(relativeEnd)/\(totalPart)"
     }
 
@@ -1799,6 +1805,20 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             completion: .contentProcessed { [weak self] error in
                 guard let self else { return }
                 if let error {
+                    // Mark the downstream as dead but do NOT
+                    // cancel the connection here — doing so
+                    // kills in-flight send completions before
+                    // they can `leave()` the sendGroup, which
+                    // leaves `finishWhenSendsDrain()` waiting
+                    // forever for a drain that never completes
+                    // and causes AVPlayer to see a truncated
+                    // body (fewer bytes than Content-Length)
+                    // leading to -19602 decode failures.
+                    // Instead, only set the flag and let
+                    // `didCompleteWithError` or the next
+                    // `didReceive data` call on the serial
+                    // queue drive the teardown naturally
+                    // after all queued send completions drain.
                     self.downstreamBroken = true
                     diagLog(.network,
                             "LocalHLSProxyServer downstream send error",
@@ -1807,14 +1827,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                                 "mode": self.mode,
                                 "error": error.localizedDescription
                             ])
-                    // Cancel the upstream task and the
-                    // loopback connection in the same tick
-                    // — do not wait for `sendGroup.notify`,
-                    // because more `didReceive data` calls
-                    // are already queued behind us.
-                    self.task?.cancel()
-                    self.connection.cancel()
-                    self.session?.finishTasksAndInvalidate()
                 }
                 self.sendGroup.leave()
             }
