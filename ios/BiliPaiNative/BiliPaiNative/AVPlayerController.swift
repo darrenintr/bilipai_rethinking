@@ -33,6 +33,7 @@
 
 import AVFoundation
 import Combine
+import CoreMedia
 
 @MainActor
 final class PlayerController: ObservableObject {
@@ -80,6 +81,13 @@ final class PlayerController: ObservableObject {
 
     private var lastBytesAt: Date = .distantPast
     private var lastBytes: Int64 = 0
+
+    /// Rate-limit gate for the diagnostic `loadedTimeRanges`
+    /// log.  AVPlayer fires KVO on every chunk that arrives
+    /// (multiple per second during buffer fill); without
+    /// throttling, the diagnostic log would drown in one
+    /// line per chunk.  We emit at most once every 500 ms.
+    private var lastRangesLogAt: Date = .distantPast
 
     // MARK: lifecycle
 
@@ -207,6 +215,60 @@ final class PlayerController: ObservableObject {
             }
         )
 
+        // Diagnostic KVO: every new buffered range fires
+        // this observer.  We log the consolidated range
+        // table so we can correlate "scrubber seek landed
+        // at 80%" with "buffer covers 80–82%" (or "buffer
+        // is empty, hence the stall").
+        observers.insert(
+            item.observe(\.loadedTimeRanges, options: [.new]) {
+                [weak self] _, _ in
+                Task { @MainActor in
+                    self?.logLoadedTimeRanges()
+                }
+            }
+        )
+
+        // Diagnostic KVO: AVPlayer's internal wait reason
+        // (iOS 16.4+).  Fires when AVPlayer is in
+        // `waitingToPlayAtSpecifiedRate`.  Values include
+        // `evaluatingBuffeRedSeek`, `noItemToPlay`,
+        // `toMinimizeStalls` — exactly what we need to
+        // distinguish "stalled because upstream is slow"
+        // from "stalled because the parser gave up on the
+        // response we sent".
+        if #available(iOS 16.4, *) {
+            observers.insert(
+                player.observe(\.reasonForWaitingToPlay, options: [.new]) {
+                    [weak self] _, change in
+                    let reason = change.newValue
+                        .map { String(describing: $0) } ?? "nil"
+                    diagLog(.playback,
+                            "AVPlayer reasonForWaitingToPlay",
+                            details: ["reason": reason])
+                }
+            )
+        }
+
+        // Diagnostic KVO: `AVPlayerItem.status` transitions
+        // through `.unknown → .readyToPlay (or .failed)`.
+        // Logging this catches the case where the proxy
+        // returns a 206 with a malformed body that AVPlayer
+        // rejects at the parser level.
+        observers.insert(
+            item.observe(\.status, options: [.new, .initial]) {
+                [weak self] _, change in
+                let status = change.newValue
+                    .map { String(describing: $0) } ?? "nil"
+                let err = self?.player.currentItem?.error
+                var details: [String: Any] = ["status": status]
+                if let err {
+                    details["error"] = String(describing: err)
+                }
+                diagLog(.playback, "AVPlayerItem status changed", details: details)
+            }
+        )
+
         // End-of-stream notification.  This one is a real
         // `NSNotification`, declared as a top-level
         // `Notification.Name` constant.
@@ -301,6 +363,36 @@ final class PlayerController: ObservableObject {
     }
 
     // MARK: polling
+
+    /// Emit one diagnostic log line summarising every buffered
+    /// range AVPlayer currently holds for the playable item.
+    /// Rate-limited to ≤1 line per 500 ms via `lastRangesLogAt`
+    /// so a buffer fill doesn't drown the diagnostic log.
+    /// Used by the scrubber-seek diagnosis: when the user
+    /// drags to a position past the buffer, the `ranges`
+    /// array will be empty or stale.
+    private func logLoadedTimeRanges() {
+        guard let item = player.currentItem else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastRangesLogAt) >= 0.5 else { return }
+        lastRangesLogAt = now
+        let ranges: [[String: Double]] = item.loadedTimeRanges.map { tr in
+            let s = CMTimeGetSeconds(tr.timeRange.start)
+            let d = CMTimeGetSeconds(tr.timeRange.duration)
+            return ["start": s, "end": s + d, "duration": d]
+        }
+        let current = CMTimeGetSeconds(item.currentTime())
+        let duration = CMTimeGetSeconds(item.duration)
+        diagLog(.playback,
+                "AVPlayerItem loadedTimeRanges",
+                details: [
+                    "currentTime": current,
+                    "duration": duration,
+                    "ranges": ranges,
+                    "bufferEmpty": item.isPlaybackBufferEmpty,
+                    "likelyToKeepUp": item.isPlaybackLikelyToKeepUp
+                ])
+    }
 
     private func startPolling() {
         stopPolling()

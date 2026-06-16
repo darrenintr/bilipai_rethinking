@@ -158,11 +158,84 @@ final class LocalHLSProxyServer {
 
     private init() {}
 
+    // MARK: diagnostic helpers
+
+    /// Toggle for the raw-wire diagnostic dump in
+    /// `dumpWireBytes`.  We leave this on while diagnosing the
+    /// scrubber-seek-to-unbuffered bug; once the wire-level
+    /// root cause is identified and fixed, flip it to `false`
+    /// so the log isn't drowned in 500-byte byte dumps on
+    /// every segment.
+    fileprivate static let wireDumpEnabled = true
+
+    /// Render the first 500 bytes of `data` as UTF-8 so the
+    /// diagnostic log shows the actual HTTP framing we put on
+    /// the wire.  If the chunk is not valid UTF-8 (binary m4s
+    /// body), fall back to the ASCII-printable slice so the
+    /// log still shows the bytes that look human-readable.
+    /// `label` is the marker name we want to see in the log
+    /// (e.g. `DOWNSTREAM RESPONSE HEADER`).
+    fileprivate static func dumpWireBytes(_ data: Data, label: String) -> String {
+        let prefix = data.prefix(500)
+        if let s = String(data: prefix, encoding: .utf8) {
+            return "====== \(label) ======\n\(s)\n==========================="
+        }
+        let printable = prefix.filter { $0 >= 0x20 && $0 < 0x7F }
+        let ascii = String(decoding: printable, as: UTF8.self)
+        return "====== \(label) [binary \(prefix.count)/\(data.count) bytes] ======\n\(ascii)\n==========================="
+    }
+
+    /// Parse `Content-Range: bytes START-END/TOTAL` into a
+    /// tuple.  Returns `(-1, -1, -1)` for missing or
+    /// malformed headers so the caller can fall back to the
+    /// upstream `Content-Length`.  We compare `end - start + 1`
+    /// against `Content-Length` to detect the trap-2 mismatch
+    /// (hand-rolled HTTP server accidentally sends a
+    /// Content-Length that doesn't match the body).
+    fileprivate static func parseContentRangeHeader(_ s: String)
+        -> (start: Int64, end: Int64, total: Int64)
+    {
+        guard s.hasPrefix("bytes ") else { return (-1, -1, -1) }
+        let body = s.dropFirst("bytes ".count)
+        let parts = body.split(separator: "/", maxSplits: 1)
+        guard parts.count == 2 else { return (-1, -1, -1) }
+        let rangeParts = parts[0].split(separator: "-", maxSplits: 1)
+        guard rangeParts.count == 2,
+              let start = Int64(rangeParts[0]),
+              let end = Int64(rangeParts[1]) else {
+            return (-1, -1, -1)
+        }
+        let total: Int64
+        if parts[1] == "*" {
+            total = -1
+        } else {
+            total = Int64(parts[1]) ?? -1
+        }
+        return (start, end, total)
+    }
+
     // MARK: connection handling
 
     private func accept(connection: NWConnection) {
+        // Short, stable ID for this TCP connection so we can
+        // correlate lifecycle events with the request(s) we
+        // serve on it.  If AVPlayer ever reuses a connection
+        // for a second Range request (trap 3 — keep-alive
+        // reuse) we want to see two upstream requests with
+        // the same `conn` rather than two anonymous ones.
+        let connID = UUID().uuidString.prefix(8)
+        diagLog(.network,
+                "LocalHLSProxyServer accept",
+                details: [
+                    "conn": String(connID),
+                    "endpoint": "\(connection.endpoint)"
+                ])
         connection.start(queue: queue)
-        receiveHeader(connection: connection, accumulated: Data())
+        receiveHeader(
+            connection: connection,
+            accumulated: Data(),
+            connID: String(connID)
+        )
     }
 
     /// Read the request header bytes in chunks until we see
@@ -170,7 +243,8 @@ final class LocalHLSProxyServer {
     /// bytes; one read is usually enough.
     private func receiveHeader(
         connection: NWConnection,
-        accumulated: Data
+        accumulated: Data,
+        connID: String
     ) {
         connection.receive(
             minimumIncompleteLength: 1,
@@ -180,7 +254,13 @@ final class LocalHLSProxyServer {
             if let error = error {
                 diagLog(.network,
                         "LocalHLSProxyServer receive error",
-                        details: ["error": error.localizedDescription])
+                        details: [
+                            "conn": connID,
+                            "error": error.localizedDescription
+                        ])
+                diagLog(.network,
+                        "LocalHLSProxyServer conn close",
+                        details: ["conn": connID, "reason": "receive error"])
                 connection.cancel()
                 return
             }
@@ -188,43 +268,55 @@ final class LocalHLSProxyServer {
             if let data = data { buf.append(data) }
             // End-of-headers marker.
             if buf.range(of: Data([0x0D, 0x0A, 0x0D, 0x0A])) != nil {
-                self.route(requestBytes: buf, connection: connection)
+                self.route(requestBytes: buf, connection: connection,
+                           connID: connID)
                 return
             }
             if isComplete {
+                diagLog(.network,
+                        "LocalHLSProxyServer conn close",
+                        details: ["conn": connID, "reason": "eof without crlf crlf"])
                 connection.cancel()
                 return
             }
-            self.receiveHeader(connection: connection, accumulated: buf)
+            self.receiveHeader(connection: connection, accumulated: buf,
+                               connID: connID)
         }
     }
 
     /// Route a complete request to the right handler.
-    private func route(requestBytes: Data, connection: NWConnection) {
+    private func route(requestBytes: Data,
+                       connection: NWConnection,
+                       connID: String) {
         guard let req = HTTPRequest.parse(data: requestBytes) else {
             respondError(connection: connection, status: 400,
-                         reason: "bad request")
+                         reason: "bad request", connID: connID)
             return
         }
         let pathOnly = req.path.split(separator: "?", maxSplits: 1)
             .first.map(String.init) ?? req.path
         switch pathOnly {
         case "/playlist.m3u8":
-            respondMasterPlaylist(connection: connection)
+            respondMasterPlaylist(connection: connection, connID: connID)
         case "/video.m3u8":
-            respondMediaPlaylist(for: .video, connection: connection)
+            respondMediaPlaylist(for: .video, connection: connection,
+                                 connID: connID)
         case "/audio.m3u8":
-            respondMediaPlaylist(for: .audio, connection: connection)
+            respondMediaPlaylist(for: .audio, connection: connection,
+                                 connID: connID)
         case "/init":
-            proxySegment(req: req, connection: connection, mode: .initRange)
+            proxySegment(req: req, connection: connection, mode: .initRange,
+                         connID: connID)
         case "/media":
-            proxySegment(req: req, connection: connection, mode: .mediaRange)
+            proxySegment(req: req, connection: connection, mode: .mediaRange,
+                         connID: connID)
         default:
             if pathOnly.hasPrefix("/seg") {
-                proxySegment(req: req, connection: connection, mode: .passthrough)
+                proxySegment(req: req, connection: connection, mode: .passthrough,
+                             connID: connID)
             } else {
                 respondError(connection: connection, status: 404,
-                             reason: "no route")
+                             reason: "no route", connID: connID)
             }
         }
     }
@@ -240,11 +332,12 @@ final class LocalHLSProxyServer {
 
     private enum MediaKind { case video, audio }
 
-    private func respondMasterPlaylist(connection: NWConnection) {
+    private func respondMasterPlaylist(connection: NWConnection,
+                                      connID: String) {
         guard let (source, _) = snapshot(),
               baseURL != nil else {
             respondError(connection: connection, status: 503,
-                         reason: "no playback")
+                         reason: "no playback", connID: connID)
             return
         }
         let totalBandwidth = source.video.bandwidth
@@ -277,18 +370,19 @@ final class LocalHLSProxyServer {
         lines.append(streamInf)
         lines.append(localURL(path: "video.m3u8"))
         lines.append("")
-        respondText(connection: connection,
+        respondText(connection: connection, connID: connID,
                     body: lines.joined(separator: "\n"))
     }
 
     private func respondMediaPlaylist(
         for kind: MediaKind,
-        connection: NWConnection
+        connection: NWConnection,
+        connID: String
     ) {
         guard let (source, _) = snapshot(),
               baseURL != nil else {
             respondError(connection: connection, status: 503,
-                         reason: "no playback")
+                         reason: "no playback", connID: connID)
             return
         }
         let track: BiliDashSource.Track?
@@ -298,7 +392,7 @@ final class LocalHLSProxyServer {
         }
         guard let track = track else {
             respondError(connection: connection, status: 404,
-                         reason: "no track")
+                         reason: "no track", connID: connID)
             return
         }
         let total = max(track.totalDuration, 0.1)
@@ -341,7 +435,7 @@ final class LocalHLSProxyServer {
             "#EXT-X-ENDLIST",
             "",
         ]
-        respondText(connection: connection,
+        respondText(connection: connection, connID: connID,
                     body: lines.joined(separator: "\n"))
     }
 
@@ -372,11 +466,12 @@ final class LocalHLSProxyServer {
     private func proxySegment(
         req: HTTPRequest,
         connection: NWConnection,
-        mode: ProxyMode
+        mode: ProxyMode,
+        connID: String
     ) {
         guard let (source, referer) = snapshot() else {
             respondError(connection: connection, status: 503,
-                         reason: "no playback")
+                         reason: "no playback", connID: connID)
             return
         }
         let query = req.path.split(separator: "?", maxSplits: 1)
@@ -386,7 +481,7 @@ final class LocalHLSProxyServer {
               let upstreamString = base64urlDecode(encoded),
               let upstream = URL(string: upstreamString) else {
             respondError(connection: connection, status: 400,
-                         reason: "missing u")
+                         reason: "missing u", connID: connID)
             return
         }
         // Refuse to proxy anything other than the B站 CDN
@@ -396,7 +491,7 @@ final class LocalHLSProxyServer {
         guard let host = upstream.host,
               isAllowedUpstreamHost(host) else {
             respondError(connection: connection, status: 400,
-                         reason: "bad upstream host")
+                         reason: "bad upstream host", connID: connID)
             return
         }
         var upstreamReq = URLRequest(url: upstream)
@@ -437,7 +532,7 @@ final class LocalHLSProxyServer {
             // already do for `/media`).
             guard let range = parseByteRange(params["range"]) else {
                 respondError(connection: connection, status: 400,
-                             reason: "missing init range")
+                             reason: "missing init range", connID: connID)
                 return
             }
             upstreamReq.setValue(
@@ -449,7 +544,7 @@ final class LocalHLSProxyServer {
             guard let startString = params["from"],
                   let start = Int64(startString) else {
                 respondError(connection: connection, status: 400,
-                             reason: "missing media range")
+                             reason: "missing media range", connID: connID)
                 return
             }
             if let range = clientRange,
@@ -470,6 +565,7 @@ final class LocalHLSProxyServer {
         diagLog(.playback,
                 "LocalHLSProxyServer upstream request",
                 details: [
+                    "conn": connID,
                     "mode": mode.logName,
                     "host": upstream.host ?? "",
                     "hasReferer": upstreamReq.value(
@@ -487,7 +583,8 @@ final class LocalHLSProxyServer {
             mode: mode.logName,
             clientSentRange: clientRange != nil,
             contentRangeShift: contentRangeShift,
-            passContentRange: passContentRange
+            passContentRange: passContentRange,
+            connID: connID
         )
         retain(stream: stream)
         stream.start()
@@ -495,26 +592,33 @@ final class LocalHLSProxyServer {
 
     // MARK: response helpers
 
-    private func respondText(connection: NWConnection, body: String) {
+    private func respondText(connection: NWConnection,
+                             connID: String,
+                             body: String) {
         respondBytes(
             connection: connection,
             status: 200,
             contentType: "application/vnd.apple.mpegurl",
-            body: Data(body.utf8)
+            body: Data(body.utf8),
+            connID: connID,
+            label: "DOWNSTREAM RESPONSE HEADER+SMALL BODY"
         )
     }
 
     private func respondError(
         connection: NWConnection,
         status: Int,
-        reason: String
+        reason: String,
+        connID: String
     ) {
         let body = "{\"error\":\"\(reason)\"}"
         respondBytes(
             connection: connection,
             status: status,
             contentType: "application/json",
-            body: Data(body.utf8)
+            body: Data(body.utf8),
+            connID: connID,
+            label: "DOWNSTREAM ERROR RESPONSE"
         )
     }
 
@@ -523,7 +627,9 @@ final class LocalHLSProxyServer {
         status: Int,
         contentType: String,
         body: Data,
-        extraHeaders: [String: String] = [:]
+        extraHeaders: [String: String] = [:],
+        connID: String,
+        label: String
     ) {
         var response = httpHeaderData(
             status: status,
@@ -532,6 +638,19 @@ final class LocalHLSProxyServer {
             extraHeaders: extraHeaders
         )
         response.append(body)
+        if Self.wireDumpEnabled {
+            // Diagnostic: dump the actual bytes we are about
+            // to hand to `connection.send` so we can see the
+            // on-wire framing (CRLF + double-CRLF terminator,
+            // Content-Length, headers, etc.).
+            diagLog(.network,
+                    "LocalHLSProxyServer wire bytes",
+                    details: [
+                        "conn": connID,
+                        "label": label,
+                        "bytes": Self.dumpWireBytes(response, label: label)
+                    ])
+        }
         connection.send(
             content: response,
             completion: .contentProcessed { _ in connection.cancel() }
@@ -543,15 +662,29 @@ final class LocalHLSProxyServer {
         status: Int,
         contentType: String,
         contentLength: Int64?,
-        extraHeaders: [String: String] = [:]
+        extraHeaders: [String: String] = [:],
+        connID: String? = nil
     ) {
+        let header = httpHeaderData(
+            status: status,
+            contentType: contentType,
+            contentLength: contentLength,
+            extraHeaders: extraHeaders
+        )
+        if Self.wireDumpEnabled {
+            diagLog(.network,
+                    "LocalHLSProxyServer wire bytes",
+                    details: [
+                        "conn": connID ?? "",
+                        "label": "DOWNSTREAM RESPONSE HEADER",
+                        "bytes": Self.dumpWireBytes(
+                            header,
+                            label: "DOWNSTREAM RESPONSE HEADER"
+                        )
+                    ])
+        }
         connection.send(
-            content: httpHeaderData(
-                status: status,
-                contentType: contentType,
-                contentLength: contentLength,
-                extraHeaders: extraHeaders
-            ),
+            content: header,
             completion: .contentProcessed { _ in }
         )
     }
@@ -792,6 +925,12 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     private let upstream: URL
     private let request: URLRequest
     private let mode: String
+    /// Short, stable ID for the TCP connection that originated
+    /// this request.  Propagated into every diagnostic marker
+    /// so we can correlate lifecycle events on the same
+    /// socket — particularly useful for the keep-alive-reuse
+    /// hypothesis (trap 3).
+    private let connID: String
     /// `true` if the loopback client (AVPlayer) sent a
     /// `Range` header.  When `true`, our downstream response
     /// MUST use `206 Partial Content` and include a
@@ -809,6 +948,14 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     private var task: URLSessionDataTask?
     private var didSendHeader = false
     private var didFinish = false
+    /// Diagnostic counters for the downstream body stream
+    /// (only touched when `LocalHLSProxyServer.wireDumpEnabled`
+    /// is `true`).  Used to emit the body-totals log line on
+    /// completion so we can cross-check the actual bytes we
+    /// pushed to `connection.send` against the
+    /// `Content-Length` we promised in the header.
+    private var downstreamChunksSent = 0
+    private var downstreamBytesSent: Int64 = 0
     /// Set as soon as we see a downstream send failure
     /// (e.g. AVPlayer tore the socket down in
     /// `onDisappear`).  Guards against continuing to
@@ -852,7 +999,8 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         mode: String,
         clientSentRange: Bool,
         contentRangeShift: Int64?,
-        passContentRange: Bool
+        passContentRange: Bool,
+        connID: String
     ) {
         self.server = server
         self.connection = connection
@@ -862,6 +1010,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         self.clientSentRange = clientSentRange
         self.contentRangeShift = contentRangeShift
         self.passContentRange = passContentRange
+        self.connID = connID
         self.delegateQueue = OperationQueue()
         self.delegateQueue.maxConcurrentOperationCount = 1
         super.init()
@@ -1032,7 +1181,8 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                 connection: connection,
                 status: 502,
                 contentType: "application/json",
-                contentLength: nil
+                contentLength: nil,
+                connID: connID
             )
             didSendHeader = true
             diagLog(.network,
@@ -1103,9 +1253,40 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         let contentLength = http.expectedContentLength >= 0
             ? http.expectedContentLength
             : nil
+        // Trap-2 sanity check: cross-check the upstream's
+        // `Content-Length` against the bytes implied by the
+        // `Content-Range` header.  For a 206 response the
+        // body length must equal `end - start + 1`.  If
+        // they don't match, the upstream is either broken
+        // or we miscomputed the Range shift — both would
+        // make AVPlayer kill the socket.
+        let (rangeStart, rangeEnd, rangeTotal) = LocalHLSProxyServer
+            .parseContentRangeHeader(upstreamContentRange ?? "")
+        let computed: Int64 = (rangeStart >= 0 && rangeEnd >= rangeStart)
+            ? (rangeEnd - rangeStart + 1)
+            : -1
+        let upstreamCL: Int64 = http.expectedContentLength >= 0
+            ? http.expectedContentLength
+            : -1
+        diagLog(.network,
+                "LocalHLSProxyServer Content-Length sanity",
+                details: [
+                    "conn": connID,
+                    "mode": mode,
+                    "upstreamStatus": http.statusCode,
+                    "expectedContentLength": upstreamCL,
+                    "parsedContentRange": upstreamContentRange ?? "",
+                    "parsedRangeStart": rangeStart,
+                    "parsedRangeEnd": rangeEnd,
+                    "parsedRangeTotal": rangeTotal,
+                    "computedEndMinusStartPlus1": computed,
+                    "matches": upstreamCL < 0 || computed < 0
+                        || upstreamCL == computed
+                ])
         diagLog(.playback,
                 "LocalHLSProxyServer upstream response",
                 details: [
+                    "conn": connID,
                     "mode": mode,
                     "status": http.statusCode,
                     "downstreamStatus": status,
@@ -1120,7 +1301,8 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             contentType: http.mimeType
                 ?? server.mimeType(for: upstream.pathExtension),
             contentLength: contentLength,
-            extraHeaders: extraHeaders
+            extraHeaders: extraHeaders,
+            connID: connID
         )
         completionHandler(.allow)
     }
@@ -1145,6 +1327,11 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         // segments will spam the diagnostic log for several
         // seconds otherwise.
         if downstreamBroken { return }
+        // First chunk arrives without a prior `didReceive
+        // response` (which only fires for 2xx/206).  In that
+        // case the upstream returned a 200 without explicit
+        // length headers (B站 CDN sometimes does that for
+        // /init), so we have to synthesise the header here.
         if !didSendHeader {
             server?.sendHeader(
                 connection: connection,
@@ -1152,9 +1339,27 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                 contentType: server?.mimeType(
                     for: upstream.pathExtension
                 ) ?? "application/octet-stream",
-                contentLength: nil
+                contentLength: nil,
+                connID: connID
             )
             didSendHeader = true
+        }
+        if LocalHLSProxyServer.wireDumpEnabled {
+            downstreamChunksSent += 1
+            downstreamBytesSent += Int64(data.count)
+            if downstreamChunksSent == 1 {
+                diagLog(.network,
+                        "LocalHLSProxyServer wire bytes",
+                        details: [
+                            "conn": connID,
+                            "label": "DOWNSTREAM BODY FIRST CHUNK",
+                            "chunkBytes": data.count,
+                            "bytes": LocalHLSProxyServer.dumpWireBytes(
+                                data,
+                                label: "DOWNSTREAM BODY FIRST CHUNK"
+                            )
+                        ])
+            }
         }
         server?.addStreamedBytes(data.count)
         sendGroup.enter()
@@ -1167,6 +1372,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     diagLog(.network,
                             "LocalHLSProxyServer downstream send error",
                             details: [
+                                "conn": self.connID,
                                 "mode": self.mode,
                                 "error": error.localizedDescription
                             ])
@@ -1228,6 +1434,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             diagLog(.network,
                     "Upstream segment error",
                     details: [
+                        "conn": connID,
                         "mode": mode,
                         "attempts": upstreamAttempt + 1,
                         "error": nsError.localizedDescription
@@ -1237,25 +1444,53 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     connection: connection,
                     status: 502,
                     contentType: "application/json",
-                    contentLength: nil
+                    contentLength: nil,
+                    connID: connID
                 )
             }
         }
+        logBodyTotalsIfNeeded()
         finishWhenSendsDrain()
+    }
+
+    /// Emit the diagnostic body-totals log line.  Only
+    /// fires when `LocalHLSProxyServer.wireDumpEnabled`
+    /// is on; gives us a single line per stream that
+    /// cross-checks the bytes pushed to `connection.send`
+    /// against the `Content-Length` promised in the
+    /// header (the trap-2 mismatch check).
+    private func logBodyTotalsIfNeeded() {
+        guard LocalHLSProxyServer.wireDumpEnabled else { return }
+        diagLog(.network,
+                "LocalHLSProxyServer downstream body totals",
+                details: [
+                    "conn": connID,
+                    "mode": mode,
+                    "upstreamBytes": bytesReceivedFromUpstream,
+                    "downstreamChunks": downstreamChunksSent,
+                    "downstreamBytes": downstreamBytesSent,
+                    "matches": bytesReceivedFromUpstream == downstreamBytesSent
+                ])
     }
 
     private func finishWithError(reason: String) {
         diagLog(.network,
                 "LocalHLSProxyServer stream failed",
-                details: ["mode": mode, "reason": reason])
+                details: [
+                    "conn": connID,
+                    "mode": mode,
+                    "reason": reason
+                ])
         if !didSendHeader {
             server?.sendHeader(
                 connection: connection,
                 status: 502,
                 contentType: "application/json",
-                contentLength: nil
+                contentLength: nil,
+                connID: connID
             )
         }
+        logBodyTotalsIfNeeded()
         finishWhenSendsDrain()
     }
 
