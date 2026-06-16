@@ -441,7 +441,7 @@ final class LocalHLSProxyServer {
                 return
             }
             upstreamReq.setValue(
-                httpRangeHeader(offset: range.offset, end: range.endOffset),
+                Self.httpRangeHeader(offset: range.offset, end: range.endOffset),
                 forHTTPHeaderField: "Range"
             )
             contentRangeShift = range.offset
@@ -453,12 +453,12 @@ final class LocalHLSProxyServer {
                 return
             }
             if let range = clientRange,
-               let shifted = shiftedRangeHeader(range, by: start) {
+               let shifted = Self.shiftedRangeHeader(range, by: start) {
                 upstreamReq.setValue(shifted, forHTTPHeaderField: "Range")
                 contentRangeShift = start
             } else {
                 upstreamReq.setValue(
-                    httpRangeHeader(offset: start, end: nil),
+                    Self.httpRangeHeader(offset: start, end: nil),
                     forHTTPHeaderField: "Range"
                 )
                 contentRangeShift = start
