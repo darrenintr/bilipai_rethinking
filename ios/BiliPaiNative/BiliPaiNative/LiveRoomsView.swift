@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 
 struct LiveRoomsView: View {
@@ -50,26 +51,19 @@ struct LiveRoomsView: View {
     }
 }
 
-/// Live-room playback surface. Resolves the playback URLs on appear
-/// (one network round-trip to `getRoomPlayInfo`), drives
-/// `VLCPlayerView` with the URL for the active format, and lets the
-/// user toggle HLS ↔ FLV in the toolbar. Switching format hot-swaps
-/// the underlying media on the shared `PlayerController` via
-/// `swapMedia(to:referer:)` — VLC's API does not let us hot-swap a
-/// media object without a brief drop, but reusing the same player
-/// keeps the play/pause state and the polling timer intact.
+/// Live-room playback surface.  Resolves the playback URLs on
+/// appear (one network round-trip to `getRoomPlayInfo`) and
+/// drives AVKit's `VideoPlayer` (a `AVPlayerViewController` in
+/// SwiftUI clothing) with the HLS URL.  AVPlayer can only
+/// consume HLS — the FLV path was previously handled by VLC
+/// but is no longer supported, so the format toggle was
+/// dropped from the toolbar.
 private struct LivePlayerView: View {
     let room: BiliLiveRoom
     let repository: BiliPaiRepository
 
     @State private var playback: BiliLivePlayback?
     @State private var errorMessage: String?
-    /// `format` is kept for API parity with the previous VLC
-    /// version, but AVPlayer only consumes HLS. The picker only
-    /// ever offers the single HLS option (or nothing), so the
-    /// `format` state does not actually drive a user choice any
-    /// more.
-    @State private var format: BiliLiveStreamFormat = .hls
     /// Created lazily once `playback` is loaded, because the
     /// controller's init needs the active stream URL.
     @State private var controller: PlayerController?
@@ -81,9 +75,6 @@ private struct LivePlayerView: View {
                 playerSurface
                     .frame(maxWidth: .infinity)
                     .aspectRatio(16 / 9, contentMode: .fit)
-                if let playback {
-                    formatToggle(playback: playback)
-                }
                 metadataPanel
             }
         }
@@ -91,28 +82,6 @@ private struct LivePlayerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadPlayback()
-        }
-        .onChange(of: format) { _, newFormat in
-            // AVPlayer can only play HLS; if anything ever
-            // flips `format` to FLV (e.g. a future toggle) we
-            // surface a hint and refuse to swap.  With the
-            // current picker logic this branch is dead.
-            guard newFormat == .hls,
-                  let playback,
-                  let url = playback.streams[.hls] else {
-                errorMessage = "AVPlayer 暂不支持 FLV 流。"
-                return
-            }
-            let livePlayback = BiliPlayback(
-                dash: nil,
-                fallbackURL: url,
-                referer: playback.referer
-            )
-            // Re-instantiating the controller is the simplest
-            // way to swap media on AVPlayer — `swapMedia` is a
-            // no-op shim kept for API parity.
-            controller?.tearDown()
-            controller = PlayerController(playback: livePlayback)
         }
         .onDisappear {
             controller?.tearDown()
@@ -123,7 +92,14 @@ private struct LivePlayerView: View {
     @ViewBuilder
     private var playerSurface: some View {
         if let controller {
-            AVPlayerSurfaceView(controller: controller, surface: .standalone)
+            // `VideoPlayer` wraps `AVPlayerViewController` and
+            // gives the live room a system-standard HLS
+            // transport (play / pause / time labels / AirPlay /
+            // PiP).  The `AVPlayer` is the shared one on
+            // `PlayerController`, so toggling between this
+            // surface and any future fullscreen view keeps
+            // playback continuous.
+            VideoPlayer(player: controller.player)
         } else if let errorMessage {
             ContentUnavailableView(
                 "无法播放该直播间",
@@ -136,25 +112,6 @@ private struct LivePlayerView: View {
                 .controlSize(.large)
                 .tint(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    @ViewBuilder
-    private func formatToggle(playback: BiliLivePlayback) -> some View {
-        // AVPlayer only consumes HLS — FLV is disabled so the
-        // user cannot pick a format we cannot play.
-        let available = playback.streams[.hls] != nil
-            ? [BiliLiveStreamFormat.hls]
-            : [BiliLiveStreamFormat]()
-        if available.count > 1 {
-            Picker("Stream format", selection: $format) {
-                ForEach(available) { fmt in
-                    Text(fmt.displayName).tag(fmt)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding()
-            .background(Color.black.opacity(0.85))
         }
     }
 

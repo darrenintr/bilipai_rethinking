@@ -9,11 +9,17 @@
 //
 //  Why this shape
 //  --------------
-//  * The published surface (`currentTime`, `duration`,
-//    `isPlaying`, `isBuffering`, `networkSpeed`, `play`,
-//    `pause`, `toggle`, `seek`, `skip`, `attach`, `detach`,
-//    `tearDown`) is identical to the AliPlayer / VLC controllers
-//    so the SwiftUI views compile unchanged.
+//  * The controller owns the `AVPlayer` and the published state
+//    (`currentTime`, `duration`, `isPlaying`, `isBuffering`,
+//    `networkSpeed`) that the rest of the app reads.  `WatchSession`
+//    samples `currentTime` and `isPlaying` every 30 seconds.
+//  * The view layer is now AVKit — `VideoPlayer` for the inline
+//    surface and a thin `UIViewControllerRepresentable` around
+//    `AVPlayerViewController` for the fullscreen surface.  Both
+//    bind to the same `AVPlayer`, so the inline ↔ fullscreen
+//    transition keeps the playhead continuous.  Play, pause, and
+//    seek are all driven by the system UI; the controller no
+//    longer exposes custom `play` / `pause` / `seek` methods.
 //  * VOD DASH playback is fed to AVPlayer as
 //    `http://127.0.0.1:NNNN/playlist.m3u8`.  The proxy server
 //    synthesises a master + child playlists from the B站 DASH
@@ -27,17 +33,6 @@
 
 import AVFoundation
 import Combine
-import UIKit
-
-// `PlayerDrawableSurface` is consumed by `AVPlayerSurfaceView`
-// and the controller's `attach(drawable:surface:)` API.  Kept
-// in this file so the views don't have to import a separate
-// type for it.
-enum PlayerDrawableSurface: String {
-    case inline
-    case fullscreen
-    case standalone
-}
 
 @MainActor
 final class PlayerController: ObservableObject {
@@ -45,12 +40,19 @@ final class PlayerController: ObservableObject {
 
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
-    @Published var isPlaying: Bool = true
+    @Published private(set) var isPlaying: Bool = true
     @Published private(set) var isBuffering: Bool = false
     @Published private(set) var networkSpeed: Double = 0
 
     // MARK: underlying AVPlayer
 
+    /// The single `AVPlayer` instance the view layer binds to
+    /// (`VideoPlayer(player: controller.player)` and the
+    /// `AVPlayerViewController` in fullscreen both use this).
+    /// Owned for the lifetime of the controller; `tearDown` calls
+    /// `pause()` and removes the observers but does not
+    /// deallocate the player (it lives as long as the controller
+    /// does).
     let player: AVPlayer
     private let playerItem: AVPlayerItem
     private let asset: AVURLAsset
@@ -59,12 +61,6 @@ final class PlayerController: ObservableObject {
     /// `AVURLAsset` (live HLS or legacy MP4) and the proxy is
     /// not involved.
     private let usesProxy: Bool
-
-    // MARK: surface / view binding
-
-    private weak var attachedView: UIView?
-    private var preferredSurface: PlayerDrawableSurface = .standalone
-    private var attachedSurface: PlayerDrawableSurface?
 
     // MARK: observers / timer
 
@@ -279,79 +275,7 @@ final class PlayerController: ObservableObject {
         }
     }
 
-    // MARK: AliPlayer-equivalent API
-
-    /// Switch to a different media URL on the same controller.
-    /// AliPlayer had this for switching between quality levels.
-    /// AVPlayer is rebuilt from scratch instead — much simpler
-    /// than trying to splice items at runtime.  Callers that
-    /// need a hot-swap should re-instantiate the controller.
-    func swapMedia(to playback: BiliPlayback) {
-        diagLog(.playback, "swapMedia shim — caller should re-instantiate", details: [:])
-    }
-
-    func preferDrawableSurface(_ surface: PlayerDrawableSurface) {
-        preferredSurface = surface
-        diagLog(.playback, "Preferred drawable surface changed",
-                details: ["surface": surface.rawValue])
-    }
-
-    /// AliPlayer rebound its render surface when `playerView`
-    /// was reassigned.  AVPlayer is layer-based — the SwiftUI
-    /// side hands us a `UIView` and we attach an `AVPlayerLayer`
-    /// to its underlying layer.
-    func attach(drawable view: UIView, surface: PlayerDrawableSurface) {
-        guard surface == .standalone || surface == preferredSurface else {
-            diagLog(.playback, "AVPlayer attach ignored for inactive surface",
-                    details: [
-                        "surface": surface.rawValue,
-                        "preferred": preferredSurface.rawValue
-                    ])
-            return
-        }
-        if attachedView === view, attachedSurface == surface {
-            // Same target — keep the existing `AVPlayerLayer` but
-            // refresh its frame.  SwiftUI calls `makeUIView` with
-            // a zero-bounds `UIView` and immediately invokes
-            // `attach`, so the layer was created at (0,0,0,0).
-            // When `updateUIView` runs after layout has assigned
-            // real bounds, we have to push those bounds into the
-            // layer here, otherwise the video surface stays
-            // zero-sized and the user sees a black frame with
-            // audio playing.
-            if let existing = view.layer.sublayers?
-                .first(where: { $0 is AVPlayerLayer }) {
-                existing.frame = view.bounds
-            }
-            return
-        }
-        // If we already have a layer attached somewhere,
-        // remove it before adding the new one.
-        if let old = attachedView,
-           let oldLayer = old.layer.sublayers?
-            .first(where: { $0 is AVPlayerLayer }) {
-            oldLayer.removeFromSuperlayer()
-        }
-        let layer = AVPlayerLayer(player: player)
-        layer.videoGravity = .resizeAspect
-        layer.frame = view.bounds
-        view.layer.addSublayer(layer)
-        attachedView = view
-        attachedSurface = surface
-
-        diagLog(.playback, "AVPlayer attaching drawable",
-                details: ["surface": surface.rawValue])
-    }
-
-    func detach(currentView: UIView, surface: PlayerDrawableSurface) {
-        guard attachedView === currentView else { return }
-        if let old = currentView.layer.sublayers?
-            .first(where: { $0 is AVPlayerLayer }) {
-            old.removeFromSuperlayer()
-        }
-        attachedView = nil
-        attachedSurface = nil
-    }
+    // MARK: teardown
 
     func tearDown() {
         stopPolling()
@@ -373,47 +297,7 @@ final class PlayerController: ObservableObject {
         errorObserver = nil
         errorLogObserver = nil
         observers.removeAll()
-        if let view = attachedView,
-           let old = view.layer.sublayers?
-            .first(where: { $0 is AVPlayerLayer }) {
-            old.removeFromSuperlayer()
-        }
-        attachedView = nil
-        attachedSurface = nil
         diagLog(.playback, "AVPlayerController teardown complete")
-    }
-
-    func play() {
-        player.play()
-        isPlaying = true
-    }
-
-    func pause() {
-        player.pause()
-        isPlaying = false
-    }
-
-    func toggle() {
-        if player.timeControlStatus == .playing {
-            pause()
-        } else {
-            play()
-        }
-    }
-
-    func skip(by seconds: Double) {
-        let target = max(0, min(duration, currentTime + seconds))
-        seek(to: target)
-    }
-
-    func seek(to seconds: Double) {
-        let target = max(0, min(duration, seconds))
-        let t = CMTime(seconds: target, preferredTimescale: 600)
-        player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            Task { @MainActor in
-                self?.currentTime = target
-            }
-        }
     }
 
     // MARK: polling
@@ -446,7 +330,8 @@ final class PlayerController: ObservableObject {
         }
         // `isPlaying` is driven by `timeControlStatus`; AVPlayer
         // can pause on its own when the buffer empties, and we
-        // do not want to fight that — we mirror it.
+        // do not want to fight that — we mirror it.  `WatchSession`
+        // reads this every 30 seconds.
         let playing = (player.timeControlStatus == .playing)
         if playing != isPlaying {
             isPlaying = playing

@@ -8,7 +8,7 @@
 //  30 seconds.  Originally lived inside `VLCPlayerView.swift`,
 //  which is now disabled (renamed to `.vlc`) because VLC is
 //  no longer the playback engine — the SwiftUI host now points
-//  at `AVPlayerSurfaceView`.
+//  at `PlayerView` (which uses AVKit's `VideoPlayer`).
 //
 
 import Foundation

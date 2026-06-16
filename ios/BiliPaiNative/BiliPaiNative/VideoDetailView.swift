@@ -67,7 +67,6 @@ struct VideoDetailView: View {
             // controller is still alive.
             guard let playback, playerController == nil else { return }
             let controller = PlayerController(playback: playback)
-            controller.preferDrawableSurface(.inline)
             playerController = controller
             let session = WatchSession(
                 repository: repository,
@@ -111,11 +110,19 @@ struct VideoDetailView: View {
             }
         }
         .onChange(of: isFullscreenPresented) { _, newValue in
+            // The grace-window timestamps defend against the
+            // iPad quirk where `.fullScreenCover` fires
+            // `onDisappear` on the parent view.  AVKit now
+            // owns the player layer (no manual layer swap), so
+            // this is the only remaining piece of the
+            // transition dance.  When fullscreen dismisses we
+            // suppress teardown for ~1s so the parent view's
+            // `onDisappear` does not kill the controller while
+            // the cover is animating away.
             fullscreenTransitionUntil = Date().addingTimeInterval(1)
             if !newValue {
                 lastFullscreenDismissedAt = Date()
             }
-            playerController?.preferDrawableSurface(newValue ? .fullscreen : .inline)
             diagLog(.fullscreen, "Fullscreen presentation changed", details: ["isPresented": newValue])
         }
         // Auto-load the next comment batch only when the user has
@@ -143,9 +150,11 @@ struct VideoDetailView: View {
     private var playerSurface: some View {
         ZStack(alignment: .topLeading) {
             if let playback = model.playback, let controller = playerController {
-                // [FIX] Hide the inline player when fullscreen is presented.
-                // This prevents both views from fighting over the VLC drawable
-                // during transitions and re-renders, which causes black screens.
+                // Hide the inline player when fullscreen is
+                // presented so the cover gets the full window.
+                // AVKit's `VideoPlayer` keeps the playhead
+                // continuous across the swap (the cover binds
+                // to the same `AVPlayer`).
                 if !isFullscreenPresented {
                     PlayerView(playback: playback, video: model.detail, controller: controller)
                         .onAppear { model.isPlaying = true }
@@ -190,8 +199,6 @@ struct VideoDetailView: View {
 
     private var fullscreenButton: some View {
         Button {
-            fullscreenTransitionUntil = Date().addingTimeInterval(1)
-            playerController?.preferDrawableSurface(.fullscreen)
             isFullscreenPresented = true
         } label: {
             Image(systemName: "arrow.up.left.and.arrow.down.right")

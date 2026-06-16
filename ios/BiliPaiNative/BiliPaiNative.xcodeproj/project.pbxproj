@@ -39,7 +39,6 @@
 		10000000000000000000011F /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000221 /* LogViewerView.swift */; };
 		100000000000000000000120 /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000222 /* DeviceInfo.swift */; };
 		200000000000000000000301 /* AVPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000401 /* AVPlayerController.swift */; };
-		300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000501 /* AVPlayerSurfaceView.swift */; };
 		300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000502 /* LocalHLSProxyServer.swift */; };
 		300000000000000000000603 /* WatchSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000503 /* WatchSession.swift */; };
 /* End PBXBuildFile section */
@@ -79,7 +78,6 @@
 		100000000000000000000221 /* LogViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
 		100000000000000000000222 /* DeviceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
 		200000000000000000000401 /* AVPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerController.swift; sourceTree = "<group>"; };
-		300000000000000000000501 /* AVPlayerSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerSurfaceView.swift; sourceTree = "<group>"; };
 		300000000000000000000502 /* LocalHLSProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHLSProxyServer.swift; sourceTree = "<group>"; };
 		300000000000000000000503 /* WatchSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSession.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -129,7 +127,6 @@
 				100000000000000000000221 /* LogViewerView.swift */,
 				100000000000000000000222 /* DeviceInfo.swift */,
 				200000000000000000000401 /* AVPlayerController.swift */,
-				300000000000000000000501 /* AVPlayerSurfaceView.swift */,
 				300000000000000000000502 /* LocalHLSProxyServer.swift */,
 				300000000000000000000503 /* WatchSession.swift */,
 				100000000000000000000212 /* Assets.xcassets */,
@@ -274,7 +271,6 @@
 				10000000000000000000011F /* LogViewerView.swift in Sources */,
 				100000000000000000000120 /* DeviceInfo.swift in Sources */,
 				200000000000000000000301 /* AVPlayerController.swift in Sources */,
-				300000000000000000000601 /* AVPlayerSurfaceView.swift in Sources */,
 				300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */,
 				300000000000000000000603 /* WatchSession.swift in Sources */,
 			);

@@ -181,7 +181,7 @@ final class BiliPaiRepository: ObservableObject {
     }
 
     /// Lower-level variant that takes already-resolved identifiers.
-    /// `WatchSession` (in `AVPlayerSurfaceView.swift`) calls this every
+    /// `WatchSession` (in `WatchSession.swift`) calls this every
     /// 30 seconds; it has no `BiliVideo` because the timer runs
     /// across the inline ↔ fullscreen transition and the video
     /// object is not always in hand.
