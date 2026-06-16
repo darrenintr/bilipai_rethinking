@@ -82,6 +82,23 @@ final class LocalHLSProxyServer {
         currentPlayback = playback
         lock.unlock()
 
+        // Evict probe state from any previous playback — the
+        // upstream URLs are per-video and the cached totals
+        // would point at the wrong bytes if reused.
+        resetMediaTotalProbes()
+
+        // Kick off probes so the media playlists can be
+        // multi-segment from the first request.  Probes run
+        // on URLSession's background queue; `serve(playback:)`
+        // returns immediately.
+        let referer = playback.referer.absoluteString
+        if let video = playback.dash?.video {
+            startMediaTotalProbe(for: video, referer: referer)
+        }
+        if let audio = playback.dash?.audio {
+            startMediaTotalProbe(for: audio, referer: referer)
+        }
+
         if listener != nil { return }
 
         // Port 0 = let the OS pick.  We only have one server
@@ -155,6 +172,247 @@ final class LocalHLSProxyServer {
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
     private var activeStreams: [UUID: StreamingProxyTask] = [:]
+
+    // MARK: upstream media size probe
+    //
+    // To emit a multi-segment HLS playlist with `EXT-X-BYTERANGE`,
+    // we need the upstream m4s total file size — that lets us
+    // compute how many byte-range segments the duration should
+    // be split into.  The size is discovered by issuing a
+    // `Range: bytes=0-0` GET to the upstream URL; B站's CDN
+    // replies 206 with `Content-Range: bytes 0-0/TOTAL`.
+    //
+    // The probe fires on URLSession's own background queue and
+    // updates probe state directly under `lock`.  The listener
+    // queue (where `respondMediaPlaylist` waits) is *not* used
+    // for probe completion delivery — that avoids deadlocking
+    // the listener queue when we synchronously wait on a
+    // semaphore from inside `respondMediaPlaylist`.  All probe
+    // state is touched only under `lock`.
+    private var probedSizes: [URL: Int64] = [:]
+    /// Waiters for an in-flight probe.  Each entry is a
+    /// `(semaphore, callback)` pair; the callback is fired
+    /// exactly once when the probe completes or times out.
+    private var probeWaiters:
+        [URL: [(DispatchSemaphore, (Int64?) -> Void)]] = [:]
+    private var probeInFlight: Set<URL> = []
+    /// Target segment duration for the multi-segment HLS
+    /// playlist.  6 s gives ~40 segments for a typical 4-min
+    /// VOD — enough granularity that AVPlayer can seek to the
+    /// requested scrubber position without the "snap back to
+    /// buffered range" behaviour.  Empirically: 6 s chunks
+    /// round-trip in <100 ms over loopback.
+    private static let targetSegmentDuration: Double = 6.0
+
+    /// Kick off a `Range: bytes=0-0` GET to the upstream track
+    /// URL.  Idempotent.  Safe to call from any thread; the
+    /// URLSession callback runs on URLSession's queue and
+    /// touches probe state only under `lock`.
+    private func startMediaTotalProbe(
+        for track: BiliDashSource.Track,
+        referer: String
+    ) {
+        let key = track.baseURL
+        lock.lock()
+        if probedSizes[key] != nil || probeInFlight.contains(key) {
+            lock.unlock()
+            return
+        }
+        probeInFlight.insert(key)
+        lock.unlock()
+
+        var req = URLRequest(url: track.baseURL)
+        req.setValue(referer, forHTTPHeaderField: "Referer")
+        req.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+            + "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            + "Version/18.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        req.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        req.httpMethod = "GET"
+
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, _ in
+            guard let self else { return }
+            let total: Int64? = (response as? HTTPURLResponse).flatMap { http in
+                let cr = http.value(forHTTPHeaderField: "Content-Range") ?? ""
+                let (_, _, parsedTotal) =
+                    LocalHLSProxyServer.parseContentRangeHeader(cr)
+                return parsedTotal > 0 ? parsedTotal : nil
+            }
+            self.finishMediaTotalProbe(url: key, total: total)
+        }.resume()
+    }
+
+    /// Probe completion: cache the size, signal all waiters.
+    /// Runs on URLSession's background queue; touches only
+    /// `probedSizes` / `probeWaiters` under `lock`.
+    private func finishMediaTotalProbe(url: URL, total: Int64?) {
+        lock.lock()
+        probeInFlight.remove(url)
+        if let total {
+            probedSizes[url] = total
+        }
+        let waiters = probeWaiters.removeValue(forKey: url) ?? []
+        lock.unlock()
+        for (sem, callback) in waiters {
+            callback(total)
+            sem.signal()
+        }
+        diagLog(.playback, "LocalHLSProxyServer probe media total",
+                details: [
+                    "host": url.host ?? "",
+                    "totalBytes": total ?? -1,
+                    "success": total != nil
+                ])
+    }
+
+    /// Block the caller until the probe for `url` completes,
+    /// or `timeoutSeconds` elapses.  Returns the cached size
+    /// if already known.  Falls back to `nil` if the probe
+    /// never completes (network error, timeout).
+    ///
+    /// Must be called on `queue` — blocks the listener queue
+    /// for the duration of one `bytes=0-0` round-trip (~100 ms
+    /// in practice).  This is safe because:
+    ///  - `respondMediaPlaylist` is the only caller
+    ///  - AVPlayer is blocked on this connection waiting for
+    ///    the playlist, so no other connection needs to be
+    ///    accepted while we wait
+    ///  - The actual probe completion runs on URLSession's
+    ///    queue, which is independent of `queue`, so the
+    ///    semaphore gets signalled even though `queue` is
+    ///    parked.
+    private func awaitMediaTotalProbe(
+        for url: URL,
+        timeoutSeconds: Double = 5.0
+    ) -> Int64? {
+        let sem: DispatchSemaphore
+        var resolved: Int64?
+        var didResolve = false
+        lock.lock()
+        if let cached = probedSizes[url] {
+            lock.unlock()
+            return cached
+        }
+        sem = DispatchSemaphore(value: 0)
+        var waiters = probeWaiters[url] ?? []
+        waiters.append((sem, { total in
+            // First writer wins: if the timeout already
+            // flipped `didResolve` to true (with nil), don't
+            // overwrite `resolved` with the real value.
+            if !didResolve {
+                didResolve = true
+                resolved = total
+            }
+        }))
+        probeWaiters[url] = waiters
+        lock.unlock()
+
+        // Self-timeout.  After `timeoutSeconds` we drop the
+        // waiter and signal the semaphore so the playlist
+        // builder falls back to single-segment.  The race with
+        // the probe completion is resolved by the `didResolve`
+        // flag — whichever fires first wins.
+        DispatchQueue.global(qos: .userInitiated)
+            .asyncAfter(deadline: .now() + timeoutSeconds) { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                let remaining = self.probeWaiters[url]?
+                    .filter { $0.0 !== sem } ?? []
+                if remaining.isEmpty {
+                    self.probeWaiters.removeValue(forKey: url)
+                } else {
+                    self.probeWaiters[url] = remaining
+                }
+                self.lock.unlock()
+                if !didResolve {
+                    didResolve = true
+                    resolved = nil
+                }
+                sem.signal()
+            }
+
+        _ = sem.wait(timeout: .now() + timeoutSeconds + 0.5)
+        return resolved
+    }
+
+    /// Clear probe state when the playback swaps.  The proxy
+    /// is a process-wide singleton; if a previous playback
+    /// probed sizes for its tracks, those sizes don't apply
+    /// to the new playback and must be evicted.
+    private func resetMediaTotalProbes() {
+        lock.lock()
+        let dropped = probeWaiters
+        probedSizes.removeAll()
+        probeWaiters.removeAll()
+        probeInFlight.removeAll()
+        lock.unlock()
+        for (_, waiters) in dropped {
+            for (sem, _) in waiters {
+                sem.signal()
+            }
+        }
+    }
+
+    /// Build a multi-segment HLS playlist with `EXT-X-BYTERANGE`.
+    /// Returns `nil` if the inputs don't yield at least one
+    /// segment (caller falls back to single-segment).
+    ///
+    /// `mediaTotalBytes` is the upstream total file size, and
+    /// `mediaStartOffset` is the first byte of the playable
+    /// media section (typically right after the init segment).
+    /// We divide the playable range evenly in time, with the
+    /// last segment absorbing any remainder.
+    fileprivate static func buildMultiSegmentPlaylist(
+        mediaTotalBytes: Int64,
+        mediaStartOffset: Int64,
+        totalDuration: Double,
+        segmentURL: (Int64, Int64) -> String,
+        initURL: String
+    ) -> [String]? {
+        guard mediaTotalBytes > mediaStartOffset,
+              totalDuration > 0 else {
+            return nil
+        }
+        let mediaBytes = mediaTotalBytes - mediaStartOffset
+        let segmentCount = max(
+            1,
+            Int((totalDuration / targetSegmentDuration).rounded(.up))
+        )
+        let bytesPerSegment = max(
+            1,
+            Int64((Double(mediaBytes) / Double(segmentCount)).rounded())
+        )
+        let baseSegmentDuration = totalDuration / Double(segmentCount)
+        let targetDurationSeconds = max(
+            1,
+            Int(baseSegmentDuration.rounded(.up))
+        )
+        var lines: [String] = [
+            "#EXTM3U",
+            "#EXT-X-VERSION:6",
+            "#EXT-X-TARGETDURATION:\(targetDurationSeconds)",
+            "#EXT-X-PLAYLIST-TYPE:VOD",
+            "#EXT-X-MEDIA-SEQUENCE:0",
+            "#EXT-X-MAP:URI=\"\(initURL)\"",
+        ]
+        for i in 0..<segmentCount {
+            let relStart = Int64(i) * bytesPerSegment
+            let isLast = (i == segmentCount - 1)
+            let relEnd = isLast
+                ? mediaBytes - 1
+                : min(relStart + bytesPerSegment - 1, mediaBytes - 1)
+            let duration = isLast
+                ? totalDuration - baseSegmentDuration * Double(segmentCount - 1)
+                : baseSegmentDuration
+            lines.append("#EXTINF:\(String(format: "%.3f", duration)),")
+            lines.append("#EXT-X-BYTERANGE:\(relEnd - relStart + 1)@\(relStart)")
+            lines.append(segmentURL(relStart, relEnd))
+        }
+        lines.append("#EXT-X-ENDLIST")
+        return lines
+    }
 
     private init() {}
 
@@ -413,6 +671,71 @@ final class LocalHLSProxyServer {
                 )
             ]
         )
+
+        // Multi-segment playlist.  We block (on the listener
+        // queue) for the upstream total-bytes probe; without it
+        // we can't compute how many `EXT-X-BYTERANGE` chunks to
+        // emit.  See `awaitMediaTotalProbe` for why this is
+        // safe to block here.
+        let probedTotal = awaitMediaTotalProbe(
+            for: track.baseURL, timeoutSeconds: 5.0
+        )
+        if let probedTotal, probedTotal > track.mediaStartOffset {
+            let segmentURL: (Int64, Int64) -> String = { relStart, relEnd in
+                self.localURL(
+                    path: "media",
+                    queryItems: [
+                        URLQueryItem(name: "u", value: encoded),
+                        URLQueryItem(
+                            name: "from",
+                            value: "\(track.mediaStartOffset + relStart)"
+                        ),
+                        URLQueryItem(
+                            name: "to",
+                            value: "\(track.mediaStartOffset + relEnd)"
+                        ),
+                    ]
+                )
+            }
+            if let lines = Self.buildMultiSegmentPlaylist(
+                mediaTotalBytes: probedTotal,
+                mediaStartOffset: track.mediaStartOffset,
+                totalDuration: total,
+                segmentURL: segmentURL,
+                initURL: initURL
+            ) {
+                diagLog(.playback,
+                        "LocalHLSProxyServer multi-segment playlist",
+                        details: [
+                            "conn": connID,
+                            "kind": kind == .video ? "video" : "audio",
+                            "mediaTotalBytes": probedTotal,
+                            "mediaStartOffset": track.mediaStartOffset,
+                            "duration": total,
+                            "segmentCount": lines.filter {
+                                $0.hasPrefix("#EXTINF:")
+                            }.count
+                        ])
+                respondText(connection: connection, connID: connID,
+                            body: lines.joined(separator: "\n"))
+                return
+            }
+        }
+
+        // Fallback: single-segment playlist.  Used when the
+        // probe hasn't completed (or failed).  AVPlayer
+        // treats the whole video as one segment in this case,
+        // which is the legacy behaviour — works for normal
+        // playback but loses the ability to scrub past the
+        // buffer.
+        diagLog(.playback,
+                "LocalHLSProxyServer single-segment playlist fallback",
+                details: [
+                    "conn": connID,
+                    "kind": kind == .video ? "video" : "audio",
+                    "probedTotal": probedTotal ?? -1,
+                    "mediaStartOffset": track.mediaStartOffset
+                ])
         let mediaURL = localURL(
             path: "media",
             queryItems: [
@@ -547,13 +870,20 @@ final class LocalHLSProxyServer {
                              reason: "missing media range", connID: connID)
                 return
             }
+            // Optional end byte.  When the multi-segment
+            // playlist emits `/media?from=X&to=Y`, the server
+            // only wants those exact bytes; without a Range
+            // header from AVPlayer we have to synthesise one
+            // for the upstream.
+            let endString = params["to"]
+            let end = endString.flatMap { Int64($0) }
             if let range = clientRange,
                let shifted = Self.shiftedRangeHeader(range, by: start) {
                 upstreamReq.setValue(shifted, forHTTPHeaderField: "Range")
                 contentRangeShift = start
             } else {
                 upstreamReq.setValue(
-                    Self.httpRangeHeader(offset: start, end: nil),
+                    Self.httpRangeHeader(offset: start, end: end),
                     forHTTPHeaderField: "Range"
                 )
                 contentRangeShift = start
