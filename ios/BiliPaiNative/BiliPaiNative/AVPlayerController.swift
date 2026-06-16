@@ -240,7 +240,7 @@ final class PlayerController: ObservableObject {
         if #available(iOS 16.4, *) {
             observers.insert(
                 player.observe(\.reasonForWaitingToPlay, options: [.new]) {
-                    [weak self] _, change in
+                    _, change in
                     let reason = change.newValue
                         .map { String(describing: $0) } ?? "nil"
                     diagLog(.playback,
@@ -376,9 +376,15 @@ final class PlayerController: ObservableObject {
         let now = Date()
         guard now.timeIntervalSince(lastRangesLogAt) >= 0.5 else { return }
         lastRangesLogAt = now
-        let ranges: [[String: Double]] = item.loadedTimeRanges.map { tr in
-            let s = CMTimeGetSeconds(tr.timeRange.start)
-            let d = CMTimeGetSeconds(tr.timeRange.duration)
+        let ranges: [[String: Double]] = item.loadedTimeRanges.map { value in
+            // `loadedTimeRanges` is `[NSValue]`; each `NSValue`
+            // carries a `CMTimeRange` accessible via
+            // `timeRangeValue`.  Going through `.timeRange`
+            // directly doesn't work because `NSValue` is a
+            // generic Obj-C box, not a typed Swift struct.
+            let tr = value.timeRangeValue
+            let s = CMTimeGetSeconds(tr.start)
+            let d = CMTimeGetSeconds(tr.duration)
             return ["start": s, "end": s + d, "duration": d]
         }
         let current = CMTimeGetSeconds(item.currentTime())
