@@ -731,7 +731,7 @@ final class BilibiliAPIClient {
         try payload.requireOK()
         let data = payload.value
         return HistoryPageResult(
-            items: data?.items.map(\.entry) ?? [],
+            items: data?.items.map { $0.entry } ?? [],
             nextCursor: data?.cursor?.cursorState
         )
     }
@@ -743,7 +743,7 @@ final class BilibiliAPIClient {
             queryItems: []
         )
         try payload.requireOK()
-        return payload.value?.list.map(\.video) ?? []
+        return payload.value?.list.map { $0.video } ?? []
     }
 
     func favoriteFolders(mid: Int64) async throws -> [FavoriteFolderSummary] {
@@ -755,7 +755,7 @@ final class BilibiliAPIClient {
             ]
         )
         try payload.requireOK()
-        return payload.value?.list.map(\.folder) ?? []
+        return payload.value?.list.map { $0.folder } ?? []
     }
 
     /// Page through the user's followings list and return the full set
@@ -824,7 +824,7 @@ final class BilibiliAPIClient {
         )
         try payload.requireOK()
         let info = payload.value?.info
-        let medias = payload.value?.medias.map(\.video) ?? []
+        let medias = payload.value?.medias.map { $0.video } ?? []
         return FavoriteFolderVideosPage(
             title: info?.title ?? "收藏夹",
             videos: medias,
