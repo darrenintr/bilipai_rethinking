@@ -2,34 +2,17 @@
 //  PlayerView.swift
 //  BiliPaiNative
 //
-//  AVKit-backed player surfaces.  The previous version of this
-//  file hand-rolled the inline and fullscreen controls (play /
-//  pause / scrubber / 5s skip / loading overlay) on top of an
-//  `AVPlayerLayer` mounted by `AVPlayerSurfaceView`.  That code
-//  had two problems the user reported in build 81:
-//
-//    1. The custom `Slider` for the fullscreen scrubber could
-//       drive the playhead past a valid range and crash the
-//       app when AVPlayer refused the seek.
-//    2. The whole overlay was 430+ lines of brittle custom
-//       state (auto-hide, tap-to-toggle, two-source-of-truth
-//       scrubber binding) that AVKit's transport already does
-//       for free.
-//
-//  Both surfaces now use AVKit's system UI:
-//    * Inline  → SwiftUI `VideoPlayer` (wraps `AVPlayerViewController`).
-//    * Fullscreen → `AVPlayerViewController` in a `UIViewControllerRepresentable`,
-//      which gives the system "Done" button that SwiftUI's
-//      `VideoPlayer` lacks.
+//  AVKit-backed player surfaces.  The inline player uses a
+//  custom overlay (play/pause + ±10s skip) because AVKit's
+//  `AVPlayerViewController` transport is unreliable for the
+//  inline case — it disappears on some iOS contexts even
+//  with `showsPlaybackControls = true`.  The fullscreen player
+//  uses `AVPlayerViewController` directly so it gets the system
+//  Done button and PiP for free.
 //
 //  Both bind to the *same* `AVPlayer` on the shared
 //  `PlayerController`, so inline ↔ fullscreen ↔ inline keeps
-//  the playhead continuous (the user wanted this preserved when
-//  we moved from VLC → AVPlayer in build 80).
-//
-//  We keep a small loading overlay (spinner + KB/s) on top of
-//  the system UI because the user explicitly asked for the
-//  network rate to be surfaced during stalls.
+//  the playhead continuous.
 //
 
 import AVFoundation
@@ -38,35 +21,35 @@ import SwiftUI
 
 // MARK: - Inline surface
 
-/// AVKit-backed inline player for the detail view.  Uses
-/// `AVPlayerViewController` via `UIViewControllerRepresentable` so
-/// we can explicitly set `showsPlaybackControls = true` — SwiftUI's
-/// `VideoPlayer` does not expose this property and can silently
-/// omit the transport UI in some iOS contexts.
+/// Inline player with a custom transport overlay.
 ///
-/// The system provides play / pause / scrubber / time labels /
-/// AirPlay / PiP.  The custom code is the loading overlay and
-/// the double-tap gesture layer (left/right seek, centre like).
+/// AVKit's `AVPlayerViewController` `showsPlaybackControls` is
+/// unreliable for the inline (non-fullscreen) case — the controls
+/// are rendered by the system and can be hidden by context.  We
+/// therefore use our own overlay: play/pause, ±10s skip, and a
+/// buffering indicator.  The double-tap layer (seek / like) sits
+/// above the transport and does not interfere with it.
 struct PlayerView: View {
     let playback: BiliPlayback
     let video: BiliVideo
     let repository: BiliPaiRepository
     @ObservedObject var controller: PlayerController
 
+    /// Controls visibility — shown when paused, auto-hidden 2 s
+    /// after playback resumes.
+    @State private var showControls = true
+    @State private var hideTask: Task<Void, Never>?
+
     var body: some View {
         InlineAVPlayerRepresentable(player: controller.player)
+            .overlay { centerControl }
             .overlay(alignment: .center) {
-                if controller.isBuffering {
+                if controller.isBuffering && !showControls {
                     loadingOverlay
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
             }
-            // Double-tap gestures sit *above* the system transport
-            // so they win over the system's single-tap (which would
-            // otherwise toggle the controls). The overlay is
-            // `allowsHitTesting(false)` for the badge so taps pass
-            // through to the gesture recogniser below.
             .overlay {
                 DoubleTapOverlay(
                     video: video,
@@ -74,11 +57,62 @@ struct PlayerView: View {
                     controller: controller
                 )
             }
+            .contentShape(Rectangle())
+            .onTapGesture { toggleControls() }
+            .onChange(of: controller.isPlaying) { _, playing in
+                if playing {
+                    scheduleHide()
+                } else {
+                    cancelHide()
+                    showControls = true
+                }
+            }
+            .onAppear {
+                if !controller.isPlaying { showControls = true }
+                else { scheduleHide() }
+            }
+            .onDisappear { cancelHide() }
     }
 
-    /// Spinner + KB/s readout.  Drawn on top of the system
-    /// transport so the user sees it during a stall, even if
-    /// they have already hidden the system controls.
+    /// Centre play/pause + skip buttons.  Shown when the video is
+    /// paused or during the 2-second auto-hide window after play.
+    @ViewBuilder
+    private var centerControl: some View {
+        if showControls {
+            HStack(spacing: 36) {
+                Button { controller.seek(by: -10) } label: {
+                    Image(systemName: "gobackward.10")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Skip back 10 seconds")
+
+                Button { controller.toggle() } label: {
+                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 64, height: 64)
+                        .background(.black.opacity(0.55), in: Circle())
+                }
+                .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
+
+                Button { controller.seek(by: 10) } label: {
+                    Image(systemName: "goforward.10")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Skip forward 10 seconds")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(.black.opacity(0.4), in: Capsule())
+            .transition(.opacity)
+        }
+    }
+
+    /// Spinner + KB/s readout shown during stalls.
     private var loadingOverlay: some View {
         VStack(spacing: 6) {
             ProgressView()
@@ -95,10 +129,6 @@ struct PlayerView: View {
         .accessibilityLabel("Loading video")
     }
 
-    /// Format a bytes/second value into the most readable unit.
-    /// 0 reads as "—" so a brand-new buffer (where AVPlayer has
-    /// not yet computed a rate) is not mistaken for a stalled
-    /// connection.
     private func formatNetworkSpeed(_ bytesPerSecond: Double) -> String {
         guard bytesPerSecond > 0 else { return "—" }
         if bytesPerSecond >= 1_000_000 {
@@ -108,6 +138,35 @@ struct PlayerView: View {
             return String(format: "%.0f KB/s", bytesPerSecond / 1_000)
         }
         return String(format: "%.0f B/s", bytesPerSecond)
+    }
+
+    private func toggleControls() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showControls.toggle()
+        }
+        if showControls && controller.isPlaying {
+            scheduleHide()
+        } else {
+            cancelHide()
+        }
+    }
+
+    private func scheduleHide() {
+        cancelHide()
+        hideTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    showControls = false
+                }
+            }
+        }
+    }
+
+    private func cancelHide() {
+        hideTask?.cancel()
+        hideTask = nil
     }
 }
 
@@ -231,6 +290,9 @@ private struct InlineAVPlayerRepresentable: UIViewControllerRepresentable {
         controller.player = player
         controller.showsPlaybackControls = true
         controller.videoGravity = .resizeAspect
+        // Strong reference keeps the controller alive across
+        // SwiftUI re-renders that don't replace the representable.
+        context.coordinator.controller = controller
         return controller
     }
 
@@ -241,6 +303,14 @@ private struct InlineAVPlayerRepresentable: UIViewControllerRepresentable {
         if uiViewController.player !== player {
             uiViewController.player = player
         }
+        // Keep the coordinator's reference current.
+        context.coordinator.controller = uiViewController
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        weak var controller: AVPlayerViewController?
     }
 }
 
