@@ -204,7 +204,7 @@ final class PlayerController: ObservableObject {
                 options: [.new, .initial]
             ) { [weak self] _, change in
                 let empty = change.newValue ?? false
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     self?.isBuffering = empty
                 }
             }
@@ -215,7 +215,7 @@ final class PlayerController: ObservableObject {
                 options: [.new, .initial]
             ) { [weak self] _, change in
                 let likely = change.newValue ?? false
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     if likely { self?.isBuffering = false }
                 }
             }
@@ -229,7 +229,7 @@ final class PlayerController: ObservableObject {
         observers.insert(
             item.observe(\.loadedTimeRanges, options: [.new]) {
                 [weak self] _, _ in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     self?.logLoadedTimeRanges()
                 }
             }
@@ -282,7 +282,7 @@ final class PlayerController: ObservableObject {
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.isPlaying = false
             }
         }
@@ -295,7 +295,7 @@ final class PlayerController: ObservableObject {
             diagLog(.playback, "AVPlayerItem failed to play to end", details: [
                 "error": err.map { String(describing: $0) } ?? "unknown"
             ])
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.isPlaying = false
                 self?.isBuffering = false
             }

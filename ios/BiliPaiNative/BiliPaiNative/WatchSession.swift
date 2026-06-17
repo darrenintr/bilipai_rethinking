@@ -78,9 +78,7 @@ final class WatchSession {
             withTimeInterval: Self.reportInterval,
             repeats: true
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.tick()
-            }
+            self?.tick()
         }
     }
 
@@ -92,6 +90,7 @@ final class WatchSession {
         timer = nil
     }
 
+    @MainActor
     private func tick() {
         // Throttle: if the user just paused (or just opened
         // the view and `start` fired <5s ago) skip the report

@@ -111,11 +111,7 @@ private struct HeroSourceModifier: ViewModifier {
     let namespace: Namespace.ID?
 
     func body(content: Content) -> some View {
-        if let namespace, #available(iOS 18, *) {
-            content.matchedTransitionSource(id: videoID, in: namespace)
-        } else {
-            content
-        }
+        content
     }
 }
 
