@@ -695,6 +695,18 @@ final class LocalHLSProxyServer {
         let probedTotal = awaitMediaTotalProbe(
             for: track.baseURL, timeoutSeconds: 5.0
         )
+        
+        let mediaURL = localURL(
+            path: "media",
+            queryItems: [
+                URLQueryItem(name: "u", value: encoded),
+                URLQueryItem(
+                    name: "from",
+                    value: "\(track.mediaStartOffset)"
+                )
+            ]
+        )
+        
         if let probedTotal, probedTotal > track.mediaStartOffset {
             if let lines = Self.buildMultiSegmentPlaylist(
                 mediaTotalBytes: probedTotal,
@@ -735,16 +747,6 @@ final class LocalHLSProxyServer {
                     "probedTotal": probedTotal ?? -1,
                     "mediaStartOffset": track.mediaStartOffset
                 ])
-        let mediaURL = localURL(
-            path: "media",
-            queryItems: [
-                URLQueryItem(name: "u", value: encoded),
-                URLQueryItem(
-                    name: "from",
-                    value: "\(track.mediaStartOffset)"
-                )
-            ]
-        )
         let lines: [String] = [
             "#EXTM3U",
             "#EXT-X-VERSION:6",
@@ -900,25 +902,33 @@ final class LocalHLSProxyServer {
         // `-19602` decode errors.  We resolve this by cancelling
         // any stream whose byte range intersects the new request.
         let upstreamKey = upstream.absoluteString
-        let reqStart: Int64?
-        let reqEnd: Int64?
-        switch mode {
-        case .mediaRange:
-            // start was already parsed above; end is optional
-            reqStart = params["from"].flatMap { Int64($0) }
-            reqEnd = params["to"].flatMap { Int64($0) }
-        case .initRange:
-            if let r = parseByteRange(params["range"]) {
-                reqStart = r.offset
-                reqEnd = r.endOffset
-            } else {
-                reqStart = nil
-                reqEnd = nil
+        var reqStart: Int64?
+        var reqEnd: Int64?
+
+        if let rangeHeader = upstreamReq.value(forHTTPHeaderField: "Range"),
+           rangeHeader.hasPrefix("bytes=") {
+            let spec = rangeHeader.dropFirst("bytes=".count).trimmingCharacters(in: .whitespaces)
+            let bounds = spec.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+            if bounds.count == 2, let rs = Int64(bounds[0]) {
+                reqStart = rs
+                if !bounds[1].isEmpty, let re = Int64(bounds[1]) {
+                    reqEnd = re
+                } else {
+                    reqEnd = Int64.max // Representing until EOF
+                }
             }
-        case .passthrough:
-            reqStart = nil
-            reqEnd = nil
+        } else if mode == .mediaRange {
+            // If no range header was added (meaning we request to EOF), we still want to track it.
+            if let startString = params["from"], let rs = Int64(startString) {
+                reqStart = rs
+                if let endString = params["to"], let re = Int64(endString) {
+                    reqEnd = re
+                } else {
+                    reqEnd = Int64.max
+                }
+            }
         }
+
         if let rs = reqStart, let re = reqEnd {
             lock.lock()
             if let existing = inFlightRanges[upstreamKey],
@@ -1257,9 +1267,17 @@ final class LocalHLSProxyServer {
         }
         let relativeStart = absoluteStart - offset
         let relativeEnd = absoluteEnd - offset
-        // Z is the CDN file's total size — NEVER subtract offset.
-        // AVPlayer derives the timeline duration from this value.
-        let totalPart = String(rangeAndTotal[1])
+
+        let totalPart: String
+        if rangeAndTotal[1] == "*" {
+            totalPart = "*"
+        } else if let absoluteTotal = Int64(rangeAndTotal[1]) {
+            let relativeTotal = absoluteTotal - offset
+            totalPart = "\(relativeTotal)"
+        } else {
+            return nil
+        }
+
         return "bytes \(relativeStart)-\(relativeEnd)/\(totalPart)"
     }
 
@@ -1445,7 +1463,8 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         let key = upstream.absoluteString
         server?.lock.lock()
         if let existing = server?.inFlightRanges[key],
-           existing.streamID == id {
+           existing.streamID == id,
+           existing.start == rs, existing.end == re {
             server?.inFlightRanges.removeValue(forKey: key)
         }
         server?.lock.unlock()
