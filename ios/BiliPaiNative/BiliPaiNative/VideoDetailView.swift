@@ -14,74 +14,105 @@ private struct CommentScrollSignal: Equatable {
 struct VideoDetailView: View {
     let video: BiliVideo
     let repository: BiliPaiRepository
+    /// Optional namespace for the hero / zoom navigation
+    /// transition. When the parent `NavigationStack` provides
+    /// a `Namespace.ID`, the body is wrapped in
+    /// `.navigationTransition(.zoom(sourceID:in:))` and the
+    /// system zooms out of the source `VideoCard`'s cover on
+    /// push and back into it on pop. `nil` is a no-op — the
+    /// standard cross-fade transition is used.
+    let heroNamespace: Namespace.ID?
 
     @StateObject private var model: VideoDetailViewModel
+    @EnvironmentObject private var miniPlayerStore: MiniPlayerStore
     @State private var isFullscreenPresented = false
-    /// Single `PlayerController` shared by the inline `PlayerView`
-    /// and the `FullscreenPlayerView`. Created lazily once
-    /// `model.playback` is loaded, because the controller's
-    /// initialiser needs the playback object. Hoisting the
-    /// player up to this level is what makes the playhead and
-    /// play/pause state stay continuous across the inline ↔
-    /// fullscreen transition — both surfaces point at the same
-    /// `AVPlayer`, only the visible `AVPlayerLayer`'s parent
-    /// `UIView` (drawable) is swapped when the user enters /
-    /// leaves fullscreen.
-    @State private var playerController: PlayerController?
-    /// The history-reporting `WatchSession` also lives at this
-    /// level for the same reason. Previously each view created
-    /// its own, which would double-fire on every inline ↔
-    /// fullscreen transition.
-    @State private var watchSession: WatchSession?
     @State private var fullscreenTransitionUntil: Date = .distantPast
     @State private var lastFullscreenDismissedAt: Date = .distantPast
+    /// Player height as a fraction of the available height. 1.0
+    /// means the player takes its full rest size (~55% of the
+    /// screen, preserving the 16:9 letterbox). 0.5 means the
+    /// player is shrunken to exactly 50% of the screen, giving
+    /// the comments the other half. We interpolate between the
+    /// two based on the inner `ScrollView`'s content offset —
+    /// scrolling down shrinks the player, scrolling back up
+    /// grows it.
+    @State private var playerScale: CGFloat = 1.0
+    /// User's preferred comment sort, persisted across launches. The
+    /// view writes through to the model and to the underlying fetch
+    /// whenever the user toggles the picker.
+    @AppStorage("bilipai.commentSort") private var storedCommentSort: String = CommentSort.hot.rawValue
 
-    init(video: BiliVideo, repository: BiliPaiRepository) {
+    init(video: BiliVideo, repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil) {
         self.video = video
         self.repository = repository
+        self.heroNamespace = heroNamespace
         _model = StateObject(wrappedValue: VideoDetailViewModel(video: video))
     }
 
+    /// The active player controller — owned by the `MiniPlayerStore`
+    /// now, not by this view. Both the inline `PlayerView` and the
+    /// `FullscreenPlayerView` read from the store so the playhead
+    /// stays continuous across the inline ↔ fullscreen transition
+    /// AND across the mini-player transition.
+    private var playerController: PlayerController? {
+        miniPlayerStore.controller
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        GeometryReader { geo in
+            // The split-view math.  At rest the player takes
+            // 55% of the screen; at full split it takes 50%
+            // and the comments ScrollView gets the other half.
+            // The interpolation is linear over the 0.5..1.0
+            // range of `playerScale`; the inner ScrollView's
+            // content offset drives `playerScale` in the range
+            // 0..240pt (clamped to 1.0..0.5).  The 16:9 video
+            // letterboxes inside whatever frame we give it,
+            // so the visible black bars on top/bottom grow as
+            // the player shrinks.
+            let totalH = geo.size.height
+            let maxPlayerHeight = totalH * 0.55
+            let minPlayerHeight = totalH * 0.5
+            let playerHeight = maxPlayerHeight
+                - (maxPlayerHeight - minPlayerHeight) * (1.0 - playerScale)
+
+            VStack(spacing: 0) {
                 playerSurface
-                titleBlock
-                controlPanel
-                commentPreview
+                    .frame(height: playerHeight)
+                    .clipped()
+
+                commentsScrollView
             }
-            .padding(16)
         }
         .background(BiliPaiTheme.pageBackground)
         .navigationTitle(model.detail.ownerName)
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            // Hydrate the model from the persisted sort before the
+            // first fetch — otherwise the in-memory `commentSort`
+            // would always be `.hot` on a fresh mount and the user
+            // would have to re-toggle the picker.
+            let persisted = CommentSort(rawValue: storedCommentSort) ?? .hot
+            if model.commentSort != persisted {
+                model.commentSort = persisted
+            }
             await model.load(repository: repository)
         }
         .onChange(of: model.playback) { _, playback in
-            // Build the shared controller + history reporter
-            // exactly once, when playback first becomes available.
-            // We compare against `playerController` (not just nil)
-            // because a re-load on a `Retry` could fire this
-            // `onChange` with a new playback object while the old
-            // controller is still alive.
-            guard let playback, playerController == nil else { return }
-            let controller = PlayerController(playback: playback)
-            playerController = controller
-            let session = WatchSession(
-                repository: repository,
-                aid: model.detail.aid,
-                cid: model.detail.cid,
-                getCurrentSeconds: { [weak controller] in controller?.currentTime ?? 0 },
-                isActive: { [weak controller] in controller?.isPlaying ?? false }
-            )
-            watchSession = session
-            session.start()
+            // Hand the new playback off to the store. The store's
+            // `bind(...)` is idempotent — if the same video is
+            // already playing in the mini-player, the call is a
+            // no-op and the player keeps running across the
+            // mini-player → inline re-mount.
+            guard let playback else { return }
+            miniPlayerStore.bind(video: model.detail, playback: playback, repository: repository)
         }
         .onDisappear {
-            // [FIX] Only tear down if we are actually leaving the video detail screen.
-            // On iPad, entering fullscreen via fullScreenCover triggers onDisappear.
-            // Killing the player here would cause a black screen in the fullscreen view.
+            // Suppress teardown during the iPad fullscreen quirk
+            // (entering/leaving `.fullScreenCover` fires
+            // `onDisappear` on the parent view). The grace window
+            // also suppresses `detachInline` so the player does not
+            // get re-bound mid-cover-dismissal.
             let now = Date()
             let isInsideFullscreenDismissGrace = now.timeIntervalSince(lastFullscreenDismissedAt) < 3
             guard !isFullscreenPresented, now >= fullscreenTransitionUntil, !isInsideFullscreenDismissGrace else {
@@ -93,20 +124,17 @@ struct VideoDetailView: View {
                 ])
                 return
             }
-            
-            // Free the asset and observers as soon as the screen is gone so we
-            // do not hold a decoded video in memory while the user scrolls
-            // around the home grid.
-            diagLog(.playback, "Tearing down PlayerController in VideoDetailView.onDisappear")
-            watchSession?.stop()
-            watchSession = nil
-            playerController?.tearDown()
-            playerController = nil
+
+            // Switch the inline player off; the store keeps the
+            // AVPlayer running and flips `isShowingMiniPlayer` to
+            // true so the overlay surfaces.
+            diagLog(.playback, "VideoDetailView.onDisappear: detachInline")
+            miniPlayerStore.detachInline()
             model.teardown()
         }
         .fullScreenCover(isPresented: $isFullscreenPresented) {
             if let playback = model.playback, let controller = playerController {
-                FullscreenPlayerView(video: model.detail, playback: playback, controller: controller)
+                FullscreenPlayerView(video: model.detail, playback: playback, repository: repository, controller: controller)
             }
         }
         .onChange(of: isFullscreenPresented) { _, newValue in
@@ -125,15 +153,37 @@ struct VideoDetailView: View {
             }
             diagLog(.fullscreen, "Fullscreen presentation changed", details: ["isPresented": newValue])
         }
-        // Auto-load the next comment batch only when the user has
-        // actually scrolled the list and is within 200pt of the bottom.
-        // The earlier per-row `.onAppear { if index >= count - 5 }`
-        // trigger was a footgun: when the initial 20 items fit on
-        // screen, the last 5 rows' onAppear all fire at once, queue up
-        // loadMore calls, and the list grows to load the entire thread
-        // before the user even touches the scroll view. The
-        // `hasScrolled` guard (contentOffset > 1pt) makes sure the
-        // very first render never auto-loads.
+        // Hero / zoom transition — only attached when a
+        // namespace is available. The system looks up the
+        // source view by `video.id` (the same string the
+        // `VideoCard` used for `matchedTransitionSource`) and
+        // animates a zoom between the card's cover image and
+        // this view's body. Without a namespace the
+        // transition falls back to the standard
+        // cross-fade.
+        .modifier(HeroDestinationModifier(videoID: video.id, namespace: heroNamespace))
+    }
+
+    /// Inner `ScrollView` containing the title, controls, and
+    /// comments. Two geometry listeners run on it:
+    ///
+    /// 1. **Comment pagination** — fires `loadMoreComments` when
+    ///    the user is within 200pt of the bottom of the comment
+    ///    list. The `hasScrolled` guard (contentOffset > 1pt)
+    ///    prevents the very first render from auto-loading.
+    /// 2. **Player scale** — maps content offset 0..240pt to
+    ///    `playerScale` 1.0..0.5. Scrolling down shrinks the
+    ///    player; scrolling back up grows it back to its rest
+    ///    size. Animated with a spring for a smooth feel.
+    private var commentsScrollView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                titleBlock
+                controlPanel
+                commentPreview
+            }
+            .padding(16)
+        }
         .onScrollGeometryChange(for: CommentScrollSignal.self) { geometry in
             let hasScrolled = geometry.contentOffset.y > 1
             let isNearBottom = geometry.contentOffset.y + geometry.containerSize.height
@@ -142,6 +192,18 @@ struct VideoDetailView: View {
         } action: { _, signal in
             if signal.hasScrolled && signal.isNearBottom {
                 Task { await model.loadMoreComments(repository: repository) }
+            }
+        }
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            // Map offset 0..240pt to scale 1.0..0.5. The wider
+            // the range, the gentler the shrink. We anchor at
+            // 0.5 (not 0.0) so even at maximum scroll the
+            // player is never smaller than 50% of the screen.
+            let normalized = min(1.0, max(0.0, geometry.contentOffset.y / 240))
+            return 1.0 - normalized * 0.5
+        } action: { _, newScale in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                playerScale = newScale
             }
         }
     }
@@ -156,7 +218,7 @@ struct VideoDetailView: View {
                 // continuous across the swap (the cover binds
                 // to the same `AVPlayer`).
                 if !isFullscreenPresented {
-                    PlayerView(playback: playback, video: model.detail, controller: controller)
+                    PlayerView(playback: playback, video: model.detail, repository: repository, controller: controller)
                         .onAppear { model.isPlaying = true }
                         .onDisappear { model.isPlaying = false }
                 } else {
@@ -193,7 +255,12 @@ struct VideoDetailView: View {
             // we drop the placeholder entirely. The Danmaku toggle in the
             // control panel below stays as a "coming soon" hint.
         }
-        .aspectRatio(16 / 9, contentMode: .fit)
+        // No aspectRatio here — the parent `body`'s GeometryReader
+        // gives the surface a fixed `height` from the
+        // `playerScale` interpolation. The 16:9 video letterboxes
+        // inside whatever frame we give it. We `.clipped()` so
+        // when the player shrinks to 50% the cover and chrome
+        // don't bleed past the new height.
         .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 
@@ -269,7 +336,7 @@ struct VideoDetailView: View {
 
     private var commentPreview: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Comments")
                     .font(.headline)
                 Spacer()
@@ -281,6 +348,7 @@ struct VideoDetailView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
+                commentSortPicker
             }
             if let error = model.commentsErrorMessage {
                 ErrorBanner(message: error)
@@ -321,6 +389,23 @@ struct VideoDetailView: View {
     /// batch explicitly. Also doubles as a manual retry target if the
     /// auto-load hits a network error and stops firing.
     @ViewBuilder
+    private var commentSortPicker: some View {
+        Picker("Comment sort", selection: Binding(
+            get: { CommentSort(rawValue: storedCommentSort) ?? .hot },
+            set: { newValue in
+                storedCommentSort = newValue.rawValue
+                Task { await model.setCommentSort(newValue, repository: repository) }
+            }
+        )) {
+            ForEach(CommentSort.allCases) { sort in
+                Text(sort.title).tag(sort)
+            }
+        }
+        .pickerStyle(.segmented)
+        .fixedSize()
+        .accessibilityLabel("Comment sort order")
+    }
+
     private var loadMoreFooter: some View {
         if model.commentsHasMore {
             HStack {
@@ -363,6 +448,9 @@ struct VideoDetailView: View {
                 Task {
                     if await model.submitComment(repository: repository, message: newCommentText) {
                         newCommentText = ""
+                        Haptics.success()
+                    } else {
+                        Haptics.error()
                     }
                     isSubmittingComment = false
                 }
@@ -506,5 +594,22 @@ private struct CommentSkeletonRows: View {
             }
         }
         .redacted(reason: .placeholder)
+    }
+}
+
+/// Applies `.navigationTransition(.zoom(sourceID:in:))` only
+/// when a namespace is available. The system matches the
+/// `videoID` to the source's `matchedTransitionSource` and
+/// runs a zoom animation between the two.
+private struct HeroDestinationModifier: ViewModifier {
+    let videoID: String
+    let namespace: Namespace.ID?
+
+    func body(content: Content) -> some View {
+        if let namespace {
+            content.navigationTransition(.zoom(sourceID: videoID, in: namespace))
+        } else {
+            content
+        }
     }
 }

@@ -40,10 +40,12 @@ import SwiftUI
 
 /// SwiftUI `VideoPlayer` wrapper for the inline detail view.  The
 /// system provides play / pause / scrubber / time labels /
-/// AirPlay / PiP.  The custom code is just the loading overlay.
+/// AirPlay / PiP.  The custom code is the loading overlay and
+/// the double-tap gesture layer (left/right seek, centre like).
 struct PlayerView: View {
     let playback: BiliPlayback
     let video: BiliVideo
+    let repository: BiliPaiRepository
     @ObservedObject var controller: PlayerController
 
     var body: some View {
@@ -53,6 +55,18 @@ struct PlayerView: View {
                     loadingOverlay
                         .transition(.opacity)
                 }
+            }
+            // Double-tap gestures sit *above* the system transport
+            // so they win over the system's single-tap (which would
+            // otherwise toggle the controls). The overlay is
+            // `allowsHitTesting(false)` for the badge so taps pass
+            // through to the gesture recogniser below.
+            .overlay {
+                DoubleTapOverlay(
+                    video: video,
+                    repository: repository,
+                    controller: controller
+                )
             }
     }
 
@@ -112,6 +126,7 @@ struct PlayerView: View {
 struct FullscreenPlayerView: View {
     let video: BiliVideo
     let playback: BiliPlayback
+    let repository: BiliPaiRepository
     @ObservedObject var controller: PlayerController
 
     @Environment(\.dismiss) private var dismiss
@@ -132,6 +147,15 @@ struct FullscreenPlayerView: View {
                 loadingOverlay
                     .transition(.opacity)
             }
+
+            // Double-tap gesture layer (left/right seek, centre
+            // like). Sits on top of the AVPlayer surface so it
+            // wins over the system's single-tap control toggle.
+            DoubleTapOverlay(
+                video: video,
+                repository: repository,
+                controller: controller
+            )
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -238,5 +262,167 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
     final class Coordinator {
         weak var controller: AVPlayerViewController?
         var onDismiss: () -> Void = {}
+    }
+}
+
+// MARK: - Double-tap overlay
+
+/// Transparent overlay that catches double-tap gestures on the
+/// player and partitions them into three vertical zones:
+///
+/// * **Left third** — `seek(by: -10)` and flash a `gobackward.10`
+///   badge. BiliPai users expect YouTube-style ±10s skips.
+/// * **Right third** — `seek(by: +10)` and flash a `goforward.10`
+///   badge.
+/// * **Middle third** — like the video. Flash a heart badge and
+///   fire `BiliPaiRepository.likeVideo(...)` if the user is
+///   signed in. Anonymous users still see the heart animation
+///   (local-only); the API call is best-effort and its
+///   failure is silent.
+///
+/// The overlay sits *above* the AVPlayer surface and uses
+/// `SpatialTapGesture(count: 2)`. We deliberately do NOT also
+/// handle single-taps — that's the system's job (toggle the
+/// transport). The double-tap recogniser does not consume
+/// single-taps because `SpatialTapGesture(count: 2)` waits for
+/// the second tap before firing.
+private struct DoubleTapOverlay: View {
+    let video: BiliVideo
+    let repository: BiliPaiRepository
+    @ObservedObject var controller: PlayerController
+
+    /// Which badge to flash. `nil` means no badge is visible.
+    @State private var badge: BadgeKind?
+    /// Tracks the last badge-fired timestamp so a second
+    /// double-tap in quick succession re-uses the existing
+    /// transition instead of stacking on top of itself.
+    @State private var badgeToken: Int = 0
+    @EnvironmentObject private var authStore: AuthStore
+
+    private enum BadgeKind: Equatable {
+        case backward
+        case forward
+        case like
+
+        /// SF Symbol name drawn inside the badge. Lives on
+        /// the enum so the badge View doesn't need access to
+        /// the overlay's private types.
+        var symbolName: String {
+            switch self {
+            case .backward: return "gobackward.10"
+            case .forward:  return "goforward.10"
+            case .like:     return "heart.fill"
+            }
+        }
+    }
+
+    var body: some View {
+        // The recogniser is bound to a `Color.clear` so the
+        // overlay is fully transparent in steady state. The
+        // badge is layered on top of the recogniser but
+        // `allowsHitTesting(false)` lets taps fall through to
+        // the underlying gesture. We use a `GeometryReader` to
+        // capture the live overlay width so the third
+        // breakpoints track the actual player size (different
+        // on iPhone vs iPad, different in inline vs fullscreen
+        // vs mini-player).
+        GeometryReader { geo in
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    SpatialTapGesture(count: 2)
+                        .onEnded { event in
+                            let zone = DoubleTapZone.classify(
+                                point: event.location,
+                                width: geo.size.width
+                            )
+                            handleDoubleTap(zone: zone)
+                        }
+                )
+                .overlay {
+                    if let badge {
+                        DoubleTapBadge(symbol: badge.symbolName)
+                            .id(badgeToken)
+                            .transition(.scale.combined(with: .opacity))
+                            .allowsHitTesting(false)
+                    }
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: badge)
+        }
+    }
+
+    private func handleDoubleTap(zone: DoubleTapZone) {
+        switch zone {
+        case .left:
+            Haptics.medium()
+            controller.seek(by: -10)
+            show(badge: .backward)
+        case .right:
+            Haptics.medium()
+            controller.seek(by: +10)
+            show(badge: .forward)
+        case .middle:
+            Haptics.tap()
+            show(badge: .like)
+            // Fire the like request best-effort. The
+            // animation is local-only; the API call does
+            // not gate the visual feedback. If the user is
+            // anonymous `authStore.activeAccount` is nil —
+            // skip the network call (BiliPai's API would
+            // 401 anyway).
+            if authStore.activeAccount != nil {
+                Task { try? await repository.likeVideo(video: video, action: 1) }
+            }
+        }
+    }
+
+    private func show(badge kind: BadgeKind) {
+        badge = kind
+        badgeToken &+= 1
+        // Auto-dismiss the badge after a short delay.
+        // The user can fire a new badge while one is
+        // visible; the token bump restarts the animation.
+        let token = badgeToken
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if token == badgeToken {
+                badge = nil
+            }
+        }
+    }
+}
+
+/// Partition a tap point into left / middle / right thirds
+/// along the X axis. The breakpoints are ratios of the live
+/// overlay width so the gesture adapts to phone vs iPad vs
+/// fullscreen vs split-view players without hard-coded
+/// coordinates. The overlay's coordinate space is the local
+/// frame of the `Color.clear` host that owns the gesture, so
+/// `point.x` is in `[0, width]`.
+private enum DoubleTapZone {
+    case left, middle, right
+
+    static func classify(point: CGPoint, width: CGFloat) -> DoubleTapZone {
+        guard width > 0 else { return .middle }
+        let x = max(0, min(width, point.x))
+        let third = width / 3
+        if x < third { return .left }
+        if x < third * 2 { return .middle }
+        return .right
+    }
+}
+
+/// Big SF Symbol badge that flashes on top of the player
+/// when a double-tap is recognised. Drawn with a black
+/// shadow so it stays legible over bright video frames.
+private struct DoubleTapBadge: View {
+    let symbol: String
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 88, weight: .bold))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.55), radius: 12, y: 2)
+            .padding(20)
     }
 }

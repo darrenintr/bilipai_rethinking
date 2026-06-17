@@ -114,6 +114,62 @@ final class BilibiliAPIClient {
         try payload.requireOK()
     }
 
+    /// Append a video to the user's "稍后再看" (Watch Later) list.
+    /// Mirrors the official iOS client's `/x/v2/history/toview/add`
+    /// call. Requires CSRF; the existing `post(...)` helper
+    /// auto-extracts `bili_jct` from the cookie. Returns silently
+    /// on success; throws on a typed API error so the caller can
+    /// surface a toast.
+    func addToWatchLater(aid: Int) async throws {
+        let payload: APIResponse<EmptyPayload> = try await post(
+            baseURL: baseURL,
+            path: "/x/v2/history/toview/add",
+            parameters: [
+                "aid": "\(aid)",
+                "platform": "ios",
+                "mobi_app": "iphone"
+            ]
+        )
+        try payload.requireOK()
+    }
+
+    /// Remove a video from the user's "稍后再看" list. Symmetric
+    /// counterpart to `addToWatchLater`. Used by the destructive
+    /// option in the long-press context menu.
+    func removeFromWatchLater(aid: Int) async throws {
+        let payload: APIResponse<EmptyPayload> = try await post(
+            baseURL: baseURL,
+            path: "/x/v2/history/toview/del",
+            parameters: [
+                "aid": "\(aid)",
+                "platform": "ios",
+                "mobi_app": "iphone"
+            ]
+        )
+        try payload.requireOK()
+    }
+
+    /// Like (or unlike) a video. The Bilibili "thumbs up" endpoint is
+    /// `/x/v2/view/like`; `action=1` likes, `action=2` clears the
+    /// like. CSRF required (auto-extracted by `post`). The call
+    /// returns the current like count via `data.like` on the
+    /// response, but we don't surface that here — the UI just
+    /// shows the heart animation and refreshes the stat on the
+    /// next detail load.
+    func likeVideo(aid: Int, action: Int) async throws {
+        let payload: APIResponse<EmptyPayload> = try await post(
+            baseURL: baseURL,
+            path: "/x/v2/view/like",
+            parameters: [
+                "aid": "\(aid)",
+                "like": "\(action)",
+                "platform": "ios",
+                "mobi_app": "iphone"
+            ]
+        )
+        try payload.requireOK()
+    }
+
     func recommendedVideos(freshIndex: Int = 0) async throws -> [BiliVideo] {
         let hasCookie = cookieProvider?() != nil
         diagLog(.recommendation, "Fetching recommended videos", details: ["hasCookie": hasCookie, "freshIndex": freshIndex])
@@ -776,7 +832,7 @@ final class BilibiliAPIClient {
         )
     }
 
-    func commentsPage(aid: Int, next: Int? = nil, pageSize: Int = 20) async throws -> CommentPage {
+    func commentsPage(aid: Int, next: Int? = nil, pageSize: Int = 20, sort: CommentSort = .hot) async throws -> CommentPage {
         guard aid > 0 else {
             return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
         }
@@ -786,12 +842,19 @@ final class BilibiliAPIClient {
         // not the legacy `data.top_replies` array. We decode both
         // shapes so an old cache or a flaky CDN edge that still serves
         // the legacy field does not produce an empty list.
+        //
+        // `mode` is the Bilibili sort code: `3` is the default "热门"
+        // (hot) ordering, `2` is "最新" (newest). We only emit the
+        // parameter when it is non-default, so the request shape stays
+        // identical to the pre-sort codebase for hot listings.
         var queryItems = [
             URLQueryItem(name: "type", value: "1"),
             URLQueryItem(name: "oid", value: "\(aid)"),
-            URLQueryItem(name: "mode", value: "3"),
             URLQueryItem(name: "ps", value: "\(pageSize)")
         ]
+        if let mode = sort.apiValue {
+            queryItems.append(URLQueryItem(name: "mode", value: "\(mode)"))
+        }
         if let next {
             queryItems.append(URLQueryItem(name: "next", value: "\(next)"))
         }

@@ -300,6 +300,11 @@ final class VideoDetailViewModel: ObservableObject {
     @Published var commentsErrorMessage: String?
     @Published var commentsHasMore = false
     @Published var commentsTotalCount = 0
+    /// Current comment-list sort. Default `.hot` to match the previous
+    /// behaviour (no `mode` parameter, the upstream default). The view
+    /// writes through to this and to `@AppStorage` when the user
+    /// toggles the segmented picker.
+    @Published var commentSort: CommentSort = .hot
     @Published var danmakuEnabled = true
     @Published var audioModeEnabled = false
     @Published var playbackSpeed: Float = 1
@@ -391,7 +396,8 @@ final class VideoDetailViewModel: ObservableObject {
         do {
             let page = try await repository.commentsPage(
                 for: detail,
-                pageSize: Self.commentPageSize
+                pageSize: Self.commentPageSize,
+                sort: commentSort
             )
             comments = page.items
             nextCommentCursor = page.next
@@ -415,7 +421,8 @@ final class VideoDetailViewModel: ObservableObject {
             let page = try await repository.commentsPage(
                 for: detail,
                 next: nextCommentCursor,
-                pageSize: Self.commentPageSize
+                pageSize: Self.commentPageSize,
+                sort: commentSort
             )
             let seen = Set(comments.map(\.id))
             comments.append(contentsOf: page.items.filter { !seen.contains($0.id) })
@@ -425,6 +432,17 @@ final class VideoDetailViewModel: ObservableObject {
         } catch {
             commentsErrorMessage = "Could not load more comments."
         }
+    }
+
+    /// Re-fetch the first page of comments in the new sort. Called by
+    /// the picker in `VideoDetailView.commentPreview` when the user
+    /// toggles between 最热 / 最新. Mirrors the manual `Retry` button
+    /// in that it resets the cursor and forces a full reload.
+    func setCommentSort(_ sort: CommentSort, repository: BiliPaiRepository) async {
+        guard commentSort != sort else { return }
+        commentSort = sort
+        Haptics.selection()
+        await loadComments(repository: repository)
     }
 
     func submitComment(repository: BiliPaiRepository, message: String) async -> Bool {

@@ -4,9 +4,18 @@ struct RootView: View {
     let repository: BiliPaiRepository
 
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var networkMonitor: NetworkMonitor
+    @EnvironmentObject private var miniPlayerStore: MiniPlayerStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.didOnboard") private var didOnboard: Bool = false
+
+    /// Mirror of `networkMonitor.isOnline` so the `RootView.body`
+    /// re-evaluates when connectivity changes. We don't observe the
+    /// published value directly in the modifier because `.animation`
+    /// takes an `Equatable` value, not a binding.
+    private var networkMonitorIsOnline: Bool { networkMonitor.isOnline }
 
     var body: some View {
         Group {
@@ -39,6 +48,37 @@ struct RootView: View {
             LoginSheet()
         }
         .modifier(LiquidGlassTabBarModifier(materialDesign: materialDesign))
+        .fullScreenCover(isPresented: Binding(
+            get: { !didOnboard },
+            set: { newValue in
+                if newValue == false { didOnboard = true }
+            }
+        )) {
+            OnboardingView()
+        }
+        .overlay(alignment: .top) {
+            OfflineBanner()
+                .animation(.spring(response: 0.35, dampingFraction: 0.85),
+                           value: networkMonitorIsOnline)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            // Pad the mini-player off the tab bar and the safe area.
+            // 16pt on the trailing edge, 80pt on the bottom (above
+            // the tab bar's glass chrome). On iPad we offset further
+            // so the overlay doesn't collide with the sidebar's
+            // resize handle.
+            MiniPlayerOverlay()
+                .padding(.trailing, horizontalSizeClass == .regular ? 32 : 16)
+                .padding(.bottom, horizontalSizeClass == .regular ? 32 : 80)
+                .animation(.spring(response: 0.35, dampingFraction: 0.85),
+                           value: miniPlayerIsShowing)
+        }
+    }
+
+    /// Mirror of `miniPlayerStore.isShowingMiniPlayer` so the
+    /// overlay's animation key is value-based, not environment-based.
+    private var miniPlayerIsShowing: Bool {
+        miniPlayerStore.isShowingMiniPlayer
     }
 
     private func handle(_ url: URL) {
@@ -69,15 +109,21 @@ struct RootView: View {
 private struct PhoneRootView: View {
     let repository: BiliPaiRepository
     @EnvironmentObject private var router: AppRouter
+    /// Single shared namespace for the hero / zoom transition
+    /// between the feed grids and `VideoDetailView`. Declared
+    /// at the nav-stack root so the same namespace is visible
+    /// to both the source (cards in the feed tabs) and the
+    /// destination (`VideoDetailView`).
+    @Namespace private var heroNamespace
 
     var body: some View {
         NavigationStack(path: $router.path) {
             TabView(selection: $router.selectedTab) {
-                HomeView(repository: repository)
+                HomeView(repository: repository, heroNamespace: heroNamespace)
                     .tabItem { Label(MainTab.home.title, systemImage: MainTab.home.symbolName) }
                     .tag(MainTab.home)
 
-                DynamicFeedView(repository: repository)
+                DynamicFeedView(repository: repository, heroNamespace: heroNamespace)
                     .tabItem { Label(MainTab.dynamic.title, systemImage: MainTab.dynamic.symbolName) }
                     .tag(MainTab.dynamic)
 
@@ -90,7 +136,7 @@ private struct PhoneRootView: View {
                     .tag(MainTab.profile)
             }
             .navigationDestination(for: BiliVideo.self) { video in
-                VideoDetailView(video: video, repository: repository)
+                VideoDetailView(video: video, repository: repository, heroNamespace: heroNamespace)
             }
             .navigationDestination(for: ProfileRoute.self) { route in
                 profileRouteView(route, repository: repository)
@@ -99,12 +145,28 @@ private struct PhoneRootView: View {
                 ReplyListView(video: route.video, rootComment: route.rootComment, repository: repository)
             }
         }
+        // Middle-of-screen / left-edge swipe-back. The enabler
+        // is a no-op on the root (where the path is empty) and
+        // pops the last item from the navigation path on a
+        // successful drag. We wrap the pop in `withAnimation`
+        // so the path removal gets the same slide animation
+        // the system edge-swipe uses.
+        .background(BackGestureEnabler(
+            isEnabled: !router.path.isEmpty,
+            onPop: {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    router.path.removeLast()
+                }
+            }
+        ))
     }
 }
 
 private struct PadRootView: View {
     let repository: BiliPaiRepository
     @EnvironmentObject private var router: AppRouter
+    /// Single shared namespace for the hero / zoom transition.
+    @Namespace private var heroNamespace
 
     var body: some View {
         NavigationSplitView {
@@ -125,7 +187,7 @@ private struct PadRootView: View {
             NavigationStack(path: $router.path) {
                 selectedView
                     .navigationDestination(for: BiliVideo.self) { video in
-                        VideoDetailView(video: video, repository: repository)
+                        VideoDetailView(video: video, repository: repository, heroNamespace: heroNamespace)
                     }
                     .navigationDestination(for: ProfileRoute.self) { route in
                         profileRouteView(route, repository: repository)
@@ -134,6 +196,14 @@ private struct PadRootView: View {
                         ReplyListView(video: route.video, rootComment: route.rootComment, repository: repository)
                     }
             }
+            .background(BackGestureEnabler(
+                isEnabled: !router.path.isEmpty,
+                onPop: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        router.path.removeLast()
+                    }
+                }
+            ))
         }
     }
 
@@ -141,9 +211,9 @@ private struct PadRootView: View {
     private var selectedView: some View {
         switch router.selectedTab {
         case .home:
-            HomeView(repository: repository)
+            HomeView(repository: repository, heroNamespace: heroNamespace)
         case .dynamic:
-            DynamicFeedView(repository: repository)
+            DynamicFeedView(repository: repository, heroNamespace: heroNamespace)
         case .live:
             LiveRoomsView(repository: repository)
         case .profile:
@@ -164,11 +234,13 @@ private func profileRouteView(_ route: ProfileRoute, repository: BiliPaiReposito
     }
 }
 
-/// Liquid Glass material for the iOS 18 toolchain. The `.glass` symbol
-/// in `.toolbarBackground(.glass, for: .tabBar)` is iOS 26 only and
-/// the unsigned-IPA workflow ships with Xcode 16 (iOS 18.5 SDK). For
-/// the Liquid Glass preset we use the next-best approximation: a
-/// `.ultraThinMaterial` tab bar background with a hairline top edge.
+/// Liquid Glass material for the tab bar.
+///
+/// On iOS 26+ we use the real `.toolbarBackground(.glass, for: .tabBar)`,
+/// which picks up the underlying content and renders a proper Liquid
+/// Glass surface. On iOS 18 the API is not available, so we fall back
+/// to `.ultraThinMaterial` + the same `.toolbarBackground(.visible)`
+/// that makes the chrome always show.
 private struct LiquidGlassTabBarModifier: ViewModifier {
     let materialDesign: MaterialDesign
 
@@ -178,9 +250,13 @@ private struct LiquidGlassTabBarModifier: ViewModifier {
         case .material3:
             content
         case .liquidGlass:
-            content
-                .toolbarBackground(.ultraThinMaterial, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
+            if #available(iOS 26, *) {
+                content.toolbarBackground(.glass, for: .tabBar)
+            } else {
+                content
+                    .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+                    .toolbarBackground(.visible, for: .tabBar)
+            }
         }
     }
 }

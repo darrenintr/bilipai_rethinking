@@ -347,3 +347,32 @@ struct ReplyRoute: Hashable {
     let video: BiliVideo
     let rootComment: BiliComment
 }
+
+/// Sort order for the comment list. Persisted in `@AppStorage` so the
+/// user's choice survives relaunch. `apiValue` matches Bilibili's
+/// `/x/v2/reply/wbi/main` `mode` parameter: `3` is the default
+/// ("热门"), `2` is chronological ("最新"). The reply-detail endpoint
+/// (`/x/v2/reply/reply`) does not accept a `mode` parameter, so the
+/// picker is gated to the main comment list.
+enum CommentSort: String, CaseIterable, Identifiable, Codable {
+    case hot
+    case newest
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .hot: "最热"
+        case .newest: "最新"
+        }
+    }
+
+    /// Bilibili's `mode` query value. `nil` means "do not send a mode
+    /// parameter" — Bilibili then uses its default (hot).
+    var apiValue: Int? {
+        switch self {
+        case .hot: nil
+        case .newest: 2
+        }
+    }
+}

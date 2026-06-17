@@ -4,10 +4,12 @@ extension View {
     /// Render a card-like surface using the user's chosen material design.
     ///
     /// Material 3 keeps the standard `secondarySystemGroupedBackground`
-    /// surface. Liquid Glass uses `.ultraThinMaterial` plus a faint
-    /// pink-tint highlight on top to mimic the iOS 26 `glassEffect`
-    /// look on iOS 18 — when the project migrates to the iOS 26 SDK
-    /// the `.liquidGlass` branch can swap in `.glassEffect(.regular, in:)` directly.
+    /// surface. Liquid Glass uses the real iOS 26 `glassEffect` when
+    /// available, falling back to a layered `.ultraThinMaterial`
+    /// composite on iOS 18 (the unsigned-IPA workflow ships with
+    /// Xcode 16 / iOS 18.5 SDK).  The `MaterialDesign` enum is keyed
+    /// off `@AppStorage("bilipai.materialDesign")` so the user's
+    /// preference survives relaunch.
     @ViewBuilder
     func bilipaiCardSurface(
         _ design: MaterialDesign,
@@ -20,13 +22,20 @@ extension View {
                 in: RoundedRectangle(cornerRadius: cornerRadius, style: BiliPaiTheme.cornerStyle)
             )
         case .liquidGlass:
-            self.bilipaiGlassSurface(cornerRadius: cornerRadius, tint: BiliPaiTheme.biliPink.opacity(0.06))
+            if #available(iOS 26, *) {
+                self.bilipaiCardGlassSurface(cornerRadius: cornerRadius)
+            } else {
+                self.bilipaiGlassSurface(cornerRadius: cornerRadius, tint: BiliPaiTheme.biliPink.opacity(0.06))
+            }
         }
     }
 
     /// Same as `bilipaiCardSurface(_:)` but for the search bar and other
     /// pill-shaped controls. Uses the new `pillRadius` (12) cap so the
-    /// pill reads as rounder than the card surfaces.
+    /// pill reads as rounder than the card surfaces. The
+    /// `.regular.interactive()` glass variant picks up the system
+    /// highlight on iOS 26+ — useful for the search bar so the user
+    /// gets visual feedback when the field is tapped.
     @ViewBuilder
     func bilipaiPillSurface(
         _ design: MaterialDesign
@@ -38,8 +47,40 @@ extension View {
                 in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle)
             )
         case .liquidGlass:
-            self.bilipaiGlassSurface(cornerRadius: BiliPaiTheme.pillRadius, tint: BiliPaiTheme.biliPink.opacity(0.04))
+            if #available(iOS 26, *) {
+                self.glassEffect(
+                    .regular.interactive(),
+                    in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle)
+                )
+            } else {
+                self.bilipaiGlassSurface(cornerRadius: BiliPaiTheme.pillRadius, tint: BiliPaiTheme.biliPink.opacity(0.04))
+            }
         }
+    }
+
+    /// Apply the Liquid Glass navigation bar background on iOS 26+.
+    /// The iOS 18 toolchain does not have `.toolbarBackground(.glass, ...)`,
+    /// so on older OS the modifier is a no-op and the system default
+    /// nav bar is left in place.
+    @ViewBuilder
+    func bilipaiNavBarGlass(_ design: MaterialDesign = .liquidGlass) -> some View {
+        if design == .liquidGlass, #available(iOS 26, *) {
+            self.toolbarBackground(.glass, for: .navigationBar)
+        } else {
+            self
+        }
+    }
+
+    /// iOS 26+ real glass effect for card surfaces. The
+    /// `RoundedRectangle` shape is the same one the iOS 18 fallback
+    /// uses, so the two code paths produce visually comparable
+    /// outlines.
+    @available(iOS 26, *)
+    fileprivate func bilipaiCardGlassSurface(cornerRadius: CGFloat) -> some View {
+        self.glassEffect(
+            .regular,
+            in: RoundedRectangle(cornerRadius: cornerRadius, style: BiliPaiTheme.cornerStyle)
+        )
     }
 
     /// Liquid Glass surface — a real glass-like material on iOS 18.

@@ -337,6 +337,23 @@ final class PlayerController: ObservableObject {
         }
     }
 
+    // MARK: seeking
+
+    /// Seek by a relative offset (positive = forward, negative =
+    /// backward). The target is clamped to `[0, duration]` so
+    /// double-tap-skip past the end of the playable bytes does
+    /// not crash — the AVPlayer would just no-op such a seek,
+    /// but the explicit clamp makes the behaviour obvious and
+    /// keeps the inline seek-bar (if it ever comes back)
+    /// consistent with the double-tap gesture.
+    func seek(by offset: Double) {
+        let now = CMTimeGetSeconds(player.currentTime())
+        guard now.isFinite, duration > 0 else { return }
+        let target = max(0, min(duration, now + offset))
+        let time = CMTime(seconds: target, preferredTimescale: 600)
+        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
     // MARK: teardown
 
     func tearDown() {

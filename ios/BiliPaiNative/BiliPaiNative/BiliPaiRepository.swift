@@ -115,15 +115,15 @@ final class BiliPaiRepository: ObservableObject {
         try await apiClient.livePlaybackURL(roomID: room.id)
     }
 
-    func commentsPage(for video: BiliVideo, next: Int? = nil, pageSize: Int = 20) async throws -> CommentPage {
+    func commentsPage(for video: BiliVideo, next: Int? = nil, pageSize: Int = 20, sort: CommentSort = .hot) async throws -> CommentPage {
         let aid = video.aid
         if aid > 0 {
-            return try await apiClient.commentsPage(aid: aid, next: next, pageSize: pageSize)
+            return try await apiClient.commentsPage(aid: aid, next: next, pageSize: pageSize, sort: sort)
         }
         if !video.bvid.isEmpty {
             let detail = try await apiClient.videoDetail(bvid: video.bvid)
             if detail.aid > 0 {
-                return try await apiClient.commentsPage(aid: detail.aid, next: next, pageSize: pageSize)
+                return try await apiClient.commentsPage(aid: detail.aid, next: next, pageSize: pageSize, sort: sort)
             }
         }
         // Neither the feed entry nor the video-detail fallback produced an
@@ -241,6 +241,34 @@ final class BiliPaiRepository: ObservableObject {
 
     func watchLaterVideos() async throws -> [BiliVideo] {
         try await apiClient.watchLaterVideos()
+    }
+
+    /// Add `video` to the user's Watch Later list. Resolves the
+    /// `aid` from the feed entry, falling back to a detail fetch
+    /// when only the `bvid` is known. Mirrors the symmetry of the
+    /// other comment / history helpers in this file.
+    func addToWatchLater(video: BiliVideo) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.addToWatchLater(aid: aid)
+    }
+
+    /// Symmetric counterpart to `addToWatchLater`. Used by the
+    /// destructive option in the long-press context menu on a
+    /// Watch Later row (so the user can pull the video back out
+    /// without opening the list).
+    func removeFromWatchLater(video: BiliVideo) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.removeFromWatchLater(aid: aid)
+    }
+
+    /// Like (or unlike) a video. The centre-tap heart gesture on
+    /// the inline player calls this with `action=1` for a like and
+    /// `action=2` to clear an existing like. The server response
+    /// is not consumed — the local heart animation is the only
+    /// feedback.
+    func likeVideo(video: BiliVideo, action: Int) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.likeVideo(aid: aid, action: action)
     }
 
     func favoriteFolders(mid: Int64) async throws -> [FavoriteFolderSummary] {

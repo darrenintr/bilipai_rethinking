@@ -38,6 +38,12 @@
 		10000000000000000000011E /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* DiagnosticLogger.swift */; };
 		10000000000000000000011F /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000221 /* LogViewerView.swift */; };
 		100000000000000000000120 /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000222 /* DeviceInfo.swift */; };
+		100000000000000000000121 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000223 /* Haptics.swift */; };
+		100000000000000000000122 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000224 /* OnboardingView.swift */; };
+		100000000000000000000123 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000225 /* NetworkMonitor.swift */; };
+		100000000000000000000124 /* MiniPlayerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000226 /* MiniPlayerStore.swift */; };
+		100000000000000000000125 /* MiniPlayerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000227 /* MiniPlayerOverlay.swift */; };
+		100000000000000000000126 /* BackGestureEnabler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000228 /* BackGestureEnabler.swift */; };
 		200000000000000000000301 /* AVPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000401 /* AVPlayerController.swift */; };
 		300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000502 /* LocalHLSProxyServer.swift */; };
 		300000000000000000000603 /* WatchSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000503 /* WatchSession.swift */; };
@@ -77,6 +83,12 @@
 		100000000000000000000220 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
 		100000000000000000000221 /* LogViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
 		100000000000000000000222 /* DeviceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
+		100000000000000000000223 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
+		100000000000000000000224 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		100000000000000000000225 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		100000000000000000000226 /* MiniPlayerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerStore.swift; sourceTree = "<group>"; };
+		100000000000000000000227 /* MiniPlayerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerOverlay.swift; sourceTree = "<group>"; };
+		100000000000000000000228 /* BackGestureEnabler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackGestureEnabler.swift; sourceTree = "<group>"; };
 		200000000000000000000401 /* AVPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerController.swift; sourceTree = "<group>"; };
 		300000000000000000000502 /* LocalHLSProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHLSProxyServer.swift; sourceTree = "<group>"; };
 		300000000000000000000503 /* WatchSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSession.swift; sourceTree = "<group>"; };
@@ -87,7 +99,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-);
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -126,6 +138,12 @@
 				100000000000000000000220 /* DiagnosticLogger.swift */,
 				100000000000000000000221 /* LogViewerView.swift */,
 				100000000000000000000222 /* DeviceInfo.swift */,
+				100000000000000000000223 /* Haptics.swift */,
+				100000000000000000000224 /* OnboardingView.swift */,
+				100000000000000000000225 /* NetworkMonitor.swift */,
+				100000000000000000000226 /* MiniPlayerStore.swift */,
+				100000000000000000000227 /* MiniPlayerOverlay.swift */,
+				100000000000000000000228 /* BackGestureEnabler.swift */,
 				200000000000000000000401 /* AVPlayerController.swift */,
 				300000000000000000000502 /* LocalHLSProxyServer.swift */,
 				300000000000000000000503 /* WatchSession.swift */,
@@ -136,6 +154,14 @@
 				100000000000000000000405 /* Login */,
 			);
 			path = BiliPaiNative;
+			sourceTree = "<group>";
+		};
+		100000000000000000000403 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000001 /* BiliPaiNative.app */,
+			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 		100000000000000000000404 /* Auth */ = {
@@ -159,14 +185,6 @@
 			path = Login;
 			sourceTree = "<group>";
 		};
-		100000000000000000000403 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				100000000000000000000001 /* BiliPaiNative.app */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -183,7 +201,6 @@
 			dependencies = (
 			);
 			name = BiliPaiNative;
-
 			productName = BiliPaiNative;
 			productReference = 100000000000000000000001 /* BiliPaiNative.app */;
 			productType = "com.apple.product-type.application";
@@ -212,7 +229,8 @@
 				Base,
 			);
 			mainGroup = 100000000000000000000401;
-			packageReferences = ();
+			packageReferences = (
+			);
 			productRefGroup = 100000000000000000000403 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -232,8 +250,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-
 
 /* Begin PBXSourcesBuildPhase section */
 		100000000000000000000701 /* Sources */ = {
@@ -270,6 +286,12 @@
 				10000000000000000000011E /* DiagnosticLogger.swift in Sources */,
 				10000000000000000000011F /* LogViewerView.swift in Sources */,
 				100000000000000000000120 /* DeviceInfo.swift in Sources */,
+				100000000000000000000121 /* Haptics.swift in Sources */,
+				100000000000000000000122 /* OnboardingView.swift in Sources */,
+				100000000000000000000123 /* NetworkMonitor.swift in Sources */,
+				100000000000000000000124 /* MiniPlayerStore.swift in Sources */,
+				100000000000000000000125 /* MiniPlayerOverlay.swift in Sources */,
+				100000000000000000000126 /* BackGestureEnabler.swift in Sources */,
 				200000000000000000000301 /* AVPlayerController.swift in Sources */,
 				300000000000000000000602 /* LocalHLSProxyServer.swift in Sources */,
 				300000000000000000000603 /* WatchSession.swift in Sources */,
@@ -406,7 +428,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BiliPaiNative/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -435,7 +457,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BiliPaiNative/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -453,6 +475,7 @@
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
+
 /* Begin XCConfigurationList section */
 		100000000000000000000901 /* Build configuration list for PBXNativeTarget "BiliPaiNative" */ = {
 			isa = XCConfigurationList;
@@ -474,6 +497,5 @@
 		};
 /* End XCConfigurationList section */
 	};
-	
 	rootObject = 100000000000000000000601 /* Project object */;
 }

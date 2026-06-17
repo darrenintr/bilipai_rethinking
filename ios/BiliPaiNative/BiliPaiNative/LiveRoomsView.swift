@@ -14,15 +14,34 @@ struct LiveRoomsView: View {
                     ErrorBanner(message: error)
                 }
                 if model.isLoading && model.rooms.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, minHeight: 180)
+                    // Skeleton grid mirrors the live room card
+                    // shape so the cross-fade from loading to
+                    // loaded does not shift layout.
+                    SkeletonGrid()
+                        .padding(.top, 4)
                 } else if model.rooms.isEmpty {
-                    ContentUnavailableView(
-                        model.errorMessage == nil ? "No live rooms found" : "Live rooms unavailable",
-                        systemImage: "play.tv",
-                        description: Text(model.errorMessage == nil ? "Wait for more rooms to appear." : "Bilibili did not return a public live-room list for this request.")
-                    )
+                    VStack(spacing: 14) {
+                        Image(systemName: "play.tv")
+                            .font(.system(size: 48, weight: .light))
+                            .foregroundStyle(BiliPaiTheme.biliPink.opacity(0.7))
+                        Text(model.errorMessage == nil ? "暂无直播间" : "直播间列表暂不可用")
+                            .font(.headline)
+                        Text(model.errorMessage == nil ? "稍后再来，下拉刷新试试。" : "Bilibili 未返回公开的直播列表。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                        Button {
+                            Haptics.tap()
+                            Task { await model.load(repository: repository) }
+                        } label: {
+                            Label("重试", systemImage: "arrow.clockwise")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                    }
                     .frame(maxWidth: .infinity, minHeight: 260)
+                    .padding()
                     .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
                 } else {
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -47,6 +66,21 @@ struct LiveRoomsView: View {
         }
         .task {
             await model.load(repository: repository)
+        }
+        .refreshable {
+            Haptics.medium()
+            await model.load(repository: repository)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Haptics.tap()
+                    Task { await model.load(repository: repository) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel("Refresh")
+            }
         }
     }
 }

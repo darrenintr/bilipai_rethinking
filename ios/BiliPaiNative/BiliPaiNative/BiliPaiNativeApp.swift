@@ -6,6 +6,8 @@ struct BiliPaiNativeApp: App {
     @StateObject private var router = AppRouter()
     @StateObject private var authStore = AuthStore()
     @StateObject private var repository: BiliPaiRepository
+    @StateObject private var networkMonitor = NetworkMonitor()
+    @StateObject private var miniPlayerStore = MiniPlayerStore()
     @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
 
     init() {
@@ -40,6 +42,8 @@ struct BiliPaiNativeApp: App {
                 .environmentObject(router)
                 .environmentObject(authStore)
                 .environmentObject(repository)
+                .environmentObject(networkMonitor)
+                .environmentObject(miniPlayerStore)
                 .tint(BiliPaiTheme.biliPink)
                 .preferredColorScheme(themeMode.colorScheme)
                 .onAppear {

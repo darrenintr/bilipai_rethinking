@@ -187,6 +187,7 @@ struct HistoryListView: View {
                     VideoListRow(video: entry.video, subtitle: historySubtitle(entry))
                 }
                 .buttonStyle(.plain)
+                .videoContextMenu(for: entry.video, repository: repository, isHistoryRow: true)
                 .onAppear {
                     if index >= max(0, model.items.count - 5) {
                         Task { await model.loadMore(repository: repository) }
@@ -205,6 +206,16 @@ struct HistoryListView: View {
         .navigationTitle("历史记录")
         .task { await model.load(repository: repository) }
         .refreshable { await model.load(repository: repository) }
+        .onReceive(NotificationCenter.default.publisher(for: .historyDidRemove)) { note in
+            // The context menu posts the offending `BiliVideo`. Drop
+            // any matching entry from the local cache so the row
+            // disappears immediately; the next refresh will reconcile
+            // with the server.
+            if let video = note.object as? BiliVideo {
+                model.items.removeAll { $0.video.id == video.id }
+                Haptics.tap()
+            }
+        }
     }
 
     private func historySubtitle(_ entry: HistoryEntry) -> String {
@@ -233,11 +244,15 @@ struct WatchLaterListView: View {
                     VideoListRow(video: video, subtitle: video.ownerName)
                 }
                 .buttonStyle(.plain)
+                .videoContextMenu(for: video, repository: repository, isWatchLaterRow: true)
             }
         }
         .navigationTitle("稍后再看")
         .task { await model.load(repository: repository) }
         .refreshable { await model.load(repository: repository) }
+        .onReceive(NotificationCenter.default.publisher(for: .watchLaterDidChange)) { _ in
+            Task { await model.load(repository: repository) }
+        }
     }
 }
 

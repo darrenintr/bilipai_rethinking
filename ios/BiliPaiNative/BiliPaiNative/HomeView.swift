@@ -2,12 +2,24 @@ import SwiftUI
 
 struct HomeView: View {
     let repository: BiliPaiRepository
+    /// Optional namespace for the hero / zoom navigation
+    /// transition. Threaded down to each `VideoCard` so the
+    /// cover image registers as a `matchedTransitionSource`.
+    /// `nil` disables the transition (the card still works,
+    /// the navigation just falls back to the system
+    /// cross-fade).
+    let heroNamespace: Namespace.ID?
 
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var authStore: AuthStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var model = HomeViewModel()
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+
+    init(repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil) {
+        self.repository = repository
+        self.heroNamespace = heroNamespace
+    }
 
     /// Resolved on every call so account switches in
     /// `ProfileSettingsView` are reflected in the follow-feed filter
@@ -27,6 +39,13 @@ struct HomeView: View {
                 .navigationTitle("BiliPai")
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            Haptics.tap()
+                            Task { await model.load(repository: repository, accountMid: accountMid) }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .accessibilityLabel("Refresh")
                         Button {
                             router.open(.dynamic)
                         } label: {
@@ -63,6 +82,9 @@ struct HomeView: View {
                 .onChange(of: accountMid) { _, _ in
                     guard model.category == .follow else { return }
                     Task { await model.load(repository: repository, accountMid: accountMid) }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .homeShowBundledFallback)) { _ in
+                    model.showBundledFallback(repository: repository)
                 }
         }
     }
@@ -107,8 +129,13 @@ struct HomeView: View {
                     }
                 }
                 if model.isLoading && model.videos.isEmpty && model.liveRooms.isEmpty && model.dynamicItems.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, minHeight: 180)
+                    // Skeleton grid only on the *first* load — once
+                    // any data is in `videos` / `liveRooms` /
+                    // `dynamicItems` we let the user see what we have
+                    // and use the inline "加载更多" spinner at the
+                    // bottom for paginated loads.
+                    SkeletonGrid()
+                        .padding(.top, 4)
                 } else if model.category == .live && !model.liveRooms.isEmpty {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(model.liveRooms) { room in
@@ -121,7 +148,10 @@ struct HomeView: View {
                     HomeEmptyState(
                         category: model.category,
                         searchQuery: model.searchQuery,
-                        hasError: model.errorMessage != nil
+                        hasError: model.errorMessage != nil,
+                        onRetry: {
+                            Task { await model.load(repository: repository, accountMid: accountMid) }
+                        }
                     )
                 } else {
                     if model.category == .recommend {
@@ -130,7 +160,7 @@ struct HomeView: View {
                     }
                     LazyVGrid(columns: columns, spacing: 18) {
                         ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
-                            VideoCard(video: video) {
+                            VideoCard(video: video, repository: repository, heroNamespace: heroNamespace) {
                                 router.openVideo(video)
                             }
                             .id(video.id)
@@ -143,6 +173,13 @@ struct HomeView: View {
                 }
             }
             .padding(16)
+        }
+        .refreshable {
+            Haptics.medium()
+            await model.load(repository: repository, accountMid: accountMid)
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo("feedTop", anchor: .top)
+            }
         }
     }
 
@@ -315,14 +352,50 @@ private struct HomeEmptyState: View {
     let searchQuery: String
     let hasError: Bool
     var isLoggedIn = false
+    var onRetry: (() -> Void)? = nil
 
     var body: some View {
-        ContentUnavailableView(
-            title,
-            systemImage: systemImage,
-            description: Text(description)
-        )
+        VStack(spacing: 18) {
+            Image(systemName: systemImage)
+                .font(.system(size: 56, weight: .light))
+                .foregroundStyle(BiliPaiTheme.biliPink.opacity(0.8))
+                .padding(.bottom, 2)
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.headline)
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            HStack(spacing: 10) {
+                if let onRetry {
+                    Button {
+                        Haptics.tap()
+                        onRetry()
+                    } label: {
+                        Label("重试", systemImage: "arrow.clockwise")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Button {
+                    Haptics.tap()
+                    // The bundled-fallback call is bound at the
+                    // call-site (HomeView) — the empty state view
+                    // itself does not know the repository. Surface
+                    // the action via the environment instead.
+                    NotificationCenter.default.post(name: .homeShowBundledFallback, object: nil)
+                } label: {
+                    Label("查看离线样例", systemImage: "wifi.slash")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+            }
+        }
         .frame(maxWidth: .infinity, minHeight: 260)
+        .padding()
         .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 
@@ -344,7 +417,7 @@ private struct HomeEmptyState: View {
     }
 
     private var description: String {
-        if hasError { return "下拉重试 Bilibili 公共内容源。" }
+        if hasError { return "下拉重试或查看离线样例。" }
         if category == .follow {
             return isLoggedIn
                 ? "当前账号暂时没有可展示的关注动态，下拉刷新或稍后再试。"
@@ -358,6 +431,15 @@ private struct HomeEmptyState: View {
         }
         return "换个关键词，或切换到热门、排行榜、分区内容。"
     }
+}
+
+extension Notification.Name {
+    /// Posted by `HomeEmptyState` when the user taps the "查看离线
+    /// 样例" button. The home view subscribes and calls
+    /// `model.showBundledFallback(repository:)`. We use a
+    /// notification so the empty-state view stays decoupled from
+    /// the repository.
+    static let homeShowBundledFallback = Notification.Name("bilipai.home.showBundledFallback")
 }
 
 /// Follow-tab renderer. Each card reuses the chrome shape from
