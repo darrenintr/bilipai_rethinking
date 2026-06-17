@@ -247,7 +247,13 @@ struct VideoDetailView: View {
         // inside whatever frame we give it. We `.clipped()` so
         // when the player shrinks to 50% the cover and chrome
         // don't bleed past the new height.
-        .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+        //
+        // NOTE: No `.clipShape(RoundedRectangle(...))` here.
+        // AVPlayerViewController's playback controls (play/pause,
+        // scrubber, time labels) render within its view bounds.
+        // Clipping the container to a rounded rectangle was cutting
+        // off the controls near the rounded corners. The parent's
+        // rectangular `.clipped()` is sufficient.
     }
 
     private var fullscreenButton: some View {
