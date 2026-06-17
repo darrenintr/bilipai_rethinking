@@ -1433,6 +1433,38 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         self.delegateQueue = OperationQueue()
         self.delegateQueue.maxConcurrentOperationCount = 1
         super.init()
+        // Watch the loopback connection for peer-initiated
+        // close.  When AVPlayer goes to fullscreen it tears
+        // down in-flight segments; the OS then drives the
+        // `NWConnection` into `.cancelled` (or `.failed` on
+        // a RST).  We use that signal to stop the upstream
+        // URLSession task immediately so we don't keep
+        // pulling bytes from the B站 CDN for a dead
+        // downstream socket.  The handler is installed in
+        // `init` (not when the first send happens) so we
+        // catch disconnects that arrive *before* the first
+        // body send, which would otherwise slip through the
+        // `connection.send` error path entirely.
+        //
+        // The handler runs on the connection's queue
+        // (`LocalHLSProxyServer.queue`, the listener queue).
+        // `task?.cancel()` is safe to call from any thread;
+        // URLSession will route the resulting
+        // `didCompleteWithError(NSURLErrorCancelled)` to the
+        // serial `delegateQueue` where the existing branch
+        // at `urlSession(_:task:didCompleteWithError:)` calls
+        // `finishWhenSendsDrain()` for clean teardown.
+        self.connection.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .cancelled, .failed:
+                self.markDownstreamBroken(
+                    reason: "connection state: \(state)"
+                )
+            default:
+                break
+            }
+        }
     }
 
     func start() {
@@ -1468,6 +1500,41 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             server?.inFlightRanges.removeValue(forKey: key)
         }
         server?.lock.unlock()
+    }
+
+    /// Mark the downstream socket as gone and stop pulling
+    /// bytes from the B站 CDN for it.  Idempotent — the
+    /// `stateUpdateHandler` (peer-initiated close) and the
+    /// `connection.send` completion (we noticed on write)
+    /// can both call in, and the first writer wins.  Logs a
+    /// single `downstream closed` line on the *first* call
+    /// so the diagnostic stream still shows the specific
+    /// reason without spamming duplicates when both paths
+    /// fire on the same disconnect.
+    ///
+    /// We deliberately do NOT call `connection.cancel()`
+    /// here.  When the send-error path triggers us, there
+    /// is an in-flight `connection.send` whose completion
+    /// closure still has to `sendGroup.leave()` — cancelling
+    /// the connection mid-send would prevent that and leave
+    /// `finishWhenSendsDrain()` waiting forever.  The
+    /// existing `urlSession(_:task:didCompleteWithError:)`
+    /// path handles `NSURLErrorCancelled` and drives the
+    /// connection cancel via `sendGroup.notify` once the
+    /// drain is complete.
+    fileprivate func markDownstreamBroken(reason: String) {
+        if downstreamBroken { return }
+        downstreamBroken = true
+        // `task` is the URLSession upstream leg; cancelling
+        // it stops further `didReceive data` callbacks.
+        task?.cancel()
+        diagLog(.network,
+                "LocalHLSProxyServer downstream closed",
+                details: [
+                    "conn": connID,
+                    "mode": mode,
+                    "reason": reason
+                ])
     }
 
     /// One-shot URLSession construction.  Kept separate from
@@ -1596,6 +1663,21 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
+        // Race guard.  The connection's queue and the
+        // URLSession delegate queue are different; a
+        // `connection.send` failure on the listener queue
+        // can flip `downstreamBroken` *after* a response
+        // callback has already been enqueued on the
+        // delegate queue.  Without this guard we would
+        // synthesise a 200/206 header and write it to a
+        // dead socket — another `NWError 57` log line for
+        // no benefit.  The cancel disposition propagates
+        // straight to `didCompleteWithError(NSURLErrorCancelled)`
+        // which the existing branch already handles.
+        if downstreamBroken {
+            completionHandler(.cancel)
+            return
+        }
         guard let server,
               let http = response as? HTTPURLResponse else {
             completionHandler(.cancel)
@@ -1782,6 +1864,12 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         // length headers (B站 CDN sometimes does that for
         // /init), so we have to synthesise the header here.
         if !didSendHeader {
+            // Defensive: the body-byte path already
+            // bailed on `downstreamBroken` above, but if
+            // the flag was flipped *after* we passed that
+            // check (queue race), don't synthesise a 200
+            // header for a socket that just died.
+            if downstreamBroken { return }
             server?.sendHeader(
                 connection: connection,
                 status: 200,
@@ -1826,12 +1914,14 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     // and causes AVPlayer to see a truncated
                     // body (fewer bytes than Content-Length)
                     // leading to -19602 decode failures.
-                    // Instead, only set the flag and let
-                    // `didCompleteWithError` or the next
-                    // `didReceive data` call on the serial
-                    // queue drive the teardown naturally
-                    // after all queued send completions drain.
-                    self.downstreamBroken = true
+                    // Instead, mark broken + cancel the
+                    // upstream task; `didCompleteWithError`
+                    // with `NSURLErrorCancelled` will then
+                    // arrive on the delegate queue, the
+                    // existing branch handles it via
+                    // `finishWhenSendsDrain()` which cancels
+                    // the connection once all queued send
+                    // completions have left the sendGroup.
                     diagLog(.network,
                             "LocalHLSProxyServer downstream send error",
                             details: [
@@ -1839,6 +1929,9 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                                 "mode": self.mode,
                                 "error": error.localizedDescription
                             ])
+                    self.markDownstreamBroken(
+                        reason: "send error: \(error.localizedDescription)"
+                    )
                 }
                 self.sendGroup.leave()
             }
