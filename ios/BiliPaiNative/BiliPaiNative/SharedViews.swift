@@ -87,6 +87,7 @@ struct VideoCard: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(10)
             .bilipaiCardSurface(materialDesign)
+            .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
         }
         .buttonStyle(.plain)
         .modifier(VideoContextMenuIfAvailable(video: video, repository: repository))
@@ -188,8 +189,9 @@ struct CoverImage: View {
         // phase there is no way to retry, and the system image cache keeps
         // the broken placeholder around. The custom loader keeps trying
         // (with a short back-off) and refreshes when `url` changes.
+        // Note: no .clipped() here — the caller applies
+        // .clipShape(RoundedRectangle) to get rounded corners.
         ResilientImage(url: url)
-            .clipped()
     }
 }
 
