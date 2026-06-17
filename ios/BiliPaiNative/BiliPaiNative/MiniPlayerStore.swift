@@ -53,7 +53,7 @@ final class MiniPlayerStore: ObservableObject {
         if let current = currentVideo,
            current.id == video.id,
            let existing = controller,
-           !existing.player.currentItem?.asset.duration.seconds.isNaN ?? false {
+           hasResolvedDuration(existing) {
             // The controller is already bound to the same video.
             // Keep the existing controller and the existing watch
             // session (don't double-report `progress=0`).
@@ -183,5 +183,21 @@ final class MiniPlayerStore: ObservableObject {
         isPlaying = true
         isBuffering = false
         networkSpeed = 0
+    }
+
+    /// True when the controller's player item has a finite, non-NaN
+    /// duration. Used by `bind` to decide whether a re-bind of the
+    /// same video can skip rebuilding the controller — if the
+    /// duration has resolved, the controller is fully primed and the
+    /// re-bind would just no-op. If it's still `.nan` / `.zero`
+    /// (typical for the first ~250 ms after binding to a new
+    /// playback), the caller wants to be sure we get a fresh
+    /// controller on the next opportunity, so we treat the existing
+    /// one as "not yet ready" and fall through to the rebuild path.
+    private func hasResolvedDuration(_ controller: PlayerController) -> Bool {
+        guard let seconds = controller.player.currentItem?.asset.duration.seconds else {
+            return false
+        }
+        return seconds.isFinite && seconds > 0
     }
 }

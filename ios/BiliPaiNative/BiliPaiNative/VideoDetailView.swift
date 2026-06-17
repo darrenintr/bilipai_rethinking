@@ -184,28 +184,11 @@ struct VideoDetailView: View {
             }
             .padding(16)
         }
-        .onScrollGeometryChange(for: CommentScrollSignal.self) { geometry in
-            let hasScrolled = geometry.contentOffset.y > 1
-            let isNearBottom = geometry.contentOffset.y + geometry.containerSize.height
-                >= geometry.contentSize.height - 200
-            return CommentScrollSignal(hasScrolled: hasScrolled, isNearBottom: isNearBottom)
-        } action: { _, signal in
-            if signal.hasScrolled && signal.isNearBottom {
-                Task { await model.loadMoreComments(repository: repository) }
-            }
-        }
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            // Map offset 0..240pt to scale 1.0..0.5. The wider
-            // the range, the gentler the shrink. We anchor at
-            // 0.5 (not 0.0) so even at maximum scroll the
-            // player is never smaller than 50% of the screen.
-            let normalized = min(1.0, max(0.0, geometry.contentOffset.y / 240))
-            return 1.0 - normalized * 0.5
-        } action: { _, newScale in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                playerScale = newScale
-            }
-        }
+        .modifier(CommentScrollGeometryModifier(
+            model: model,
+            repository: repository,
+            playerScale: $playerScale
+        ))
     }
 
     @ViewBuilder
@@ -407,33 +390,35 @@ struct VideoDetailView: View {
     }
 
     private var loadMoreFooter: some View {
-        if model.commentsHasMore {
-            HStack {
-                Spacer()
-                if model.commentsLoadingMore {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("加载中…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button {
-                        Task { await model.loadMoreComments(repository: repository) }
-                    } label: {
-                        Label("加载更多评论", systemImage: "arrow.down.circle")
-                            .font(.subheadline.weight(.semibold))
+        Group {
+            if model.commentsHasMore {
+                HStack {
+                    Spacer()
+                    if model.commentsLoadingMore {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("加载中…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button {
+                            Task { await model.loadMoreComments(repository: repository) }
+                        } label: {
+                            Label("加载更多评论", systemImage: "arrow.down.circle")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
+                    Spacer()
                 }
-                Spacer()
-            }
-            .padding(.vertical, 12)
-        } else if !model.comments.isEmpty {
-            Text("— 没有更多评论了 —")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
+            } else if !model.comments.isEmpty {
+                Text("— 没有更多评论了 —")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
         }
     }
 
@@ -598,16 +583,61 @@ private struct CommentSkeletonRows: View {
 }
 
 /// Applies `.navigationTransition(.zoom(sourceID:in:))` only
-/// when a namespace is available. The system matches the
-/// `videoID` to the source's `matchedTransitionSource` and
-/// runs a zoom animation between the two.
+/// when a namespace is available AND the runtime OS is iOS 18+
+/// (the API was introduced in iOS 18). On iOS 17 the modifier is
+/// a no-op and the system cross-fade is used.
 private struct HeroDestinationModifier: ViewModifier {
     let videoID: String
     let namespace: Namespace.ID?
 
     func body(content: Content) -> some View {
-        if let namespace {
+        if let namespace, #available(iOS 18, *) {
             content.navigationTransition(.zoom(sourceID: videoID, in: namespace))
+        } else {
+            content
+        }
+    }
+}
+
+/// Attaches the two `onScrollGeometryChange` modifiers that drive
+/// the comment-pagination auto-load and the player-scale
+/// interpolation. Extracted so we can gate the whole modifier
+/// behind `if #available(iOS 18, *)` (the API was introduced in
+/// iOS 18) and keep `commentsScrollView` itself a simple
+/// `some View`. The iOS 17 build gets the scroll view without
+/// any of the geometry listeners — pagination falls back to the
+/// manual "加载更多评论" button in `loadMoreFooter`, and the
+/// player stays at its rest size.
+private struct CommentScrollGeometryModifier: ViewModifier {
+    let model: VideoDetailViewModel
+    let repository: BiliPaiRepository
+    @Binding var playerScale: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content
+                .onScrollGeometryChange(for: CommentScrollSignal.self) { geometry in
+                    let hasScrolled = geometry.contentOffset.y > 1
+                    let isNearBottom = geometry.contentOffset.y + geometry.containerSize.height
+                        >= geometry.contentSize.height - 200
+                    return CommentScrollSignal(hasScrolled: hasScrolled, isNearBottom: isNearBottom)
+                } action: { _, signal in
+                    if signal.hasScrolled && signal.isNearBottom {
+                        Task { await model.loadMoreComments(repository: repository) }
+                    }
+                }
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    // Map offset 0..240pt to scale 1.0..0.5. The wider
+                    // the range, the gentler the shrink. We anchor at
+                    // 0.5 (not 0.0) so even at maximum scroll the
+                    // player is never smaller than 50% of the screen.
+                    let normalized = min(1.0, max(0.0, geometry.contentOffset.y / 240))
+                    return 1.0 - normalized * 0.5
+                } action: { _, newScale in
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        playerScale = newScale
+                    }
+                }
         } else {
             content
         }

@@ -160,9 +160,12 @@ struct HomeView: View {
                     }
                     LazyVGrid(columns: columns, spacing: 18) {
                         ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
-                            VideoCard(video: video, repository: repository, heroNamespace: heroNamespace) {
-                                router.openVideo(video)
-                            }
+                            VideoCard(
+                                video: video,
+                                repository: repository,
+                                heroNamespace: heroNamespace,
+                                action: { router.openVideo(video) }
+                            )
                             .id(video.id)
                             .onAppear {
                                 triggerLoadMoreIfNeeded(currentIndex: index)
@@ -535,9 +538,7 @@ private struct DynamicPostCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let video = post.attachedVideo {
-                VideoCard(video: video) {
-                    router.openVideo(video)
-                }
+                VideoCard(video: video, action: { router.openVideo(video) })
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

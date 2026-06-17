@@ -110,7 +110,7 @@ private struct HeroSourceModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if let namespace {
-            content.matchedTransitionSource(videoID, in: namespace)
+            content.matchedTransitionSource(id: videoID, in: namespace)
         } else {
             content
         }

@@ -66,9 +66,12 @@ struct DynamicFeedView: View {
                                 .font(.subheadline)
                         }
                         if let video = post.attachedVideo {
-                            VideoCard(video: video, repository: repository, heroNamespace: heroNamespace) {
-                                router.openVideo(video)
-                            }
+                            VideoCard(
+                                video: video,
+                                repository: repository,
+                                heroNamespace: heroNamespace,
+                                action: { router.openVideo(video) }
+                            )
                             .frame(maxWidth: 360)
                         }
                     }
