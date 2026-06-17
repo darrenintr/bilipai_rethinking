@@ -97,6 +97,7 @@ struct VideoCard: View {
     /// chain in two places.
     private var coverImage: some View {
         CoverImage(url: video.coverURL)
+            .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
             .aspectRatio(16 / 10, contentMode: .fit)
     }
 }
