@@ -337,6 +337,25 @@ final class PlayerController: ObservableObject {
         }
     }
 
+    // MARK: playback control
+
+    /// Toggle play/pause.
+    func toggle() {
+        if player.timeControlStatus == .playing {
+            player.pause()
+        } else {
+            player.play()
+        }
+    }
+
+    func play() {
+        player.play()
+    }
+
+    func pause() {
+        player.pause()
+    }
+
     // MARK: seeking
 
     /// Seek by a relative offset (positive = forward, negative =
