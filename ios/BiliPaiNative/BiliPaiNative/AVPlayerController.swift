@@ -185,7 +185,13 @@ final class PlayerController: ObservableObject {
         ) { [weak self] cm in
             let seconds = CMTimeGetSeconds(cm)
             if seconds.isFinite, seconds >= 0 {
-                self?.currentTime = seconds
+                // The `.main` queue means we're on the main actor;
+                // assumeIsolated silences the Swift 6 concurrency
+                // check without the Task allocation overhead of the
+                // KVO observers.
+                MainActor.assumeIsolated {
+                    self?.currentTime = seconds
+                }
             }
         }
 
