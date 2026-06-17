@@ -44,6 +44,10 @@ struct VideoDetailView: View {
     /// Material design preference — drives glass vs M3 surfaces
     /// on the control panel and comment card.
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    /// When true the player takes 80% of the screen and comments
+    /// take 20%, giving a more immersive video-watching experience.
+    /// Toggled by the "immersive" button in the nav bar.
+    @State private var isImmersiveMode = false
 
     init(video: BiliVideo, repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil) {
         self.video = video
@@ -75,7 +79,9 @@ struct VideoDetailView: View {
             // the player shrinks.
             let totalH = geo.size.height
             let maxPlayerHeight = totalH * 0.55
-            let minPlayerHeight = totalH * 0.5
+            // In immersive mode the player takes 80% and comments 20%;
+            // otherwise both get 50/50 when the user has scrolled down.
+            let minPlayerHeight = totalH * (isImmersiveMode ? 0.8 : 0.5)
             let playerHeight = maxPlayerHeight
                 - (maxPlayerHeight - minPlayerHeight) * (1.0 - playerScale)
 
@@ -90,6 +96,20 @@ struct VideoDetailView: View {
         .background(BiliPaiTheme.pageBackground)
         .navigationTitle(model.detail.ownerName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isImmersiveMode.toggle()
+                    }
+                } label: {
+                    Image(systemName: isImmersiveMode ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(isImmersiveMode ? BiliPaiTheme.biliPink : .primary)
+                }
+                .accessibilityLabel(isImmersiveMode ? "Exit immersive mode" : "Enter immersive mode")
+            }
+        }
         .task {
             // Hydrate the model from the persisted sort before the
             // first fetch — otherwise the in-memory `commentSort`
