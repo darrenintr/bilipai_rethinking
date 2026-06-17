@@ -346,12 +346,20 @@ final class PlayerController: ObservableObject {
     /// but the explicit clamp makes the behaviour obvious and
     /// keeps the inline seek-bar (if it ever comes back)
     /// consistent with the double-tap gesture.
+    ///
+    /// Uses default (approximate) tolerances so AVPlayer snaps
+    /// to the nearest keyframe.  Exact-tolerance seeks
+    /// (`toleranceBefore/After: .zero`) force AVPlayer to wait
+    /// for the precise frame to be decoded, which makes HLS
+    /// scrubbing — especially past the buffered range — feel
+    /// sluggish.  The 10-second double-tap skip is a short hop
+    /// that users expect to feel instant.
     func seek(by offset: Double) {
         let now = CMTimeGetSeconds(player.currentTime())
         guard now.isFinite, duration > 0 else { return }
         let target = max(0, min(duration, now + offset))
         let time = CMTime(seconds: target, preferredTimescale: 600)
-        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        player.seek(to: time)
     }
 
     // MARK: teardown

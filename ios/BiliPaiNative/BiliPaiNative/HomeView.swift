@@ -327,6 +327,7 @@ struct HomeView: View {
 
 private struct HomeOfflineBanner: View {
     let onRetry: () -> Void
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     var body: some View {
         HStack(spacing: 12) {
@@ -346,7 +347,7 @@ private struct HomeOfflineBanner: View {
                 .controlSize(.small)
         }
         .padding(12)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+        .bilipaiCardSurface(materialDesign)
     }
 }
 
@@ -356,6 +357,7 @@ private struct HomeEmptyState: View {
     let hasError: Bool
     var isLoggedIn = false
     var onRetry: (() -> Void)? = nil
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     var body: some View {
         VStack(spacing: 18) {
@@ -399,7 +401,7 @@ private struct HomeEmptyState: View {
         }
         .frame(maxWidth: .infinity, minHeight: 260)
         .padding()
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+        .bilipaiCardSurface(materialDesign)
     }
 
     private var title: String {
@@ -502,6 +504,7 @@ private struct DynamicFeedList: View {
 private struct DynamicPostCard: View {
     let post: DynamicPost
     @EnvironmentObject private var router: AppRouter
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -543,7 +546,7 @@ private struct DynamicPostCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+        .bilipaiCardSurface(materialDesign)
     }
 
     @ViewBuilder
@@ -564,6 +567,7 @@ private struct DynamicPostCard: View {
 private struct TodayWatchCard: View {
     let videos: [BiliVideo]
     @EnvironmentObject private var router: AppRouter
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -603,6 +607,6 @@ private struct TodayWatchCard: View {
             }
         }
         .padding(14)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+        .bilipaiCardSurface(materialDesign)
     }
 }

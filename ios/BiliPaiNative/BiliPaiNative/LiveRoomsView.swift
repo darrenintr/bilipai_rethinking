@@ -5,6 +5,7 @@ struct LiveRoomsView: View {
     let repository: BiliPaiRepository
 
     @StateObject private var model = LiveViewModel()
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
     private let columns = [GridItem(.adaptive(minimum: 172), spacing: 12)]
 
     var body: some View {
@@ -42,7 +43,7 @@ struct LiveRoomsView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 260)
                     .padding()
-                    .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+                    .bilipaiCardSurface(materialDesign)
                 } else {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(model.rooms) { room in

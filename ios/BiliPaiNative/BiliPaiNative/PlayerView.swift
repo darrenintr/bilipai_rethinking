@@ -54,6 +54,7 @@ struct PlayerView: View {
                 if controller.isBuffering {
                     loadingOverlay
                         .transition(.opacity)
+                        .allowsHitTesting(false)
                 }
             }
             // Double-tap gestures sit *above* the system transport
@@ -146,6 +147,7 @@ struct FullscreenPlayerView: View {
             if controller.isBuffering {
                 loadingOverlay
                     .transition(.opacity)
+                    .allowsHitTesting(false)
             }
 
             // Double-tap gesture layer (left/right seek, centre

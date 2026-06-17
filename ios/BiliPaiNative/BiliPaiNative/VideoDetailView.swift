@@ -41,6 +41,9 @@ struct VideoDetailView: View {
     /// view writes through to the model and to the underlying fetch
     /// whenever the user toggles the picker.
     @AppStorage("bilipai.commentSort") private var storedCommentSort: String = CommentSort.hot.rawValue
+    /// Material design preference — drives glass vs M3 surfaces
+    /// on the control panel and comment card.
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     init(video: BiliVideo, repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil) {
         self.video = video
@@ -314,7 +317,7 @@ struct VideoDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+        .bilipaiCardSurface(materialDesign)
     }
 
     private var commentPreview: some View {
@@ -358,7 +361,7 @@ struct VideoDetailView: View {
             }
         }
         .padding(14)
-        .background(BiliPaiTheme.cardBackground, in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+        .bilipaiCardSurface(materialDesign)
     }
 
     @State private var newCommentText = ""
