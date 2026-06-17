@@ -37,11 +37,11 @@ struct VideoCard: View {
         self.heroNamespace = nil
     }
 
-    init(video: BiliVideo, repository: BiliPaiRepository, action: @escaping () -> Void, heroNamespace: Namespace.ID? = nil) {
+    init(video: BiliVideo, repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil, action: @escaping () -> Void) {
         self.video = video
-        self.action = action
         self.repository = repository
         self.heroNamespace = heroNamespace
+        self.action = action
     }
 
     var body: some View {
@@ -102,14 +102,16 @@ struct VideoCard: View {
 }
 
 /// Applies `.matchedTransitionSource` only when a namespace is
-/// available. Keeps the call site readable and avoids a
-/// `if let` ladder inside the body.
+/// available AND the runtime OS is iOS 18+ (the API was
+/// introduced in iOS 18). On iOS 17 the modifier is a no-op and
+/// the destination `VideoDetailView` falls back to the system
+/// cross-fade.
 private struct HeroSourceModifier: ViewModifier {
     let videoID: String
     let namespace: Namespace.ID?
 
     func body(content: Content) -> some View {
-        if let namespace {
+        if let namespace, #available(iOS 18, *) {
             content.matchedTransitionSource(id: videoID, in: namespace)
         } else {
             content
