@@ -54,19 +54,19 @@ import Network
 /// A 127.0.0.1-only HTTP server that exposes an HLS manifest
 /// for a single `BiliPlayback`.  Always access through
 /// `LocalHLSProxyServer.shared`.
-final class LocalHLSProxyServer {
-    static let shared = LocalHLSProxyServer()
+public final class LocalHLSProxyServer {
+    public static let shared = LocalHLSProxyServer()
 
     /// `http://127.0.0.1:NNNN/` once the listener is ready.
     /// `nil` before the first `serve(playback:)` call hands a
     /// port to us.  The URL is stable for the lifetime of the
     /// process unless `stop()` is called.
-    private(set) var baseURL: URL?
+    public private(set) var baseURL: URL?
 
     /// Total bytes streamed from the B站 CDN to AVPlayer.
     /// Sampled by `PlayerController.refresh()` for the
     /// network-speed overlay on the loading screen.
-    private(set) var byteCount: Int64 = 0
+    public private(set) var byteCount: Int64 = 0
 
     // MARK: lifecycle
 
@@ -77,7 +77,7 @@ final class LocalHLSProxyServer {
     /// assigned by the OS.  The call returns immediately;
     /// check `baseURL` to know when the port is ready (the
     /// state callback flips it within a few milliseconds).
-    func serve(playback: BiliPlayback) throws {
+    public func serve(playback: BiliPlayback) throws {
         lock.lock()
         currentPlayback = playback
         lock.unlock()
@@ -155,7 +155,7 @@ final class LocalHLSProxyServer {
     /// and any in-flight connections are cancelled.  Calling
     /// `serve(playback:)` again will start a fresh listener
     /// (with a new OS-assigned port).
-    func stop() {
+    public func stop() {
         listener?.cancel()
         listener = nil
         lock.lock()
@@ -167,7 +167,7 @@ final class LocalHLSProxyServer {
     // MARK: internals
 
     private let queue = DispatchQueue(label: "BiliPai.LocalHLSProxy")
-    fileprivate let lock = NSRecursiveLock()
+    private let lock = NSRecursiveLock()
     private var listener: NWListener?
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
@@ -177,7 +177,7 @@ final class LocalHLSProxyServer {
     /// requests (e.g., two overlapping `/media` ranges for the same
     /// CDN URL).  Key is the upstream URL string, value is the range
     /// start/end plus the stream ID holding that range.
-    fileprivate var inFlightRanges: [String: (start: Int64, end: Int64, streamID: UUID)] = [:]
+    private var inFlightRanges: [String: (start: Int64, end: Int64, streamID: UUID)] = [:]
 
     // MARK: upstream media size probe
     //
@@ -208,7 +208,7 @@ final class LocalHLSProxyServer {
     /// requested scrubber position without the "snap back to
     /// buffered range" behaviour.  Empirically: 6 s chunks
     /// round-trip in <100 ms over loopback.
-    private static let targetSegmentDuration: Double = 6.0
+    public static let targetSegmentDuration: Double = 6.0
 
     /// Kick off a `Range: bytes=0-0` GET to the upstream track
     /// URL.  Idempotent.  Safe to call from any thread; the
@@ -370,11 +370,11 @@ final class LocalHLSProxyServer {
     /// media section (typically right after the init segment).
     /// We divide the playable range evenly in time, with the
     /// last segment absorbing any remainder.
-    fileprivate static func buildMultiSegmentPlaylist(
+    public static func buildMultiSegmentPlaylist(
         mediaTotalBytes: Int64,
         mediaStartOffset: Int64,
         totalDuration: Double,
-        segmentURL: String,
+        segmentURL: (Int64, Int64) -> String,
         initURL: String
     ) -> [String]? {
         guard mediaTotalBytes > mediaStartOffset,
@@ -405,25 +405,16 @@ final class LocalHLSProxyServer {
         ]
         for i in 0..<segmentCount {
             let relStart = Int64(i) * bytesPerSegment
-            // Guard against ceiling-rounding overshoot: if
-            // relStart is already at or past the playable byte
-            // boundary, skip this segment — nothing left to send.
-            guard relStart < mediaBytes else { break }
             let isLast = (i == segmentCount - 1)
-            // Clamp relEnd to the actual media boundary so we
-            // never ask the CDN for bytes past EOF.  The CDN
-            // would clip the response and return fewer bytes
-            // than declared in the playlist, causing AVPlayer
-            // to see a truncated range and abort with -12939.
             let relEnd = isLast
                 ? mediaBytes - 1
-                : min(relStart + bytesPerSegment, mediaBytes) - 1
+                : min(relStart + bytesPerSegment - 1, mediaBytes - 1)
             let duration = isLast
                 ? totalDuration - baseSegmentDuration * Double(segmentCount - 1)
                 : baseSegmentDuration
             lines.append("#EXTINF:\(String(format: "%.3f", duration)),")
             lines.append("#EXT-X-BYTERANGE:\(relEnd - relStart + 1)@\(relStart)")
-            lines.append(segmentURL)
+            lines.append(segmentURL(relStart, relEnd))
         }
         lines.append("#EXT-X-ENDLIST")
         return lines
@@ -439,7 +430,7 @@ final class LocalHLSProxyServer {
     /// root cause is identified and fixed, flip it to `false`
     /// so the log isn't drowned in 500-byte byte dumps on
     /// every segment.
-    fileprivate static let wireDumpEnabled = true
+    public static let wireDumpEnabled = true
 
     /// Render the first 500 bytes of `data` as UTF-8 so the
     /// diagnostic log shows the actual HTTP framing we put on
@@ -448,7 +439,7 @@ final class LocalHLSProxyServer {
     /// log still shows the bytes that look human-readable.
     /// `label` is the marker name we want to see in the log
     /// (e.g. `DOWNSTREAM RESPONSE HEADER`).
-    fileprivate static func dumpWireBytes(_ data: Data, label: String) -> String {
+    public static func dumpWireBytes(_ data: Data, label: String) -> String {
         let prefix = data.prefix(500)
         if let s = String(data: prefix, encoding: .utf8) {
             return "====== \(label) ======\n\(s)\n==========================="
@@ -465,7 +456,7 @@ final class LocalHLSProxyServer {
     /// against `Content-Length` to detect the trap-2 mismatch
     /// (hand-rolled HTTP server accidentally sends a
     /// Content-Length that doesn't match the body).
-    fileprivate static func parseContentRangeHeader(_ s: String)
+    public static func parseContentRangeHeader(_ s: String)
         -> (start: Int64, end: Int64, total: Int64)
     {
         guard s.hasPrefix("bytes ") else { return (-1, -1, -1) }
@@ -695,24 +686,28 @@ final class LocalHLSProxyServer {
         let probedTotal = awaitMediaTotalProbe(
             for: track.baseURL, timeoutSeconds: 5.0
         )
-        
-        let mediaURL = localURL(
-            path: "media",
-            queryItems: [
-                URLQueryItem(name: "u", value: encoded),
-                URLQueryItem(
-                    name: "from",
-                    value: "\(track.mediaStartOffset)"
-                )
-            ]
-        )
-        
         if let probedTotal, probedTotal > track.mediaStartOffset {
+            let segmentURL: (Int64, Int64) -> String = { relStart, relEnd in
+                self.localURL(
+                    path: "media",
+                    queryItems: [
+                        URLQueryItem(name: "u", value: encoded),
+                        URLQueryItem(
+                            name: "from",
+                            value: "\(track.mediaStartOffset + relStart)"
+                        ),
+                        URLQueryItem(
+                            name: "to",
+                            value: "\(track.mediaStartOffset + relEnd)"
+                        ),
+                    ]
+                )
+            }
             if let lines = Self.buildMultiSegmentPlaylist(
                 mediaTotalBytes: probedTotal,
                 mediaStartOffset: track.mediaStartOffset,
                 totalDuration: total,
-                segmentURL: mediaURL,
+                segmentURL: segmentURL,
                 initURL: initURL
             ) {
                 diagLog(.playback,
@@ -747,6 +742,16 @@ final class LocalHLSProxyServer {
                     "probedTotal": probedTotal ?? -1,
                     "mediaStartOffset": track.mediaStartOffset
                 ])
+        let mediaURL = localURL(
+            path: "media",
+            queryItems: [
+                URLQueryItem(name: "u", value: encoded),
+                URLQueryItem(
+                    name: "from",
+                    value: "\(track.mediaStartOffset)"
+                )
+            ]
+        )
         let lines: [String] = [
             "#EXTM3U",
             "#EXT-X-VERSION:6",
@@ -977,9 +982,7 @@ final class LocalHLSProxyServer {
             clientSentRange: clientRange != nil,
             contentRangeShift: contentRangeShift,
             passContentRange: passContentRange,
-            connID: connID,
-            rangeStart: reqStart,
-            rangeEnd: reqEnd
+            connID: connID
         )
         retain(stream: stream)
         stream.start()
@@ -1052,7 +1055,7 @@ final class LocalHLSProxyServer {
         )
     }
 
-    fileprivate func sendHeader(
+    public func sendHeader(
         connection: NWConnection,
         status: Int,
         contentType: String,
@@ -1116,13 +1119,13 @@ final class LocalHLSProxyServer {
         lock.unlock()
     }
 
-    fileprivate func finishStream(id: UUID) {
+    public func finishStream(id: UUID) {
         lock.lock()
         activeStreams.removeValue(forKey: id)
         lock.unlock()
     }
 
-    fileprivate func addStreamedBytes(_ count: Int) {
+    public func addStreamedBytes(_ count: Int) {
         lock.lock()
         byteCount += Int64(count)
         lock.unlock()
@@ -1188,14 +1191,14 @@ final class LocalHLSProxyServer {
         )
     }
 
-    fileprivate static func httpRangeHeader(offset: Int64, end: Int64?) -> String {
+    public static func httpRangeHeader(offset: Int64, end: Int64?) -> String {
         if let end {
             return "bytes=\(offset)-\(end)"
         }
         return "bytes=\(offset)-"
     }
 
-    fileprivate static func shiftedRangeHeader(
+    public static func shiftedRangeHeader(
         _ header: String,
         by offset: Int64
     ) -> String? {
@@ -1229,16 +1232,7 @@ final class LocalHLSProxyServer {
         )
     }
 
-    /// Converts an upstream `Content-Range: bytes X-Y/Z` header to
-    /// client-side relative coordinates by subtracting `offset`.
-    ///
-    /// The denominator (Z) is preserved exactly as-is — it must always
-    /// be the original CDN file's total byte count.  AVPlayer tracks
-    /// the file's total duration via this value; shrinking it per
-    /// segment (e.g. Z→Z−offset) causes the playback timeline to
-    /// contract with every new segment and ultimately triggers
-    /// `-19602` decode errors.
-    fileprivate func shiftedContentRange(
+    public func shiftedContentRange(
         _ header: String,
         by offset: Int64
     ) -> String? {
@@ -1315,7 +1309,7 @@ final class LocalHLSProxyServer {
         return String(data: d, encoding: .utf8)
     }
 
-    fileprivate func mimeType(for pathExtension: String) -> String {
+    public func mimeType(for pathExtension: String) -> String {
         switch pathExtension.lowercased() {
         case "m3u8":               return "application/vnd.apple.mpegurl"
         case "m4s", "mp4", "mov":  return "video/mp4"
@@ -1326,33 +1320,21 @@ final class LocalHLSProxyServer {
     }
 }
 
-private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
-    let id = UUID()
+public final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
+    public let id = UUID()
 
     private weak var server: LocalHLSProxyServer?
     private let connection: NWConnection
     private let upstream: URL
     private let request: URLRequest
     private let mode: String
-    /// Short, stable ID for the TCP connection that originated
-    /// this request.  Propagated into every diagnostic marker
-    /// so we can correlate lifecycle events on the same
-    /// socket — particularly useful for the keep-alive-reuse
-    /// hypothesis (trap 3).
-    fileprivate let connID: String
+    private let connID: String
     /// Absolute byte range this stream is fetching from the
     /// upstream.  Used to detect overlaps with other in-flight
     /// streams so we can cancel the older one and avoid
     /// double-delivery decode errors (-19602).
     private let rangeStart: Int64?
     private let rangeEnd: Int64?
-    /// `true` if the loopback client (AVPlayer) sent a
-    /// `Range` header.  When `true`, our downstream response
-    /// MUST use `206 Partial Content` and include a
-    /// `Content-Range` header — AVPlayer aborts any
-    /// partial-content request that does not get a 206.
-    /// When `false`, the response MUST be `200 OK` with no
-    /// `Content-Range` header.
     private let clientSentRange: Bool
     private let contentRangeShift: Int64?
     private let passContentRange: Bool
@@ -1363,50 +1345,17 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     private var task: URLSessionDataTask?
     private var didSendHeader = false
     private var didFinish = false
-    /// Diagnostic counters for the downstream body stream
-    /// (only touched when `LocalHLSProxyServer.wireDumpEnabled`
-    /// is `true`).  Used to emit the body-totals log line on
-    /// completion so we can cross-check the actual bytes we
-    /// pushed to `connection.send` against the
-    /// `Content-Length` we promised in the header.
     private var downstreamChunksSent = 0
     private var downstreamBytesSent: Int64 = 0
-    /// Set as soon as we see a downstream send failure
-    /// (e.g. AVPlayer tore the socket down in
-    /// `onDisappear`).  Guards against continuing to
-    /// drain a 71 MB upstream response into a dead
-    /// `NWConnection`.
     private var downstreamBroken = false
-    /// Total bytes that have arrived from the upstream
-    /// across every attempt so far.  On a mid-stream
-    /// upstream failure we re-issue the same Range shifted
-    /// to `bytesReceivedFromUpstream` so the downstream
-    /// (AVPlayer) sees one continuous byte stream — it
-    /// never knows the upstream socket was reset.
     private var bytesReceivedFromUpstream: Int64 = 0
-    /// 0 = the very first request, 1..3 = retries.  Capped
-    /// at `Self.maxRetries` total attempts to avoid an
-    /// infinite loop if the upstream keeps failing.
     private var upstreamAttempt: Int = 0
-    /// Set when we abort the current upstream task on
-    /// purpose to schedule a retry (e.g. 5xx response, or a
-    /// retryable transport error).  Without this flag the
-    /// resulting `URLError.cancelled` in
-    /// `didCompleteWithError` would look identical to the
-    /// "we cancelled because the downstream went away"
-    /// path and we'd never retry.
     private var cancelledForRetry = false
 
-    /// Maximum number of times we re-issue the upstream
-    /// request after the first attempt.  With base backoff
-    /// 100ms and a 3× multiplier the worst-case extra wait
-    /// is 100+300+900 = 1300ms — short enough that the
-    /// `controller.isBuffering` overlay shows briefly but
-    /// AVPlayer does not give up.
     private static let maxRetries: Int = 3
     private static let baseBackoffSeconds: Double = 0.1
 
-    init(
+    public init(
         server: LocalHLSProxyServer,
         connection: NWConnection,
         upstream: URL,
@@ -1435,7 +1384,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         super.init()
     }
 
-    func start() {
+    public func start() {
         startSession()
         // Register this stream's byte range so overlapping
         // requests from concurrent AVPlayer tasks can be caught.
@@ -1448,34 +1397,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         startUpstreamTask(attempt: 0)
     }
 
-    /// Cancel this stream and unregister its byte range so any
-    /// overlapping new request can proceed without competing
-    /// with a dead socket.
-    fileprivate func cancel() {
-        task?.cancel()
-        connection.cancel()
-        session?.finishTasksAndInvalidate()
-        unregisterRange()
-    }
-
-    private func unregisterRange() {
-        guard let rs = rangeStart, let re = rangeEnd else { return }
-        let key = upstream.absoluteString
-        server?.lock.lock()
-        if let existing = server?.inFlightRanges[key],
-           existing.streamID == id,
-           existing.start == rs, existing.end == re {
-            server?.inFlightRanges.removeValue(forKey: key)
-        }
-        server?.lock.unlock()
-    }
-
-    /// One-shot URLSession construction.  Kept separate from
-    /// `startUpstreamTask(attempt:)` so the session survives
-    /// across retries — creating a fresh `URLSession` per
-    /// attempt would burn a new TCP + TLS handshake per
-    /// retry, which both slows down recovery and defeats
-    /// connection pooling on subsequent segments.
     private func startSession() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -1488,12 +1409,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         self.session = session
     }
 
-    /// (Re)issue the upstream request.  On a retry the
-    /// Range header is shifted by `bytesReceivedFromUpstream`
-    /// so the CDN hands us the bytes that were lost when
-    /// the previous attempt's socket died.  The downstream
-    /// (AVPlayer) sees those bytes appended to the stream it
-    /// already has — no AVPlayer-side retry, no gap.
     private func startUpstreamTask(attempt: Int) {
         guard let session else { return }
         upstreamAttempt = attempt
@@ -1504,10 +1419,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         task.resume()
     }
 
-    /// Build a new `URLRequest` for the upstream that picks
-    /// up where the previous attempt left off.  We mutate a
-    /// copy of the original request so the referer / user
-    /// agent / host we already validated are preserved.
     private func shiftedRequest(startingAt offset: Int64) -> URLRequest {
         var newRequest = request
         guard offset > 0 else { return newRequest }
@@ -1517,17 +1428,8 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
            let shifted = LocalHLSProxyServer.shiftedRangeHeader(
                 originalRange, by: offset
            ) {
-            // Original was `bytes=start-end` or
-            // `bytes=start-` — shift the start by
-            // `bytesReceivedFromUpstream` so the next
-            // attempt asks for the bytes we have not yet
-            // received.
             newRange = shifted
         } else {
-            // Original had no Range header (we asked for
-            // the whole file).  Switch to a Range request
-            // starting at `offset` so the CDN does not
-            // resend the bytes the downstream already has.
             newRange = LocalHLSProxyServer.httpRangeHeader(
                 offset: offset, end: nil
             )
@@ -1536,32 +1438,20 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         return newRequest
     }
 
-    /// True for transport-level errors that are safe to
-    /// retry: the network connection died mid-flight, the
-    /// request timed out, or we could not connect.  These
-    /// are the exact failure modes we saw in the build-82
-    /// diagnostic report — B站's CDN reset our socket
-    /// mid-stream (`URLError.networkConnectionLost`, code
-    /// -1005) and we previously gave up after one try.
     private func isRetryable(_ nsError: NSError) -> Bool {
         guard nsError.domain == NSURLErrorDomain else { return false }
         switch nsError.code {
-        case NSURLErrorTimedOut,                 // -1001
-             NSURLErrorCannotConnectToHost,      // -1004
-             NSURLErrorNetworkConnectionLost,    // -1005
-             NSURLErrorDNSLookupFailed,          // -1006
-             NSURLErrorNotConnectedToInternet:   // -1009
+        case NSURLErrorTimedOut,
+             NSURLErrorCannotConnectToHost,
+             NSURLErrorNetworkConnectionLost,
+             NSURLErrorDNSLookupFailed,
+             NSURLErrorNotConnectedToInternet:
             return true
         default:
             return false
         }
     }
 
-    /// Schedule the next upstream attempt on the delegate
-    /// queue (serial, `maxConcurrentOperationCount = 1`)
-    /// so we never race with `didCompleteWithError` from
-    /// the previous attempt.  Emits a single retry log line
-    /// so the diagnostic stream shows the recovery.
     private func scheduleRetry(reason: String, attempt: Int) {
         let backoff = Self.baseBackoffSeconds * pow(3.0, Double(attempt - 1))
         diagLog(.network,
@@ -1574,15 +1464,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     "backoffMs": Int(backoff * 1000),
                     "reason": reason
                 ])
-        // `delegateQueue` is an `OperationQueue`, so we
-        // schedule the retry on a global dispatch queue.
-        // The new task's `URLSessionDataDelegate` callbacks
-        // still arrive on the serial `delegateQueue`, so the
-        // retry does not race with any in-flight callbacks
-        // from the previous attempt — by the time we get
-        // here `didCompleteWithError` has already returned
-        // and URLSession will not send more events for the
-        // old task.
         DispatchQueue.global(qos: .userInitiated).asyncAfter(
             deadline: .now() + backoff
         ) { [weak self] in
@@ -1590,7 +1471,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         }
     }
 
-    func urlSession(
+    public func urlSession(
         _ session: URLSession,
         dataTask: URLSessionDataTask,
         didReceive response: URLResponse,
@@ -1602,30 +1483,16 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             finishWithError(reason: "bad upstream response")
             return
         }
-        // Short-circuit upstream 5xx before we write any
-        // header to the downstream — sending even a partial
-        // 5xx body through the loopback would leave
-        // AVPlayer's parser in a state where it cannot
-        // accept the retried response on the next attempt.
         if (500...599).contains(http.statusCode) {
             cancelledForRetry = true
             completionHandler(.cancel)
             if upstreamAttempt < Self.maxRetries {
-                // Still have retries left — wait for a
-                // fresh upstream attempt with the Range
-                // shifted by `bytesReceivedFromUpstream`,
-                // then write its response to the same
-                // downstream socket that is still waiting.
                 scheduleRetry(
                     reason: "5xx: \(http.statusCode)",
                     attempt: upstreamAttempt + 1
                 )
                 return
             }
-            // Retries exhausted — send a clean 502 to
-            // AVPlayer so its parser sees a valid HTTP
-            // response (not a 206 wrapping a 5xx body),
-            // then tear down.
             server.sendHeader(
                 connection: connection,
                 status: 502,
@@ -1648,26 +1515,9 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         var extraHeaders: [String: String] = ["Accept-Ranges": "bytes"]
         let upstreamContentRange = http.value(forHTTPHeaderField: "Content-Range")
 
-        // Decide downstream status.  AVPlayer's strict rule:
-        //   - if the client sent `Range: bytes=…`, the response
-        //     MUST be `206 Partial Content` with a matching
-        //     `Content-Range` header.  Anything else and the
-        //     stream is abandoned.
-        //   - if the client did not send Range, the response
-        //     MUST be `200 OK` with the full body.  Returning
-        //     206 here is also legal but `Content-Range` must
-        //     match, so we play it safe with 200.
-        // `/init` and `/media` are *logical* sub-resources of
-        // the upstream m4s file, but from the client's
-        // perspective they look like whole documents — so when
-        // the client does NOT send Range we answer `200`, and
-        // when it DOES send Range we answer `206` with a
-        // `Content-Range` that has been shifted down to the
-        // sub-resource's byte coordinates.
         let isLogicalSubResource = (mode == "init" || mode == "media")
         let status: Int
         if clientSentRange {
-            // Client asked for a byte range — MUST be 206.
             status = 206
             if let shift = contentRangeShift,
                let upstreamContentRange,
@@ -1675,40 +1525,18 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     upstreamContentRange,
                     by: shift
                ) {
-                // `/init` or `/media` with a known shift:
-                // convert the upstream's absolute Content-Range
-                // down to the sub-resource's relative bytes so
-                // AVPlayer can apply it to the `/init` or
-                // `/media` URL it asked for.
                 extraHeaders["Content-Range"] = shifted
             } else if let upstreamContentRange {
-                // `/seg` passthrough or no shift recorded:
-                // forward the upstream's Content-Range
-                // verbatim — it is already in the client's
-                // coordinates.
                 extraHeaders["Content-Range"] = upstreamContentRange
             }
         } else if isLogicalSubResource {
-            // No client Range, but the URL is a logical
-            // sub-resource (`/init` or `/media`).  Expose it
-            // as a flat document: 200 OK, `Content-Length` set
-            // to the sub-resource length, no `Content-Range`.
             status = 200
         } else {
-            // `/seg` passthrough with no client Range — forward
-            // the upstream's status (typically 200).
             status = http.statusCode
         }
         let contentLength = http.expectedContentLength >= 0
             ? http.expectedContentLength
             : nil
-        // Trap-2 sanity check: cross-check the upstream's
-        // `Content-Length` against the bytes implied by the
-        // `Content-Range` header.  For a 206 response the
-        // body length must equal `end - start + 1`.  If
-        // they don't match, the upstream is either broken
-        // or we miscomputed the Range shift — both would
-        // make AVPlayer kill the socket.
         let (rangeStart, rangeEnd, rangeTotal) = LocalHLSProxyServer
             .parseContentRangeHeader(upstreamContentRange ?? "")
         let computed: Int64 = (rangeStart >= 0 && rangeEnd >= rangeStart)
@@ -1756,31 +1584,13 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         completionHandler(.allow)
     }
 
-    func urlSession(
+    public func urlSession(
         _ session: URLSession,
         dataTask: URLSessionDataTask,
         didReceive data: Data
     ) {
-        // Track every byte that arrives from upstream, even
-        // when the downstream is broken, so the retry path
-        // can shift the Range header by however much we did
-        // manage to pull before the connection died.  See
-        // `shiftedRequest(startingAt:)`.
         bytesReceivedFromUpstream += Int64(data.count)
-        // Once the loopback client (AVPlayer) goes away
-        // (e.g. `VideoDetailView.onDisappear`), the
-        // downstream socket is dead.  Stop feeding the
-        // upstream pipe immediately — every extra `send`
-        // is an `NWError 57 — Socket is not connected` log
-        // line, and a 71 MB video with a few hundred
-        // segments will spam the diagnostic log for several
-        // seconds otherwise.
         if downstreamBroken { return }
-        // First chunk arrives without a prior `didReceive
-        // response` (which only fires for 2xx/206).  In that
-        // case the upstream returned a 200 without explicit
-        // length headers (B站 CDN sometimes does that for
-        // /init), so we have to synthesise the header here.
         if !didSendHeader {
             server?.sendHeader(
                 connection: connection,
@@ -1817,20 +1627,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             completion: .contentProcessed { [weak self] error in
                 guard let self else { return }
                 if let error {
-                    // Mark the downstream as dead but do NOT
-                    // cancel the connection here — doing so
-                    // kills in-flight send completions before
-                    // they can `leave()` the sendGroup, which
-                    // leaves `finishWhenSendsDrain()` waiting
-                    // forever for a drain that never completes
-                    // and causes AVPlayer to see a truncated
-                    // body (fewer bytes than Content-Length)
-                    // leading to -19602 decode failures.
-                    // Instead, only set the flag and let
-                    // `didCompleteWithError` or the next
-                    // `didReceive data` call on the serial
-                    // queue drive the teardown naturally
-                    // after all queued send completions drain.
                     self.downstreamBroken = true
                     diagLog(.network,
                             "LocalHLSProxyServer downstream send error",
@@ -1839,42 +1635,29 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                                 "mode": self.mode,
                                 "error": error.localizedDescription
                             ])
+                    self.task?.cancel()
+                    self.connection.cancel()
+                    self.session?.finishTasksAndInvalidate()
                 }
                 self.sendGroup.leave()
             }
         )
     }
 
-    func urlSession(
+    public func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
         if let error {
             let nsError = error as NSError
-            // 1. Cancellation we triggered from the 5xx
-            //    short-circuit in `didReceive response`
-            //    means "give up on this response and retry".
-            //    The flag distinguishes that from a real
-            //    cancellation (downstream dead, etc.).
             if cancelledForRetry {
-                // scheduleRetry was already called from
-                // didReceive response — nothing to do here.
                 return
             }
-            // 2. Cancellation triggered by `downstreamBroken`
-            //    is expected when AVPlayer goes away
-            //    mid-fetch; it is *not* a real upstream
-            //    failure and must not be retried (the
-            //    downstream is gone anyway).
             if nsError.code == NSURLErrorCancelled {
                 finishWhenSendsDrain()
                 return
             }
-            // 3. Retryable transport-level failure with the
-            //    downstream still alive.  Re-issue the
-            //    request with a shifted Range header so
-            //    AVPlayer sees one continuous byte stream.
             if isRetryable(nsError),
                upstreamAttempt < Self.maxRetries,
                !downstreamBroken {
@@ -1884,8 +1667,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                 )
                 return
             }
-            // 4. Non-retryable error or retries exhausted —
-            //    surface it as the final upstream failure.
             diagLog(.network,
                     "Upstream segment error",
                     details: [
@@ -1908,12 +1689,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         finishWhenSendsDrain()
     }
 
-    /// Emit the diagnostic body-totals log line.  Only
-    /// fires when `LocalHLSProxyServer.wireDumpEnabled`
-    /// is on; gives us a single line per stream that
-    /// cross-checks the bytes pushed to `connection.send`
-    /// against the `Content-Length` promised in the
-    /// header (the trap-2 mismatch check).
     private func logBodyTotalsIfNeeded() {
         guard LocalHLSProxyServer.wireDumpEnabled else { return }
         diagLog(.network,
@@ -1949,6 +1724,28 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         finishWhenSendsDrain()
     }
 
+    /// Cancel this stream and unregister its byte range so any
+    /// overlapping new request can proceed without competing
+    /// with a dead socket.
+    public func cancel() {
+        task?.cancel()
+        connection.cancel()
+        session?.finishTasksAndInvalidate()
+        unregisterRange()
+    }
+
+    private func unregisterRange() {
+        guard let rs = rangeStart, let re = rangeEnd else { return }
+        let key = upstream.absoluteString
+        server?.lock.lock()
+        if let existing = server?.inFlightRanges[key],
+           existing.streamID == id,
+           existing.start == rs, existing.end == re {
+            server?.inFlightRanges.removeValue(forKey: key)
+        }
+        server?.lock.unlock()
+    }
+
     private func finishWhenSendsDrain() {
         guard !didFinish else { return }
         didFinish = true
@@ -1964,15 +1761,12 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
 
 // MARK: - HTTP request parser
 
-/// Minimal HTTP/1.1 request header parser.  We only need the
-/// method, path, and headers — there is never a request body
-/// for the endpoints we expose.
-struct HTTPRequest {
-    let method: String
-    let path: String
-    let headers: [String: String]
+public struct HTTPRequest {
+    public let method: String
+    public let path: String
+    public let headers: [String: String]
 
-    static func parse(data: Data) -> HTTPRequest? {
+    public static func parse(data: Data) -> HTTPRequest? {
         guard let str = String(data: data, encoding: .utf8) else {
             return nil
         }
