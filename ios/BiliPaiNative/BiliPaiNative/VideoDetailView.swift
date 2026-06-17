@@ -88,6 +88,7 @@ struct VideoDetailView: View {
             VStack(spacing: 0) {
                 playerSurface
                     .frame(height: playerHeight)
+                    .frame(width: isImmersiveMode ? geo.size.width * 0.8 : nil, alignment: .center)
                     .clipped()
 
                 commentsScrollView
