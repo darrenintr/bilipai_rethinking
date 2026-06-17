@@ -38,8 +38,13 @@ import SwiftUI
 
 // MARK: - Inline surface
 
-/// SwiftUI `VideoPlayer` wrapper for the inline detail view.  The
-/// system provides play / pause / scrubber / time labels /
+/// AVKit-backed inline player for the detail view.  Uses
+/// `AVPlayerViewController` via `UIViewControllerRepresentable` so
+/// we can explicitly set `showsPlaybackControls = true` — SwiftUI's
+/// `VideoPlayer` does not expose this property and can silently
+/// omit the transport UI in some iOS contexts.
+///
+/// The system provides play / pause / scrubber / time labels /
 /// AirPlay / PiP.  The custom code is the loading overlay and
 /// the double-tap gesture layer (left/right seek, centre like).
 struct PlayerView: View {
@@ -49,8 +54,7 @@ struct PlayerView: View {
     @ObservedObject var controller: PlayerController
 
     var body: some View {
-        VideoPlayer(player: controller.player)
-            .videoPlayerControlsStyle(.automatic)
+        InlineAVPlayerRepresentable(player: controller.player)
             .overlay(alignment: .center) {
                 if controller.isBuffering {
                     loadingOverlay
@@ -213,6 +217,32 @@ struct FullscreenPlayerView: View {
 }
 
 // MARK: - UIKit bridge
+
+/// `UIViewControllerRepresentable` for `AVPlayerViewController`
+/// used by the inline `PlayerView`.  Unlike SwiftUI's `VideoPlayer`,
+/// this exposes `showsPlaybackControls` so we can force the transport
+/// UI to appear.  The `Coordinator` holds a strong reference to the
+/// controller so the `AVPlayer` outlives any SwiftUI re-render.
+private struct InlineAVPlayerRepresentable: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.videoGravity = .resizeAspect
+        return controller
+    }
+
+    func updateUIViewController(
+        _ uiViewController: AVPlayerViewController,
+        context: Context
+    ) {
+        if uiViewController.player !== player {
+            uiViewController.player = player
+        }
+    }
+}
 
 /// `UIViewControllerRepresentable` for `AVPlayerViewController`,
 /// used by `FullscreenPlayerView`.  SwiftUI's `VideoPlayer`
