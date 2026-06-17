@@ -50,6 +50,7 @@ struct PlayerView: View {
 
     var body: some View {
         VideoPlayer(player: controller.player)
+            .videoPlayerControlsStyle(.automatic)
             .overlay(alignment: .center) {
                 if controller.isBuffering {
                     loadingOverlay
