@@ -75,9 +75,18 @@ struct OfflineBanner: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(
+                .ultraThinMaterial,
+                in: RoundedRectangle(
+                    cornerRadius: BiliPaiTheme.cornerRadius,
+                    style: BiliPaiTheme.cornerStyle
+                )
+            )
             .overlay(
-                Capsule()
+                RoundedRectangle(
+                    cornerRadius: BiliPaiTheme.cornerRadius,
+                    style: BiliPaiTheme.cornerStyle
+                )
                     .strokeBorder(Color.white.opacity(0.4), lineWidth: 0.5)
             )
             .shadow(color: .black.opacity(0.15), radius: 6, y: 2)

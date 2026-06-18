@@ -79,7 +79,11 @@ struct LogViewerView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(
-                        Capsule().fill(Color.black.opacity(0.78))
+                        RoundedRectangle(
+                            cornerRadius: BiliPaiTheme.cornerRadius,
+                            style: BiliPaiTheme.cornerStyle
+                        )
+                        .fill(Color.black.opacity(0.78))
                     )
                     .padding(.bottom, 24)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -116,7 +120,10 @@ struct LogViewerView: View {
                                 isOn
                                     ? BiliPaiTheme.biliPink.opacity(0.18)
                                     : Color(uiColor: .tertiarySystemFill),
-                                in: Capsule()
+                                in: RoundedRectangle(
+                                    cornerRadius: BiliPaiTheme.cornerRadius,
+                                    style: BiliPaiTheme.cornerStyle
+                                )
                             )
                             .foregroundStyle(
                                 isOn ? BiliPaiTheme.biliPink : .secondary
@@ -150,7 +157,7 @@ struct LogViewerView: View {
         .padding(8)
         .background(
             Color(uiColor: .secondarySystemBackground),
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            in: RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
         )
         .padding(.horizontal, 12)
         .padding(.bottom, 8)

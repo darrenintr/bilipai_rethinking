@@ -139,10 +139,10 @@ private struct DynamicFeedSkeletonRow: View {
                 .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                 .frame(width: 42, height: 42)
             VStack(alignment: .leading, spacing: 8) {
-                RoundedRectangle(cornerRadius: 4, style: BiliPaiTheme.cornerStyle)
+                RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                     .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                     .frame(width: 120, height: 12)
-                RoundedRectangle(cornerRadius: 4, style: BiliPaiTheme.cornerStyle)
+                RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                     .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                     .frame(maxWidth: .infinity)
                     .frame(height: 12)

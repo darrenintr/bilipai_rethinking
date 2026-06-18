@@ -67,7 +67,13 @@ struct PlayerView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.black.opacity(0.55), in: Capsule())
+        .background(
+            .black.opacity(0.55),
+            in: RoundedRectangle(
+                cornerRadius: BiliPaiTheme.cornerRadius,
+                style: BiliPaiTheme.cornerStyle
+            )
+        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Loading video")
     }
@@ -140,7 +146,13 @@ struct FullscreenPlayerView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(.black.opacity(0.55), in: Capsule())
+                    .background(
+                        .black.opacity(0.55),
+                        in: RoundedRectangle(
+                            cornerRadius: BiliPaiTheme.cornerRadius,
+                            style: BiliPaiTheme.cornerStyle
+                        )
+                    )
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
@@ -367,7 +379,13 @@ private struct FullscreenPlayerOverlay: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(.black.opacity(0.6), in: Capsule())
+                            .background(
+                                .black.opacity(0.6),
+                                in: RoundedRectangle(
+                                    cornerRadius: BiliPaiTheme.cornerRadius,
+                                    style: BiliPaiTheme.cornerStyle
+                                )
+                            )
                             .padding(.top, 40)
                     }
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -387,7 +405,13 @@ private struct FullscreenPlayerOverlay: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
-                .background(.black.opacity(0.6), in: Capsule())
+                .background(
+                    .black.opacity(0.6),
+                    in: RoundedRectangle(
+                        cornerRadius: BiliPaiTheme.cornerRadius,
+                        style: BiliPaiTheme.cornerStyle
+                    )
+                )
                 .transition(.opacity)
             }
         }

@@ -69,7 +69,13 @@ struct OnboardingView: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 7)
-                .background(.ultraThinMaterial, in: Capsule())
+                .background(
+                    .ultraThinMaterial,
+                    in: RoundedRectangle(
+                        cornerRadius: BiliPaiTheme.cornerRadius,
+                        style: BiliPaiTheme.cornerStyle
+                    )
+                )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(currentPage == Self.pages.count - 1 ? "开始使用 Paladala" : "跳过引导")

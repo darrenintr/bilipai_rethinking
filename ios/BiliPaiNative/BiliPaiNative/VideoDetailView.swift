@@ -565,7 +565,10 @@ private struct NestedReplyRow: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: BiliPaiTheme.cornerStyle))
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
+        )
     }
 }
 

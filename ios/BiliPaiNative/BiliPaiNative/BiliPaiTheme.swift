@@ -5,9 +5,10 @@ enum BiliPaiTheme {
     static let biliPinkDim = Color(red: 0.88, green: 0.24, blue: 0.48)
     static let cyan = Color(red: 0.24, green: 0.78, blue: 0.94)
     static let violet = Color(red: 0.48, green: 0.34, blue: 0.96)
-    static let cardRadius: CGFloat = 24
-    static let pillRadius: CGFloat = 16
-    static let heroRadius: CGFloat = 32
+    static let cornerRadius: CGFloat = 24
+    static let cardRadius = cornerRadius
+    static let pillRadius = cornerRadius
+    static let heroRadius = cornerRadius
     static let cornerStyle: RoundedCornerStyle = .continuous
     static let pageBackground = Color.clear
     static let cardBackground = Color.primary.opacity(0.055)

@@ -350,10 +350,16 @@ struct MetricPill: View {
             .padding(.vertical, 5)
             .background {
                 if materialDesign == .liquidGlass {
-                    Capsule()
+                    RoundedRectangle(
+                        cornerRadius: BiliPaiTheme.cornerRadius,
+                        style: BiliPaiTheme.cornerStyle
+                    )
                         .fill(.ultraThinMaterial)
                         .overlay(
-                            Capsule()
+                            RoundedRectangle(
+                                cornerRadius: BiliPaiTheme.cornerRadius,
+                                style: BiliPaiTheme.cornerStyle
+                            )
                                 .strokeBorder(
                                     LinearGradient(
                                         colors: [Color.white.opacity(0.25), Color.white.opacity(0.05)],
@@ -365,7 +371,12 @@ struct MetricPill: View {
                         )
                 } else {
                     Color(uiColor: .tertiarySystemGroupedBackground)
-                        .clipShape(Capsule())
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: BiliPaiTheme.cornerRadius,
+                                style: BiliPaiTheme.cornerStyle
+                            )
+                        )
                 }
             }
     }
@@ -527,7 +538,7 @@ private struct VideoContextMenuPreview: View {
             CoverImage(url: video.coverURL)
                 .aspectRatio(16 / 10, contentMode: .fill)
                 .frame(height: 180)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: BiliPaiTheme.cornerStyle))
+                .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle))
             Text(video.title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
@@ -584,13 +595,13 @@ struct SkeletonGrid: View {
 struct SkeletonCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            RoundedRectangle(cornerRadius: 10, style: BiliPaiTheme.cornerStyle)
+            RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                 .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                 .aspectRatio(16 / 10, contentMode: .fit)
-            RoundedRectangle(cornerRadius: 4, style: BiliPaiTheme.cornerStyle)
+            RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                 .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                 .frame(height: 12)
-            RoundedRectangle(cornerRadius: 4, style: BiliPaiTheme.cornerStyle)
+            RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                 .fill(Color(uiColor: .tertiarySystemGroupedBackground))
                 .frame(height: 12)
                 .frame(maxWidth: 100)

@@ -24,9 +24,9 @@ struct MiniPlayerOverlay: View {
             HStack(spacing: 10) {
                 AVPlayerThumbnailView(player: controller.player)
                     .frame(width: 110, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: BiliPaiTheme.cornerStyle))
+                    .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: BiliPaiTheme.cornerStyle)
+                        RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                             .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
                     }
 
@@ -86,12 +86,12 @@ struct MiniPlayerOverlay: View {
             .frame(width: 320, height: 84)
             .background {
                 if materialDesign == .liquidGlass {
-                    Color.clear.bilipaiCardSurface(.liquidGlass, cornerRadius: 18)
+                    Color.clear.bilipaiCardSurface(.liquidGlass)
                 } else {
-                    RoundedRectangle(cornerRadius: 18, style: BiliPaiTheme.cornerStyle)
+                    RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                         .fill(.ultraThinMaterial)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: BiliPaiTheme.cornerStyle)
+                            RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                                 .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
                         )
                         .shadow(color: .black.opacity(0.18), radius: 16, y: 4)
@@ -122,10 +122,16 @@ struct MiniPlayerOverlay: View {
             let total = store.duration > 0 ? store.duration : 1
             let progress = min(1, store.currentTime / total)
             ZStack(alignment: .leading) {
-                Capsule()
+                RoundedRectangle(
+                    cornerRadius: BiliPaiTheme.cornerRadius,
+                    style: BiliPaiTheme.cornerStyle
+                )
                     .fill(Color.secondary.opacity(0.18))
                     .frame(height: 2)
-                Capsule()
+                RoundedRectangle(
+                    cornerRadius: BiliPaiTheme.cornerRadius,
+                    style: BiliPaiTheme.cornerStyle
+                )
                     .fill(BiliPaiTheme.biliPink)
                     .frame(width: geo.size.width * progress, height: 2)
             }

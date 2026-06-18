@@ -9,7 +9,10 @@ struct BiliPaiGlassButtonStyle: ButtonStyle {
             .padding(.vertical, 10)
             .modifier(PaladalaInteractiveGlassModifier(
                 design: materialDesign,
-                shape: Capsule(),
+                shape: RoundedRectangle(
+                    cornerRadius: BiliPaiTheme.cornerRadius,
+                    style: BiliPaiTheme.cornerStyle
+                ),
                 tint: nil
             ))
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
@@ -208,11 +211,20 @@ extension View {
         if isSelected {
             self.modifier(PaladalaInteractiveGlassModifier(
                 design: design,
-                shape: Capsule(),
+                shape: RoundedRectangle(
+                    cornerRadius: BiliPaiTheme.cornerRadius,
+                    style: BiliPaiTheme.cornerStyle
+                ),
                 tint: BiliPaiTheme.biliPink.opacity(0.22)
             ))
         } else {
-            self.background(Color.primary.opacity(0.055), in: Capsule())
+            self.background(
+                Color.primary.opacity(0.055),
+                in: RoundedRectangle(
+                    cornerRadius: BiliPaiTheme.cornerRadius,
+                    style: BiliPaiTheme.cornerStyle
+                )
+            )
         }
     }
 
