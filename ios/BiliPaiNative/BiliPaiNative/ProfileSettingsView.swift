@@ -1,7 +1,30 @@
 import SwiftUI
 
+@MainActor
+final class ProfileViewModel: ObservableObject {
+    @Published var followingCount: String = "--"
+    @Published var followerCount: String = "--"
+    @Published var dynamicCount: String = "--"
+    @Published var isLoading = false
+
+    func loadStats(mid: Int64, repository: BiliPaiRepository) async {
+        guard mid > 0 else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let stats = try await repository.userStats(mid: mid)
+            followingCount = stats.following
+            followerCount = stats.follower
+            dynamicCount = stats.dynamic
+        } catch {
+            bpLog("Failed to load profile stats: \(error)")
+        }
+    }
+}
+
 struct ProfileSettingsView: View {
     let repository: BiliPaiRepository
+    @StateObject private var profileModel = ProfileViewModel()
     @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
     @AppStorage("bilipai.danmakuEnabled") private var danmakuEnabled = true
@@ -107,6 +130,11 @@ struct ProfileSettingsView: View {
             }
         }
         .navigationTitle("我的")
+        .task(id: authStore.activeAccount?.mid) {
+            if let mid = authStore.activeAccount?.mid {
+                await profileModel.loadStats(mid: mid, repository: repository)
+            }
+        }
     }
 
     @ViewBuilder
@@ -169,9 +197,9 @@ struct ProfileSettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 16) {
-                    ProfileStat(label: "关注", value: "--")
-                    ProfileStat(label: "粉丝", value: "--")
-                    ProfileStat(label: "动态", value: "--")
+                    ProfileStat(label: "关注", value: profileModel.followingCount)
+                    ProfileStat(label: "粉丝", value: profileModel.followerCount)
+                    ProfileStat(label: "动态", value: profileModel.dynamicCount)
                 }
                 .padding(.top, 2)
             }

@@ -67,28 +67,18 @@ struct VideoDetailView: View {
 
     var body: some View {
         GeometryReader { geo in
-            // The split-view math.  At rest the player takes
-            // 55% of the screen; at full split it takes 50%
-            // and the comments ScrollView gets the other half.
-            // The interpolation is linear over the 0.5..1.0
-            // range of `playerScale`; the inner ScrollView's
-            // content offset drives `playerScale` in the range
-            // 0..240pt (clamped to 1.0..0.5).  The 16:9 video
-            // letterboxes inside whatever frame we give it,
-            // so the visible black bars on top/bottom grow as
-            // the player shrinks.
             let totalH = geo.size.height
-            let maxPlayerHeight = totalH * 0.55
-            // In immersive mode the player takes 80% and comments 20%;
-            // otherwise both get 50/50 when the user has scrolled down.
-            let minPlayerHeight = totalH * (isImmersiveMode ? 0.8 : 0.5)
+            // Immersive mode: fixed at 80% height (at rest), 90% when scrolled.
+            // Regular mode: 55% height (at rest), 50% when scrolled.
+            let maxPlayerHeight = totalH * (isImmersiveMode ? 0.8 : 0.55)
+            let minPlayerHeight = totalH * (isImmersiveMode ? 0.9 : 0.5)
             let playerHeight = maxPlayerHeight
-                - (maxPlayerHeight - minPlayerHeight) * (1.0 - playerScale)
+                + (minPlayerHeight - maxPlayerHeight) * (1.0 - playerScale)
 
             VStack(spacing: 0) {
                 playerSurface
                     .frame(height: playerHeight)
-                    .frame(width: isImmersiveMode ? geo.size.width * 0.8 : nil, alignment: .center)
+                    .frame(width: isImmersiveMode ? geo.size.width * 0.9 : nil, alignment: .center)
                     .clipped()
 
                 commentsScrollView

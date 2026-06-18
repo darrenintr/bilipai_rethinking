@@ -36,22 +36,23 @@ struct PlayerView: View {
     @ObservedObject var controller: PlayerController
 
     var body: some View {
-        InlineAVPlayerRepresentable(player: controller.player)
-            .overlay(alignment: .center) {
+        VideoPlayer(player: controller.player) {
+            // Content overlay sits BETWEEN the video and the system controls.
+            // This ensures our custom overlays don't block system single-taps.
+            ZStack {
                 if controller.isBuffering {
                     loadingOverlay
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
-            }
-            .overlay {
+
                 DoubleTapOverlay(
                     video: video,
                     repository: repository,
                     controller: controller
                 )
             }
-            .contentShape(Rectangle())
+        }
     }
 
     /// Spinner + KB/s readout shown during stalls.
@@ -113,19 +114,16 @@ struct FullscreenPlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            AVPlayerSurfaceRepresentable(player: controller.player) {
+            AVPlayerSurfaceRepresentable(
+                player: controller.player,
+                controller: controller
+            ) {
                 // Tapping outside the controls dismisses the
                 // fullscreen cover, matching the "tap-to-dismiss"
                 // gesture the rest of the app uses.
                 dismiss()
             }
             .ignoresSafeArea()
-
-            if controller.isBuffering {
-                loadingOverlay
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            }
 
             // Double-tap gesture layer (left/right seek, centre
             // like). Sits on top of the AVPlayer surface so it
@@ -155,36 +153,6 @@ struct FullscreenPlayerView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
         }
-    }
-
-    /// Spinner + KB/s readout for the fullscreen surface.
-    /// Same shape as the inline overlay, sized up because
-    /// fullscreen has more room.
-    private var loadingOverlay: some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .tint(.white)
-                .controlSize(.large)
-            Text(formatNetworkSpeed(controller.networkSpeed))
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.white)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.black.opacity(0.6), in: Capsule())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Loading video")
-    }
-
-    private func formatNetworkSpeed(_ bytesPerSecond: Double) -> String {
-        guard bytesPerSecond > 0 else { return "—" }
-        if bytesPerSecond >= 1_000_000 {
-            return String(format: "%.1f MB/s", bytesPerSecond / 1_000_000)
-        }
-        if bytesPerSecond >= 1_000 {
-            return String(format: "%.0f KB/s", bytesPerSecond / 1_000)
-        }
-        return String(format: "%.0f B/s", bytesPerSecond)
     }
 }
 
@@ -244,6 +212,7 @@ private struct InlineAVPlayerRepresentable: UIViewControllerRepresentable {
 /// torn down on `onDisappear`.
 private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
     let player: AVPlayer
+    let controller: PlayerController
     let onDismiss: () -> Void
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
@@ -252,12 +221,31 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
         controller.showsPlaybackControls = true
         controller.videoGravity = .resizeAspect
         controller.allowsPictureInPicturePlayback = true
-        // `entersFullScreenWhenPlaybackBeginsOnTouch` defaults
-        // to true on iPhone.  Leave it on; we are already in a
-        // `fullScreenCover` so the system will simply no-op the
-        // toggle.
-        context.coordinator.controller = controller
+        controller.delegate = context.coordinator
+        
+        // Embed the loading overlay in the contentOverlayView.
+        // This ensures it sits correctly between the video and the system controls.
+        if let overlayView = controller.contentOverlayView {
+            let hostingController = UIHostingController(rootView: FullscreenLoadingOverlay(controller: self.controller))
+            hostingController.view.backgroundColor = .clear
+            context.coordinator.loadingHostingController = hostingController
+            
+            let view = hostingController.view!
+            view.translatesAutoresizingMaskIntoConstraints = false
+            overlayView.addSubview(view)
+            
+            NSLayoutConstraint.activate([
+                view.centerXAnchor.constraint(equalTo: overlayView.centerXAnchor),
+                view.centerYAnchor.constraint(equalTo: overlayView.centerYAnchor),
+                view.widthAnchor.constraint(equalTo: overlayView.widthAnchor),
+                view.heightAnchor.constraint(equalTo: overlayView.heightAnchor)
+            ])
+        }
+        
+        context.coordinator.avPlayerViewController = controller
         context.coordinator.onDismiss = onDismiss
+        context.coordinator.playerController = self.controller
+        
         return controller
     }
 
@@ -265,19 +253,88 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
         _ uiViewController: AVPlayerViewController,
         context: Context
     ) {
-        // The `AVPlayer` is stable for the lifetime of the
-        // representable; no-op the update path.
         if uiViewController.player !== player {
             uiViewController.player = player
         }
         context.coordinator.onDismiss = onDismiss
+        context.coordinator.playerController = self.controller
+        
+        // Update the hosted SwiftUI view's state if necessary.
+        // UIHostingController handles the updates automatically if the observed object changes.
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator {
-        weak var controller: AVPlayerViewController?
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        weak var avPlayerViewController: AVPlayerViewController?
+        var playerController: PlayerController?
         var onDismiss: () -> Void = {}
+        var loadingHostingController: UIHostingController<FullscreenLoadingOverlay>?
+        
+        // MARK: - AVPlayerViewControllerDelegate
+        
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
+        ) {
+            coordinator.animate(alongsideTransition: nil) { context in
+                if !context.isCancelled {
+                    self.onDismiss()
+                }
+            }
+        }
+        
+        func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
+            playerController?.setPiPActive(true)
+        }
+        
+        func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
+            playerController?.setPiPActive(false)
+        }
+        
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+        ) {
+            completionHandler(true)
+        }
+    }
+}
+
+/// Extracted loading overlay for the fullscreen surface to be hosted
+/// in AVPlayerViewController's contentOverlayView.
+private struct FullscreenLoadingOverlay: View {
+    @ObservedObject var controller: PlayerController
+
+    var body: some View {
+        ZStack {
+            if controller.isBuffering {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.large)
+                    Text(formatNetworkSpeed(controller.networkSpeed))
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(.black.opacity(0.6), in: Capsule())
+                .transition(.opacity)
+            }
+        }
+        .animation(.default, value: controller.isBuffering)
+    }
+
+    private func formatNetworkSpeed(_ bytesPerSecond: Double) -> String {
+        guard bytesPerSecond > 0 else { return "—" }
+        if bytesPerSecond >= 1_000_000 {
+            return String(format: "%.1f MB/s", bytesPerSecond / 1_000_000)
+        }
+        if bytesPerSecond >= 1_000 {
+            return String(format: "%.0f KB/s", bytesPerSecond / 1_000)
+        }
+        return String(format: "%.0f B/s", bytesPerSecond)
     }
 }
 

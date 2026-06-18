@@ -81,6 +81,11 @@ struct BiliVideo: Identifiable, Hashable, Codable {
     var danmakuCount: Int
     var likeCount: Int
     let description: String
+    
+    /// Optional timestamp (in seconds) to resume playback from.
+    /// Used when opening a video from history or a direct link
+    /// that carries a progress marker.
+    var resumeTime: Double? = nil
 }
 
 /// One playable Bilibili source.  The local HLS proxy turns
@@ -99,6 +104,10 @@ struct BiliPlayback: Hashable {
     /// `Referer` header on the AVURLAsset).
     let fallbackURL: URL?
     let referer: URL
+    
+    /// Optional timestamp (in seconds) to resume playback from.
+    /// When set, the player seeks to this position before starting.
+    var resumeTime: Double = 0
 
     /// True if this playback can be served by the local HLS
     /// proxy.

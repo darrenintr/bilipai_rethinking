@@ -182,7 +182,9 @@ struct HistoryListView: View {
             }
             ForEach(Array(model.items.enumerated()), id: \.element.id) { index, entry in
                 Button {
-                    router.openVideo(entry.video)
+                    var video = entry.video
+                    video.resumeTime = Double(entry.progress)
+                    router.openVideo(video)
                 } label: {
                     VideoListRow(video: entry.video, subtitle: historySubtitle(entry))
                 }

@@ -172,18 +172,7 @@ private struct AvatarImage: View {
     let url: URL?
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-            default:
-                Circle()
-                    .fill(BiliPaiTheme.biliPink.opacity(0.18))
-                    .overlay(Image(systemName: "person.fill").foregroundStyle(BiliPaiTheme.biliPink))
-            }
-        }
-        .clipShape(Circle())
+        ResilientImage(url: url)
+            .clipShape(Circle())
     }
 }

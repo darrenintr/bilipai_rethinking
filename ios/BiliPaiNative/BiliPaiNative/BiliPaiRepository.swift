@@ -96,11 +96,15 @@ final class BiliPaiRepository: ObservableObject {
 
     func playback(for video: BiliVideo) async throws -> BiliPlayback {
         let cid = video.cid
+        var pb: BiliPlayback
         if cid > 0 {
-            return try await apiClient.playbackURL(bvid: video.bvid, aid: video.aid, cid: cid)
+            pb = try await apiClient.playbackURL(bvid: video.bvid, aid: video.aid, cid: cid)
+        } else {
+            let detail = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
+            pb = try await apiClient.playbackURL(bvid: detail.bvid, aid: detail.aid, cid: detail.cid)
         }
-        let detail = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
-        return try await apiClient.playbackURL(bvid: detail.bvid, aid: detail.aid, cid: detail.cid)
+        pb.resumeTime = video.resumeTime ?? 0
+        return pb
     }
 
     func liveRooms() async throws -> [BiliLiveRoom] {
@@ -277,5 +281,20 @@ final class BiliPaiRepository: ObservableObject {
 
     func favoriteVideos(mediaID: Int64, page: Int = 1) async throws -> FavoriteFolderVideosPage {
         try await apiClient.favoriteVideos(mediaID: mediaID, page: page)
+    }
+
+    /// Fetch following, follower, and dynamic counts for the given user.
+    /// Returns a tuple of strings formatted for the profile stat pills.
+    func userStats(mid: Int64) async throws -> (following: String, follower: String, dynamic: String) {
+        // Fetch in parallel
+        async let relation = apiClient.userRelationStat(mid: mid)
+        async let dynamic = apiClient.userDynamicCount(mid: mid)
+        
+        let (rel, dyn) = try await (relation, dynamic)
+        return (
+            following: rel.following.compactCount,
+            follower: rel.follower.compactCount,
+            dynamic: dyn.compactCount
+        )
     }
 }

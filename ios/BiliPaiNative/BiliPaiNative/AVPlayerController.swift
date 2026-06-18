@@ -43,6 +43,7 @@ final class PlayerController: ObservableObject {
     @Published private(set) var duration: Double = 0
     @Published private(set) var isPlaying: Bool = true
     @Published private(set) var isBuffering: Bool = false
+    @Published private(set) var isPictureInPictureActive: Bool = false
     @Published private(set) var networkSpeed: Double = 0
 
     // MARK: underlying AVPlayer
@@ -163,6 +164,15 @@ final class PlayerController: ObservableObject {
         self.usesProxy = usesProxy
 
         let item = AVPlayerItem(asset: asset)
+        
+        // Optimization: Seek to the resume time *before* assigning the player
+        // to the view controller (or here, before assigning the item to the
+        // player). This is more efficient as the media only loads at the
+        // actual start time.
+        if playback.resumeTime > 0 {
+            item.seek(to: CMTime(seconds: playback.resumeTime, preferredTimescale: 600), completionHandler: nil)
+        }
+        
         self.playerItem = item
         self.player = AVPlayer(playerItem: item)
 
@@ -360,6 +370,10 @@ final class PlayerController: ObservableObject {
 
     func pause() {
         player.pause()
+    }
+
+    func setPiPActive(_ active: Bool) {
+        isPictureInPictureActive = active
     }
 
     // MARK: seeking
