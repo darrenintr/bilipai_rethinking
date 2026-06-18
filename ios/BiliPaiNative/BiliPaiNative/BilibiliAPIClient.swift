@@ -266,6 +266,8 @@ final class BilibiliAPIClient {
     private func generateMobileBuvid() -> String {
         // Official algorithm: XY + MD5(hwID) + 3 specific chars from hash
         // For simplicity and stability, we use a fixed but valid format.
+        // Keep the legacy seed stable across the Paladala rebrand so
+        // existing installs retain the same anonymous device identity.
         let seed = "BiliPai-iOS-Device-Seed"
         let hash = md5(seed).uppercased()
         let c1 = hash[hash.index(hash.startIndex, offsetBy: 2)]

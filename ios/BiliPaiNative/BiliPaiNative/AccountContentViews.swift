@@ -205,6 +205,8 @@ struct HistoryListView: View {
                 .listRowSeparator(.hidden)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle("历史记录")
         .task { await model.load(repository: repository) }
         .refreshable { await model.load(repository: repository) }
@@ -249,6 +251,8 @@ struct WatchLaterListView: View {
                 .videoContextMenu(for: video, repository: repository, isWatchLaterRow: true)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle("稍后再看")
         .task { await model.load(repository: repository) }
         .refreshable { await model.load(repository: repository) }
@@ -277,6 +281,8 @@ struct FavoriteFoldersView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle("我的收藏")
         .task { await model.load(repository: repository, mid: mid) }
     }
@@ -316,6 +322,8 @@ struct FavoriteFolderVideosView: View {
                 .listRowSeparator(.hidden)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle(model.title)
         .task { await model.load(repository: repository, mediaID: folder.id) }
         .refreshable { await model.load(repository: repository, mediaID: folder.id) }

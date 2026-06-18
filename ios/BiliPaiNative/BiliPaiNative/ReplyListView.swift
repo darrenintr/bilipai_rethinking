@@ -63,7 +63,7 @@ struct ReplyListView: View {
                 .background(BiliPaiTheme.cardBackground)
                 .overlay(Divider(), alignment: .top)
         }
-        .background(BiliPaiTheme.pageBackground)
+        .background(Color.clear)
         .navigationTitle("回复详情")
         .navigationBarTitleDisplayMode(.inline)
         .task {

@@ -8,7 +8,7 @@ struct DynamicFeedView: View {
     let heroNamespace: Namespace.ID?
     @EnvironmentObject private var router: AppRouter
     @StateObject private var model = DynamicFeedViewModel()
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     init(repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil) {
         self.repository = repository
@@ -94,6 +94,8 @@ struct DynamicFeedView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle("动态")
         .task { await model.load(repository: repository) }
         .refreshable {

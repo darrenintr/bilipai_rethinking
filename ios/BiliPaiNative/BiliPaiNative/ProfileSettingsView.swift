@@ -26,7 +26,7 @@ struct ProfileSettingsView: View {
     let repository: BiliPaiRepository
     @StateObject private var profileModel = ProfileViewModel()
     @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @AppStorage("bilipai.danmakuEnabled") private var danmakuEnabled = true
     @AppStorage("bilipai.backgroundAudio") private var backgroundAudio = false
     @AppStorage("bilipai.todayWatch") private var todayWatch = true
@@ -68,7 +68,7 @@ struct ProfileSettingsView: View {
                     }
                 }
                 PluginRow(title: "iOS 预设", subtitle: "对齐 Android 版默认 UiPreset.IOS", symbol: "iphone")
-                PluginRow(title: "Bili 粉强调色", subtitle: "保留 BiliPai 的粉色主色", symbol: "paintpalette")
+                PluginRow(title: "Bili 粉强调色", subtitle: "保留 Paladala 的粉色主色", symbol: "paintpalette")
             }
 
             Section("播放设置") {
@@ -123,12 +123,14 @@ struct ProfileSettingsView: View {
                     }
                 }
 
-                Link(destination: URL(string: "https://github.com/darrenintr/bilipai_rethinking")!) {
+                Link(destination: URL(string: "https://github.com/darrenintr/pure-bilibili-rethinking")!) {
                     PluginRow(title: "GitHub 仓库", subtitle: "开源项目地址", symbol: "link")
                 }
                 .buttonStyle(.plain)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle("我的")
         .task(id: authStore.activeAccount?.mid) {
             if let mid = authStore.activeAccount?.mid {
@@ -257,7 +259,7 @@ private struct ProfileQuickActionGrid: View {
     let repository: BiliPaiRepository
     @EnvironmentObject private var authStore: AuthStore
     @EnvironmentObject private var router: AppRouter
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     private let columns = [GridItem(.adaptive(minimum: 96), spacing: 10)]
 
     var body: some View {

@@ -82,6 +82,8 @@ final class DiagnosticLogger: ObservableObject {
         let support = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!
+        // Keep the storage directory stable so existing diagnostic history
+        // survives the user-facing Paladala rename.
         let dir = support.appendingPathComponent("BiliPai", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: dir, withIntermediateDirectories: true
@@ -141,7 +143,7 @@ final class DiagnosticLogger: ObservableObject {
 
         var report = ""
         report += "========================================\n"
-        report += "BiliPai iOS Deep Diagnostic Report\n"
+        report += "Paladala iOS Deep Diagnostic Report\n"
         report += "Generated at: \(reportTime)\n"
         report += "========================================\n\n"
 
@@ -199,7 +201,7 @@ final class DiagnosticLogger: ObservableObject {
         let report = MainActor.assumeIsolated {
             generateReport(activeAccount: activeAccount)
         }
-        let fileName = "BiliPai_Diagnostic_\(Int(Date().timeIntervalSince1970)).txt"
+        let fileName = "Paladala_Diagnostic_\(Int(Date().timeIntervalSince1970)).txt"
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(fileName)
         do {

@@ -45,7 +45,7 @@ struct LoginSheet: View {
 
     private var explanation: some View {
         VStack(spacing: 8) {
-            Text("扫码登录 BiliPai")
+            Text("扫码登录 Paladala")
                 .font(.title3.weight(.bold))
             Text("打开手机 Bilibili App，扫一扫下方二维码即可登录。\n登录后可查看评论、关注动态与个性化首页。")
                 .font(.subheadline)

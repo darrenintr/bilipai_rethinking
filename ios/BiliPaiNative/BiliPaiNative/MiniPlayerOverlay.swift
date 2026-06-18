@@ -13,7 +13,7 @@ import SwiftUI
 struct MiniPlayerOverlay: View {
     @EnvironmentObject private var store: MiniPlayerStore
     @EnvironmentObject private var router: AppRouter
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     @State private var dragOffset: CGFloat = 0
 

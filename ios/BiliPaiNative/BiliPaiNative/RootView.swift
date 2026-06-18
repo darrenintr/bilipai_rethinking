@@ -8,7 +8,7 @@ struct RootView: View {
     @EnvironmentObject private var miniPlayerStore: MiniPlayerStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @AppStorage("bilipai.didOnboard") private var didOnboard: Bool = false
 
     /// Mirror of `networkMonitor.isOnline` so the `RootView.body`
@@ -18,11 +18,15 @@ struct RootView: View {
     private var networkMonitorIsOnline: Bool { networkMonitor.isOnline }
 
     var body: some View {
-        Group {
-            if horizontalSizeClass == .regular {
-                PadRootView(repository: repository)
-            } else {
-                PhoneRootView(repository: repository)
+        ZStack {
+            PaladalaBackdrop()
+
+            Group {
+                if horizontalSizeClass == .regular {
+                    PadRootView(repository: repository)
+                } else {
+                    PhoneRootView(repository: repository)
+                }
             }
         }
         .onAppear {
@@ -82,7 +86,7 @@ struct RootView: View {
     }
 
     private func handle(_ url: URL) {
-        guard url.scheme == "bilipai" else { return }
+        guard url.scheme == "paladala" || url.scheme == "bilipai" else { return }
         switch url.host {
         case "home":
             router.open(.home)
@@ -135,6 +139,7 @@ private struct PhoneRootView: View {
                     .tabItem { Label(MainTab.profile.title, systemImage: MainTab.profile.symbolName) }
                     .tag(MainTab.profile)
             }
+            .paladalaTabBarBehavior()
             .navigationDestination(for: BiliVideo.self) { video in
                 VideoDetailView(video: video, repository: repository, heroNamespace: heroNamespace)
             }
@@ -182,7 +187,8 @@ private struct PadRootView: View {
                     .listRowBackground(router.selectedTab == tab ? BiliPaiTheme.biliPink.opacity(0.14) : Color.clear)
                 }
             }
-            .navigationTitle("BiliPai")
+            .scrollContentBackground(.hidden)
+            .navigationTitle("Paladala")
         } detail: {
             NavigationStack(path: $router.path) {
                 selectedView
@@ -249,9 +255,7 @@ private struct LiquidGlassTabBarModifier: ViewModifier {
         case .material3:
             content
         case .liquidGlass:
-            content
-                .toolbarBackground(.ultraThinMaterial, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
+            content.bilipaiToolbarGlass(.liquidGlass)
         }
     }
 }

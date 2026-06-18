@@ -1,22 +1,20 @@
 import SwiftUI
 
 enum BiliPaiTheme {
-    static let biliPink = Color(red: 250 / 255, green: 114 / 255, blue: 152 / 255)
-    static let biliPinkDim = Color(red: 230 / 255, green: 104 / 255, blue: 140 / 255)
-    /// Default card / sheet / banner corner radius. Increased from 8
-    /// → 18 so the iOS UI reads as rounder and matches the "more
-    /// rounded" user-facing direction.
-    static let cardRadius: CGFloat = 18
-    /// Tight pill radius for inline chips, badges, search bar caps.
-    static let pillRadius: CGFloat = 12
-    /// Soft hero radius for big surfaces (login QR card, full-screen
-    /// modals). Continuous corners are applied at the call sites.
-    static let heroRadius: CGFloat = 28
-    /// Default shape style for rounded rectangles. Use this at every
-    /// `RoundedRectangle(cornerRadius:style:)` site for consistency.
+    static let biliPink = Color(red: 1.0, green: 0.38, blue: 0.58)
+    static let biliPinkDim = Color(red: 0.88, green: 0.24, blue: 0.48)
+    static let cyan = Color(red: 0.24, green: 0.78, blue: 0.94)
+    static let violet = Color(red: 0.48, green: 0.34, blue: 0.96)
+    static let cardRadius: CGFloat = 24
+    static let pillRadius: CGFloat = 16
+    static let heroRadius: CGFloat = 32
     static let cornerStyle: RoundedCornerStyle = .continuous
-    static let pageBackground = Color(uiColor: .systemGroupedBackground)
-    static let cardBackground = Color(uiColor: .secondarySystemGroupedBackground)
+    static let pageBackground = Color.clear
+    static let cardBackground = Color.primary.opacity(0.055)
+    static let contentPadding: CGFloat = 16
+    static let sectionSpacing: CGFloat = 16
+    static let glassStroke = Color.white.opacity(0.24)
+    static let glassShadow = Color.black.opacity(0.08)
 }
 
 /// User-facing light/dark preference. Stored as a raw string in
@@ -48,11 +46,6 @@ enum ThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// User-facing design language. `.material3` keeps the current
-/// `.secondarySystemGroupedBackground` surfaces and the `.thinMaterial`
-/// search bar. `.liquidGlass` swaps the same surfaces for the iOS 26+
-/// `.glassEffect(...)` material so users on iOS 26+ can preview the new
-/// look without a separate app build.
 enum MaterialDesign: String, CaseIterable, Identifiable {
     case material3
     case liquidGlass
@@ -61,7 +54,7 @@ enum MaterialDesign: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .material3: "Material 3"
+        case .material3: "高性能简洁"
         case .liquidGlass: "Liquid Glass"
         }
     }
@@ -86,4 +79,3 @@ extension Int {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
-

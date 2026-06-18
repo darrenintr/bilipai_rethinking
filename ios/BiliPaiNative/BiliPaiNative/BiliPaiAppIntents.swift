@@ -7,7 +7,7 @@ enum BiliPaiDestination: String, AppEnum {
     case live
     case settings
 
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "BiliPai Destination")
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Paladala Destination")
     static var caseDisplayRepresentations: [BiliPaiDestination: DisplayRepresentation] = [
         .home: "Home",
         .dynamic: "Dynamic",
@@ -30,8 +30,8 @@ enum BiliPaiDestination: String, AppEnum {
 }
 
 struct OpenBiliPaiDestinationIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open BiliPai"
-    static var description = IntentDescription("Open BiliPai to a useful destination.")
+    static var title: LocalizedStringResource = "Open Paladala"
+    static var description = IntentDescription("Open Paladala to a useful destination.")
     static var openAppWhenRun: Bool { true }
 
     @Parameter(title: "Destination")
@@ -52,8 +52,8 @@ struct OpenBiliPaiDestinationIntent: AppIntent {
 }
 
 struct SearchBiliPaiIntent: AppIntent {
-    static var title: LocalizedStringResource = "Search BiliPai"
-    static var description = IntentDescription("Search public Bilibili videos inside BiliPai.")
+    static var title: LocalizedStringResource = "Search Paladala"
+    static var description = IntentDescription("Search public Bilibili videos inside Paladala.")
     static var openAppWhenRun: Bool { true }
 
     @Parameter(title: "Keyword")
@@ -74,8 +74,8 @@ struct SearchBiliPaiIntent: AppIntent {
 }
 
 struct OpenBiliPaiSearchIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open BiliPai Search"
-    static var description = IntentDescription("Open BiliPai to the video search field.")
+    static var title: LocalizedStringResource = "Open Paladala Search"
+    static var description = IntentDescription("Open Paladala to the video search field.")
     static var openAppWhenRun: Bool { true }
 
     func perform() async throws -> some IntentResult {
@@ -86,7 +86,7 @@ struct OpenBiliPaiSearchIntent: AppIntent {
 
 struct ContinueWatchingIntent: AppIntent {
     static var title: LocalizedStringResource = "Continue Watching"
-    static var description = IntentDescription("Open the most recent BiliPai video.")
+    static var description = IntentDescription("Open the most recent Paladala video.")
     static var openAppWhenRun: Bool { true }
 
     func perform() async throws -> some IntentResult {
@@ -100,8 +100,8 @@ struct ContinueWatchingIntent: AppIntent {
 }
 
 struct AddVideoToWatchLaterIntent: AppIntent {
-    static var title: LocalizedStringResource = "Add to BiliPai Watch Later"
-    static var description = IntentDescription("Save a recent BiliPai video to the local Watch Later list.")
+    static var title: LocalizedStringResource = "Add to Paladala Watch Later"
+    static var description = IntentDescription("Save a recent Paladala video to the local Watch Later list.")
 
     @Parameter(title: "Video")
     var video: BiliPaiVideoEntity
@@ -121,7 +121,7 @@ struct AddVideoToWatchLaterIntent: AppIntent {
 }
 
 struct BiliPaiVideoEntity: AppEntity {
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "BiliPai Video")
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Paladala Video")
     static var defaultQuery = BiliPaiVideoQuery()
 
     let id: String
@@ -184,7 +184,7 @@ struct BiliPaiShortcutsProvider: AppShortcutsProvider {
                 "Open \(.applicationName)",
                 "Open home in \(.applicationName)"
             ],
-            shortTitle: "Open BiliPai",
+            shortTitle: "Open Paladala",
             systemImageName: "play.rectangle"
         )
         AppShortcut(
@@ -192,7 +192,7 @@ struct BiliPaiShortcutsProvider: AppShortcutsProvider {
             phrases: [
                 "Search in \(.applicationName)"
             ],
-            shortTitle: "Search BiliPai",
+            shortTitle: "Search Paladala",
             systemImageName: "magnifyingglass"
         )
         AppShortcut(

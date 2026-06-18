@@ -96,7 +96,7 @@ struct BundledFeedService {
                 aid: 540000000,
                 cid: 540000001,
                 title: "周末 VLOG · 城市漫步",
-                ownerName: "BiliPai Studio",
+                ownerName: "Paladala Studio",
                 coverURL: URL(string: "https://i0.hdslb.com/bfs/archive/sample4.jpg"),
                 duration: 720,
                 viewCount: 480_000,

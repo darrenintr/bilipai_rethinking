@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 
 struct VideoCard: View {
@@ -17,7 +18,7 @@ struct VideoCard: View {
     /// rows) pass `nil` and the cover renders as before.
     let heroNamespace: Namespace.ID?
 
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     /// Reserved height for the title block (two lines of `.subheadline`).
     /// Pinning this so all cards in the same grid row have an identical total
@@ -140,7 +141,7 @@ private struct VideoContextMenuIfAvailable: ViewModifier {
 struct LiveRoomCard: View {
     let room: BiliLiveRoom
 
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @EnvironmentObject private var router: AppRouter
 
     /// See `VideoCard.titleBlockHeight` for why this is pinned.
@@ -204,7 +205,6 @@ struct ResilientImage: View {
 
     @State private var image: UIImage?
     @State private var attempts = 0
-    @State private var task: Task<Void, Never>?
 
     private let maxAttempts = 3
 
@@ -230,55 +230,106 @@ struct ResilientImage: View {
         .task(id: url) {
             await load()
         }
-        .onDisappear {
-            task?.cancel()
-        }
     }
 
     private func load() async {
-        guard let url else {
-            image = nil
-            return
-        }
-        // Reset state for the new URL.
         image = nil
         attempts = 0
-        task?.cancel()
-        task = Task {
+
+        guard let url else {
+            return
+        }
+
         while attempts < maxAttempts && !Task.isCancelled {
-        attempts += 1
-        do {
-            var request = URLRequest(url: url)
-            request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+            attempts += 1
 
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse,
-               !(200..<300).contains(http.statusCode) {
-                throw NSError(domain: "CoverImage", code: http.statusCode)
-            }
-
-                    if let ui = UIImage(data: data) {
-                        await MainActor.run { self.image = ui }
-                        return
-                    }
-                } catch {
-                    // Swallow and retry. Bilibili's `i0.hdslb.com` CDN
-                    // occasionally serves a 1×1 transparent pixel that
-                    // decodes to `nil`; the retry succeeds.
-                }
-                // Exponential-ish back-off capped at 1.5 s.
-                let delay = min(1_500_000_000, 250_000_000 * attempts)
-                try? await Task.sleep(nanoseconds: UInt64(delay))
+            do {
+                image = try await CoverImagePipeline.shared.image(for: url)
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                guard attempts < maxAttempts else { return }
+                try? await Task.sleep(for: .milliseconds(250 * attempts))
             }
         }
+    }
+}
+
+private actor CoverImagePipeline {
+    static let shared = CoverImagePipeline()
+
+    private let memoryCache = NSCache<NSURL, UIImage>()
+    private let session: URLSession
+
+    private init() {
+        memoryCache.countLimit = 180
+        memoryCache.totalCostLimit = 96 * 1_024 * 1_024
+
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = URLCache(
+            memoryCapacity: 32 * 1_024 * 1_024,
+            diskCapacity: 256 * 1_024 * 1_024
+        )
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.httpMaximumConnectionsPerHost = 6
+        session = URLSession(configuration: configuration)
+    }
+
+    func image(for url: URL) async throws -> UIImage {
+        if let cached = memoryCache.object(forKey: url as NSURL) {
+            return cached
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+            forHTTPHeaderField: "User-Agent"
+        )
+
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse,
+           !(200..<300).contains(http.statusCode) {
+            throw URLError(.badServerResponse)
+        }
+
+        guard let decoded = Self.downsample(data: data, maximumPixelSize: 900) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+
+        let cost = decoded.cgImage.map { $0.bytesPerRow * $0.height } ?? data.count
+        memoryCache.setObject(decoded, forKey: url as NSURL, cost: cost)
+        return decoded
+    }
+
+    nonisolated private static func downsample(
+        data: Data,
+        maximumPixelSize: Int
+    ) -> UIImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return nil
+        }
+
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize
+        ] as CFDictionary
+
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return nil
+        }
+        return UIImage(cgImage: image)
     }
 }
 
 struct MetricPill: View {
     let systemImage: String
     let text: String
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         Label(text, systemImage: systemImage)
@@ -499,7 +550,7 @@ struct SkeletonGrid: View {
     var columns: Int = 2
     var cardCount: Int = 6
 
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         LazyVGrid(
@@ -519,8 +570,6 @@ struct SkeletonGrid: View {
 /// shimmer is wrapped in a `mask` so it only paints inside the
 /// placeholder shapes.
 struct SkeletonCard: View {
-    @State private var shimmerOffset: CGFloat = -1
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             RoundedRectangle(cornerRadius: 10, style: BiliPaiTheme.cornerStyle)
@@ -536,32 +585,6 @@ struct SkeletonCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(10)
-        .overlay(shimmer)
-        .clipped()
-        .onAppear {
-            // 1.2s linear loop, autoreverses off so the shimmer
-            // slides across the card and snaps back to the start.
-            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
-                shimmerOffset = 2
-            }
-        }
-    }
-
-    private var shimmer: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            LinearGradient(
-                colors: [
-                    .clear,
-                    Color.white.opacity(0.25),
-                    .clear
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(width: width * 0.4)
-            .offset(x: shimmerOffset * width)
-        }
-        .allowsHitTesting(false)
+        .redacted(reason: .placeholder)
     }
 }

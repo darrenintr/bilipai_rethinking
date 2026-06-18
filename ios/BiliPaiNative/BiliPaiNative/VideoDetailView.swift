@@ -43,7 +43,7 @@ struct VideoDetailView: View {
     @AppStorage("bilipai.commentSort") private var storedCommentSort: String = CommentSort.hot.rawValue
     /// Material design preference — drives glass vs M3 surfaces
     /// on the control panel and comment card.
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     /// When true the player takes 80% of the screen and comments
     /// take 20%, giving a more immersive video-watching experience.
     /// Toggled by the "immersive" button in the nav bar.
@@ -84,7 +84,7 @@ struct VideoDetailView: View {
                 commentsScrollView
             }
         }
-        .background(BiliPaiTheme.pageBackground)
+        .background(Color.clear)
         .navigationTitle(model.detail.ownerName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

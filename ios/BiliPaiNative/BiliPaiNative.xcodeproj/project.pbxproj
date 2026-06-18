@@ -50,7 +50,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		100000000000000000000001 /* BiliPaiNative.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BiliPaiNative.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		100000000000000000000001 /* Paladala.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Paladala.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000201 /* BiliPaiNativeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiliPaiNativeApp.swift; sourceTree = "<group>"; };
 		100000000000000000000202 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
 		100000000000000000000203 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -159,7 +159,7 @@
 		100000000000000000000403 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				100000000000000000000001 /* BiliPaiNative.app */,
+				100000000000000000000001 /* Paladala.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -201,8 +201,8 @@
 			dependencies = (
 			);
 			name = BiliPaiNative;
-			productName = BiliPaiNative;
-			productReference = 100000000000000000000001 /* BiliPaiNative.app */;
+			productName = Paladala;
+			productReference = 100000000000000000000001 /* Paladala.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -435,7 +435,7 @@
 				);
 				MARKETING_VERSION = 0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bilipai.nativeios;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Paladala;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -464,7 +464,7 @@
 				);
 				MARKETING_VERSION = 0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bilipai.nativeios;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Paladala;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;

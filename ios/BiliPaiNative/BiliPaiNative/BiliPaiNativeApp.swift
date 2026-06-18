@@ -9,6 +9,8 @@ struct BiliPaiNativeApp: App {
     @StateObject private var networkMonitor = NetworkMonitor()
     @StateObject private var miniPlayerStore = MiniPlayerStore()
     @AppStorage("bilipai.themeMode") private var themeMode: ThemeMode = .system
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+    @AppStorage("paladala.glassMigrationVersion") private var glassMigrationVersion = 0
 
     init() {
         PlayerAudioSession.activate()
@@ -47,6 +49,11 @@ struct BiliPaiNativeApp: App {
                 .tint(BiliPaiTheme.biliPink)
                 .preferredColorScheme(themeMode.colorScheme)
                 .onAppear {
+                    if glassMigrationVersion < 1 {
+                        materialDesign = .liquidGlass
+                        glassMigrationVersion = 1
+                    }
+
                     // Defensive re-hydration: in case the first render
                     // happened before `@StateObject` had a chance to
                     // run `AuthStore.refresh()` (e.g. when the SwiftUI
@@ -100,7 +107,7 @@ final class Logger: ObservableObject {
         
         DispatchQueue.main.async {
             if self.logs.isEmpty {
-                self.logs.append("[BiliPai Session Start]")
+                self.logs.append("[Paladala Session Start]")
             }
             self.logs.append(logEntry)
             if self.logs.count > self.maxLogs {
@@ -114,7 +121,7 @@ final class Logger: ObservableObject {
         let allLogs = logs.joined(separator: "\n")
         if allLogs.isEmpty { return nil }
         
-        let fileName = "BiliPai_Logs_\(Int(Date().timeIntervalSince1970)).txt"
+        let fileName = "Paladala_Logs_\(Int(Date().timeIntervalSince1970)).txt"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         
         do {

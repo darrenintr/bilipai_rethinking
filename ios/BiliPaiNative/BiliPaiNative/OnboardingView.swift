@@ -72,7 +72,7 @@ struct OnboardingView: View {
                 .background(.ultraThinMaterial, in: Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(currentPage == Self.pages.count - 1 ? "开始使用 BiliPai" : "跳过引导")
+        .accessibilityLabel(currentPage == Self.pages.count - 1 ? "开始使用 Paladala" : "跳过引导")
     }
 }
 

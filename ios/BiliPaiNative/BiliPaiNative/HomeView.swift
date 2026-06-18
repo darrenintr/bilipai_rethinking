@@ -14,7 +14,7 @@ struct HomeView: View {
     @EnvironmentObject private var authStore: AuthStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var model = HomeViewModel()
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     init(repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil) {
         self.repository = repository
@@ -35,8 +35,8 @@ struct HomeView: View {
     var body: some View {
         ScrollViewReader { proxy in
             feedContent(scrollProxy: proxy)
-                .background(BiliPaiTheme.pageBackground)
-                .navigationTitle("BiliPai")
+                .background(Color.clear)
+                .navigationTitle("Paladala")
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button {
@@ -176,8 +176,9 @@ struct HomeView: View {
                     paginationFooter
                 }
             }
-            .padding(16)
+            .padding(BiliPaiTheme.contentPadding)
         }
+        .scrollIndicators(.hidden)
         .refreshable {
             Haptics.medium()
             await model.load(repository: repository, accountMid: accountMid)
@@ -214,21 +215,23 @@ struct HomeView: View {
 
     private var categoryStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(HomeCategory.androidTabs) { category in
-                    Button {
-                        model.category = category
-                    } label: {
-                        Text(category.title)
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 13)
-                            .padding(.vertical, 9)
-                            .background(
-                                model.category == category ? BiliPaiTheme.biliPink.opacity(0.16) : Color(uiColor: .tertiarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle)
-                            )
+            BiliPaiGlassContainer(materialDesign: materialDesign, spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(HomeCategory.androidTabs) { category in
+                        Button {
+                            model.category = category
+                        } label: {
+                            Text(category.title)
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 9)
+                                .paladalaSelectionChip(
+                                    isSelected: model.category == category,
+                                    design: materialDesign
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -236,21 +239,23 @@ struct HomeView: View {
 
     private var popularSubCategoryStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(PopularSubCategory.allCases) { subCategory in
-                    Button {
-                        model.popularSubCategory = subCategory
-                    } label: {
-                        Text(subCategory.title)
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                model.popularSubCategory == subCategory ? BiliPaiTheme.biliPink.opacity(0.18) : Color(uiColor: .tertiarySystemGroupedBackground),
-                                in: Capsule()
-                            )
+            BiliPaiGlassContainer(materialDesign: materialDesign, spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(PopularSubCategory.allCases) { subCategory in
+                        Button {
+                            model.popularSubCategory = subCategory
+                        } label: {
+                            Text(subCategory.title)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .paladalaSelectionChip(
+                                    isSelected: model.popularSubCategory == subCategory,
+                                    design: materialDesign
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -328,7 +333,7 @@ struct HomeView: View {
 
 private struct HomeOfflineBanner: View {
     let onRetry: () -> Void
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         HStack(spacing: 12) {
@@ -358,7 +363,7 @@ private struct HomeEmptyState: View {
     let hasError: Bool
     var isLoggedIn = false
     var onRetry: (() -> Void)? = nil
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         VStack(spacing: 18) {
@@ -519,7 +524,7 @@ private struct DynamicFeedList: View {
 private struct DynamicPostCard: View {
     let post: DynamicPost
     @EnvironmentObject private var router: AppRouter
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -582,7 +587,7 @@ private struct DynamicPostCard: View {
 private struct TodayWatchCard: View {
     let videos: [BiliVideo]
     @EnvironmentObject private var router: AppRouter
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

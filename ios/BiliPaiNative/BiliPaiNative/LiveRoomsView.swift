@@ -5,7 +5,7 @@ struct LiveRoomsView: View {
     let repository: BiliPaiRepository
 
     @StateObject private var model = LiveViewModel()
-    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     private let columns = [GridItem(.adaptive(minimum: 172), spacing: 12)]
 
     var body: some View {
@@ -52,9 +52,10 @@ struct LiveRoomsView: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(BiliPaiTheme.contentPadding)
         }
-        .background(BiliPaiTheme.pageBackground)
+        .background(Color.clear)
+        .scrollIndicators(.hidden)
         .navigationTitle("Live")
         // Tapping a `LiveRoomCard` pushes a `LiveRoute.room(room)` onto
         // the router's navigation path. `LivePlayerView` then resolves
@@ -173,7 +174,7 @@ private struct LivePlayerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(BiliPaiTheme.pageBackground)
+        .background(Color.clear)
     }
 
     private func loadPlayback() async {
