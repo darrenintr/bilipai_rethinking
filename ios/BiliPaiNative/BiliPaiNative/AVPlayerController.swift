@@ -372,6 +372,11 @@ final class PlayerController: ObservableObject {
         player.pause()
     }
 
+    /// Change the playback rate (e.g., 2.0 for 2x speed).
+    func setRate(_ rate: Float) {
+        player.rate = rate
+    }
+
     func setPiPActive(_ active: Bool) {
         isPictureInPictureActive = active
     }

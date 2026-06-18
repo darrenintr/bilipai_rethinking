@@ -115,7 +115,9 @@ struct FullscreenPlayerView: View {
             Color.black.ignoresSafeArea()
 
             AVPlayerSurfaceRepresentable(
-                player: controller.player,
+                video: video,
+                playback: playback,
+                repository: repository,
                 controller: controller
             ) {
                 // Tapping outside the controls dismisses the
@@ -124,15 +126,6 @@ struct FullscreenPlayerView: View {
                 dismiss()
             }
             .ignoresSafeArea()
-
-            // Double-tap gesture layer (left/right seek, centre
-            // like). Sits on top of the AVPlayer surface so it
-            // wins over the system's single-tap control toggle.
-            DoubleTapOverlay(
-                video: video,
-                repository: repository,
-                controller: controller
-            )
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -211,24 +204,31 @@ private struct InlineAVPlayerRepresentable: UIViewControllerRepresentable {
 /// `PlayerController` itself is owned by `VideoDetailView` and
 /// torn down on `onDisappear`.
 private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
-    let player: AVPlayer
+    let video: BiliVideo
+    let playback: BiliPlayback
+    let repository: BiliPaiRepository
     let controller: PlayerController
     let onDismiss: () -> Void
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = player
-        controller.showsPlaybackControls = true
-        controller.videoGravity = .resizeAspect
-        controller.allowsPictureInPicturePlayback = true
-        controller.delegate = context.coordinator
+        let avController = AVPlayerViewController()
+        avController.player = controller.player
+        avController.showsPlaybackControls = true
+        avController.videoGravity = .resizeAspect
+        avController.allowsPictureInPicturePlayback = true
+        avController.delegate = context.coordinator
         
-        // Embed the loading overlay in the contentOverlayView.
-        // This ensures it sits correctly between the video and the system controls.
-        if let overlayView = controller.contentOverlayView {
-            let hostingController = UIHostingController(rootView: FullscreenLoadingOverlay(controller: self.controller))
+        // Embed the custom overlays in the contentOverlayView.
+        // This ensures they sit correctly between the video and the system controls.
+        if let overlayView = avController.contentOverlayView {
+            let overlay = FullscreenPlayerOverlay(
+                video: video,
+                repository: repository,
+                controller: controller
+            )
+            let hostingController = UIHostingController(rootView: overlay)
             hostingController.view.backgroundColor = .clear
-            context.coordinator.loadingHostingController = hostingController
+            context.coordinator.overlayHostingController = hostingController
             
             let view = hostingController.view!
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -242,25 +242,29 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
             ])
         }
         
-        context.coordinator.avPlayerViewController = controller
+        context.coordinator.avPlayerViewController = avController
         context.coordinator.onDismiss = onDismiss
         context.coordinator.playerController = self.controller
         
-        return controller
+        return avController
     }
 
     func updateUIViewController(
         _ uiViewController: AVPlayerViewController,
         context: Context
     ) {
-        if uiViewController.player !== player {
-            uiViewController.player = player
+        if uiViewController.player !== controller.player {
+            uiViewController.player = controller.player
         }
         context.coordinator.onDismiss = onDismiss
         context.coordinator.playerController = self.controller
         
-        // Update the hosted SwiftUI view's state if necessary.
-        // UIHostingController handles the updates automatically if the observed object changes.
+        // Update the hosted SwiftUI view's state
+        context.coordinator.overlayHostingController?.rootView = FullscreenPlayerOverlay(
+            video: video,
+            repository: repository,
+            controller: controller
+        )
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -269,7 +273,7 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
         weak var avPlayerViewController: AVPlayerViewController?
         var playerController: PlayerController?
         var onDismiss: () -> Void = {}
-        var loadingHostingController: UIHostingController<FullscreenLoadingOverlay>?
+        var overlayHostingController: UIHostingController<FullscreenPlayerOverlay>?
         
         // MARK: - AVPlayerViewControllerDelegate
         
@@ -305,13 +309,73 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
     }
 }
 
-/// Extracted loading overlay for the fullscreen surface to be hosted
+/// Extracted overlay for the fullscreen surface to be hosted
 /// in AVPlayerViewController's contentOverlayView.
-private struct FullscreenLoadingOverlay: View {
+/// Combines the double-tap gesture, the long-press 2x speed gesture,
+/// and the buffering indicator.
+private struct FullscreenPlayerOverlay: View {
+    let video: BiliVideo
+    let repository: BiliPaiRepository
     @ObservedObject var controller: PlayerController
+
+    @GestureState private var isLongPressing = false
+    @State private var showingSpeedBadge = false
 
     var body: some View {
         ZStack {
+            // Invisible gesture layer
+            Color.clear
+                .contentShape(Rectangle())
+                // Long press for 2x speed
+                // Using a sequence of LongPress + Drag ensures we don't steal
+                // immediate single/double taps from the underlying views.
+                .gesture(
+                    LongPressGesture(minimumDuration: 0.4)
+                        .sequenced(before: DragGesture(minimumDistance: 0))
+                        .updating($isLongPressing) { value, state, _ in
+                            switch value {
+                            case .second(true, let drag):
+                                state = drag != nil
+                            default:
+                                state = false
+                            }
+                        }
+                )
+                .onChange(of: isLongPressing) { _, isPressing in
+                    if isPressing {
+                        controller.setRate(2.0)
+                        showingSpeedBadge = true
+                        Haptics.medium()
+                    } else {
+                        controller.setRate(1.0)
+                        showingSpeedBadge = false
+                    }
+                }
+            
+            DoubleTapOverlay(
+                video: video,
+                repository: repository,
+                controller: controller
+            )
+            
+            VStack {
+                if showingSpeedBadge {
+                    HStack {
+                        Spacer()
+                        Text("2.0x 快进中")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .padding(.top, 40)
+                    }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+                Spacer()
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showingSpeedBadge)
+
             if controller.isBuffering {
                 VStack(spacing: 10) {
                     ProgressView()
