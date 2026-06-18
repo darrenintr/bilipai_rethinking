@@ -273,6 +273,7 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
         
         // MARK: - AVPlayerViewControllerDelegate
         
+        @MainActor
         func playerViewController(
             _ playerViewController: AVPlayerViewController,
             willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
@@ -284,14 +285,17 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
             }
         }
         
+        @MainActor
         func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
             playerController?.setPiPActive(true)
         }
         
+        @MainActor
         func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
             playerController?.setPiPActive(false)
         }
         
+        @MainActor
         func playerViewController(
             _ playerViewController: AVPlayerViewController,
             restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void

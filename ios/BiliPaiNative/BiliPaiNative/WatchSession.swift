@@ -78,7 +78,9 @@ final class WatchSession {
             withTimeInterval: Self.reportInterval,
             repeats: true
         ) { [weak self] _ in
-            self?.tick()
+            Task { @MainActor in
+                self?.tick()
+            }
         }
     }
 

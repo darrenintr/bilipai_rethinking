@@ -102,7 +102,7 @@ final class PlayerController: ObservableObject {
         let asset: AVURLAsset
         let usesProxy: Bool
 
-        if let dash = playback.dash {
+        if playback.dash != nil {
             // VOD DASH path: stand up the local HLS proxy and
             // point AVPlayer at the synthesised master playlist.
             // The proxy holds the dash source / referer and
