@@ -35,16 +35,10 @@ struct PlayerView: View {
     let repository: BiliPaiRepository
     @ObservedObject var controller: PlayerController
 
-    /// Controls visibility — shown when paused, auto-hidden 2 s
-    /// after playback resumes.
-    @State private var showControls = true
-    @State private var hideTask: Task<Void, Never>?
-
     var body: some View {
         InlineAVPlayerRepresentable(player: controller.player)
-            .overlay { centerControl }
             .overlay(alignment: .center) {
-                if controller.isBuffering && !showControls {
+                if controller.isBuffering {
                     loadingOverlay
                         .transition(.opacity)
                         .allowsHitTesting(false)
@@ -58,58 +52,6 @@ struct PlayerView: View {
                 )
             }
             .contentShape(Rectangle())
-            .onTapGesture { toggleControls() }
-            .onChange(of: controller.isPlaying) { _, playing in
-                if playing {
-                    scheduleHide()
-                } else {
-                    cancelHide()
-                    showControls = true
-                }
-            }
-            .onAppear {
-                if !controller.isPlaying { showControls = true }
-                else { scheduleHide() }
-            }
-            .onDisappear { cancelHide() }
-    }
-
-    /// Centre play/pause + skip buttons.  Shown when the video is
-    /// paused or during the 2-second auto-hide window after play.
-    @ViewBuilder
-    private var centerControl: some View {
-        if showControls {
-            HStack(spacing: 36) {
-                Button { controller.seek(by: -10) } label: {
-                    Image(systemName: "gobackward.10")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Skip back 10 seconds")
-
-                Button { controller.toggle() } label: {
-                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 64, height: 64)
-                        .background(.black.opacity(0.55), in: Circle())
-                }
-                .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
-
-                Button { controller.seek(by: 10) } label: {
-                    Image(systemName: "goforward.10")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Skip forward 10 seconds")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .background(.black.opacity(0.4), in: Capsule())
-            .transition(.opacity)
-        }
     }
 
     /// Spinner + KB/s readout shown during stalls.
@@ -138,35 +80,6 @@ struct PlayerView: View {
             return String(format: "%.0f KB/s", bytesPerSecond / 1_000)
         }
         return String(format: "%.0f B/s", bytesPerSecond)
-    }
-
-    private func toggleControls() {
-        withAnimation(.easeInOut(duration: 0.18)) {
-            showControls.toggle()
-        }
-        if showControls && controller.isPlaying {
-            scheduleHide()
-        } else {
-            cancelHide()
-        }
-    }
-
-    private func scheduleHide() {
-        cancelHide()
-        hideTask = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    showControls = false
-                }
-            }
-        }
-    }
-
-    private func cancelHide() {
-        hideTask?.cancel()
-        hideTask = nil
     }
 }
 
@@ -432,7 +345,7 @@ private struct DoubleTapOverlay: View {
         GeometryReader { geo in
             Color.clear
                 .contentShape(Rectangle())
-                .gesture(
+                .simultaneousGesture(
                     SpatialTapGesture(count: 2)
                         .onEnded { event in
                             let zone = DoubleTapZone.classify(
