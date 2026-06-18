@@ -38,7 +38,7 @@ jobs:
       # ------------------------------------------------------------------
       # Auto-increment the iOS build number so the prerelease list
       # always shows the newest at the top.  We pull the highest
-      # existing `v0.3-alpha-ios-N` prerelease number via the GitHub
+      # existing `v0.4-beta-ios-N` prerelease number via the GitHub
       # API and add 1, then write that back to Info.plist *in the
       # runner's working copy only* (no commit, no push, so we
       # never race with the user pushing).  The next workflow
@@ -155,7 +155,7 @@ jobs:
 
       # ------------------------------------------------------------------
       # Derive a release tag from the build number we just bumped
-      # in `Bump build number`.  The format `v0.3-alpha-ios-N` puts
+      # in `Bump build number`.  The format `v0.4-beta-ios-N` puts
       # the build number in the tag itself, so the prerelease
       # list at github.com/<repo>/releases sorts newest-first by
       # name (and the names are human-comparable: "Build 75" is
@@ -171,7 +171,7 @@ jobs:
             echo "::error::BUNDLE_VERSION is not set — did Bump build number run?"
             exit 1
           fi
-          TAG="v0.3-alpha-ios-${BUNDLE_VERSION}"
+          TAG="v0.4-beta-ios-${BUNDLE_VERSION}"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "Resolved tag: $TAG (CFBundleVersion=$BUNDLE_VERSION)"
 
