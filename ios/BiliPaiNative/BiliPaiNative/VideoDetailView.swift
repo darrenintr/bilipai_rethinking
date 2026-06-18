@@ -209,19 +209,14 @@ struct VideoDetailView: View {
     private var playerSurface: some View {
         ZStack(alignment: .topLeading) {
             if let playback = model.playback, let controller = playerController {
-                // Hide the inline player when fullscreen is
-                // presented so the cover gets the full window.
-                // AVKit's `VideoPlayer` keeps the playhead
-                // continuous across the swap (the cover binds
-                // to the same `AVPlayer`).
-                if !isFullscreenPresented {
-                    PlayerView(playback: playback, video: model.detail, repository: repository, controller: controller)
-                        .onAppear { model.isPlaying = true }
-                        .onDisappear { model.isPlaying = false }
-                } else {
-                    // Placeholder while fullscreen is active to maintain layout
-                    Color.black
-                }
+                // Keep the inline player in the hierarchy while
+                // fullscreen is presented. Removing it causes AVKit
+                // to briefly detach the player during the transition,
+                // leading to connection resets and black screens.
+                // The `.fullScreenCover` naturally hides it anyway.
+                PlayerView(playback: playback, video: model.detail, repository: repository, controller: controller)
+                    .onAppear { model.isPlaying = true }
+                    .onDisappear { model.isPlaying = false }
 
                 fullscreenButton
                     .padding(10)
