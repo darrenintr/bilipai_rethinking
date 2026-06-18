@@ -84,12 +84,17 @@ struct VideoCard: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(10)
             .bilipaiCardSurface(materialDesign)
             .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+            .contentShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
         }
+        .frame(maxWidth: .infinity)
+        .clipped()
         .buttonStyle(.plain)
         .modifier(VideoContextMenuIfAvailable(video: video, repository: repository))
     }
@@ -99,8 +104,9 @@ struct VideoCard: View {
     /// chain in two places.
     private var coverImage: some View {
         CoverImage(url: video.coverURL)
-            .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
             .aspectRatio(16 / 10, contentMode: .fit)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 }
 
@@ -155,6 +161,8 @@ struct LiveRoomCard: View {
                 ZStack(alignment: .topLeading) {
                     CoverImage(url: room.coverURL)
                         .aspectRatio(16 / 10, contentMode: .fit)
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
                     Text("LIVE")
                         .font(.caption2.weight(.black))
                         .foregroundStyle(.white)
@@ -179,7 +187,10 @@ struct LiveRoomCard: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(10)
             .bilipaiCardSurface(materialDesign)
+            .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
         }
+        .frame(maxWidth: .infinity)
+        .clipped()
         .buttonStyle(.plain)
     }
 }
@@ -216,6 +227,7 @@ struct ResilientImage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
+                    .clipped()
             } else if attempts >= maxAttempts {
                 // Permanent failure placeholder so the cell still has
                 // visible affordance instead of looking like a still-

@@ -27,9 +27,14 @@ struct HomeView: View {
     private var accountMid: Int64 { authStore.activeAccount?.mid ?? 0 }
 
     private var columns: [GridItem] {
-        let minimumWidth: CGFloat = horizontalSizeClass == .regular ? 220 : 172
-        let maximumWidth: CGFloat = horizontalSizeClass == .regular ? 300 : 220
-        return [GridItem(.adaptive(minimum: minimumWidth, maximum: maximumWidth), spacing: 12, alignment: .top)]
+        let minimumWidth: CGFloat = horizontalSizeClass == .regular ? 220 : 156
+        return [
+            GridItem(
+                .adaptive(minimum: minimumWidth),
+                spacing: 12,
+                alignment: .top
+            )
+        ]
     }
 
     var body: some View {
@@ -167,6 +172,7 @@ struct HomeView: View {
                                 heroNamespace: heroNamespace,
                                 action: { router.openVideo(video) }
                             )
+                            .frame(maxWidth: .infinity)
                             .id(video.id)
                             .onAppear {
                                 triggerLoadMoreIfNeeded(currentIndex: index)

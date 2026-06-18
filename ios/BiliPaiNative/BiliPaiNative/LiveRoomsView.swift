@@ -6,7 +6,9 @@ struct LiveRoomsView: View {
 
     @StateObject private var model = LiveViewModel()
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
-    private let columns = [GridItem(.adaptive(minimum: 172), spacing: 12)]
+    private let columns = [
+        GridItem(.adaptive(minimum: 156), spacing: 12, alignment: .top)
+    ]
 
     var body: some View {
         ScrollView {
