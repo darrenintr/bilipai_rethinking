@@ -101,6 +101,7 @@ struct VideoDetailView: View {
                 .accessibilityLabel(isImmersiveMode ? "Exit immersive mode" : "Enter immersive mode")
             }
         }
+        .modifier(VideoDetailToolbarGlassModifier(materialDesign: materialDesign))
         .task {
             // Hydrate the model from the persisted sort before the
             // first fetch — otherwise the in-memory `commentSort`
@@ -650,6 +651,19 @@ private struct CommentScrollGeometryModifier: ViewModifier {
                         playerScale = newScale
                     }
                 }
+        } else {
+            content
+        }
+    }
+}
+
+/// Applies Liquid Glass background to the video detail toolbar.
+private struct VideoDetailToolbarGlassModifier: ViewModifier {
+    let materialDesign: MaterialDesign
+
+    func body(content: Content) -> some View {
+        if materialDesign == .liquidGlass {
+            content.bilipaiNavBarGlass(.liquidGlass)
         } else {
             content
         }

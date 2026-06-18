@@ -257,20 +257,23 @@ private struct ProfileQuickActionGrid: View {
     let repository: BiliPaiRepository
     @EnvironmentObject private var authStore: AuthStore
     @EnvironmentObject private var router: AppRouter
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
     private let columns = [GridItem(.adaptive(minimum: 96), spacing: 10)]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 10) {
-            ForEach(items) { item in
-                Button {
-                    guard let route = route(for: item) else { return }
-                    router.open(route)
-                } label: {
-                    quickActionCard(item)
+        BiliPaiGlassContainer(materialDesign: materialDesign, spacing: 10) {
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(items) { item in
+                    Button {
+                        guard let route = route(for: item) else { return }
+                        router.open(route)
+                    } label: {
+                        quickActionCard(item)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(route(for: item) == nil)
+                    .opacity(route(for: item) == nil ? 0.5 : 1)
                 }
-                .buttonStyle(.plain)
-                .disabled(route(for: item) == nil)
-                .opacity(route(for: item) == nil ? 0.5 : 1)
             }
         }
         .padding(.vertical, 4)

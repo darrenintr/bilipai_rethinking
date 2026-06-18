@@ -278,13 +278,33 @@ struct ResilientImage: View {
 struct MetricPill: View {
     let systemImage: String
     let text: String
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     var body: some View {
         Label(text, systemImage: systemImage)
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle))
+            .background {
+                if materialDesign == .liquidGlass {
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.25), Color.white.opacity(0.05)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    ),
+                                    lineWidth: 0.5
+                                )
+                        )
+                } else {
+                    Color(uiColor: .tertiarySystemGroupedBackground)
+                        .clipShape(Capsule())
+                }
+            }
     }
 }
 

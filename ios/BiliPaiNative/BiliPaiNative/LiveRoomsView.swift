@@ -83,6 +83,7 @@ struct LiveRoomsView: View {
                 .accessibilityLabel("Refresh")
             }
         }
+        .modifier(LiveToolbarGlassModifier(materialDesign: materialDesign))
     }
 }
 
@@ -202,6 +203,19 @@ private struct LivePlayerView: View {
             errorMessage = nil
         } catch {
             errorMessage = "直播间地址解析失败：\(error.localizedDescription)"
+        }
+    }
+}
+
+/// Applies Liquid Glass background to the live rooms toolbar.
+private struct LiveToolbarGlassModifier: ViewModifier {
+    let materialDesign: MaterialDesign
+
+    func body(content: Content) -> some View {
+        if materialDesign == .liquidGlass {
+            content.bilipaiNavBarGlass(.liquidGlass)
+        } else {
+            content
         }
     }
 }

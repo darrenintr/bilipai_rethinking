@@ -58,6 +58,7 @@ struct HomeView: View {
                         }
                     }
                 }
+                .modifier(HomeToolbarGlassModifier(materialDesign: materialDesign))
                 .task {
                     if model.videos.isEmpty && model.liveRooms.isEmpty {
                         await model.load(repository: repository, accountMid: accountMid)
@@ -445,6 +446,20 @@ extension Notification.Name {
     /// notification so the empty-state view stays decoupled from
     /// the repository.
     static let homeShowBundledFallback = Notification.Name("bilipai.home.showBundledFallback")
+}
+
+/// Applies Liquid Glass background to the navigation bar toolbar
+/// on the home screen.
+private struct HomeToolbarGlassModifier: ViewModifier {
+    let materialDesign: MaterialDesign
+
+    func body(content: Content) -> some View {
+        if materialDesign == .liquidGlass {
+            content.bilipaiNavBarGlass(.liquidGlass)
+        } else {
+            content
+        }
+    }
 }
 
 /// Follow-tab renderer. Each card reuses the chrome shape from

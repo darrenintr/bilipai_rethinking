@@ -236,15 +236,10 @@ private func profileRouteView(_ route: ProfileRoute, repository: BiliPaiReposito
 
 /// Liquid Glass material for the tab bar.
 ///
-/// On iOS 26+ we would use the real `.toolbarBackground(.glass, for:
-/// .tabBar)`, which picks up the underlying content and renders a
-/// proper Liquid Glass surface. The unsigned-IPA workflow ships with
-/// Xcode 16 / iOS 18.5 SDK, which does not include the iOS 26 API, so
-/// we fall back to `.ultraThinMaterial` + the same
-/// `.toolbarBackground(.visible)` that makes the chrome always show.
-/// When the iOS 26 SDK becomes available in the build environment we'll
-/// re-introduce the `if #available(iOS 26, *)` branch with the real
-/// `.glass` background.
+/// Uses `.ultraThinMaterial` as the fallback for the iOS 18.5 SDK.
+/// When the iOS 26 SDK ships, replace with `.toolbarBackground(.glass,
+/// for: .tabBar)` which picks up the underlying content and renders a
+/// proper Liquid Glass surface.
 private struct LiquidGlassTabBarModifier: ViewModifier {
     let materialDesign: MaterialDesign
 

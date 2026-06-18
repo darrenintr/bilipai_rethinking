@@ -8,6 +8,7 @@ struct DynamicFeedView: View {
     let heroNamespace: Namespace.ID?
     @EnvironmentObject private var router: AppRouter
     @StateObject private var model = DynamicFeedViewModel()
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .material3
 
     init(repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil) {
         self.repository = repository
@@ -110,6 +111,7 @@ struct DynamicFeedView: View {
                 .accessibilityLabel("Refresh")
             }
         }
+        .modifier(DynamicToolbarGlassModifier(materialDesign: materialDesign))
     }
 
     @ViewBuilder
@@ -146,5 +148,18 @@ private struct DynamicFeedSkeletonRow: View {
         }
         .padding(.vertical, 8)
         .redacted(reason: .placeholder)
+    }
+}
+
+/// Applies Liquid Glass background to the dynamic feed toolbar.
+private struct DynamicToolbarGlassModifier: ViewModifier {
+    let materialDesign: MaterialDesign
+
+    func body(content: Content) -> some View {
+        if materialDesign == .liquidGlass {
+            content.bilipaiNavBarGlass(.liquidGlass)
+        } else {
+            content
+        }
     }
 }
