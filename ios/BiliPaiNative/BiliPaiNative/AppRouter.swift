@@ -172,7 +172,8 @@ final class AppRouter: ObservableObject {
                 viewCount: 0,
                 danmakuCount: 0,
                 likeCount: 0,
-                description: ""
+                description: "",
+                ownerMid: 0
             ))
         case .login:
             openLogin()

@@ -81,11 +81,34 @@ struct BiliVideo: Identifiable, Hashable, Codable {
     var danmakuCount: Int
     var likeCount: Int
     let description: String
-    
+    /// Owner's Bilibili `mid` (64-bit user id). Populated by
+    /// `VideoDTO` from the `/x/web-interface/view` response;
+    /// left at `0` for feed-entry shapes (HomeRecommendCard,
+    /// dynamic-feed archive, history rows) where the upstream
+    /// payload does not surface the owner's mid. Used by
+    /// `BilibiliAPIClient.aiSummary(...)` as the required
+    /// `up_mid` query parameter — a mismatched or missing
+    /// owner id causes Bilibili's WBI rate-limiter to reject
+    /// the request with -403 风控. The repository guard at
+    /// `aiSummary(for:)` short-circuits when this is `0`.
+    let ownerMid: Int64
+
     /// Optional timestamp (in seconds) to resume playback from.
     /// Used when opening a video from history or a direct link
     /// that carries a progress marker.
     var resumeTime: Double? = nil
+}
+
+extension BiliVideo {
+    /// Canonical share URL for this video on bilibili.com.
+    /// Centralised so the toolbar and fullscreen-player share
+    /// buttons cannot drift. Returns `nil` for `bvid`-less
+    /// rows (legacy `aid`-only entries); the share affordance
+    /// silently hides in that case.
+    var shareURL: URL? {
+        guard !bvid.isEmpty else { return nil }
+        return URL(string: "https://www.bilibili.com/video/\(bvid)")
+    }
 }
 
 /// One playable Bilibili source.  The local HLS proxy turns
@@ -182,7 +205,8 @@ struct DownloadRecord: Codable, Identifiable, Hashable {
             viewCount: 0,
             danmakuCount: 0,
             likeCount: 0,
-            description: ""
+            description: "",
+            ownerMid: 0
         )
     }
 }

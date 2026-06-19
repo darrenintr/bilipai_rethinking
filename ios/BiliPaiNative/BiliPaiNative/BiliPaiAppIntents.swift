@@ -160,6 +160,7 @@ struct BiliPaiVideoEntity: AppEntity {
             viewCount: 0,
             danmakuCount: 0,
             likeCount: 0,
+            ownerMid: 0,
             description: ""
         )
     }

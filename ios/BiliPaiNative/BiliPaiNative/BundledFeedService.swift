@@ -63,7 +63,8 @@ struct BundledFeedService {
                 viewCount: 1_280_000,
                 danmakuCount: 8_400,
                 likeCount: 32_000,
-                description: "离线样例数据 — 拉取网络恢复后可正常播放。"
+                description: "离线样例数据 — 拉取网络恢复后可正常播放。",
+                ownerMid: 0
             ),
             BiliVideo(
                 bvid: "BV1GJ411x7h7",
@@ -76,7 +77,8 @@ struct BundledFeedService {
                 viewCount: 4_500_000,
                 danmakuCount: 56_000,
                 likeCount: 215_000,
-                description: "离线样例数据 — 网络可用时会跳到真实播放页。"
+                description: "离线样例数据 — 网络可用时会跳到真实播放页。",
+                ownerMid: 0
             ),
             BiliVideo(
                 bvid: "BV1os4y1d7eG",
@@ -89,7 +91,8 @@ struct BundledFeedService {
                 viewCount: 2_900_000,
                 danmakuCount: 22_000,
                 likeCount: 138_000,
-                description: "离线样例数据 — 卡片可点击进入视频详情。"
+                description: "离线样例数据 — 卡片可点击进入视频详情。",
+                ownerMid: 0
             ),
             BiliVideo(
                 bvid: "BV1j54y1L7v3",
@@ -102,7 +105,8 @@ struct BundledFeedService {
                 viewCount: 480_000,
                 danmakuCount: 3_400,
                 likeCount: 26_000,
-                description: "离线样例数据 — 用于演示首页布局。"
+                description: "离线样例数据 — 用于演示首页布局。",
+                ownerMid: 0
             ),
             BiliVideo(
                 bvid: "BV1aK4y1L7Px",
@@ -115,7 +119,8 @@ struct BundledFeedService {
                 viewCount: 760_000,
                 danmakuCount: 4_800,
                 likeCount: 41_000,
-                description: "离线样例数据 — 网络恢复后会自动替换为真实内容。"
+                description: "离线样例数据 — 网络恢复后会自动替换为真实内容。",
+                ownerMid: 0
             ),
             BiliVideo(
                 bvid: "BV1wK4y1Q7Yy",
@@ -128,7 +133,8 @@ struct BundledFeedService {
                 viewCount: 1_100_000,
                 danmakuCount: 6_300,
                 likeCount: 58_000,
-                description: "离线样例数据 — 卡片高度对齐测试覆盖。"
+                description: "离线样例数据 — 卡片高度对齐测试覆盖。",
+                ownerMid: 0
             )
         ]
     }

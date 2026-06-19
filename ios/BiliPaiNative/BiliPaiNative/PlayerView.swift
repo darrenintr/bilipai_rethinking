@@ -138,8 +138,11 @@ struct FullscreenPlayerView: View {
         .safeAreaInset(edge: .top) {
             // Keep the BiliPai title pill above the system
             // transport so the user still sees which video they
-            // are watching, even with AVKit's chrome.
-            HStack {
+            // are watching, even with AVKit's chrome. The share
+            // button is anchored to the trailing edge so a long
+            // video title shrinks the pill rather than clipping
+            // the button off-screen.
+            HStack(spacing: 8) {
                 Text(video.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
@@ -153,7 +156,24 @@ struct FullscreenPlayerView: View {
                             style: BiliPaiTheme.cornerStyle
                         )
                     )
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+                if let shareURL = video.shareURL {
+                    ShareLink(
+                        item: shareURL,
+                        subject: Text(video.title),
+                        label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(8)
+                                .background(
+                                    .black.opacity(0.55),
+                                    in: Circle()
+                                )
+                        }
+                    )
+                    .accessibilityLabel(L10n.common.share)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)

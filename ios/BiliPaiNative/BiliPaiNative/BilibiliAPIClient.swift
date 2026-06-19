@@ -1478,7 +1478,8 @@ private struct AppFeedItemDTO: Decodable {
             viewCount: 0,
             danmakuCount: 0,
             likeCount: 0,
-            description: ""
+            description: "",
+            ownerMid: 0
         )
     }
 }
@@ -1495,6 +1496,11 @@ private struct VideoDTO: Decodable {
     let danmakuCount: Int
     let likeCount: Int
     let description: String
+    /// Owner's Bilibili `mid`. Read from `owner.mid` (the same
+    /// nested container that owns `ownerName`). Surfaced on the
+    /// resulting `BiliVideo` so the AI 视频总结 endpoint can send
+    /// the required `up_mid` query parameter.
+    let ownerMid: Int64
 
     var model: BiliVideo {
         BiliVideo(
@@ -1508,7 +1514,8 @@ private struct VideoDTO: Decodable {
             viewCount: viewCount,
             danmakuCount: danmakuCount,
             likeCount: likeCount,
-            description: description
+            description: description,
+            ownerMid: ownerMid
         )
     }
 
@@ -1531,6 +1538,7 @@ private struct VideoDTO: Decodable {
         let owner = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("owner"))
         let args = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("args"))
         ownerName = owner?.decodeString(keys: ["name"]) ?? args?.decodeString(keys: ["up_name"]) ?? "Unknown"
+        ownerMid = owner?.decodeInt64(keys: ["mid"]) ?? 0
 
         let stat = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("stat"))
         viewCount = stat?.decodeInt(keys: ["view", "view_count"]) ?? container.decodeInt(keys: ["play"]) ?? 0
@@ -2256,7 +2264,8 @@ private struct DynamicCardDTO: Decodable {
                 viewCount: stat?.decodeInt(keys: ["play", "view"]) ?? 0,
                 danmakuCount: stat?.decodeInt(keys: ["danmaku"]) ?? 0,
                 likeCount: stat?.decodeInt(keys: ["like"]) ?? 0,
-                description: descText
+                description: descText,
+                ownerMid: 0
             )
         } else {
             attachedVideo = nil
@@ -2356,7 +2365,8 @@ private struct HistoryItemDTO: Decodable {
             viewCount: stat?.view ?? 0,
             danmakuCount: stat?.danmaku ?? 0,
             likeCount: stat?.like ?? 0,
-            description: ""
+            description: "",
+            ownerMid: 0
         )
         return HistoryEntry(
             id: historyBVID.isEmpty ? "\(historyOID):\(viewedAt)" : historyBVID,
@@ -2484,7 +2494,8 @@ private struct FavoriteMediaDTO: Decodable {
             viewCount: stat?.view ?? 0,
             danmakuCount: stat?.danmaku ?? 0,
             likeCount: stat?.like ?? 0,
-            description: ""
+            description: "",
+            ownerMid: 0
         )
     }
 
@@ -2538,7 +2549,8 @@ private struct WatchLaterItemDTO: Decodable {
             viewCount: stat?.view ?? 0,
             danmakuCount: stat?.danmaku ?? 0,
             likeCount: stat?.like ?? 0,
-            description: ""
+            description: "",
+            ownerMid: 0
         )
     }
 

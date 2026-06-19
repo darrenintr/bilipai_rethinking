@@ -102,6 +102,25 @@ struct VideoDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                // ShareLink with the canonical Bilibili URL. The
+                // `subject:` populates the Mail subject line and
+                // Twitter/X title; the URL itself is what gets
+                // handed to the system share sheet. The button
+                // is hidden when `bvid` is empty (legacy `aid`-only
+                // entries) so we never produce a malformed URL.
+                if let shareURL = model.detail.shareURL {
+                    ShareLink(
+                        item: shareURL,
+                        subject: Text(model.detail.title),
+                        label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.body.weight(.medium))
+                        }
+                    )
+                    .accessibilityLabel(L10n.common.share)
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         isImmersiveMode.toggle()
