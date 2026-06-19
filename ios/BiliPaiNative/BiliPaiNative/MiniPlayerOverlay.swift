@@ -16,6 +16,15 @@ struct MiniPlayerOverlay: View {
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     @State private var dragOffset: CGFloat = 0
+    /// `true` while the user is dragging the progress bar to
+    /// scrub.  Drives the floating time bubble and pauses the
+    /// live position update so the bar doesn't fight the finger.
+    @State private var isScrubbing: Bool = false
+    /// Position (0..1) the user is dragging to.  We don't seek
+    /// on every drag frame — the scrubber would feel laggy —
+    /// we just preview the position with the bubble, then seek
+    /// once on `.onEnded`.
+    @State private var scrubFraction: CGFloat = 0
 
     var body: some View {
         if let video = store.currentVideo,
@@ -39,7 +48,18 @@ struct MiniPlayerOverlay: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    progressBar
+                    ZStack(alignment: .bottomLeading) {
+                        progressBar
+                        scrubBubble
+                            .offset(y: -22)
+                            // Pin the bubble near the start while
+                            // scrubbing starts; full per-finger
+                            // tracking would require coupling it to
+                            // the same gesture x-position, which is
+                            // more code than this UX warrants.
+                    }
+                    .animation(.spring(response: 0.25, dampingFraction: 0.85),
+                               value: isScrubbing)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -120,7 +140,11 @@ struct MiniPlayerOverlay: View {
     private var progressBar: some View {
         GeometryReader { geo in
             let total = store.duration > 0 ? store.duration : 1
-            let progress = min(1, store.currentTime / total)
+            let liveProgress = min(1, store.currentTime / total)
+            // While scrubbing, freeze the bar at the finger
+            // position; otherwise mirror the controller's
+            // `currentTime`.
+            let displayProgress = isScrubbing ? Double(scrubFraction) : liveProgress
             ZStack(alignment: .leading) {
                 RoundedRectangle(
                     cornerRadius: BiliPaiTheme.cornerRadius,
@@ -133,10 +157,93 @@ struct MiniPlayerOverlay: View {
                     style: BiliPaiTheme.cornerStyle
                 )
                     .fill(BiliPaiTheme.biliPink)
-                    .frame(width: geo.size.width * progress, height: 2)
+                    .frame(width: max(0, geo.size.width * displayProgress), height: 2)
+
+                if isScrubbing {
+                    // Knob at the finger so the user gets a
+                    // physical "I'm holding the playhead" cue.
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 10, height: 10)
+                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                        .offset(x: max(0, geo.size.width * scrubFraction) - 5)
+                }
             }
+            // Extend the hit area vertically without making the
+            // bar visually thicker.  `contentShape` makes the
+            // empty 11pt-above-and-below space receive the drag.
+            .contentShape(Rectangle().inset(by: -11))
+            .gesture(scrubGesture(width: geo.size.width, total: total))
         }
-        .frame(height: 2)
+        // Total visual + hit height: 2pt bar + 11pt padding above
+        // and below.  Anchored bottom-aligned so the hit area
+        // doesn't push the rest of the overlay up.
+        .frame(height: 24, alignment: .bottom)
+    }
+
+    /// Drag gesture that converts a horizontal finger position
+    /// into a 0..1 fraction, with a preview bubble during the
+    /// drag and a single `store.seek(to:)` call on release.
+    /// Seeking every frame would make the scrubber feel laggy
+    /// (AVPlayer queues seeks, so the playhead lags by hundreds
+    /// of ms); previewing locally and committing on release
+    /// matches how Music and other native apps behave.
+    private func scrubGesture(width: CGFloat, total: Double) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard width > 0 else { return }
+                let fraction = max(0, min(1, value.location.x / width))
+                if !isScrubbing {
+                    isScrubbing = true
+                    Haptics.selection()
+                }
+                scrubFraction = fraction
+            }
+            .onEnded { _ in
+                let target = Double(scrubFraction) * total
+                store.seek(to: target)
+                Haptics.tap()
+                isScrubbing = false
+            }
+    }
+
+    /// Floating time bubble shown above the scrub knob.  Appears
+    /// only while `isScrubbing` is true.
+    @ViewBuilder
+    private var scrubBubble: some View {
+        if isScrubbing {
+            let total = store.duration > 0 ? store.duration : 1
+            let seconds = Double(scrubFraction) * total
+            Text(formatTime(seconds))
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    .black.opacity(0.78),
+                    in: RoundedRectangle(
+                        cornerRadius: 6,
+                        style: .continuous
+                    )
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.85)))
+        }
+    }
+
+    /// Compact `m:ss` or `h:mm:ss` formatter for the scrub
+    /// bubble.  Mirrors the formatter other parts of the app
+    /// use so the bubble and the rest of the UI agree on what
+    /// "1:23" looks like.
+    private func formatTime(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
     }
 }
 

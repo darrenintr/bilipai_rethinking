@@ -34,6 +34,8 @@
 import AVFoundation
 import Combine
 import CoreMedia
+import MediaPlayer
+import UIKit
 
 @MainActor
 final class PlayerController: ObservableObject {
@@ -90,13 +92,32 @@ final class PlayerController: ObservableObject {
     /// line per chunk.  We emit at most once every 500 ms.
     private var lastRangesLogAt: Date = .distantPast
 
+    // MARK: now-playing metadata
+
+    /// Title shown in `MPNowPlayingInfoCenter`.  Set from the
+    /// optional `video:` parameter to the init when the controller
+    /// is bound from `MiniPlayerStore.bind(video:…)`.  Falls back
+    /// to a generic label for live-room controllers (which never
+    /// get a `BiliVideo`).
+    private let nowPlayingTitle: String
+    private let nowPlayingArtist: String
+    private let nowPlayingCoverURL: URL?
+    /// Cached artwork.  Built once when the coverURL resolves,
+    /// then handed to `MPMediaItemArtwork` on every Now Playing
+    /// refresh so we don't re-wrap a `UIImage` twice a second.
+    private var nowPlayingArtwork: MPMediaItemArtwork?
+
     // MARK: lifecycle
 
-    init(playback: BiliPlayback) {
+    init(playback: BiliPlayback, video: BiliVideo? = nil) {
         diagLog(.playback, "Initialising AVPlayerController", details: [
             "isDASH": playback.isDASH,
             "referer": playback.referer.absoluteString
         ])
+
+        self.nowPlayingTitle = video?.title ?? "直播"
+        self.nowPlayingArtist = video?.ownerName ?? "BiliPai"
+        self.nowPlayingCoverURL = video?.coverURL
 
         let referer = playback.referer.absoluteString
         let asset: AVURLAsset
@@ -201,6 +222,11 @@ final class PlayerController: ObservableObject {
                 // KVO observers.
                 MainActor.assumeIsolated {
                     self?.currentTime = seconds
+                    // Keep the lock-screen playhead in sync.  Two
+                    // updates per second is cheap (the dict has no
+                    // new keys after the first write) and gives
+                    // Control Center a moving scrubber.
+                    self?.updateNowPlaying()
                 }
             }
         }
@@ -351,6 +377,58 @@ final class PlayerController: ObservableObject {
         if isPlaying {
             player.play()
         }
+
+        // Hook into the iOS system transport (lock screen, Control
+        // Center, CarPlay, AirPods double-tap, Bluetooth accessory
+        // play/pause/skip buttons).  Without this the lock-screen
+        // would not show our video, and AirPods hardware buttons
+        // would only pause Music, not us.  See B4 in the polish
+        // plan.
+        setupRemoteCommands()
+        // First Now Playing write so the lock-screen artwork +
+        // title are visible immediately.  Subsequent refreshes
+        // piggy-back on the periodic time observer.
+        updateNowPlaying()
+        // Best-effort cover image fetch.  The coverURL is from
+        // B站 and we already pay the round-trip elsewhere via
+        // `CoverImagePipeline`, but that pipeline is `private`
+        // to `SharedViews.swift`; for the one-off Now Playing
+        // artwork a direct `URLSession` round-trip is cheaper
+        // than lifting the cache to internal visibility.
+        // Failures are silent — the lock-screen just shows a
+        // generic placeholder.
+        if let coverURL = nowPlayingCoverURL {
+            Task { [weak self] in
+                guard let image = await Self.downloadCover(url: coverURL) else {
+                    return
+                }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.nowPlayingArtwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    self.updateNowPlaying()
+                }
+            }
+        }
+    }
+
+    /// One-shot cover download for Now Playing artwork.  Hits
+    /// `URLSession.shared` with a B站-compatible `Referer` and
+    /// `User-Agent` so the CDN serves the image (B站 gates
+    /// `*.hdslb.com` on the Referer for hotlink protection).
+    /// Returns `nil` on any failure; the caller treats that as
+    /// "no artwork".
+    private static func downloadCover(url: URL) async -> UIImage? {
+        var request = URLRequest(url: url)
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+            forHTTPHeaderField: "User-Agent"
+        )
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let image = UIImage(data: data) else {
+            return nil
+        }
+        return image
     }
 
     // MARK: playback control
@@ -428,7 +506,92 @@ final class PlayerController: ObservableObject {
         errorObserver = nil
         errorLogObserver = nil
         observers.removeAll()
+        clearNowPlaying()
         diagLog(.playback, "AVPlayerController teardown complete")
+    }
+
+    // MARK: remote commands + Now Playing
+
+    /// Wire `MPRemoteCommandCenter` so the lock-screen, Control
+    /// Center, CarPlay, and hardware buttons (AirPods double-tap,
+    /// Bluetooth accessory play/pause) can drive the player.  We
+    /// disable the skip-by-30s defaults and expose ±10s instead,
+    /// matching the in-app double-tap gesture.  Called once per
+    /// controller lifecycle; the handlers' `[weak self]` keeps the
+    /// controller from being retained past `tearDown`.
+    private func setupRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+
+        center.playCommand.addTarget { [weak self] _ in
+            self?.play()
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            self?.pause()
+            return .success
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.toggle()
+            return .success
+        }
+
+        // ±10s to match the inline double-tap gesture.
+        center.skipForwardCommand.preferredIntervals = [10]
+        center.skipForwardCommand.addTarget { [weak self] _ in
+            self?.seek(by: +10)
+            return .success
+        }
+        center.skipBackwardCommand.preferredIntervals = [10]
+        center.skipBackwardCommand.addTarget { [weak self] _ in
+            self?.seek(by: -10)
+            return .success
+        }
+
+        // Lock-screen scrubber drag.
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self,
+                  let positionEvent = event as? MPChangePlaybackPositionCommandEvent
+            else {
+                return .commandFailed
+            }
+            let target = max(0, positionEvent.positionTime)
+            let time = CMTime(seconds: target, preferredTimescale: 600)
+            self.player.seek(to: time)
+            // Position changed — push the new value to Now Playing
+            // immediately rather than waiting for the next 0.5s
+            // tick, so the lock-screen thumb tracks the drag.
+            self.updateNowPlaying()
+            return .success
+        }
+    }
+
+    /// Write the current title / artist / duration / position /
+    /// rate to `MPNowPlayingInfoCenter`.  Cheap to call — the
+    /// artwork is cached in `nowPlayingArtwork` so we don't
+    /// re-wrap a `UIImage` on every refresh.  Position uses
+    /// `currentTime` (the published snapshot from the periodic
+    /// observer) rather than calling `player.currentTime()`
+    /// again, so the value matches what the UI is showing.
+    private func updateNowPlaying() {
+        var info: [String: Any] = [:]
+        info[MPMediaItemPropertyTitle] = nowPlayingTitle
+        info[MPMediaItemPropertyArtist] = nowPlayingArtist
+        info[MPMediaItemPropertyPlaybackDuration] = duration
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+        if let artwork = nowPlayingArtwork {
+            info[MPMediaItemPropertyArtwork] = artwork
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// Drop our entry from `MPNowPlayingInfoCenter`.  Called from
+    /// `tearDown()` so a closed mini-player doesn't leave the
+    /// lock-screen / Control Center pinned to a now-defunct
+    /// player.
+    private func clearNowPlaying() {
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     // MARK: polling

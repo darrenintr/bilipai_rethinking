@@ -66,7 +66,7 @@ final class MiniPlayerStore: ObservableObject {
         // free to be re-served with the new DASH source.
         teardownController()
 
-        let newController = PlayerController(playback: playback)
+        let newController = PlayerController(playback: playback, video: video)
         controller = newController
         currentVideo = video
 
