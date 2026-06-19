@@ -53,6 +53,7 @@ app/release/
 
 # 🔥 忽略 AI/Agent 相关文件
 .agent/
+.agents/
 .gemini/
 .cursor/
 .claude/
@@ -60,8 +61,18 @@ app/release/
 *.ai.md
 *.txt
 bilipai_log_*.txt
+skills-lock.json
 !AI.txt
 !llm.txt
+
+# Node / npm（顶层 experimental 目录，不入仓）
+node_modules/
+package.json
+package-lock.json
+
+# Xcode workspace 用户态（contents.xcworkspacedata 与
+# xcshareddata/IDEWorkspaceChecks.plist 仍需入库）
+**/project.xcworkspace/xcuserdata/
 
 # Bilibili API files
 bilibili-API-collect/
