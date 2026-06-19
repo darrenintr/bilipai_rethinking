@@ -335,9 +335,13 @@ final class PlayerController: ObservableObject {
             let entries = item.errorLog()?.events ?? []
             let summary = entries.prefix(3).map { e -> [String: String] in
                 [
-                    "uri": e.URI ?? "?",
+                    // `URI` was renamed to `uri` in Swift 3; the
+                    // old spelling is now a hard error. `errorDomain`
+                    // is non-optional in the bridged API, so it
+                    // can't take `?? "?"` — use the string verbatim.
+                    "uri": e.uri ?? "?",
                     "status": "\(e.errorStatusCode)",
-                    "domain": e.errorDomain ?? "?",
+                    "domain": e.errorDomain,
                     "comment": e.errorComment ?? "?",
                     "session": e.playbackSessionID ?? "?"
                 ]

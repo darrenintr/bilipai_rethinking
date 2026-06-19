@@ -312,8 +312,10 @@ private enum PadSidebarItem: String, Hashable, Identifiable, CaseIterable {
     }
 
     /// Group the item belongs to. Drives the VStack split in
-    /// `PadSidebar` (top group vs. bottom group).
-    var group: SidebarGroup {
+    /// `PadSidebar` (top group vs. bottom group). Marked private
+    /// because `SidebarGroup` is private — Swift requires the
+    /// accessor and its return type to share visibility.
+    private var group: SidebarGroup {
         switch self {
         case .home, .trends, .live, .collections: return .primary
         case .history, .settings: return .secondary
