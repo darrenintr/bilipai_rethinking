@@ -59,9 +59,9 @@ private struct DownloadedVideoRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ResilientImage(url: record.coverURL, cornerRadius: 8)
+            ResilientImage(url: record.coverURL)
                 .frame(width: 120, height: 68)
-                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 4) {
                 Text(record.title)
                     .font(.subheadline.weight(.semibold))
