@@ -148,6 +148,13 @@ struct HomeView: View {
                             LiveRoomCard(room: room)
                         }
                     }
+                    // Extra outer horizontal margin so the card grid
+                    // breathes more than the rest of the feed
+                    // (search bar / category strip / banners). 8pt
+                    // per side on top of the feed's 16pt container
+                    // padding — enough to read at a glance without
+                    // collapsing the column count on iPhone.
+                    .padding(.horizontal, 8)
                 } else if model.category == .follow {
                     DynamicFeedList(model: model, repository: repository)
                 } else if model.videos.isEmpty {
@@ -179,6 +186,11 @@ struct HomeView: View {
                             }
                         }
                     }
+                    // Extra outer horizontal margin so the video
+                    // cards sit further from the screen edges than
+                    // the rest of the feed chrome. Mirrors the
+                    // live-room grid above for a consistent feel.
+                    .padding(.horizontal, 8)
                     paginationFooter
                 }
             }

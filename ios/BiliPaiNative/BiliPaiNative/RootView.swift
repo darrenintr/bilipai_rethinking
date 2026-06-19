@@ -172,23 +172,26 @@ private struct PadRootView: View {
     @EnvironmentObject private var router: AppRouter
     /// Single shared namespace for the hero / zoom transition.
     @Namespace private var heroNamespace
+    /// Sidebar visibility. The collapse button flips this to
+    /// `.detailOnly`; the system chevron / drag handle brings it
+    /// back to `.all`. `NavigationSplitView` owns the actual
+    /// show/hide animation — we just hand it a binding.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    /// Tabs rendered in the sidebar's main list. Excludes `.profile`
+    /// because the new design surfaces 我的 as a user card at the
+    /// bottom of the sidebar instead of a regular row. The four-case
+    /// `MainTab` enum stays unchanged so the phone tab bar keeps
+    /// working.
+    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live]
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(MainTab.allCases) { tab in
-                    Button {
-                        router.open(tab)
-                    } label: {
-                        Label(tab.title, systemImage: tab.symbolName)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(router.selectedTab == tab ? BiliPaiTheme.biliPink.opacity(0.14) : Color.clear)
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .navigationTitle("Paladala")
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            PadSidebar(
+                tabs: Self.sidebarTabs,
+                columnVisibility: $columnVisibility
+            )
+            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 320)
         } detail: {
             NavigationStack(path: $router.path) {
                 selectedView
@@ -225,6 +228,176 @@ private struct PadRootView: View {
         case .profile:
             ProfileSettingsView(repository: repository)
         }
+    }
+}
+
+/// New iPad sidebar matching the redesigned mockup:
+///
+///  ┌────────────────────────────┐
+///  │ 🏠  首頁   (pink pill)      │   <- active row gets a
+///  │ 🧭  動態                    │      rounded pink capsule
+///  │ ((•))  直播                 │
+///  │                            │
+///  │  ┌──────┐                  │   <- user card: avatar +
+///  │  │ {un} │ 我的              │      username + 我的 label
+///  │  └──────┘                  │
+///  │                            │
+///  │ ≡<  收合                    │   <- collapse button
+///  └────────────────────────────┘
+///
+/// All copy is Traditional Chinese; the pink highlight uses
+/// `BiliPaiTheme.biliPink` to stay consistent with the rest of
+/// the app.
+private struct PadSidebar: View {
+    let tabs: [MainTab]
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+
+    @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
+
+    var body: some View {
+        VStack(spacing: 18) {
+            tabList
+            Spacer(minLength: 0)
+            userCard
+            collapseButton
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 24)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(PaladalaBackdrop())
+    }
+
+    private var tabList: some View {
+        VStack(spacing: 6) {
+            ForEach(tabs) { tab in
+                SidebarRow(
+                    tab: tab,
+                    isActive: router.selectedTab == tab
+                ) {
+                    router.open(tab)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var userCard: some View {
+        Button {
+            router.open(.profile)
+        } label: {
+            HStack(spacing: 12) {
+                sidebarAvatar
+                    .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(usernameText)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text("我的")
+                        .font(.subheadline)
+                        .foregroundStyle(BiliPaiTheme.biliPink)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius,
+                                 style: BiliPaiTheme.cornerStyle)
+                    .fill(Color.primary.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius,
+                                 style: BiliPaiTheme.cornerStyle)
+                    .stroke(BiliPaiTheme.biliPink.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var collapseButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                columnVisibility = .detailOnly
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
+                Text("收合")
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var usernameText: String {
+        authStore.activeAccount?.name ?? "未登入"
+    }
+
+    @ViewBuilder
+    private var sidebarAvatar: some View {
+        if let url = authStore.activeAccount?.faceURL {
+            ResilientImage(url: url)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(BiliPaiTheme.biliPink.opacity(0.18))
+                .overlay(
+                    Image(systemName: "person.fill")
+                        .font(.body)
+                        .foregroundStyle(BiliPaiTheme.biliPink)
+                )
+        }
+    }
+}
+
+/// One row in the iPad sidebar. Active row gets a rounded pink
+/// pill background plus a pink-tinted icon and label; inactive
+/// rows use a muted label so the active tab stands out.
+private struct SidebarRow: View {
+    let tab: MainTab
+    let isActive: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: tab.sidebarSymbolName)
+                    .font(.body.weight(.semibold))
+                    .frame(width: 24)
+                    .foregroundStyle(isActive ? BiliPaiTheme.biliPink : .secondary)
+                Text(tab.title)
+                    .font(.body.weight(isActive ? .semibold : .regular))
+                    .foregroundStyle(isActive ? BiliPaiTheme.biliPink : .primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                Group {
+                    if isActive {
+                        RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius,
+                                         style: BiliPaiTheme.cornerStyle)
+                            .fill(BiliPaiTheme.biliPink.opacity(0.18))
+                    } else {
+                        Color.clear
+                    }
+                }
+            )
+            .contentShape(RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius,
+                                           style: BiliPaiTheme.cornerStyle))
+        }
+        .buttonStyle(.plain)
     }
 }
 

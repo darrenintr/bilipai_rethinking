@@ -12,9 +12,9 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .home:
-            return "首页"
+            return "首頁"
         case .dynamic:
-            return "动态"
+            return "動態"
         case .live:
             return "直播"
         case .profile:
@@ -22,6 +22,11 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// SF Symbols used in the iPad sidebar (`PadRootView`). The
+    /// phone tab bar still uses `tabBarItem-symbol` via
+    /// `Label(... systemImage:)` so we keep `rectangle.stack` /
+    /// `play.tv` for `PhoneRootView` and only customise the
+    /// sidebar render through `sidebarSymbolName`.
     var symbolName: String {
         switch self {
         case .home:
@@ -30,6 +35,23 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "rectangle.stack"
         case .live:
             return "play.tv"
+        case .profile:
+            return "person.crop.circle"
+        }
+    }
+
+    /// Filled/high-contrast variants that match the new sidebar
+    /// design: a solid pink house for the active 首頁 pill, a
+    /// compass/scope for 動態, a radiating-wave glyph for 直播,
+    /// and a circle-person badge for the 我的 card.
+    var sidebarSymbolName: String {
+        switch self {
+        case .home:
+            return "house.fill"
+        case .dynamic:
+            return "safari"
+        case .live:
+            return "dot.radiowaves.left.and.right"
         case .profile:
             return "person.crop.circle"
         }
