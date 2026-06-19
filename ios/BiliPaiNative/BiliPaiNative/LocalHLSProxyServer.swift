@@ -900,7 +900,7 @@ final class LocalHLSProxyServer {
 
     // MARK: segment proxy
 
-    private enum ProxyMode {
+    fileprivate enum ProxyMode {
         case passthrough
         case initRange
         case mediaRange

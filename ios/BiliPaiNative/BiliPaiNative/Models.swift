@@ -200,8 +200,8 @@ struct DownloadRecord: Codable, Identifiable, Hashable {
 /// single `EXTINF` entry whose duration is the track's
 /// `totalDuration`, and lets AVPlayer stream the file via HTTP
 /// `Range` requests through the proxy.
-struct BiliDashSource: Hashable {
-    struct ByteRange: Hashable {
+struct BiliDashSource: Hashable, Codable {
+    struct ByteRange: Hashable, Codable {
         let offset: Int64
         let length: Int64
 
@@ -214,7 +214,7 @@ struct BiliDashSource: Hashable {
     /// We flatten audio + video variants into this struct
     /// because B站's DASH responses are simple enough that we
     /// can skip the full MPD Period/AdaptationSet tree.
-    struct Track: Hashable {
+    struct Track: Hashable, Codable {
         let baseURL: URL
         /// ISO BMFF `codecs` box string (e.g. `avc1.640028`,
         /// `mp4a.40.2`). Embedded into HLS via `CODECS`.

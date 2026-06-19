@@ -171,14 +171,26 @@ final class DownloadManager: NSObject, ObservableObject {
         }
         scheduleSegment(
             track: dash.video,
-            kind: .video,
+            kind: .initSection,
+            bvid: bvid,
+            staging: staging
+        )
+        scheduleSegment(
+            track: dash.video,
+            kind: .mediaSection,
             bvid: bvid,
             staging: staging
         )
         if let audio = dash.audio {
             scheduleSegment(
                 track: audio,
-                kind: .audio,
+                kind: .initSection,
+                bvid: bvid,
+                staging: staging
+            )
+            scheduleSegment(
+                track: audio,
+                kind: .mediaSection,
                 bvid: bvid,
                 staging: staging
             )
@@ -211,10 +223,13 @@ final class DownloadManager: NSObject, ObservableObject {
     /// One segment of a DASH track.  A track is two
     /// segments: the init `ftyp`/`moov` bytes and the media
     /// `mdat` bytes.  We download them as two `Range`
-    /// requests.
+    /// requests.  Cases are deliberately named
+    /// `initSection` / `mediaSection` rather than `init` /
+    /// `media` because Swift reserves `init` as a
+    /// contextual keyword inside a type body.
     fileprivate enum SegmentKind: String {
-        case init = "init"
-        case media = "media"
+        case initSection = "init"
+        case mediaSection = "media"
     }
 
     /// Schedule one byte-range request against the upstream
@@ -240,15 +255,14 @@ final class DownloadManager: NSObject, ObservableObject {
             forHTTPHeaderField: "User-Agent"
         )
         switch kind {
-        case .init:
+        case .initSection:
+            // Closed range covering the fMP4 init section.
             request.setValue(
-                LocalHLSProxyServer.httpRangeHeader(
-                    offset: track.initializationRange.offset,
-                    end: track.initializationRange.endOffset
-                ),
+                "bytes=\(track.initializationRange.offset)"
+                + "-\(track.initializationRange.endOffset)",
                 forHTTPHeaderField: "Range"
             )
-        case .media:
+        case .mediaSection:
             // Open-ended range — CDN returns the bytes from
             // `mediaStartOffset` to EOF.  We use this instead
             // of an explicit end so the response is also
@@ -256,9 +270,7 @@ final class DownloadManager: NSObject, ObservableObject {
             // added trailing metadata past the playable
             // region.
             request.setValue(
-                LocalHLSProxyServer.httpRangeHeader(
-                    offset: track.mediaStartOffset, end: nil
-                ),
+                "bytes=\(track.mediaStartOffset)-",
                 forHTTPHeaderField: "Range"
             )
         }
@@ -269,8 +281,8 @@ final class DownloadManager: NSObject, ObservableObject {
         // Format: "{bvid}|{video|audio}|{init|media}".
         let kindLabel: String
         switch kind {
-        case .init: kindLabel = "init"
-        case .media: kindLabel = "media"
+        case .initSection: kindLabel = "init"
+        case .mediaSection: kindLabel = "media"
         }
         let mediaLabel = (track.mimeType.contains("audio")) ? "audio" : "video"
         task.taskDescription = "\(bvid)|\(mediaLabel)|\(kindLabel)"
