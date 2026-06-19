@@ -122,9 +122,23 @@ private struct LivePlayerView: View {
         .task {
             await loadPlayback()
         }
+        .onAppear {
+            // Start the Live Activity banner as soon as
+            // the user lands on the live room. The
+            // coordinator is a no-op on devices / iOS
+            // versions that don't support ActivityKit, so
+            // wrapping it in `if #available` is enough to
+            // keep the iOS 17 floor clean.
+            if #available(iOS 16.1, *) {
+                LiveActivityCoordinator.shared.start(for: room)
+            }
+        }
         .onDisappear {
             controller?.tearDown()
             controller = nil
+            if #available(iOS 16.1, *) {
+                LiveActivityCoordinator.shared.end()
+            }
         }
     }
 

@@ -69,25 +69,59 @@ struct ProfileSettingsView: View {
                         Text(mode.title).tag(mode)
                     }
                 }
+                .onChange(of: themeMode) { _, newValue in
+                    // iCloud mirror: store the raw value
+                    // string (not the enum) so the system
+                    // key-value store can serialise it
+                    // across devices without depending on
+                    // a shared Codable schema.
+                    ICloudSync.shared.mirror(
+                        key: "bilipai.themeMode",
+                        value: newValue.rawValue
+                    )
+                }
                 Picker("界面设计", selection: $materialDesign) {
                     ForEach(MaterialDesign.allCases) { design in
                         Text(design.title).tag(design)
                     }
                 }
+                .onChange(of: materialDesign) { _, newValue in
+                    ICloudSync.shared.mirror(
+                        key: "bilipai.materialDesign",
+                        value: newValue.rawValue
+                    )
+                }
             }
 
             Section("播放设置") {
                 Toggle("默认开启弹幕", isOn: $danmakuEnabled)
+                    .onChange(of: danmakuEnabled) { _, newValue in
+                        ICloudSync.shared.mirror(
+                            key: "bilipai.danmakuEnabled",
+                            value: newValue
+                        )
+                    }
                 Toggle("后台音频", isOn: $backgroundAudio)
+                    .onChange(of: backgroundAudio) { _, newValue in
+                        ICloudSync.shared.mirror(
+                            key: "bilipai.backgroundAudio",
+                            value: newValue
+                        )
+                    }
             }
 
             Section {
-                // Disabled until CloudKit + NSUbiquitousKeyValueStore
-                // wiring lands in commit 10. The toggle is rendered
-                // here so the user sees the future feature location
-                // and so the `@AppStorage` slot already exists by
-                // the time the implementation ships — flipping the
-                // gate then becomes a one-line change.
+                // Commit 10 wired `ICloudSync` against
+                // `NSUbiquitousKeyValueStore`. The toggle is
+                // now live: when the device has no iCloud
+                // account (`ICloudSync.shared.isAvailable`
+                // is `false`) we render the toggle as
+                // disabled with a hint pointing the user
+                // at the system Settings.app. When the
+                // account is present, flipping the switch
+                // mirrors the four preference keys through
+                // `ICloudSync` and they round-trip to the
+                // user's other devices.
                 Toggle(isOn: $iCloudSync) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L10n.settings.iCloudSync)
@@ -97,15 +131,25 @@ struct ProfileSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .disabled(true)
-                .opacity(0.5)
-                .accessibilityHint("即将推出")
+                .disabled(!ICloudSync.shared.isAvailable)
+                .opacity(ICloudSync.shared.isAvailable ? 1 : 0.5)
             } header: {
                 Text("iCloud 同步")
             } footer: {
-                Text("即将推出")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                if !ICloudSync.shared.isAvailable {
+                    // Surfacing the system-Settings deep
+                    // link here means a user without an
+                    // iCloud account can fix that and come
+                    // back — the toggle is otherwise
+                    // permanently greyed out.
+                    Link("前往系统设置登录 iCloud",
+                         destination: URL(string: UIApplication.openSettingsURLString)!)
+                        .font(.caption2)
+                } else {
+                    Text("开启后，主题、界面设计、弹幕与后台音频会同步到登录了同一 Apple ID 的其他设备。")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             Section("插件中心") {

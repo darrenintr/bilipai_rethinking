@@ -85,6 +85,15 @@ struct BiliPaiNativeApp: App {
                     repository.onSessionExpired { [weak router] in
                         router?.openLogin()
                     }
+
+                    // iCloud preference mirror: idempotent bootstrap
+                    // that subscribes to remote-change notifications
+                    // and asks the system for an initial sync. The
+                    // store itself decides whether a real iCloud
+                    // account is signed in and exposes
+                    // `isAvailable` so the settings toggle can
+                    // render a hint when the user is not signed in.
+                    ICloudSync.shared.bootstrap()
                 }
                 // Invalidate the follow-feed's cached followings set
                 // whenever the active account changes. Without this,
