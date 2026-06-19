@@ -240,6 +240,55 @@ extension View {
         }
     }
 
+    /// Picker-style chip. Tap to set `selection` to `value`. Renders
+    /// pink when the value matches, neutral otherwise. Used by the
+    /// first-run welcome preferences card for `themeMode` /
+    /// `materialDesign` style pickers; also reusable in the settings
+    /// screen for the same kind of grouped choices.
+    @ViewBuilder
+    func paladalaPickerChip<Value: Hashable>(
+        selection: Binding<Value>,
+        value: Value,
+        design: MaterialDesign,
+        title: String,
+        symbol: String
+    ) -> some View {
+        let isSelected = selection.wrappedValue == value
+        Button {
+            Haptics.selection()
+            selection.wrappedValue = value
+        } label: {
+            PaladalaChip(title: title, symbol: symbol, isSelected: isSelected)
+        }
+        .buttonStyle(.plain)
+        .paladalaSelectionChip(isSelected: isSelected, design: design)
+    }
+
+    /// Toggle-style chip. Tap to flip `isOn`. Renders pink when on,
+    /// neutral when off. Used by the welcome preferences card for
+    /// the on/off feature flags (danmaku, background audio, iCloud,
+    /// 今日看什么). `disabled` dims + ignores taps — the iCloud chip
+    /// is disabled when the user has no iCloud account signed in.
+    @ViewBuilder
+    func paladalaToggleChip(
+        isOn: Binding<Bool>,
+        design: MaterialDesign,
+        title: String,
+        symbol: String,
+        disabled: Bool = false
+    ) -> some View {
+        Button {
+            Haptics.selection()
+            isOn.wrappedValue.toggle()
+        } label: {
+            PaladalaChip(title: title, symbol: symbol, isSelected: isOn.wrappedValue)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.5 : 1)
+        .paladalaSelectionChip(isSelected: isOn.wrappedValue, design: design)
+    }
+
     @ViewBuilder
     func bilipaiGlassEffect(
         cornerRadius: CGFloat = BiliPaiTheme.cardRadius,
@@ -286,5 +335,29 @@ extension View {
         self.background {
             PaladalaBackdrop()
         }
+    }
+}
+
+/// Internal label view used by `paladalaPickerChip` and
+/// `paladalaToggleChip`. Centralising the visual treatment here
+/// means both chip variants share the same SF Symbol + title
+/// rhythm without duplication.
+private struct PaladalaChip: View {
+    let title: String
+    let symbol: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.footnote.weight(.semibold))
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+        }
+        .foregroundStyle(isSelected ? BiliPaiTheme.biliPink : .primary)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .padding(.horizontal, 8)
     }
 }
