@@ -76,7 +76,7 @@ final class ICloudSync: ObservableObject {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleIdentityChange(_:)),
-            name: NSUbiquityIdentityDidChange,
+            name: NSUbiquityIdentityDidChangeNotification,
             object: nil
         )
         refreshAvailability()
