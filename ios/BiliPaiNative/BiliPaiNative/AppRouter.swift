@@ -79,6 +79,22 @@ final class AppRouter: ObservableObject {
     @Published var selectedTab: MainTab = .home
     @Published var path = NavigationPath()
     @Published var pendingSearchQuery = ""
+    /// One-shot: when the iPad sidebar taps "Trends" we don't add
+    /// a new `MainTab` case (that would pollute the iPhone tab bar)
+    /// — instead we hop to `.home` and stash a category hint that
+    /// `HomeView.task` reads on the next reload. The field is then
+    /// cleared so a later tab swap doesn't surprise the user.
+    @Published var pendingHomeCategory: HomeCategory?
+    /// Tracks which ProfileRoute (if any) the iPad sidebar last
+    /// pushed onto the profile tab. Used to light up the right
+    /// sidebar item (Collections / History / Settings) when the
+    /// user is parked on the profile tab. Cleared on `open(_ tab:)`
+    /// when leaving the profile tab.
+    @Published var activeProfileSection: ProfileRoute?
+    /// Drives the red dot on the iPad top-bar bell. Hard-coded to
+    /// `1` so the badge is always visible; swap to a real count
+    /// when the notification pipeline lands.
+    @Published var notificationCount: Int = 1
     /// Set to `true` to present the login sheet. The sheet sets it back
     /// to `false` when it dismisses itself.
     @Published var isLoginSheetPresented = false
@@ -86,6 +102,12 @@ final class AppRouter: ObservableObject {
     func open(_ tab: MainTab) {
         selectedTab = tab
         path.removeLast(path.count)
+        // Leaving the profile tab — clear the sub-section marker
+        // so the sidebar reverts to lighting up the Settings row
+        // when the user comes back via the main tap.
+        if tab != .profile {
+            activeProfileSection = nil
+        }
     }
 
     func openVideo(_ video: BiliVideo) {
@@ -114,6 +136,42 @@ final class AppRouter: ObservableObject {
         pendingSearchQuery = query
         selectedTab = .home
         path.removeLast(path.count)
+    }
+
+    /// Sidebar "Trends" tap. Switches to the home tab and leaves a
+    /// hint for `HomeView.task` to swap `model.category` to `.popular`
+    /// on the next refresh. Does nothing on top of the current state
+    /// if the user is already parked on Home.
+    func openHomeTrending() {
+        pendingHomeCategory = .popular
+        selectedTab = .home
+        path.removeLast(path.count)
+    }
+
+    /// Sidebar "Collections" tap. Routes to the user's favorite
+    /// folders; requires a logged-in account with a non-zero `mid`.
+    func openCollections(mid: Int64) {
+        guard mid > 0 else {
+            // Not signed in — fall through to the profile tab so
+            // the user sees the login prompt instead of an empty
+            // folder list.
+            openLogin()
+            return
+        }
+        selectedTab = .profile
+        path.removeLast(path.count)
+        path.append(ProfileRoute.favorites(mid: mid))
+        activeProfileSection = .favorites(mid: mid)
+    }
+
+    /// Sidebar "History" tap. The History endpoint reads the active
+    /// session cookie, so no `mid` is required; we just push the
+    /// route onto the profile tab.
+    func openHistory() {
+        selectedTab = .profile
+        path.removeLast(path.count)
+        path.append(ProfileRoute.history)
+        activeProfileSection = .history
     }
 
     func openLogin() {

@@ -131,7 +131,10 @@ private struct HeroSourceModifier: ViewModifier {
 /// Adds the long-press context menu only when a repository is
 /// available. Falls back to a no-op modifier otherwise so the
 /// `init(video:action:)` path stays free of a dependency.
-private struct VideoContextMenuIfAvailable: ViewModifier {
+///
+/// Internal (not `private`) so the iPad-specific `iPadVideoCard`
+/// in `HomeView.swift` can also opt in.
+struct VideoContextMenuIfAvailable: ViewModifier {
     let video: BiliVideo
     let repository: BiliPaiRepository?
 

@@ -86,10 +86,44 @@ struct BilibiliAuthAPI {
         var request = URLRequest(url: url)
         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
-        let (data, _) = try await session.data(for: request)
-        let payload = try decoder.decode(WebNavResponse.self, from: data)
+        let (data, response) = try await session.data(for: request)
+        // The diagnostic mid-404 we caught in the field (mid=3546385347513292
+        // — a 16-digit number that no Bilibili account ever has) was almost
+        // certainly the JSONDecoder silently accepting a malformed `mid`
+        // (string vs number, or a different field).  To make this diagnosable
+        // the first time we hit it again, capture the raw body (truncated to
+        // 1 KB so the diag log stays bounded) and the HTTP status before the
+        // decode step.  Validation happens after.
+        if let bodyPreview = String(data: data.prefix(1024), encoding: .utf8) {
+            diagLog(.auth, "/x/web-interface/nav raw body", details: [
+                "status": "\((response as? HTTPURLResponse)?.statusCode ?? -1)",
+                "bytes": "\(data.count)",
+                "body": bodyPreview
+            ])
+        }
+        let payload: WebNavResponse
+        do {
+            payload = try decoder.decode(WebNavResponse.self, from: data)
+        } catch {
+            diagLog(.auth, "/x/web-interface/nav decode failed", details: [
+                "error": String(describing: error)
+            ])
+            throw error
+        }
+        let rawMid = payload.data.mid
+        // Bilibili user IDs fit in unsigned 32-bit (max ~4.3×10⁹).  Anything
+        // larger is parser corruption or a stale keychain value from an old
+        // build.  Reject so the caller never persists a broken mid.
+        let sane = rawMid > 0 && rawMid <= UInt32.max
+        if !sane {
+            diagLog(.auth, "/x/web-interface/nav mid out of range", details: [
+                "rawMid": "\(rawMid)",
+                "name": payload.data.uname ?? "<nil>"
+            ])
+            throw BilibiliAuthAPIError.invalidMid(raw: rawMid)
+        }
         return WebQrcodeNavInfo(
-            mid: payload.data.mid,
+            mid: rawMid,
             name: payload.data.uname ?? "Bilibili 用户",
             faceURL: payload.data.faceURL
         )
@@ -235,6 +269,23 @@ private struct WebNavResponse: Decodable {
         var faceURL: URL? {
             guard let face else { return nil }
             return URL(string: face.hasPrefix("//") ? "https:\(face)" : face)
+        }
+    }
+}
+
+/// Thrown by `BilibiliAuthAPI.navInfo(cookieHeader:)` when the
+/// upstream `/x/web-interface/nav` response parses as JSON but the
+/// `mid` value is outside the unsigned 32-bit range that real
+/// Bilibili user IDs fit in.  Surfaced instead of letting the
+/// garbage value flow into `StoredAccount` and break every
+/// subsequent /x/space/* call with a 404.
+enum BilibiliAuthAPIError: LocalizedError {
+    case invalidMid(raw: Int64)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidMid(let raw):
+            return "登录成功但账号 mid 无效 (\(raw))，请重新登录或更新客户端"
         }
     }
 }

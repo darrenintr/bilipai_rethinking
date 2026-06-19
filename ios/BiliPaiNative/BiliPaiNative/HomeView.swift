@@ -38,6 +38,26 @@ struct HomeView: View {
     }
 
     var body: some View {
+        // iPad gets the redesigned layout (top bar lives in
+        // `PadRootView`, so this view is just the body content).
+        // iPhone keeps the original `ScrollViewReader`-driven
+        // layout untouched.
+        if horizontalSizeClass == .regular {
+            iPadHomeContent(
+                model: model,
+                repository: repository,
+                heroNamespace: heroNamespace
+            )
+        } else {
+            phoneBody
+        }
+    }
+
+    /// The original iPhone layout. Extracted into a private computed
+    /// view so the `horizontalSizeClass` branch in `body` reads
+    /// cleanly without disturbing the existing
+    /// `ScrollViewReader` / `feedContent` wiring.
+    private var phoneBody: some View {
         ScrollViewReader { proxy in
             feedContent(scrollProxy: proxy)
                 .background(Color.clear)
@@ -646,5 +666,492 @@ private struct TodayWatchCard: View {
         }
         .padding(14)
         .bilipaiCardSurface(materialDesign)
+    }
+}
+
+// MARK: - iPad layout
+//
+// The redesigned iPad home lives entirely below the
+// `PadTopBar` pinned at the `PadRootView` level. It reuses the
+// shared `HomeViewModel` and the existing `BiliVideo` model —
+// no new fields are added to the model. The "Today" section
+// reuses the first 3 items of the loaded feed; once a real
+// recommendations endpoint lands, swap the prefix for that
+// fetch without touching the view layer.
+//
+// `iPadVideoCard` is intentionally a sibling of the iPhone
+// `VideoCard` (in `SharedViews.swift`), not a variant of it —
+// the iPad card needs an avatar row + meta line that the iPhone
+// card does not, and a single shared component would force the
+// phone to pay the avatar-rendering cost for every cell.
+
+/// iPad-only home content. Branches off `HomeView.body` when
+/// `horizontalSizeClass == .regular`. All state is local except
+/// the externally-owned `HomeViewModel`.
+private struct iPadHomeContent: View {
+    @ObservedObject var model: HomeViewModel
+    let repository: BiliPaiRepository
+    let heroNamespace: Namespace.ID?
+
+    @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+    @State private var sortOption: UploadSort = .latest
+    @State private var didApplyPendingCategory = false
+
+    /// 3-column grid matches the design mockup; spacing is wider
+    /// than the iPhone grid (12pt) because the iPad cards are
+    /// bigger and need more visual room.
+    private static let columns: [GridItem] = [
+        GridItem(.flexible(), spacing: 18),
+        GridItem(.flexible(), spacing: 18),
+        GridItem(.flexible(), spacing: 18),
+    ]
+
+    private var modelAccountMid: Int64 {
+        authStore.activeAccount?.mid ?? 0
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                iPadCategoryChips(model: model)
+                iPadTodaySection(videos: Array(model.videos.prefix(3)))
+                iPadRecentUploadsSection(
+                    videos: sortedVideos,
+                    repository: repository,
+                    heroNamespace: heroNamespace,
+                    sortOption: $sortOption,
+                    columns: Self.columns
+                )
+            }
+            .padding(24)
+        }
+        .scrollIndicators(.hidden)
+        .refreshable {
+            Haptics.medium()
+            await model.load(repository: repository, accountMid: modelAccountMid)
+        }
+        .task {
+            // Apply the one-shot `pendingHomeCategory` set by the
+            // sidebar's Trends tap. We do this exactly once per
+            // task invocation to avoid loops if `model.category`
+            // doesn't actually change.
+            if !didApplyPendingCategory, let pending = router.pendingHomeCategory {
+                didApplyPendingCategory = true
+                router.pendingHomeCategory = nil
+                if model.category != pending {
+                    model.category = pending
+                }
+            }
+            if model.videos.isEmpty && model.liveRooms.isEmpty {
+                await model.load(repository: repository, accountMid: modelAccountMid)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .padHomeRefresh)) { _ in
+            Haptics.medium()
+            Task { await model.load(repository: repository, accountMid: modelAccountMid) }
+        }
+        .onChange(of: model.category) { _, _ in
+            Task { await model.load(repository: repository, accountMid: modelAccountMid) }
+        }
+    }
+
+    /// Sort the current feed locally. Note: the upstream
+    /// `recommend` endpoint doesn't return a `pubDate`, so
+    /// `.oldest` is currently a reverse of `.latest` rather than
+    /// a true chronological order. Once `BiliVideo` gains a
+    /// `pubDate` field, swap the `.reversed()` for a real sort.
+    private var sortedVideos: [BiliVideo] {
+        switch sortOption {
+        case .latest:
+            return model.videos
+        case .popular:
+            return model.videos.sorted { $0.viewCount > $1.viewCount }
+        case .oldest:
+            return model.videos.reversed()
+        }
+    }
+}
+
+/// Horizontal category chip strip rendered at the top of the
+/// iPad home content. Uses dark-pill active state (the
+/// mockup's "All" treatment) rather than the iPhone's pink
+/// `paladalaSelectionChip`, so the two form factors stay
+/// visually distinct.
+private struct iPadCategoryChips: View {
+    @ObservedObject var model: HomeViewModel
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(HomeCategory.androidTabs) { category in
+                    iPadCategoryChip(
+                        title: chipTitle(for: category),
+                        isSelected: model.category == category
+                    ) {
+                        if model.category != category {
+                            model.category = category
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The mockup's chip names don't map 1:1 to `HomeCategory`
+    /// (we don't have `music / vlogs / lifestyle / cooking`
+    /// cases). We use the existing `category.title` for now and
+    /// mark this as a known mapping gap in the doc comment.
+    private func chipTitle(for category: HomeCategory) -> String {
+        switch category {
+        case .recommend: return "All"
+        case .follow:    return "Follow"
+        case .popular:   return "Trending"
+        case .live:      return "Live"
+        case .anime:     return "Anime"
+        case .game:      return "Gaming"
+        case .knowledge: return "Knowledge"
+        case .tech:      return "Tech"
+        case .search:    return "Search"
+        }
+    }
+}
+
+/// Single chip in the iPad category strip. Filled-black active
+/// state matches the mockup; inactive chips use a soft neutral
+/// capsule so the active chip stands out.
+private struct iPadCategoryChip: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(
+                    isSelected ? Color.primary : Color.primary.opacity(0.06),
+                    in: .rect(cornerRadius: BiliPaiTheme.pillRadius,
+                              style: BiliPaiTheme.cornerStyle)
+                )
+                .foregroundStyle(isSelected ? Color(uiColor: .systemBackground) : .primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// "What to watch today" section. Header carries a sparkles
+/// icon and a "See all recommendations" link; the three
+/// recommendation cards sit below in a horizontal HStack. Each
+/// card is a 16:10 cover + 2-line title + a soft-grey
+/// recommendation reason (hard-coded for now — the upstream
+/// API doesn't return per-video reasoning).
+private struct iPadTodaySection: View {
+    let videos: [BiliVideo]
+    let onSeeAll: () -> Void = {}
+
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("今天看什麼", systemImage: "sparkles")
+                    .font(.title3.weight(.semibold))
+                    .labelStyle(.titleAndIcon)
+                Spacer()
+                Button("See all recommendations", action: onSeeAll)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(BiliPaiTheme.biliPink)
+            }
+            if videos.isEmpty {
+                // Empty placeholder: keep the section visible
+                // (instead of hiding it) so the user understands
+                // the layout even before the first feed load
+                // returns. Mirrors the iPhone `HomeEmptyState`
+                // pattern at a smaller scale.
+                Text("今日推薦準備中…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+                    .bilipaiCardSurface(materialDesign)
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    ForEach(videos) { video in
+                        iPadRecommendCard(video: video)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One card in the "What to watch today" row. Tap to open the
+/// video via the existing router.
+private struct iPadRecommendCard: View {
+    let video: BiliVideo
+    @EnvironmentObject private var router: AppRouter
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+
+    var body: some View {
+        Button {
+            router.openVideo(video)
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack(alignment: .topLeading) {
+                    CoverImage(url: video.coverURL)
+                        .aspectRatio(16 / 10, contentMode: .fill)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(.rect(cornerRadius: BiliPaiTheme.cardRadius,
+                                         style: BiliPaiTheme.cornerStyle))
+                    // The "LIVE" badge is rendered only when the
+                    // future `video.isLive` lands; for now there
+                    // is no signal to attach it to, so the slot
+                    // stays empty.
+                }
+                Text(video.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Based on what you've been watching · 根據你的觀看")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .bilipaiCardSurface(materialDesign)
+            .clipShape(.rect(cornerRadius: BiliPaiTheme.cardRadius,
+                             style: BiliPaiTheme.cornerStyle))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// "Recent Uploads" section. Title + "Sort by: …" dropdown on
+/// the right, then a 3-column grid of `iPadVideoCard` cells.
+private struct iPadRecentUploadsSection: View {
+    let videos: [BiliVideo]
+    let repository: BiliPaiRepository
+    let heroNamespace: Namespace.ID?
+    @Binding var sortOption: UploadSort
+    let columns: [GridItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("最新上傳")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                iPadSortMenu(selection: $sortOption)
+            }
+            LazyVGrid(columns: columns, spacing: 20) {
+                ForEach(videos) { video in
+                    iPadVideoCard(
+                        video: video,
+                        repository: repository,
+                        heroNamespace: heroNamespace
+                    ) {
+                        router.openVideo(video)
+                    }
+                }
+            }
+        }
+    }
+
+    @EnvironmentObject private var router: AppRouter
+}
+
+/// Sort dropdown for the Recent Uploads section. Uses the
+/// canonical `Menu { Picker } label: { ... }` pattern so the
+/// label looks like a button and the picker items render
+/// inside the menu when tapped.
+private struct iPadSortMenu: View {
+    @Binding var selection: UploadSort
+
+    var body: some View {
+        Menu {
+            Picker("排序", selection: $selection) {
+                ForEach(UploadSort.allCases) { sort in
+                    Text(sort.title).tag(sort)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text("排序：\(selection.title)")
+                    .font(.subheadline.weight(.semibold))
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Color.primary.opacity(0.06),
+                in: .rect(cornerRadius: BiliPaiTheme.pillRadius,
+                          style: BiliPaiTheme.cornerStyle)
+            )
+        }
+    }
+}
+
+private enum UploadSort: String, CaseIterable, Identifiable {
+    case latest
+    case popular
+    case oldest
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .latest:  return "最新"
+        case .popular: return "最多觀看"
+        case .oldest:  return "最早"
+        }
+    }
+}
+
+/// iPad video card. Cover with duration badge, 2-line title,
+/// then a channel row (initial-letter avatar + channel name +
+/// meta line + kebab menu).
+private struct iPadVideoCard: View {
+    let video: BiliVideo
+    let repository: BiliPaiRepository?
+    let heroNamespace: Namespace.ID?
+    let action: () -> Void
+
+    @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+
+    /// Reserved height for the title block. The cover has a
+    /// fixed 16:10 aspect ratio (so it dictates its own
+    /// height); pinning the title block keeps all cards in a
+    /// row at the same total height even when one title wraps
+    /// to 2 lines and another stays at 1.
+    private static let titleBlockHeight: CGFloat = 44
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack(alignment: .bottomTrailing) {
+                    CoverImage(url: video.coverURL)
+                        .aspectRatio(16 / 10, contentMode: .fill)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(.rect(cornerRadius: BiliPaiTheme.cardRadius,
+                                         style: BiliPaiTheme.cornerStyle))
+                    Text(video.duration.mmss)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            Color.black.opacity(0.62),
+                            in: .rect(cornerRadius: BiliPaiTheme.pillRadius,
+                                      style: BiliPaiTheme.cornerStyle)
+                        )
+                        .padding(8)
+                }
+                Text(video.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(minHeight: Self.titleBlockHeight, alignment: .topLeading)
+                channelRow
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .bilipaiCardSurface(materialDesign)
+            .clipShape(.rect(cornerRadius: BiliPaiTheme.cardRadius,
+                             style: BiliPaiTheme.cornerStyle))
+            .contentShape(.rect(cornerRadius: BiliPaiTheme.cardRadius,
+                                style: BiliPaiTheme.cornerStyle))
+        }
+        .buttonStyle(.plain)
+        .modifier(VideoContextMenuIfAvailable(video: video, repository: repository))
+    }
+
+    private var channelRow: some View {
+        HStack(spacing: 8) {
+            channelAvatar
+            VStack(alignment: .leading, spacing: 2) {
+                Text(video.ownerName)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(metaLine)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            kebabMenu
+        }
+    }
+
+    /// Placeholder channel avatar. `BiliVideo` does not have an
+    /// `ownerAvatarURL` field; we render a colored circle with
+    /// the first character of the channel name. When the field
+    /// lands, swap this for a `ResilientImage(url:)` call.
+    private var channelAvatar: some View {
+        let initial = video.ownerName.first.map(String.init) ?? "·"
+        return Circle()
+            .fill(BiliPaiTheme.biliPink.opacity(0.18))
+            .frame(width: 28, height: 28)
+            .overlay(
+                Text(initial)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(BiliPaiTheme.biliPink)
+            )
+    }
+
+    /// "1.2M views · 刚刚" — `pubDate` doesn't exist on the
+    /// model yet, so the time slot is hard-coded to "剛剛".
+    private var metaLine: String {
+        let views = video.viewCount > 0 ? "\(video.viewCount.compactCount) views" : "— views"
+        return "\(views) · 剛剛"
+    }
+
+    /// Kebab menu. We expose a small subset of actions here —
+    /// the long-press `VideoContextMenuIfAvailable` covers the
+    /// full set (watch-later / favourite / etc.), but the
+    /// visible kebab is what the mockup calls for.
+    private var kebabMenu: some View {
+        Menu {
+            if let url = bilibiliShareURL(for: video) {
+                ShareLink(item: url) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            }
+            Button {
+                UIPasteboard.general.string = bilibiliShareURL(for: video)?.absoluteString
+            } label: {
+                Label("Copy link", systemImage: "doc.on.doc")
+            }
+            Button {
+                if let url = bilibiliShareURL(for: video) {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Label("Open in browser", systemImage: "safari")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+        }
+    }
+
+    private func bilibiliShareURL(for video: BiliVideo) -> URL? {
+        guard !video.bvid.isEmpty else { return nil }
+        return URL(string: "https://www.bilibili.com/video/\(video.bvid)")
     }
 }
