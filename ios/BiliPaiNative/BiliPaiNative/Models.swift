@@ -111,6 +111,51 @@ extension BiliVideo {
     }
 }
 
+/// Bilibili's official "AI 视频总结" payload returned by
+/// `/x/web-interface/view/conclusion/get`. The summary text is
+/// Markdown-formatted prose from B站's NLP pipeline; the
+/// outline is a chapter list with second-precision timestamps
+/// that the player can seek to. We render `summary` via
+/// `Text(.init(...))` so the native `LocalizedStringKey`
+/// formatter handles `**bold**`, `_italic_`, and
+/// `[link](url)` without pulling in a Markdown parser.
+///
+/// The endpoint returns this struct's `summary` and `outline`
+/// populated for videos that have an AI summary yet. Videos
+/// without one return `code != 0` and the repository layer
+/// maps that to `nil` — the ViewModel treats `nil` as
+/// "no section to render" rather than an error state.
+struct BiliAISummary: Codable, Hashable {
+    let summary: String
+    let outline: [BiliAISummaryChapter]
+
+    var isEmpty: Bool { summary.isEmpty && outline.isEmpty }
+}
+
+/// One chapter in the AI summary outline. Bilibili publishes
+/// `timestamp` as raw seconds (an Int); the ViewModel renders
+/// it as `HH:MM:SS` / `MM:SS` via `timestampLabel`. The
+/// `content` field is a short paragraph elaborating the
+/// chapter — used as the row subtitle.
+struct BiliAISummaryChapter: Codable, Hashable, Identifiable {
+    let title: String
+    let content: String
+    let timestamp: Int
+
+    var id: Int { timestamp }
+
+    var timestampLabel: String {
+        let total = max(0, timestamp)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
+    }
+}
+
 /// One playable Bilibili source.  The local HLS proxy turns
 /// this into an HLS manifest on a 127.0.0.1 loopback HTTP
 /// server (`LocalHLSProxyServer`), so a single `BiliPlayback`

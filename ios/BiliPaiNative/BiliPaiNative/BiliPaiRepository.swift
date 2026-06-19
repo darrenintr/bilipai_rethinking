@@ -307,6 +307,33 @@ final class BiliPaiRepository: ObservableObject {
         try await apiClient.likeVideo(aid: aid, action: action)
     }
 
+    /// Fetch Bilibili's official AI 视频总结 for a video.
+    ///
+    /// Returns `nil` when:
+    ///   - the video has no AI summary yet (upstream returns a
+    ///     non-zero `code`)
+    ///   - the user is anonymous (-101)
+    ///   - the request hits 风控 (-403 / -352)
+    ///
+    /// The ViewModel treats all three as "no section to render".
+    ///
+    /// `ownerMid == 0` short-circuits because the request would
+    /// fail without a known `up_mid`; this is the feed-entry
+    /// shape (`HomeRecommendCard`, dynamic-feed archive, history
+    /// rows) whose `BiliVideo.ownerMid` is `0`. The detail view's
+    /// `load(...)` always replaces `model.detail` with the full
+    /// `VideoDTO` shape (which carries the real `ownerMid`) before
+    /// invoking `loadAISummary`, so the guard is purely defensive.
+    func aiSummary(for video: BiliVideo) async throws -> BiliAISummary? {
+        guard video.ownerMid != 0, video.cid != 0 else { return nil }
+        return try await apiClient.aiSummary(
+            bvid: video.bvid,
+            aid: video.aid,
+            cid: video.cid,
+            upMid: video.ownerMid
+        )
+    }
+
     func favoriteFolders(mid: Int64) async throws -> [FavoriteFolderSummary] {
         try await apiClient.favoriteFolders(mid: mid)
     }

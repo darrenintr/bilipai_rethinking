@@ -411,6 +411,73 @@ final class BilibiliAPIClient {
         return detail
     }
 
+    /// Fetch Bilibili's official "AI 视频总结" (AI 小助手) for a video.
+    /// Hits `/x/web-interface/view/conclusion/get` with WBI signing.
+    ///
+    /// The endpoint returns `data.model_result.{summary, outline}` for
+    /// videos that have an AI summary yet, and one of several
+    /// non-zero codes otherwise:
+    ///   - -101   : user is not logged in (anonymous)
+    ///   - -352   : 风控 (rate-limit / wind-control)
+    ///   - -403   : `up_mid` does not match the owner of `bvid`
+    ///   - other  : eligibility / content gating
+    ///
+    /// We deliberately do NOT throw on non-zero codes — the
+    /// upstream returns a fully-formed error envelope (code +
+    /// message + `ttl`), not a real HTTP error, and the ViewModel
+    /// treats every non-success as "no summary to show". We throw
+    /// only on actual network / decode failures (which the ViewModel
+    /// also collapses to "no summary" via its catch path).
+    ///
+    /// Required query parameters:
+    ///   - `bvid` (preferred) or `aid` — the video identity
+    ///   - `cid`                       — the active page cid
+    ///   - `up_mid`                    — the owner's Bilibili mid
+    ///
+    /// `up_mid` is required by Bilibili's WBI rate-limiter; sending
+    /// it mismatched causes -403, omitting it is more aggressively
+    /// rate-limited. The repository wrapper short-circuits when
+    /// `ownerMid == 0` (the feed-entry shape), so this method is
+    /// never called with an unknown owner mid in practice.
+    func aiSummary(bvid: String, aid: Int = 0, cid: Int, upMid: Int64) async throws -> BiliAISummary? {
+        var queryItems: [URLQueryItem] = []
+        if !bvid.isEmpty {
+            queryItems.append(URLQueryItem(name: "bvid", value: bvid))
+        } else if aid > 0 {
+            queryItems.append(URLQueryItem(name: "aid", value: "\(aid)"))
+        } else {
+            throw BilibiliAPIError.missingIdentity
+        }
+        if cid > 0 {
+            queryItems.append(URLQueryItem(name: "cid", value: "\(cid)"))
+        }
+        if upMid > 0 {
+            queryItems.append(URLQueryItem(name: "up_mid", value: "\(upMid)"))
+        }
+
+        let payload: APIResponse<BiliAISummaryPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/view/conclusion/get",
+            queryItems: queryItems,
+            signWithWBI: true
+        )
+
+        // Non-zero code → "no summary". Log so the diagnostic
+        // report shows which video failed and why (very useful
+        // when a user's device keeps returning -352 because
+        // they are behind a captive portal or similar).
+        if let code = payload.code, code != 0 {
+            diagLog(.playback, "AI summary endpoint returned non-zero code",
+                    details: [
+                        "bvid": bvid,
+                        "code": code,
+                        "message": payload.message ?? ""
+                    ])
+            return nil
+        }
+        return payload.value?.modelResult
+    }
+
     func playbackURL(bvid: String, aid: Int = 0, cid: Int, preferredQn: Int = 80) async throws -> BiliPlayback {
         // The current canonical path is `/x/player/wbi/playurl` — the
         // non-wbi alias is being phased out.  The `fnval` bitmask is:
@@ -1544,6 +1611,20 @@ private struct VideoDTO: Decodable {
         viewCount = stat?.decodeInt(keys: ["view", "view_count"]) ?? container.decodeInt(keys: ["play"]) ?? 0
         danmakuCount = stat?.decodeInt(keys: ["danmaku"]) ?? container.decodeInt(keys: ["danmaku"]) ?? 0
         likeCount = stat?.decodeInt(keys: ["like"]) ?? 0
+    }
+}
+
+/// Internal decoder for the AI 视频总结 endpoint. Mirrors the
+/// `data.model_result.{summary, outline}` envelope. `model_result`
+/// is sometimes `null` on the wire (videos with no AI summary yet)
+/// and the shape is also absent on older endpoint versions, so
+/// both fields are optional via a hand-rolled `init(from:)`.
+private struct BiliAISummaryPayload: Decodable {
+    let modelResult: BiliAISummary?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        modelResult = try? container.decode(BiliAISummary.self, forKey: DynamicKey("model_result"))
     }
 }
 

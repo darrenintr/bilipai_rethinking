@@ -233,6 +233,9 @@ struct VideoDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 titleBlock
+                if aiSummaryShouldRender {
+                    aiSummarySection
+                }
                 controlPanel
                 commentPreview
             }
@@ -243,6 +246,17 @@ struct VideoDetailView: View {
             repository: repository,
             playerScale: $playerScale
         ))
+    }
+
+    /// Three states collapse to one boolean so the
+    /// `commentsScrollView` VStack stays scannable:
+    ///   - loading + no data: show shimmer placeholder
+    ///   - has data: show expandable card
+    ///   - unavailable / no data: hide entirely (graceful absence)
+    private var aiSummaryShouldRender: Bool {
+        if model.aiSummary != nil { return true }
+        if model.aiSummaryLoading { return true }
+        return false
     }
 
     @ViewBuilder
@@ -425,6 +439,113 @@ struct VideoDetailView: View {
             Label("已下载", systemImage: "checkmark.circle.fill")
         case .failed:
             Label("重试下载", systemImage: "exclamationmark.arrow.circlepath")
+        }
+    }
+
+    /// Bilibili official "AI 视频总结" card. Header row is
+    /// always visible (while data exists or is loading); the
+    /// prose + chapter outline render only when expanded.
+    /// Tapping a chapter seeks the player to that timestamp
+    /// via `VideoDetailViewModel.seekAIOutline(...)`.
+    private var aiSummarySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    model.aiSummaryExpanded.toggle()
+                }
+                Haptics.selection()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(BiliPaiTheme.biliPink)
+                    Text(L10n.aiSummary.title)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    if model.aiSummaryLoading {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else if let summary = model.aiSummary {
+                        Text("\(summary.outline.count)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                        Image(systemName: model.aiSummaryExpanded
+                              ? "chevron.up" : "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(model.aiSummaryExpanded
+                               ? "Tap to collapse"
+                               : "Tap to expand")
+
+            if model.aiSummaryExpanded, let summary = model.aiSummary {
+                aiSummaryExpandedBody(summary)
+            }
+        }
+        .padding(14)
+        .bilipaiCardSurface(materialDesign)
+    }
+
+    /// Body of the AI summary card (rendered only when expanded).
+    /// Renders the Markdown prose via `Text(.init(...))` so
+    /// `**bold**`, `_italic_`, and `[link](url)` survive without
+    /// pulling in a Markdown parser; the outline is a plain
+    /// `ForEach` of `Button` rows that seek the player.
+    @ViewBuilder
+    private func aiSummaryExpandedBody(_ summary: BiliAISummary) -> some View {
+        if !summary.summary.isEmpty {
+            Text(.init(summary.summary))
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        if !summary.outline.isEmpty {
+            Divider().padding(.vertical, 4)
+            Text(L10n.aiSummary.chapters)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(summary.outline) { chapter in
+                    Button {
+                        model.seekAIOutline(
+                            toSeconds: Double(chapter.timestamp),
+                            controller: playerController
+                        )
+                        Haptics.tap()
+                    } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            Text(chapter.timestampLabel)
+                                .font(.caption.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(BiliPaiTheme.biliPink)
+                                .frame(width: 52, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(chapter.title)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                if !chapter.content.isEmpty {
+                                    Text(chapter.content)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if chapter.id != summary.outline.last?.id {
+                        Divider()
+                    }
+                }
+            }
         }
     }
 

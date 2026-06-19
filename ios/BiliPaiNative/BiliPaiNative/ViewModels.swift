@@ -324,6 +324,27 @@ final class VideoDetailViewModel: ObservableObject {
     /// `$downloadState` to redraw the control-panel button
     /// when the user starts, completes, or fails a download.
     @Published var downloadState: DownloadState = .notDownloaded
+    /// Bilibili's official "AI 视频总结" for this video, if one
+    /// exists. `nil` means either (a) we haven't fetched yet,
+    /// (b) the upstream returned no summary for this video, or
+    /// (c) the request failed. The view collapses (b) and (c)
+    /// into "no section" via `aiSummaryUnavailable` — we
+    /// distinguish them so the view can show a one-frame
+    /// shimmer during (a) without flickering on subsequent
+    /// failures.
+    @Published var aiSummary: BiliAISummary?
+    @Published var aiSummaryLoading = false
+    /// User-controlled expand/collapse state. Defaults to
+    /// collapsed so the section does not steal vertical space
+    /// from the comments on first open.
+    @Published var aiSummaryExpanded = false
+    /// `true` once we have determined there is no AI summary to
+    /// show (upstream returned no `model_result`, anonymous user,
+    /// 风控 rate-limit, or feed-entry shape with `ownerMid == 0`).
+    /// The view treats this together with `aiSummary == nil` as
+    /// "do not render the section at all" — no error banner, no
+    /// "no summary" placeholder.
+    @Published var aiSummaryUnavailable = false
 
     private var nextCommentCursor: Int?
     /// Fixed page size for comment fetches. The user wants pure
@@ -449,6 +470,71 @@ final class VideoDetailViewModel: ObservableObject {
         }
     }
 
+    /// Fetch Bilibili's official AI 视频总结 for the current video.
+    /// Three collapse-to-`nil` outcomes (no summary / anonymous /
+    /// 风控 / feed-entry shape) all map to `aiSummaryUnavailable = true`
+    /// so the view hides the section without an error banner.
+    ///
+    /// Called from `load(repository:)` after the detail + playback
+    /// fetches complete, so `detail.ownerMid` and `detail.cid` are
+    /// guaranteed to be populated when we hit the network.
+    func loadAISummary(repository: BiliPaiRepository) async {
+        // Bail early when we know we'd get nothing back:
+        //   - `ownerMid == 0` is the feed-entry shape (the view
+        //     was opened from a card whose full detail has not been
+        //     fetched yet — `load()` will replace `detail` before
+        //     we run, so this guard is only hit on the legacy aid-only
+        //     paths that never reach the view endpoint).
+        //   - `cid == 0` means the view endpoint never returned a
+        //     playable cid (rare).
+        guard detail.ownerMid != 0, detail.cid != 0 else {
+            aiSummaryUnavailable = true
+            aiSummary = nil
+            return
+        }
+        aiSummaryLoading = true
+        defer { aiSummaryLoading = false }
+        do {
+            let summary = try await repository.aiSummary(for: detail)
+            // Collapse empty payloads (no prose + no chapters)
+            // to "no summary" — the view would otherwise render
+            // an empty card with a header chip but no content.
+            if let summary, !summary.isEmpty {
+                aiSummary = summary
+                aiSummaryUnavailable = false
+            } else {
+                aiSummary = nil
+                aiSummaryUnavailable = true
+            }
+        } catch {
+            // Network / decode failure. Log so the diagnostic
+            // report can show what went wrong, but never
+            // surface this to the user — the section just hides.
+            bpLog("AI summary fetch failed: \(error)")
+            aiSummary = nil
+            aiSummaryUnavailable = true
+        }
+    }
+
+    /// Tap-to-seek from an outline row in the AI 视频总结 section.
+    /// The outline publishes `timestamp` in seconds; we convert
+    /// to a relative offset from the current playhead so we can
+    /// reuse `PlayerController.seek(by:)` (which already clamps
+    /// to `[0, duration]` and uses approximate-tolerance seek
+    /// to the nearest keyframe).
+    func seekAIOutline(toSeconds seconds: Double, controller: PlayerController?) {
+        guard let controller else { return }
+        let duration = controller.duration
+        let target: Double
+        if duration > 0 {
+            target = max(0, min(duration, seconds))
+        } else {
+            target = max(0, seconds)
+        }
+        let offset = target - controller.currentTime
+        controller.seek(by: offset)
+    }
+
     private var cancellables: [AnyCancellable] = []
 
     func load(repository: BiliPaiRepository) async {
@@ -475,6 +561,12 @@ final class VideoDetailViewModel: ObservableObject {
                         "hasFallback": self.playback?.fallbackURL != nil
                     ])
             await loadComments(repository: repository)
+            // Fetch the official AI 视频总结. Runs in parallel with
+            // the comments fetch above via the `await` keyword; both
+            // are dispatched as `Task`s by the surrounding `async
+            // let`. Failures here are silent — the section simply
+            // does not render.
+            await loadAISummary(repository: repository)
 
             // Start of playback: report progress=0 to mark it in the history list.
             // The periodic 30s heartbeat is handled by WatchSession in the View layer.
