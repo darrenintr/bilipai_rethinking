@@ -51,6 +51,11 @@
 		100000000000000000000468 /* ICloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000467 /* ICloudSync.swift */; };
 		10000000000000000000046A /* LiveActivityCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000469 /* LiveActivityCoordinator.swift */; };
 		100000000000000000000465 /* LiveRoomActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000464 /* LiveRoomActivityAttributes.swift */; };
+		100000000000000000000472 /* BiliPaiWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000471 /* BiliPaiWidgetBundle.swift */; };
+		100000000000000000000474 /* LiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000473 /* LiveActivityWidget.swift */; };
+		100000000000000000000475 /* LiveRoomActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000464 /* LiveRoomActivityAttributes.swift */; };
+		100000000000000000000477 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000476 /* Info.plist */; };
+		10000000000000000000047A /* BiliPaiWidget.appex in Embed PlugIns */ = {isa = PBXBuildFile; fileRef = 100000000000000000000479 /* BiliPaiWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -101,10 +106,22 @@
 		100000000000000000000467 /* ICloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSync.swift; sourceTree = "<group>"; };
 		100000000000000000000469 /* LiveActivityCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityCoordinator.swift; sourceTree = "<group>"; };
 		10000000000000000000046B /* BiliPaiNative.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BiliPaiNative.entitlements; sourceTree = "<group>"; };
+		100000000000000000000471 /* BiliPaiWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiliPaiWidgetBundle.swift; sourceTree = "<group>"; };
+		100000000000000000000473 /* LiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityWidget.swift; sourceTree = "<group>"; };
+		100000000000000000000476 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		100000000000000000000478 /* BiliPaiWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BiliPaiWidget.entitlements; sourceTree = "<group>"; };
+		100000000000000000000479 /* BiliPaiWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BiliPaiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		100000000000000000000301 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		10000000000000000000047E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -118,6 +135,7 @@
 			isa = PBXGroup;
 			children = (
 				100000000000000000000402 /* BiliPaiNative */,
+				100000000000000000000470 /* BiliPaiWidget */,
 				100000000000000000000403 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -174,6 +192,7 @@
 			isa = PBXGroup;
 			children = (
 				100000000000000000000001 /* Paladala.app */,
+				100000000000000000000479 /* BiliPaiWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -207,9 +226,37 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		100000000000000000000470 /* BiliPaiWidget */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000471 /* BiliPaiWidgetBundle.swift */,
+				100000000000000000000473 /* LiveActivityWidget.swift */,
+				100000000000000000000476 /* Info.plist */,
+				100000000000000000000478 /* BiliPaiWidget.entitlements */,
+			);
+			path = BiliPaiWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		10000000000000000000047B /* BiliPaiWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 100000000000000000000482 /* Build configuration list for PBXNativeTarget "BiliPaiWidget" */;
+			buildPhases = (
+				10000000000000000000047C /* Sources */,
+				10000000000000000000047E /* Frameworks */,
+				10000000000000000000047D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BiliPaiWidget;
+			productName = BiliPaiWidget;
+			productReference = 100000000000000000000479 /* BiliPaiWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		100000000000000000000501 /* BiliPaiNative */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 100000000000000000000901 /* Build configuration list for PBXNativeTarget "BiliPaiNative" */;
@@ -217,10 +264,12 @@
 				100000000000000000000701 /* Sources */,
 				100000000000000000000301 /* Frameworks */,
 				100000000000000000000801 /* Resources */,
+				10000000000000000000047F /* Embed PlugIns */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				100000000000000000000480 /* PBXTargetDependency */,
 			);
 			name = BiliPaiNative;
 			productName = Paladala;
@@ -228,6 +277,38 @@
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		10000000000000000000047F /* Embed PlugIns */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				10000000000000000000047A /* BiliPaiWidget.appex in Embed PlugIns */,
+			);
+			name = "Embed PlugIns";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		100000000000000000000481 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 100000000000000000000601 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 10000000000000000000047B;
+			remoteInfo = BiliPaiWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		100000000000000000000480 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 10000000000000000000047B /* BiliPaiWidget */;
+			targetProxy = 100000000000000000000481 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		100000000000000000000601 /* Project object */ = {
@@ -237,6 +318,9 @@
 				LastSwiftUpdateCheck = 1500;
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
+					10000000000000000000047B = {
+						CreatedOnToolsVersion = 15.0;
+					};
 					100000000000000000000501 = {
 						CreatedOnToolsVersion = 15.0;
 					};
@@ -258,6 +342,7 @@
 			projectRoot = "";
 			targets = (
 				100000000000000000000501 /* BiliPaiNative */,
+				10000000000000000000047B /* BiliPaiWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -268,6 +353,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				100000000000000000000111 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		10000000000000000000047D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000477 /* Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -321,6 +414,16 @@
 				100000000000000000000468 /* ICloudSync.swift in Sources */,
 				10000000000000000000046A /* LiveActivityCoordinator.swift in Sources */,
 				100000000000000000000465 /* LiveRoomActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		10000000000000000000047C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000472 /* BiliPaiWidgetBundle.swift in Sources */,
+				100000000000000000000474 /* LiveActivityWidget.swift in Sources */,
+				100000000000000000000475 /* LiveRoomActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -502,6 +605,66 @@
 			};
 			name = Release;
 		};
+		100000000000000000000B05 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BiliPaiWidget/BiliPaiWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BiliPaiWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "BiliPai Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bilipai.nativeios.BiliPaiWidget;
+				PRODUCT_NAME = BiliPaiWidget;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		100000000000000000000B06 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BiliPaiWidget/BiliPaiWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BiliPaiWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "BiliPai Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bilipai.nativeios.BiliPaiWidget;
+				PRODUCT_NAME = BiliPaiWidget;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -519,6 +682,15 @@
 			buildConfigurations = (
 				100000000000000000000A01 /* Debug */,
 				100000000000000000000A02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		100000000000000000000482 /* Build configuration list for PBXNativeTarget "BiliPaiWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				100000000000000000000B05 /* Debug */,
+				100000000000000000000B06 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
