@@ -50,8 +50,9 @@ final class DownloadManager: NSObject, ObservableObject {
     @Published private(set) var progress: [String: Double] = [:]
 
     /// Per-bvid state for the UI.  `downloaded` is set by
-    /// `urlSession(_:downloadTask:didFinishDownloadingTo:)`
-    /// and consumed by the VM when it observes the change.
+    /// `completeAllSegments(bvid:)` once all the on-disk
+    /// bytes have landed and `DownloadStore.shared.add(_:)`
+    /// has accepted the manifest entry.
     @Published private(set) var stateByBvid: [String: DownloadState] = [:]
 
     /// Completion handler stashed by the app delegate.  The
@@ -73,6 +74,31 @@ final class DownloadManager: NSObject, ObservableObject {
     /// the `bvid` — we set that in `start(_:)` and read it
     /// in the delegate callbacks.
     private var taskToBvid: [Int: String] = [:]
+
+    /// Pending-download metadata keyed by `bvid`.  Populated
+    /// in `start(video:playback:)` and consumed in
+    /// `completeAllSegments(bvid:)` to build the
+    /// `DownloadRecord` that gets handed to `DownloadStore`.
+    /// Without this stash the manager has no way to recover
+    /// the title / owner / cover / aid / cid / dash that the
+    /// `DownloadRecord` needs — the delegate callback only
+    /// carries the URL, not the metadata.
+    private struct PendingDownload {
+        let video: BiliVideo
+        let playback: BiliPlayback
+        let expectedSegments: Int
+        var completedSegments: Int = 0
+    }
+    private var pendingByBvid: [String: PendingDownload] = [:]
+
+    /// Retry counter for individual segment downloads.  If a
+    /// segment fails once (transient CDN error, dropped
+    /// socket, …) we re-schedule it; on the second failure
+    /// we fall through to the existing whole-download
+    /// `failed(message:)` state.  Keyed by the system
+    /// `taskIdentifier` so the retry survives the delegate
+    /// callback boundary.
+    private var retryCountByTaskId: [Int: Int] = [:]
 
     private override init() {
         super.init()
@@ -98,10 +124,6 @@ final class DownloadManager: NSObject, ObservableObject {
         configuration.allowsCellularAccess = true
         configuration.isDiscretionary = false
         configuration.sessionSendsLaunchEvents = true
-        // 4 in-flight connections is the same number
-        // `LocalHLSProxyServer` uses to mirror B站's
-        // per-track overlap detection.
-        configuration.httpMaximumConnectionsPerHost = 4
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         queue.name = "BiliPai.DownloadManager.delegate"
@@ -157,6 +179,27 @@ final class DownloadManager: NSObject, ObservableObject {
         guard let dash = playback.dash else { return }
         let bvid = video.id
         guard stateByBvid[bvid] == nil else { return }
+        // VOD with audio = 4 segments (video.init, video.media,
+        // audio.init, audio.media).  If for some reason the
+        // playurl response did not include an audio track we
+        // drop to 2 segments (video-only).  We never mix
+        // the two — once `expectedSegments` is set the
+        // completion check is fixed.
+        let expected = 2 + (dash.audio == nil ? 0 : 2)
+        diagLog(.download, "start",
+                details: [
+                    "bvid": bvid,
+                    "title": video.title,
+                    "expected_segments": expected,
+                    "video_init_range":
+                        "\(dash.video.initializationRange.offset)-\(dash.video.initializationRange.endOffset)",
+                    "video_media_start": dash.video.mediaStartOffset,
+                    "audio_present": dash.audio != nil,
+                    "audio_init_range": dash.audio.map {
+                        "\($0.initializationRange.offset)-\($0.initializationRange.endOffset)"
+                    } ?? "n/a",
+                    "audio_media_start": dash.audio?.mediaStartOffset ?? 0
+                ])
         stateByBvid[bvid] = .downloading(progress: 0)
         progress[bvid] = 0
         let staging = DownloadStore.shared.inProgressDirectory(for: bvid)
@@ -166,9 +209,16 @@ final class DownloadManager: NSObject, ObservableObject {
             )
         } catch {
             bpLog("DownloadManager could not create staging: \(error)")
+            diagLog(.download, "staging dir create failed",
+                    details: ["bvid": bvid, "error": "\(error)"])
             stateByBvid[bvid] = .failed(message: "staging dir")
             return
         }
+        pendingByBvid[bvid] = PendingDownload(
+            video: video,
+            playback: playback,
+            expectedSegments: expected
+        )
         scheduleSegment(
             track: dash.video,
             kind: .initSection,
@@ -195,6 +245,8 @@ final class DownloadManager: NSObject, ObservableObject {
                 staging: staging
             )
         }
+        diagLog(.download, "scheduled all segments",
+                details: ["bvid": bvid, "count": expected])
     }
 
     /// Cancel an in-flight download.  No-op if the `bvid` is
@@ -209,7 +261,16 @@ final class DownloadManager: NSObject, ObservableObject {
             Task { @MainActor in
                 self.stateByBvid[bvid] = nil
                 self.progress[bvid] = nil
+                self.pendingByBvid[bvid] = nil
                 self.taskToBvid = self.taskToBvid.filter { $0.value != bvid }
+                // Drop any retry counters for tasks of this
+                // bvid so a future re-download starts fresh.
+                let taskIdsToDrop = self.taskToBvid
+                    .filter { $0.value == bvid }
+                    .map { $0.key }
+                for id in taskIdsToDrop {
+                    self.retryCountByTaskId[id] = nil
+                }
                 let staging = DownloadStore.shared.inProgressDirectory(
                     for: bvid
                 )
@@ -287,6 +348,15 @@ final class DownloadManager: NSObject, ObservableObject {
         let mediaLabel = (track.mimeType.contains("audio")) ? "audio" : "video"
         task.taskDescription = "\(bvid)|\(mediaLabel)|\(kindLabel)"
         taskToBvid[task.taskIdentifier] = bvid
+        diagLog(.download, "scheduled segment",
+                details: [
+                    "bvid": bvid,
+                    "media": mediaLabel,
+                    "kind": kindLabel,
+                    "url": track.baseURL.absoluteString,
+                    "range": request.value(forHTTPHeaderField: "Range") ?? "",
+                    "task_id": task.taskIdentifier
+                ])
         task.resume()
     }
 
@@ -297,6 +367,33 @@ final class DownloadManager: NSObject, ObservableObject {
     /// `BiliVideo` yet.
     fileprivate func playbackReferer(bvid: String) -> String {
         "https://www.bilibili.com/video/\(bvid)"
+    }
+
+    /// Re-schedule one segment download after a transient
+    /// failure.  Used by `urlSession(_:task:didCompleteWithError:)`
+    /// when `retryCountByTaskId[id]` is below `maxRetries`.
+    /// The original task is already cancelled (the URLSession
+    /// hands us an error on its delegate), so we just queue
+    /// a fresh `downloadTask` against the same target.
+    fileprivate func retrySegment(
+        task: URLSessionTask,
+        bvid: String
+    ) {
+        guard let description = task.originalRequest?.url else { return }
+        // Reconstruct the request — `originalRequest` carries
+        // the URL + headers we set in `scheduleSegment`.
+        var retryRequest = URLRequest(url: description)
+        task.originalRequest?.allHTTPHeaderFields?.forEach { k, v in
+            retryRequest.setValue(v, forHTTPHeaderField: k)
+        }
+        guard let session else { return }
+        let newTask = session.downloadTask(with: retryRequest)
+        // Preserve the same `taskDescription` so the
+        // delegate can still route the file into the
+        // staging directory under the right name.
+        newTask.taskDescription = task.taskDescription
+        taskToBvid[newTask.taskIdentifier] = bvid
+        newTask.resume()
     }
 
     /// Move a finished temp file into the staging directory
@@ -321,6 +418,7 @@ final class DownloadManager: NSObject, ObservableObject {
         let bvid = String(parts[0])
         let mediaLabel = String(parts[1])
         let kindLabel = String(parts[2])
+        let taskId = task.taskIdentifier
         // The staging directory URL is computed from the
         // bvid only — `DownloadStore.readyDirectory` /
         // `inProgressDirectory` are pure URL builders, so
@@ -344,34 +442,133 @@ final class DownloadManager: NSObject, ObservableObject {
             try FileManager.default.moveItem(at: tempURL, to: destination)
         } catch {
             bpLog("DownloadManager move failed: \(error)")
+            diagLog(.download, "move failed",
+                    details: [
+                        "bvid": bvid,
+                        "media": mediaLabel,
+                        "kind": kindLabel,
+                        "error": "\(error)"
+                    ])
         }
+        let fileSize = (try? FileManager.default.attributesOfItem(
+            atPath: destination.path
+        )?[.size] as? Int64) ?? 0
         Task { @MainActor in
-            // Approximate progress: count the number of
-            // expected segments and increment as each
-            // completes.  Video has 2 segments (init+media),
-            // audio has 2.  Total is 4 for VOD, 2 for
-            // video-only (we do not currently offer that).
-            self.progress[bvid, default: 0] += 0.25
-            self.stateByBvid[bvid] = .downloading(
-                progress: self.progress[bvid] ?? 0
-            )
+            // A retry counter for this task is irrelevant
+            // once it has actually delivered bytes — drop
+            // it so the dict does not grow unbounded.
+            self.retryCountByTaskId[taskId] = nil
+            // Bump the completed-segment count for this
+            // bvid.  If we hit the expected total this is
+            // the last segment — promote to "downloaded".
+            guard var pending = self.pendingByBvid[bvid] else { return }
+            pending.completedSegments += 1
+            self.pendingByBvid[bvid] = pending
+            let progress = Double(pending.completedSegments)
+                / Double(pending.expectedSegments)
+            self.progress[bvid] = progress
+            self.stateByBvid[bvid] = .downloading(progress: progress)
+            diagLog(.download, "segment landed",
+                    details: [
+                        "bvid": bvid,
+                        "media": mediaLabel,
+                        "kind": kindLabel,
+                        "bytes": fileSize,
+                        "completed": pending.completedSegments,
+                        "expected": pending.expectedSegments,
+                        "progress": String(format: "%.2f", progress)
+                    ])
+            if pending.completedSegments >= pending.expectedSegments {
+                self.completeAllSegments(bvid: bvid)
+            }
         }
     }
 
-    /// All four (or two) segments for a `bvid` have
-    /// finished.  Build the `DownloadRecord`, hand it to
-    /// `DownloadStore`, and update `stateByBvid` to
-    /// `.downloaded(record:)`.
+    /// All expected segments for a `bvid` have finished
+    /// landing on disk.  Build the `DownloadRecord` from
+    /// `pendingByBvid`, hand it to `DownloadStore` (which
+    /// atomically promotes the staging directory into
+    /// `ready/{bvid}/` and updates the manifest), then drop
+    /// our bookkeeping.  The `stateByBvid` entry is removed
+    /// so `VideoDetailViewModel.refreshDownloadState()`
+    /// falls through to the `DownloadStore.records` lookup
+    /// and surfaces the new `.downloaded(record:)` state on
+    /// its next refresh.
     fileprivate func completeAllSegments(bvid: String) {
-        Task { @MainActor in
-            // Reset in-flight bookkeeping.
-            session?.getAllTasks { [weak self] tasks in
-                guard let self else { return }
-                for task in tasks where task.taskDescription?.hasPrefix("\(bvid)|") == true {
-                    self.taskToBvid.removeValue(forKey: task.taskIdentifier)
-                }
+        guard let pending = pendingByBvid[bvid] else { return }
+        guard let dash = pending.playback.dash else { return }
+        // Sum the four (or two) on-disk file sizes so the
+        // `DownloadedVideosView` can show "71.2 MB" next to
+        // each row.  We tolerate missing files (a video-only
+        // download has no audio track) by skipping them.
+        let readyDir = DownloadStore.shared.readyDirectory(for: bvid)
+        let fm = FileManager.default
+        var totalSize: Int64 = 0
+        let candidates = ["video.init", "video.media",
+                          "audio.init", "audio.media"]
+        for name in candidates {
+            let url = readyDir.appendingPathComponent(name)
+            // The file currently lives in `in_progress/{bvid}/`,
+            // not in `ready/{bvid}/` — `DownloadStore.add(_:)`
+            // moves it before we read.  We re-compute the
+            // staging location here so the size is correct
+            // *before* the move happens (the move is async on
+            // the ioQueue).
+            let stagingURL = DownloadStore.shared
+                .inProgressDirectory(for: bvid)
+                .appendingPathComponent(name)
+            let probeURL = fm.fileExists(atPath: stagingURL.path)
+                ? stagingURL : url
+            if let attrs = try? fm.attributesOfItem(atPath: probeURL.path),
+               let size = attrs[.size] as? Int64 {
+                totalSize += size
             }
-            self.progress[bvid] = nil
+        }
+        let record = DownloadRecord(
+            bvid: pending.video.id,
+            aid: pending.video.aid,
+            cid: pending.video.cid,
+            title: pending.video.title,
+            ownerName: pending.video.ownerName,
+            coverURL: pending.video.coverURL,
+            duration: pending.video.duration,
+            dash: dash,
+            referer: pending.playback.referer,
+            downloadedAt: Date(),
+            sizeBytes: totalSize
+        )
+        // Hand the record to the store.  `add(_:)` moves
+        // `in_progress/{bvid}/` to `ready/{bvid}/` and
+        // appends the record to the manifest — both happen
+        // on the store's serial ioQueue.
+        diagLog(.download, "all segments complete — building record",
+                details: [
+                    "bvid": bvid,
+                    "title": pending.video.title,
+                    "size_bytes": totalSize,
+                    "expected": pending.expectedSegments,
+                    "has_audio": pending.playback.dash?.audio != nil
+                ])
+        DownloadStore.shared.add(record)
+        diagLog(.download, "handed record to DownloadStore",
+                details: ["bvid": bvid, "size_bytes": totalSize])
+        // Drop bookkeeping.  We intentionally leave
+        // `stateByBvid[bvid]` alone for now — the
+        // `DownloadStore.shared.$records` subscriber in
+        // `VideoDetailViewModel` will call
+        // `refreshDownloadState()` and pick up the new
+        // `.downloaded(record:)` from the store on the
+        // very next runloop.  Setting it to `.downloaded`
+        // here too would race with that subscription.
+        pendingByBvid[bvid] = nil
+        progress[bvid] = nil
+        // Best-effort: clear any orphan task-identifier
+        // entries for this bvid.
+        let orphans = taskToBvid
+            .filter { $0.value == bvid }
+            .map { $0.key }
+        for id in orphans {
+            taskToBvid.removeValue(forKey: id)
         }
     }
 }
@@ -400,20 +597,65 @@ extension DownloadManager: URLSessionDownloadDelegate {
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
-        // Errors that are not cancellations propagate up to
-        // the user.  Cancellations are user-initiated (the
-        // download button is now "取消") and we drop the
-        // state.
+        // No error → the task succeeded.  The corresponding
+        // `consumeDownloaded(...)` already moved the bytes
+        // and may have promoted the download to `.downloaded`
+        // — nothing to do here.
         guard let error else { return }
         let nsError = error as NSError
-        guard nsError.domain == NSURLErrorDomain,
-              nsError.code != NSURLErrorCancelled else {
+        let bvid = task.taskDescription?.split(separator: "|").first
+            .map(String.init) ?? "?"
+        // Cancellations are user-initiated (the download
+        // button is now "取消" and `cancel(bvid:)` already
+        // wiped the bookkeeping).  Drop the error.
+        if nsError.domain == NSURLErrorDomain,
+           nsError.code == NSURLErrorCancelled {
+            diagLog(.download, "task cancelled",
+                    details: ["bvid": bvid, "task_id": task.taskIdentifier])
             return
         }
-        let bvid = task.taskDescription?.split(separator: "|").first.map(String.init) ?? "?"
+        let taskId = task.taskIdentifier
+        diagLog(.download, "task failed",
+                details: [
+                    "bvid": bvid,
+                    "task_id": taskId,
+                    "domain": nsError.domain,
+                    "code": nsError.code,
+                    "description": nsError.localizedDescription
+                ])
         Task { @MainActor in
-            self.stateByBvid[bvid] = .failed(message: nsError.localizedDescription)
+            // One-shot retry — the previous version marked
+            // the whole download failed on the first segment
+            // error, which is why a transient CDN hiccup on
+            // the audio track would leave the user staring
+            // at "75%" forever.  The retry reschedules the
+            // exact same byte-range request; if it also
+            // fails we fall through to `failed(message:)`.
+            let retriesSoFar = self.retryCountByTaskId[taskId, default: 0]
+            if retriesSoFar == 0,
+               task.originalRequest != nil {
+                self.retryCountByTaskId[taskId] = retriesSoFar + 1
+                diagLog(.download, "retrying segment",
+                        details: ["bvid": bvid, "task_id": taskId,
+                                  "retry": retriesSoFar + 1])
+                self.retrySegment(task: task, bvid: bvid)
+                return
+            }
+            self.retryCountByTaskId[taskId] = nil
+            self.stateByBvid[bvid] = .failed(
+                message: nsError.localizedDescription
+            )
             self.progress[bvid] = nil
+            // Wipe the half-finished staging directory so a
+            // retry of the whole download starts clean.
+            let staging = DownloadStore.shared.inProgressDirectory(
+                for: bvid
+            )
+            try? FileManager.default.removeItem(at: staging)
+            self.pendingByBvid[bvid] = nil
+            diagLog(.download, "download marked failed",
+                    details: ["bvid": bvid,
+                              "message": nsError.localizedDescription])
         }
     }
 

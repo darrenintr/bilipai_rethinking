@@ -292,6 +292,7 @@ private struct EventRow: View {
         case .recommendation:        return .green
         case .app, .lifecycle:       return .purple
         case .system:                return .gray
+        case .download:              return .indigo
         }
     }
 }

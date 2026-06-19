@@ -44,6 +44,7 @@ final class DiagnosticLogger: ObservableObject {
         case system = "SYS"     // one-shot device info snapshots
         case lifecycle = "LC"   // scenePhase transitions
         case session = "SES"    // network-type transitions, AuthStore.refresh
+        case download = "DOWN"  // DownloadManager + DownloadStore lifecycle
     }
 
     struct Event: Identifiable {
@@ -171,11 +172,91 @@ final class DiagnosticLogger: ObservableObject {
 
         let diagOnly = currentEvents.filter {
             $0.category != .lifecycle && $0.category != .app
-                && $0.category != .session
+                && $0.category != .session && $0.category != .download
         }
         report += "----- Diagnostic events (\(diagOnly.count)) -----\n"
         for e in diagOnly {
             report += e.format() + "\n"
+        }
+        report += "\n"
+
+        // Downloads — surface both the live in-memory state
+        // (so a "stuck at 75%" report can show exactly
+        // which segments landed) and the on-disk layout
+        // (so the user can tell whether the staging dir
+        // has the bytes the manifest claims it does).
+        let downloadEvents = currentEvents.filter { $0.category == .download }
+        report += "----- Downloads -----\n"
+        report += "Diagnostic events (download): \(downloadEvents.count)\n"
+        for e in downloadEvents.suffix(60) {
+            report += e.format() + "\n"
+        }
+        report += "\n"
+        let storeSnapshot = DownloadStore.shared.records
+        report += "DownloadStore records: \(storeSnapshot.count)\n"
+        for record in storeSnapshot {
+            report += "  • \(record.bvid) — \"\(record.title)\""
+            report += " — \(record.sizeBytes) bytes"
+            report += " — downloaded \(record.downloadedAt)\n"
+        }
+        let inFlight = Array(DownloadManager.shared.stateByBvid.keys)
+        report += "In-flight bvids: \(inFlight)\n"
+        for bvid in inFlight {
+            let state = DownloadManager.shared.stateByBvid[bvid]
+            let progress = DownloadManager.shared.progress[bvid] ?? 0
+            switch state {
+            case .downloading:
+                report += "  • \(bvid) — downloading \(Int(progress * 100))%\n"
+            case .failed(let msg):
+                report += "  • \(bvid) — failed: \(msg)\n"
+            case .downloaded:
+                report += "  • \(bvid) — downloaded\n"
+            case .notDownloaded:
+                report += "  • \(bvid) — notDownloaded\n"
+            case .none:
+                break
+            }
+        }
+        // On-disk layout — the user-visible Downloads list
+        // depends on `manifest.json` matching the bytes on
+        // disk.  Dump both so we can spot drift.
+        let manifestExists = FileManager.default.fileExists(
+            atPath: DownloadStore.manifestURL.path
+        )
+        report += "Manifest at \(DownloadStore.manifestURL.path): "
+        report += manifestExists ? "present" : "absent"
+        report += "\n"
+        let fm = FileManager.default
+        func dirSize(_ url: URL) -> Int64 {
+            guard let enumerator = fm.enumerator(
+                at: url, includingPropertiesForKeys: [.fileSizeKey]
+            ) else { return 0 }
+            var total: Int64 = 0
+            for case let fileURL as URL in enumerator {
+                if let size = (try? fileURL.resourceValues(
+                    forKeys: [.fileSizeKey]
+                ))?.totalFileAllocatedSize {
+                    total += Int64(size)
+                }
+            }
+            return total
+        }
+        let inProgressSize = dirSize(DownloadStore.inProgressURL)
+        let readySize = dirSize(DownloadStore.readyURL)
+        report += "in_progress/ total bytes: \(inProgressSize)\n"
+        report += "ready/ total bytes: \(readySize)\n"
+        // Enumerate the in_progress dir so we can see what
+        // half-finished downloads have on disk even if they
+        // never reached the manifest.
+        if let contents = try? fm.contentsOfDirectory(
+            at: DownloadStore.inProgressURL,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for bvDir in contents {
+                let size = dirSize(bvDir)
+                report += "  staging \(bvDir.lastPathComponent): \(size) bytes\n"
+            }
         }
         report += "\n"
 

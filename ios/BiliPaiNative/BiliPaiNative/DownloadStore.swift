@@ -177,8 +177,21 @@ final class DownloadStore: ObservableObject {
                 try FileManager.default.moveItem(
                     at: staging, to: destination
                 )
+                diagLog(.download, "DownloadStore move success",
+                        details: [
+                            "bvid": record.bvid,
+                            "from": staging.lastPathComponent,
+                            "to": destination.lastPathComponent
+                        ])
             } catch {
                 bpLog("DownloadStore move failed: \(error)")
+                diagLog(.download, "DownloadStore move failed",
+                        details: [
+                            "bvid": record.bvid,
+                            "from": staging.lastPathComponent,
+                            "to": destination.lastPathComponent,
+                            "error": "\(error)"
+                        ])
                 // Recover: drop the staging dir to avoid
                 // growing the in_progress folder unbounded.
                 try? FileManager.default.removeItem(at: staging)
