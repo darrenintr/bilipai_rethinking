@@ -1,5 +1,7 @@
 import AppIntents
+import CoreSpotlight
 import Foundation
+import UniformTypeIdentifiers
 
 enum BiliPaiDestination: String, AppEnum {
     case home
@@ -277,13 +279,39 @@ private struct BiliPaiVideoRecord: Codable {
 enum IntentRecentVideoStore {
     private static let recentKey = "bilipai.intent.recentVideos"
     private static let watchLaterKey = "bilipai.intent.watchLaterVideos"
+    /// Spotlight index domain identifier for the recently
+    /// watched list. Kept distinct from the watch-later
+    /// domain so a future "clear watch history" action
+    /// only wipes one bucket at a time.
+    private static let recentSpotlightDomain = "bilipai.recent"
+    /// Spotlight index domain identifier for the watch
+    /// later list. Mirrors the URL-Scheme / App-Group
+    /// convention used elsewhere in the app.
+    private static let watchLaterSpotlightDomain = "bilipai.watchlater"
 
     static func record(_ video: BiliVideo) {
         guard !video.bvid.isEmpty else { return }
         let entity = BiliPaiVideoEntity(id: video.bvid, title: video.title, ownerName: video.ownerName)
-        var videos = recentVideos().filter { $0.id != entity.id }
+        let prior = recentVideos()
+        var videos = prior.filter { $0.id != entity.id }
         videos.insert(entity, at: 0)
-        save(videos.prefix(10).map { $0 }, key: recentKey)
+        let next = Array(videos.prefix(10))
+        save(next, key: recentKey)
+        // Spotlight — index the new entry, deindex any that
+        // were evicted by the FIFO truncation so the iOS
+        // search results don't show stale bvid pointers.
+        indexInSpotlight(
+            entity: entity,
+            domain: recentSpotlightDomain,
+            thumbnail: video.coverURL,
+            description: video.description
+        )
+        let evicted = prior.prefix(10).filter { entity in
+            !next.contains(where: { $0.id == entity.id })
+        }
+        for stale in evicted {
+            removeFromSpotlight(bvid: stale.id, domain: recentSpotlightDomain)
+        }
     }
 
     static func recentVideos() -> [BiliPaiVideoEntity] {
@@ -295,10 +323,82 @@ enum IntentRecentVideoStore {
         var videos = watchLaterVideos().filter { $0.id != video.id }
         videos.insert(video, at: 0)
         save(videos, key: watchLaterKey)
+        // Spotlight — watch later never carries a
+        // thumbnail or description at the entity layer
+        // (the upstream intent strips them) so we pass
+        // nil and let the OS fall back to a generic
+        // movie icon.
+        indexInSpotlight(
+            entity: video,
+            domain: watchLaterSpotlightDomain,
+            thumbnail: nil,
+            description: ""
+        )
+    }
+
+    static func removeFromWatchLater(_ video: BiliPaiVideoEntity) {
+        guard !video.id.isEmpty else { return }
+        let videos = watchLaterVideos().filter { $0.id != video.id }
+        save(videos, key: watchLaterKey)
+        removeFromSpotlight(bvid: video.id, domain: watchLaterSpotlightDomain)
     }
 
     static func watchLaterVideos() -> [BiliPaiVideoEntity] {
         load(key: watchLaterKey)
+    }
+
+    /// Hand a `BiliPaiVideoEntity` to CoreSpotlight so
+    /// the system search / "Continue Watching" suggestion
+    /// surfaces it. The indexing call is fire-and-forget
+    /// — failures only land in the diagnostic log so a
+    /// transient Spotlight service outage cannot wedge the
+    /// playback path that called `record(_:)`.
+    private static func indexInSpotlight(
+        entity: BiliPaiVideoEntity,
+        domain: String,
+        thumbnail: URL?,
+        description: String
+    ) {
+        let attributes = CSSearchableItemAttributeSet(contentType: UTType.movie)
+        attributes.title = entity.title
+        // `contentDescription` is what Spotlight shows under
+        // the title. Prefer the upstream video description
+        // when present, fall back to the UP master name so
+        // the row never renders as an empty string.
+        attributes.contentDescription = description.isEmpty ? entity.ownerName : description
+        attributes.keywords = ["BiliPai", "Bilibili", entity.ownerName]
+        if let thumbnail {
+            attributes.thumbnailURL = thumbnail
+        }
+        let item = CSSearchableItem(
+            uniqueIdentifier: entity.id,
+            domainIdentifier: domain,
+            attributeSet: attributes
+        )
+        CSSearchableIndex.default().indexSearchableItems([item]) { error in
+            if let error {
+                bpLog("Spotlight index failed for \(entity.id) (domain: \(domain)): \(error)")
+            }
+        }
+    }
+
+    /// Remove a single bvid from one Spotlight bucket.
+    /// `CSSearchableIndex.deleteSearchableItems(withIdentifiers:)`
+    /// is silent about missing entries so calling it for
+    /// an already-evicted id is a no-op.
+    private static func removeFromSpotlight(bvid: String, domain: String) {
+        // Per-id delete is enough: the FIFO eviction in
+        // `record(_:)` only ever needs to drop a single
+        // row at a time, and `deleteSearchableItems(withIdentifiers:)`
+        // is a no-op when the id isn't indexed so calling it
+        // for an id that was never written is safe.
+        CSSearchableIndex.default().deleteSearchableItems(
+            withIdentifiers: [bvid]
+        ) { error in
+            if let error {
+                bpLog("Spotlight deindex failed for \(bvid) (domain: \(domain)): \(error)")
+            }
+        }
     }
 
     private static func load(key: String) -> [BiliPaiVideoEntity] {
