@@ -450,9 +450,12 @@ final class DownloadManager: NSObject, ObservableObject {
                         "error": "\(error)"
                     ])
         }
-        let fileSize = (try? FileManager.default.attributesOfItem(
-            atPath: destination.path
-        )?[.size] as? Int64) ?? 0
+        let fileSize: Int64 = {
+            guard let attrs = try? FileManager.default.attributesOfItem(
+                atPath: destination.path
+            ) else { return 0 }
+            return (attrs[.size] as? Int64) ?? 0
+        }()
         Task { @MainActor in
             // A retry counter for this task is irrelevant
             // once it has actually delivered bytes — drop
