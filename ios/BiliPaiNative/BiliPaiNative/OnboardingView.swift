@@ -48,7 +48,11 @@ struct OnboardingView: View {
                     OnboardingPageView(
                         page: page,
                         showsLoginCTA: index == Self.pages.count - 1,
-                        isPreferencesPage: page.kind == .preferences
+                        isPreferencesPage: page.kind == .preferences,
+                        currentPageBinding: Binding(
+                            get: { currentPage },
+                            set: { currentPage = $0 }
+                        )
                     )
                     .tag(index)
                 }
@@ -129,30 +133,18 @@ private struct OnboardingPageView: View {
     let page: OnboardingPage
     let showsLoginCTA: Bool
     let isPreferencesPage: Bool
+    /// Routed through from `OnboardingView` — the parent's `@State`
+    /// is the single source of truth, and the child view mutates it
+    /// via the binding.  Marketing pages never read this.
+    let currentPageBinding: Binding<Int>
     @EnvironmentObject private var router: AppRouter
 
     var body: some View {
         if isPreferencesPage {
-            // The marketing pages never need to advance the page
-            // index, so we only pass the binding to the preferences
-            // view.  `OnboardingView` is the source of truth for
-            // `currentPage` via its own `@State`.
             OnboardingPreferencesPage(currentPage: currentPageBinding)
         } else {
             marketingBody
         }
-    }
-
-    private var currentPageBinding: Binding<Int> {
-        // Routed through the parent's `@State` via a closure that
-        // captures `currentPage` in the surrounding `body` and is
-        // rebuilt every render.  SwiftUI does not let a child view
-        // mutate a parent's `@State` directly, so this is the
-        // standard pattern for "child bumps parent state".
-        Binding(
-            get: { currentPage },
-            set: { currentPage = $0 }
-        )
     }
 
     private var marketingBody: some View {
