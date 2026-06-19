@@ -308,6 +308,15 @@ final class VideoDetailViewModel: ObservableObject {
     @Published var danmakuEnabled = true
     @Published var audioModeEnabled = false
     @Published var playbackSpeed: Float = 1
+    /// User's preferred playback quality. Maps to Bilibili's
+    /// `accept_quality` ladder: 80 = 1080P high quality, 64 =
+    /// 720P high quality, 32 = 480P clear, 16 = 360P smooth.
+    /// Default 80 keeps the previous "ask for HD first"
+    /// behaviour. The toolbar menu in `VideoDetailView` writes
+    /// through to this on tap; `setPreferredQn(_:repository:)`
+    /// refetches the playurl with the new ladder entry as the
+    /// preferred slot.
+    @Published var preferredQn: Int = 80
 
     private var nextCommentCursor: Int?
     /// Fixed page size for comment fetches. The user wants pure
@@ -328,7 +337,7 @@ final class VideoDetailViewModel: ObservableObject {
         errorMessage = nil
         do {
             detail = try await repository.detail(for: detail)
-            self.playback = try await repository.playback(for: detail)
+            self.playback = try await repository.playback(for: detail, qn: preferredQn)
             diagLog(.playback,
                     "VideoDetailViewModel.load succeeded",
                     details: [
@@ -443,6 +452,44 @@ final class VideoDetailViewModel: ObservableObject {
         commentSort = sort
         Haptics.selection()
         await loadComments(repository: repository)
+    }
+
+    /// Switch the user's preferred playback quality and refetch
+    /// the playurl with the new ladder entry as the preferred
+    /// slot. The `BilibiliAPIClient` reorders its qn retry chain
+    /// around the new value so the request immediately tries the
+    /// new quality first; if it is gated (region lock, VIP
+    /// paywall), the chain falls through to the next entry.
+    /// The existing `playback` is left untouched until the new
+    /// one returns — that way the AVPlayer does not get yanked
+    /// mid-segment by a quality swap.
+    func setPreferredQn(_ qn: Int, repository: BiliPaiRepository) async {
+        guard preferredQn != qn else { return }
+        preferredQn = qn
+        Haptics.selection()
+        do {
+            let newPlayback = try await repository.playback(for: detail, qn: qn)
+            self.playback = newPlayback
+        } catch let error as BilibiliAPIError {
+            // The user picked a quality they cannot play;
+            // surface a brief inline error without yanking
+            // the previous playback out from under the
+            // AVPlayer.
+            switch error {
+            case .noPlayableFormat:
+                errorMessage = "该清晰度不可用，已切换回原画质。"
+            case .api(let message):
+                errorMessage = message
+            case .missingData:
+                errorMessage = "该视频暂无可播放源。"
+            case .missingIdentity:
+                errorMessage = "无法识别该视频（缺少 aid/bvid）。"
+            case .invalidURL, .http:
+                errorMessage = "网络异常，请检查连接后重试。"
+            }
+        } catch {
+            errorMessage = "切换清晰度失败：\(error.localizedDescription)"
+        }
     }
 
     func submitComment(repository: BiliPaiRepository, message: String) async -> Bool {

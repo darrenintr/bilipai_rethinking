@@ -41,6 +41,11 @@ struct VideoDetailView: View {
     /// view writes through to the model and to the underlying fetch
     /// whenever the user toggles the picker.
     @AppStorage("bilipai.commentSort") private var storedCommentSort: String = CommentSort.hot.rawValue
+    /// User's preferred playback quality, persisted across
+    /// launches. Mirrors `model.preferredQn` so a fresh open of
+    /// the detail view picks up the user's last pick without a
+    /// flash of 1080P → 720P.
+    @AppStorage("bilipai.preferredQn") private var storedPreferredQn: Int = 80
     /// Material design preference — drives glass vs M3 surfaces
     /// on the control panel and comment card.
     @AppStorage("bilipai.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
@@ -110,6 +115,13 @@ struct VideoDetailView: View {
             let persisted = CommentSort(rawValue: storedCommentSort) ?? .hot
             if model.commentSort != persisted {
                 model.commentSort = persisted
+            }
+            // Same pattern for preferred quality: hydrate from
+            // `@AppStorage` so the playurl fetch honours the user's
+            // last pick without a visible "load 1080P → refetch as
+            // 720P" round-trip.
+            if model.preferredQn != storedPreferredQn {
+                model.preferredQn = storedPreferredQn
             }
             await model.load(repository: repository)
         }
@@ -318,6 +330,17 @@ struct VideoDetailView: View {
                 .opacity(0.5)
             Toggle("Audio", isOn: $model.audioModeEnabled)
                 .toggleStyle(.button)
+            // Quality picker. Maps the four Bilibili accept-quality
+            // ladder entries (80 / 64 / 32 / 16) onto the user-facing
+            // 1080P / 720P / 480P / 360P labels. Picking a new value
+            // refetches the playurl with the new preferred slot via
+            // `VideoDetailViewModel.setPreferredQn(...)`; the
+            // `BilibiliAPIClient` falls through to lower qualities
+            // automatically when the chosen one is gated. The current
+            // pick shows as a checkmark in the menu and is persisted
+            // to `@AppStorage` so a fresh open picks up the user's
+            // last choice without a visible refetch round-trip.
+            qualityMenu
             Menu {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
                     Button(String(format: "%.2gx", speed)) {
@@ -331,6 +354,47 @@ struct VideoDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .bilipaiCardSurface(materialDesign)
+    }
+
+    /// Quality menu lifted out of `controlPanel` so the helper that
+    /// maps qn code → label stays scoped to this file. The menu
+    /// itself is a standard SwiftUI `Menu` — no custom chrome — so
+    /// it inherits the same Liquid Glass background the rest of the
+    /// toolbar uses.
+    private var qualityMenu: some View {
+        Menu {
+            ForEach([80, 64, 32, 16], id: \.self) { qn in
+                Button {
+                    guard model.preferredQn != qn else { return }
+                    storedPreferredQn = qn
+                    Task { await model.setPreferredQn(qn, repository: repository) }
+                } label: {
+                    if model.preferredQn == qn {
+                        Label(qnLabel(qn), systemImage: "checkmark")
+                    } else {
+                        Text(qnLabel(qn))
+                    }
+                }
+            }
+        } label: {
+            Label(qnLabel(model.preferredQn), systemImage: "rectangle.stack.badge.play")
+        }
+        .accessibilityLabel(L10n.player.quality)
+    }
+
+    /// Map a Bilibili `accept_quality` ladder code to the
+    /// user-facing label. Anything outside the modelled ladder
+    /// (e.g. an unknown `qn` slipped in by an upstream change)
+    /// falls back to a plain "<qn>P" string so the menu never
+    /// renders empty.
+    private func qnLabel(_ qn: Int) -> String {
+        switch qn {
+        case 80: return L10n.player.quality1080
+        case 64: return L10n.player.quality720
+        case 32: return L10n.player.quality480
+        case 16: return L10n.player.quality360
+        default: return "\(qn)P"
+        }
     }
 
     private var commentPreview: some View {

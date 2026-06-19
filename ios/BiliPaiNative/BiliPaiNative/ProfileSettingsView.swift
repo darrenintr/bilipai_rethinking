@@ -30,6 +30,13 @@ struct ProfileSettingsView: View {
     @AppStorage("bilipai.danmakuEnabled") private var danmakuEnabled = true
     @AppStorage("bilipai.backgroundAudio") private var backgroundAudio = false
     @AppStorage("bilipai.todayWatch") private var todayWatch = true
+    /// iCloud sync toggle stub. Defaults to `false` because the
+    /// CloudKit / `NSUbiquitousKeyValueStore` plumbing does not
+    /// exist yet — the toggle is rendered disabled with a
+    /// "即将推出" hint so the user can see where the feature
+    /// will land once it ships. Backing storage is created here
+    /// so the user's eventual pick survives across launches.
+    @AppStorage("bilipai.iCloudSync") private var iCloudSync = false
     /// When on, the next playurl request dumps its first 4 KB
     /// of body to the diagnostic log.  Used to figure out what
     /// the upstream HLS slot is actually called.  Default off
@@ -67,22 +74,42 @@ struct ProfileSettingsView: View {
                         Text(design.title).tag(design)
                     }
                 }
-                PluginRow(title: "iOS 预设", subtitle: "对齐 Android 版默认 UiPreset.IOS", symbol: "iphone")
-                PluginRow(title: "Bili 粉强调色", subtitle: "保留 Paladala 的粉色主色", symbol: "paintpalette")
             }
 
             Section("播放设置") {
                 Toggle("默认开启弹幕", isOn: $danmakuEnabled)
                 Toggle("后台音频", isOn: $backgroundAudio)
-                PluginRow(title: "倍速播放", subtitle: "0.5x 到 2.0x", symbol: "speedometer")
-                PluginRow(title: "小窗/PIP", subtitle: "下一步对齐 Android MiniPlayerManager", symbol: "rectangle.inset.filled")
+            }
+
+            Section {
+                // Disabled until CloudKit + NSUbiquitousKeyValueStore
+                // wiring lands in commit 10. The toggle is rendered
+                // here so the user sees the future feature location
+                // and so the `@AppStorage` slot already exists by
+                // the time the implementation ships — flipping the
+                // gate then becomes a one-line change.
+                Toggle(isOn: $iCloudSync) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.settings.iCloudSync)
+                            .font(.subheadline)
+                        Text(L10n.settings.iCloudSyncHint)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(true)
+                .opacity(0.5)
+                .accessibilityHint("即将推出")
+            } header: {
+                Text("iCloud 同步")
+            } footer: {
+                Text("即将推出")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             Section("插件中心") {
                 Toggle("今日看什么", isOn: $todayWatch)
-                PluginRow(title: "SponsorBlock", subtitle: "跳过片段策略入口", symbol: "forward.end")
-                PluginRow(title: "AdFilter", subtitle: "首页过滤与洞察入口", symbol: "eye.slash")
-                PluginRow(title: "Danmaku Plus", subtitle: "弹幕增强设置入口", symbol: "text.bubble")
             }
 
             Section("系统与诊断") {

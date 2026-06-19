@@ -462,6 +462,24 @@ private struct DoubleTapOverlay: View {
     /// double-tap in quick succession re-uses the existing
     /// transition instead of stacking on top of itself.
     @State private var badgeToken: Int = 0
+    /// First-launch gesture hint visibility. We start hidden
+    /// and flip to `true` in `onAppear` when
+    /// `didShowGestureHint` is still `false`. Auto-dismiss
+    /// after 4s and on any tap. The two state values are
+    /// kept separate so a SwiftUI re-evaluation that reads
+    /// `didShowGestureHint` outside of an explicit user
+    /// action cannot accidentally re-show the hint.
+    @State private var isShowingHint: Bool = false
+    /// In-flight 4s auto-dismiss task. Held so `onDisappear`
+    /// can cancel it and a tap can cancel it before the
+    /// sleep elapses.
+    @State private var hintDismissTask: Task<Void, Never>?
+    /// Persistent "did we ever show the hint" flag. Backed
+    /// by `@AppStorage` so the hint appears exactly once per
+    /// install, even across reinstall + iCloud restore
+    /// scenarios where the OS may unmount the overlay
+    /// without firing `onDisappear`.
+    @AppStorage("bilipai.didShowGestureHint") private var didShowGestureHint: Bool = false
     @EnvironmentObject private var authStore: AuthStore
 
     private enum BadgeKind: Equatable {
@@ -504,6 +522,18 @@ private struct DoubleTapOverlay: View {
                             handleDoubleTap(zone: zone)
                         }
                 )
+                // Single-tap recogniser — only used to dismiss
+                // the first-launch gesture hint. Attached as a
+                // `simultaneousGesture` so it does not steal
+                // taps from the double-tap recogniser above
+                // (SwiftUI dispatches both gestures; the
+                // single-tap onEnded simply hides the hint
+                // while the double-tap onEnded still runs the
+                // seek/like animation).
+                .simultaneousGesture(
+                    TapGesture(count: 1)
+                        .onEnded { dismissHint() }
+                )
                 .overlay {
                     if let badge {
                         DoubleTapBadge(symbol: badge.symbolName)
@@ -512,8 +542,64 @@ private struct DoubleTapOverlay: View {
                             .allowsHitTesting(false)
                     }
                 }
+                .overlay(alignment: .bottom) {
+                    if isShowingHint {
+                        GestureHint()
+                            .padding(.bottom, 28)
+                            .padding(.horizontal, 20)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: badge)
+                .animation(.easeInOut(duration: 0.25), value: isShowingHint)
         }
+        .onAppear {
+            // First-launch only. Subsequent opens read
+            // `didShowGestureHint == true` and skip the
+            // appearance transition entirely.
+            guard !didShowGestureHint else { return }
+            isShowingHint = true
+            hintDismissTask?.cancel()
+            hintDismissTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                guard !Task.isCancelled else { return }
+                dismissHint()
+            }
+        }
+        .onDisappear {
+            // Cancelling the task prevents the closure from
+            // re-running while the view is mid-tear-down —
+            // without it we have observed the hint flipping
+            // back to visible for one frame on the way out.
+            hintDismissTask?.cancel()
+            hintDismissTask = nil
+            // Treat an early disappearance as a dismiss:
+            // the inline DoubleTapOverlay tears down when
+            // fullscreen is presented, which would cancel
+            // the 4s timer before it fires. Mark the hint
+            // as shown so the fullscreen overlay (or any
+            // future inline re-mount) doesn't re-show it.
+            if isShowingHint {
+                isShowingHint = false
+                didShowGestureHint = true
+            }
+        }
+    }
+
+    /// Persist the dismiss and tear down the in-flight
+    /// auto-dismiss task. Idempotent — calling it twice in
+    /// quick succession (tap + 4s timer) is a no-op the
+    /// second time because the `guard isShowingHint` check
+    /// short-circuits before any state writes.
+    private func dismissHint() {
+        guard isShowingHint else { return }
+        isShowingHint = false
+        // The flag is also written from `onDisappear` for
+        // the early-tear-down path; writing it here too is
+        // cheap and keeps the function idempotent.
+        didShowGestureHint = true
+        hintDismissTask?.cancel()
+        hintDismissTask = nil
     }
 
     private func handleDoubleTap(zone: DoubleTapZone) {
@@ -589,5 +675,58 @@ private struct DoubleTapBadge: View {
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.55), radius: 12, y: 2)
             .padding(20)
+    }
+}
+
+/// First-launch gesture legend shown on top of the player.
+/// Surfaces the same three double-tap zones the gesture
+/// recogniser handles (left = -10s, right = +10s, centre =
+/// like), plus a hint about the system seek-bar. The pill
+/// is non-interactive (`allowsHitTesting(false)`) so taps
+/// fall through to the underlying `DoubleTapOverlay` and
+/// dismiss the hint via the single-tap recogniser added in
+/// the same overlay.
+private struct GestureHint: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 14) {
+                hintIcon(symbol: "gobackward.10", title: "双击左侧", subtitle: "后退 10s")
+                hintIcon(symbol: "heart.fill", title: "双击中心", subtitle: "点赞")
+                hintIcon(symbol: "goforward.10", title: "双击右侧", subtitle: "前进 10s")
+            }
+            .font(.caption2)
+            Text("底栏拖动可跳转进度")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.78))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            .black.opacity(0.6),
+            in: RoundedRectangle(
+                cornerRadius: BiliPaiTheme.cornerRadius,
+                style: BiliPaiTheme.cornerStyle
+            )
+        )
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(L10n.player.gestureHint)
+    }
+
+    /// One column in the legend. SF Symbol on top, two-line
+    /// label below. Kept as a private helper so the
+    /// `GestureHint` body stays scannable.
+    private func hintIcon(symbol: String, title: String, subtitle: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: symbol)
+                .font(.title3.weight(.semibold))
+            Text(title)
+                .font(.caption2.weight(.semibold))
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.78))
+        }
+        .frame(maxWidth: .infinity)
     }
 }

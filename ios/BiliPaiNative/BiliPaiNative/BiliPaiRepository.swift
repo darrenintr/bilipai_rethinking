@@ -108,14 +108,32 @@ final class BiliPaiRepository: ObservableObject {
         return try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
     }
 
-    func playback(for video: BiliVideo) async throws -> BiliPlayback {
+    /// Fetch the playable URL for `video`. `qn` is the
+    /// Bilibili `accept_quality` ladder code — 80 = 1080P high
+    /// quality, 64 = 720P high quality, 32 = 480P clear, 16 =
+    /// 360P smooth. The `BilibiliAPIClient` reorders its qn
+    /// retry chain so `qn` is tried first, falling back to
+    /// lower qualities on the same call (gated / VIP-only 1080P
+    /// drops to 720P automatically). Default 80 keeps the
+    /// previous "ask for HD first" behaviour.
+    func playback(for video: BiliVideo, qn: Int = 80) async throws -> BiliPlayback {
         let cid = video.cid
         var pb: BiliPlayback
         if cid > 0 {
-            pb = try await apiClient.playbackURL(bvid: video.bvid, aid: video.aid, cid: cid)
+            pb = try await apiClient.playbackURL(
+                bvid: video.bvid,
+                aid: video.aid,
+                cid: cid,
+                preferredQn: qn
+            )
         } else {
             let detail = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
-            pb = try await apiClient.playbackURL(bvid: detail.bvid, aid: detail.aid, cid: detail.cid)
+            pb = try await apiClient.playbackURL(
+                bvid: detail.bvid,
+                aid: detail.aid,
+                cid: detail.cid,
+                preferredQn: qn
+            )
         }
         pb.resumeTime = video.resumeTime ?? 0
         return pb
