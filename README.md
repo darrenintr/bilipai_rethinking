@@ -1,5 +1,7 @@
 # 使用 iLoader 安裝 SideStore + LiveContainer 實現 iOS 無限側載教學
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/darrenintr/pure-bilibili-rethinking)
+
 iOS 免費開發者帳號平時限制咗每部設備最多只能側載 **3 個 App**，而且每 7 日就要續簽一次。
 透過 **iLoader** 安裝 **LiveContainer + SideStore 二合一版本**，你可以將多個 App 直接擺入 LiveContainer 入面運行，**完全唔佔用 3 個 App 嘅限額**，從而達到「無限側載」嘅效果！
 
