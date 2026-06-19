@@ -62,6 +62,21 @@ enum ProfileRoute: Hashable {
     case history
     case favorites(mid: Int64)
     case watchLater
+    /// Offline downloads list. Pushed when the user taps
+    /// the "离线缓存" quick action on the profile screen.
+    /// No associated value — the destination view reads
+    /// `DownloadStore.shared.records` directly.
+    case downloads
+}
+
+/// Local (downloaded) video playback.  The associated
+/// `DownloadRecord` carries the full DASH source the proxy
+/// needs to serve the on-disk bytes — no upstream network
+/// call is made for this kind of playback, so the player
+/// path has to know it is opening a local file before it
+/// even asks the proxy to start.
+enum LocalVideoRoute: Hashable {
+    case local(DownloadRecord)
 }
 
 /// Live playback navigation. The associated `BiliLiveRoom` carries the
@@ -122,6 +137,18 @@ final class AppRouter: ObservableObject {
     func openLogin() {
         selectedTab = .profile
         isLoginSheetPresented = true
+    }
+
+    /// Open a downloaded video for offline playback.  Switches
+    /// to the home tab (so the user lands inside the same
+    /// `NavigationStack` as regular videos) and pushes a
+    /// `LocalVideoRoute.local(record)` onto the path.  The
+    /// `RootView` resolves the route into a `VideoDetailView`
+    /// whose `BiliPlayback.localContext` is set from the
+    /// record.
+    func openLocalVideo(_ record: DownloadRecord) {
+        selectedTab = .home
+        path.append(LocalVideoRoute.local(record))
     }
 
     func consumePendingIntentRoute() {

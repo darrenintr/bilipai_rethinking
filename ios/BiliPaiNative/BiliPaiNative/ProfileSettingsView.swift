@@ -57,7 +57,7 @@ struct ProfileSettingsView: View {
                     .init(title: "历史记录", subtitle: "History", symbol: "clock.arrow.circlepath", destination: .history),
                     .init(title: "我的收藏", subtitle: "Favorite", symbol: "star", destination: .favorites),
                     .init(title: "稍后再看", subtitle: "Watch later", symbol: "clock.badge.checkmark", destination: .watchLater),
-                    .init(title: "离线缓存", subtitle: "Downloads", symbol: "arrow.down.circle"),
+                    .init(title: "离线缓存", subtitle: "Downloads", symbol: "arrow.down.circle", destination: .downloads),
                     .init(title: "消息中心", subtitle: "Inbox", symbol: "tray"),
                     .init(title: "追番追剧", subtitle: "Bangumi", symbol: "play.square.stack")
                 ], repository: repository)
@@ -318,6 +318,14 @@ private struct ProfileQuickAction: Identifiable {
         case history
         case favorites
         case watchLater
+        /// Local downloads list.  Unlike the other
+        /// destinations, the downloads list is reachable
+        /// without signing in — the user can still play
+        /// their already-downloaded videos while signed
+        /// out.  `route(for:)` therefore returns
+        /// `.downloads` for this case without an active
+        /// account.
+        case downloads
     }
 
     let id = UUID()
@@ -374,17 +382,22 @@ private struct ProfileQuickActionGrid: View {
     }
 
     private func route(for item: ProfileQuickAction) -> ProfileRoute? {
-        guard authStore.activeAccount != nil else { return nil }
         switch item.destination {
         case .history:
-            return .history
+            return authStore.activeAccount != nil ? .history : nil
         case .favorites:
             if let mid = authStore.activeAccount?.mid {
                 return .favorites(mid: mid)
             }
             return nil
         case .watchLater:
-            return .watchLater
+            return authStore.activeAccount != nil ? .watchLater : nil
+        case .downloads:
+            // Downloads are reachable signed-out — the
+            // user can still play their already-downloaded
+            // videos on airplane mode, which is the entire
+            // point of the feature.
+            return .downloads
         case nil:
             return nil
         }

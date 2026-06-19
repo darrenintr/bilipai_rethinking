@@ -335,8 +335,27 @@ final class VideoDetailViewModel: ObservableObject {
     /// for an iPhone-sized viewport.
     private static let commentPageSize = 20
 
-    init(video: BiliVideo) {
+    init(video: BiliVideo, localRecord: DownloadRecord? = nil) {
         self.detail = video
+        // If we are opening a downloaded video, construct
+        // a `BiliPlayback` with a `localContext` so the
+        // `LocalHLSProxyServer` reads the init / media
+        // bytes from disk instead of the upstream CDN.
+        // No network call is made for offline playback —
+        // the user can be on airplane mode and the video
+        // will still play.
+        if let record = localRecord {
+            let directory = DownloadStore.shared.readyDirectory(
+                for: record.bvid
+            )
+            self.playback = BiliPlayback(
+                dash: record.dash,
+                fallbackURL: nil,
+                referer: record.referer,
+                resumeTime: 0,
+                localContext: LocalPlaybackContext(directory: directory)
+            )
+        }
         // Initial state — must come before the publisher
         // subscriptions below so the first emission does
         // not see a stale `downloadState`.
@@ -435,6 +454,15 @@ final class VideoDetailViewModel: ObservableObject {
     func load(repository: BiliPaiRepository) async {
         isLoading = true
         errorMessage = nil
+        // For locally-downloaded videos the playback is
+        // already populated from the `DownloadRecord` and
+        // the detail block already has the metadata we
+        // need.  Skip the network calls so the user can
+        // open the video on airplane mode.
+        if playback?.localContext != nil {
+            isLoading = false
+            return
+        }
         do {
             detail = try await repository.detail(for: detail)
             self.playback = try await repository.playback(for: detail, qn: preferredQn)

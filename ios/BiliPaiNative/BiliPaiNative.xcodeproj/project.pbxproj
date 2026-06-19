@@ -58,6 +58,7 @@
 		500000000000000000000551 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000550 /* DownloadManager.swift */; };
 		500000000000000000000553 /* DownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000552 /* DownloadStore.swift */; };
 		500000000000000000000555 /* BiliPaiAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000554 /* BiliPaiAppDelegate.swift */; };
+		500000000000000000000557 /* DownloadedVideosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000556 /* DownloadedVideosView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -116,6 +117,7 @@
 		500000000000000000000550 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		500000000000000000000552 /* DownloadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStore.swift; sourceTree = "<group>"; };
 		500000000000000000000554 /* BiliPaiAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiliPaiAppDelegate.swift; sourceTree = "<group>"; };
+		500000000000000000000556 /* DownloadedVideosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedVideosView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -192,6 +194,7 @@
 				500000000000000000000550 /* DownloadManager.swift */,
 				500000000000000000000552 /* DownloadStore.swift */,
 				500000000000000000000554 /* BiliPaiAppDelegate.swift */,
+				500000000000000000000556 /* DownloadedVideosView.swift */,
 			);
 			path = BiliPaiNative;
 			sourceTree = "<group>";
@@ -424,6 +427,7 @@
 				500000000000000000000551 /* DownloadManager.swift in Sources */,
 				500000000000000000000553 /* DownloadStore.swift in Sources */,
 				500000000000000000000555 /* BiliPaiAppDelegate.swift in Sources */,
+				500000000000000000000557 /* DownloadedVideosView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -149,6 +149,17 @@ private struct PhoneRootView: View {
             .navigationDestination(for: ReplyRoute.self) { route in
                 ReplyListView(video: route.video, rootComment: route.rootComment, repository: repository)
             }
+            .navigationDestination(for: LocalVideoRoute.self) { route in
+                switch route {
+                case .local(let record):
+                    VideoDetailView(
+                        video: record.video,
+                        repository: repository,
+                        heroNamespace: heroNamespace,
+                        localRecord: record
+                    )
+                }
+            }
         }
         // Middle-of-screen / left-edge swipe-back. The enabler
         // is a no-op on the root (where the path is empty) and
@@ -410,6 +421,8 @@ private func profileRouteView(_ route: ProfileRoute, repository: BiliPaiReposito
         FavoriteFoldersView(repository: repository, mid: mid)
     case .watchLater:
         WatchLaterListView(repository: repository)
+    case .downloads:
+        DownloadedVideosView(repository: repository)
     }
 }
 

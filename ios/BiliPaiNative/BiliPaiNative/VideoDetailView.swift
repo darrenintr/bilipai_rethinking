@@ -22,6 +22,13 @@ struct VideoDetailView: View {
     /// push and back into it on pop. `nil` is a no-op — the
     /// standard cross-fade transition is used.
     let heroNamespace: Namespace.ID?
+    /// When set, the view is opening an *offline* video
+    /// downloaded via `DownloadManager`.  The model uses
+    /// `record.dash` to construct a `BiliPlayback` with a
+    /// `localContext` pointing at the on-disk bytes, so the
+    /// player reads from disk instead of the upstream CDN.
+    /// `nil` is the regular network path.
+    let localRecord: DownloadRecord?
 
     @StateObject private var model: VideoDetailViewModel
     @EnvironmentObject private var miniPlayerStore: MiniPlayerStore
@@ -54,11 +61,12 @@ struct VideoDetailView: View {
     /// Toggled by the "immersive" button in the nav bar.
     @State private var isImmersiveMode = false
 
-    init(video: BiliVideo, repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil) {
+    init(video: BiliVideo, repository: BiliPaiRepository, heroNamespace: Namespace.ID? = nil, localRecord: DownloadRecord? = nil) {
         self.video = video
         self.repository = repository
         self.heroNamespace = heroNamespace
-        _model = StateObject(wrappedValue: VideoDetailViewModel(video: video))
+        self.localRecord = localRecord
+        _model = StateObject(wrappedValue: VideoDetailViewModel(video: video, localRecord: localRecord))
     }
 
     /// The active player controller — owned by the `MiniPlayerStore`
