@@ -87,7 +87,7 @@ struct OfflineBanner: View {
                     cornerRadius: BiliPaiTheme.cornerRadius,
                     style: BiliPaiTheme.cornerStyle
                 )
-                    .strokeBorder(Color.white.opacity(0.4), lineWidth: 0.5)
+                    .strokeBorder(Color.primary.opacity(0.3), lineWidth: 0.5)
             )
             .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
             .padding(.top, 8)

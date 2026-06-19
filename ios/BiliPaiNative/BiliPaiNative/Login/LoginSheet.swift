@@ -27,7 +27,10 @@ struct LoginSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") {
+                        Haptics.tap()
+                        dismiss()
+                    }
                 }
             }
         }
@@ -39,7 +42,10 @@ struct LoginSheet: View {
             model.cancel()
         }
         .onChange(of: authStore.activeAccount?.mid) { _, _ in
-            if authStore.isLoggedIn { dismiss() }
+            if authStore.isLoggedIn {
+                Haptics.success()
+                dismiss()
+            }
         }
     }
 

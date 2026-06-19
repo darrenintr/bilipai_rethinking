@@ -262,7 +262,10 @@ struct VideoDetailView: View {
 
     private var fullscreenButton: some View {
         Button {
-            isFullscreenPresented = true
+            Haptics.tap()
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isFullscreenPresented = true
+            }
         } label: {
             Image(systemName: "arrow.up.left.and.arrow.down.right")
                 .font(.subheadline.weight(.semibold))
@@ -309,7 +312,7 @@ struct VideoDetailView: View {
         HStack {
             // TODO: real danmaku engine. The toggle stays in the UI as a
             // hint at the future feature but does nothing until then.
-            Toggle("Danmaku", isOn: $model.danmakuEnabled)
+            Toggle(L10n.video.danmakuComingSoon, isOn: $model.danmakuEnabled)
                 .toggleStyle(.button)
                 .disabled(true)
                 .opacity(0.5)

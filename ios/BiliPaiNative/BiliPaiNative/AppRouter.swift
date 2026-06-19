@@ -84,8 +84,11 @@ final class AppRouter: ObservableObject {
     @Published var isLoginSheetPresented = false
 
     func open(_ tab: MainTab) {
-        selectedTab = tab
-        path.removeLast(path.count)
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            selectedTab = tab
+            path.removeLast(path.count)
+        }
+        Haptics.selection()
     }
 
     func openVideo(_ video: BiliVideo) {

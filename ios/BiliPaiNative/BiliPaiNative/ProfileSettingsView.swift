@@ -86,8 +86,7 @@ struct ProfileSettingsView: View {
             }
 
             Section("系统与诊断") {
-                // Both rows push the same `LogViewerView`.  The
-                // previous implementation used a sheet with an
+                // The previous implementation used a sheet with an
                 // `if let url = logExportURL` content closure
                 // which had a SwiftUI re-evaluation race: the
                 // first tap showed a blank sheet, the second
@@ -101,13 +100,16 @@ struct ProfileSettingsView: View {
                               subtitle: "查看 / 搜索 / 分享 bpLog 输出",
                               symbol: "doc.text")
                 }
-                NavigationLink {
-                    LogViewerView()
-                } label: {
-                    PluginRow(title: "深度诊断报告",
-                              subtitle: "推荐算法 / 播放 / 全屏排查 · 含系统信息",
-                              symbol: "doc.text.magnifyingglass")
-                }
+                // 深度诊断报告 — placeholder until the dedicated
+                // diagnostic report screen lands.  Shown as a
+                // disabled row with a 即将推出 hint rather than a
+                // second row that would push the same LogViewer
+                // (a confusing UX).
+                PluginRow(title: "深度诊断报告",
+                          subtitle: "推荐算法 / 播放 / 全屏排查 · 即将推出",
+                          symbol: "doc.text.magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHint("即将推出")
 
                 // Diagnostic dump toggle.  When on, the next
                 // playurl request logs its raw response body to

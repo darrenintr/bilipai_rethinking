@@ -190,6 +190,33 @@ struct HistoryListView: View {
                 }
                 .buttonStyle(.plain)
                 .videoContextMenu(for: entry.video, repository: repository, isHistoryRow: true)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        NotificationCenter.default.post(
+                            name: .historyDidRemove,
+                            object: entry.video
+                        )
+                        model.items.removeAll { $0.video.id == entry.video.id }
+                        Haptics.tap()
+                    } label: {
+                        Label("从历史记录中移除", systemImage: "trash")
+                    }
+                }
+                .swipeActions(edge: .leading) {
+                    Button {
+                        Task {
+                            do {
+                                try await repository.addToWatchLater(video: entry.video)
+                                Haptics.success()
+                            } catch {
+                                Haptics.error()
+                            }
+                        }
+                    } label: {
+                        Label("稍后再看", systemImage: "clock.badge.checkmark")
+                    }
+                    .tint(BiliPaiTheme.biliPink)
+                }
                 .onAppear {
                     if index >= max(0, model.items.count - 5) {
                         Task { await model.loadMore(repository: repository) }
@@ -249,6 +276,21 @@ struct WatchLaterListView: View {
                 }
                 .buttonStyle(.plain)
                 .videoContextMenu(for: video, repository: repository, isWatchLaterRow: true)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        Task {
+                            do {
+                                try await repository.removeFromWatchLater(video: video)
+                                model.videos.removeAll { $0.id == video.id }
+                                Haptics.success()
+                            } catch {
+                                Haptics.error()
+                            }
+                        }
+                    } label: {
+                        Label("从稍后再看中移除", systemImage: "clock.badge.xmark")
+                    }
+                }
             }
         }
         .scrollContentBackground(.hidden)

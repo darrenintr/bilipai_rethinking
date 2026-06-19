@@ -237,7 +237,10 @@ struct HomeView: View {
                 HStack(spacing: 8) {
                     ForEach(HomeCategory.androidTabs) { category in
                         Button {
-                            model.category = category
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                model.category = category
+                            }
+                            Haptics.selection()
                         } label: {
                             Text(category.title)
                                 .font(.subheadline.weight(.semibold))
@@ -261,7 +264,10 @@ struct HomeView: View {
                 HStack(spacing: 8) {
                     ForEach(PopularSubCategory.allCases) { subCategory in
                         Button {
-                            model.popularSubCategory = subCategory
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                model.popularSubCategory = subCategory
+                            }
+                            Haptics.selection()
                         } label: {
                             Text(subCategory.title)
                                 .font(.caption.weight(.semibold))

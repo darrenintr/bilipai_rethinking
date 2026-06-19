@@ -64,7 +64,7 @@ final class BilibiliAPIClient {
             config.waitsForConnectivity = true
             config.requestCachePolicy = .reloadIgnoringLocalCacheData
             config.httpAdditionalHeaders = [
-                "User-Agent": "bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)",
+                "User-Agent": DeviceInfo.shared.userAgent,
                 "Referer": "https://www.bilibili.com"
             ]
             self.session = URLSession(configuration: config)
@@ -1032,7 +1032,7 @@ final class BilibiliAPIClient {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
-        request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
+        request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
         if isAppAPI {
@@ -1112,7 +1112,7 @@ final class BilibiliAPIClient {
         request.httpBody = bodyString.data(using: .utf8)
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
-        request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
+        request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
 
         if let cookies = cookieProvider?() {
             request.setValue(cookies, forHTTPHeaderField: "Cookie")
@@ -1199,7 +1199,7 @@ private actor WbiSigner {
         var request = URLRequest(url: navURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
-        request.setValue("bili-universal/iphone (iPhone; iOS 18.0; Scale/3.00)", forHTTPHeaderField: "User-Agent")
+        request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         let (data, _) = try await session.data(for: request)
         let payload = try JSONDecoder().decode(WbiNavResponse.self, from: data)
         let imgURL = payload.data.wbiImg.imgURL

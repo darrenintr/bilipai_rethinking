@@ -36,6 +36,13 @@ struct ReplyListView: View {
                         if model.isLoading && model.replies.isEmpty {
                             ProgressView()
                                 .padding()
+                        } else if model.replies.isEmpty {
+                            ContentUnavailableView(
+                                L10n.replies.empty,
+                                systemImage: "bubble.left",
+                                description: Text(L10n.replies.emptyHint)
+                            )
+                            .padding(.vertical, 24)
                         } else {
                             ForEach(Array(model.replies.enumerated()), id: \.element.id) { index, reply in
                                 ReplyItemRow(comment: reply, repository: repository, model: model)

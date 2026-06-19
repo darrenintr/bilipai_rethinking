@@ -38,6 +38,19 @@ final class DeviceInfo: ObservableObject {
 
     private init() {}
 
+    /// User-Agent string for outbound HTTP requests. Composed at
+    /// runtime from the live iOS version so it stays accurate
+    /// across iOS upgrades (the previous hard-coded "iOS 18.0"
+    /// string became inaccurate the moment the user upgraded).
+    /// Uses the bilibili "bili-universal/iphone" format that the
+    /// official iOS client uses — bilibili servers fingerprint
+    /// non-standard UAs.
+    nonisolated var userAgent: String {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        let iosVersion = "\(version.majorVersion).\(version.minorVersion)"
+        return "bili-universal/iphone (iPhone; iOS \(iosVersion); Scale/3.00)"
+    }
+
     /// Start the path monitor.  Idempotent.  We call this from
     /// `BiliPaiNativeApp.init()` so the very first `.session`
     /// event ("network.changed") is captured even if the user

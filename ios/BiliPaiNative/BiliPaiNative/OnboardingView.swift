@@ -11,6 +11,7 @@ import SwiftUI
 struct OnboardingView: View {
     @AppStorage("bilipai.didOnboard") private var didOnboard: Bool = false
     @State private var currentPage: Int = 0
+    @EnvironmentObject private var router: AppRouter
 
     private static let pages: [OnboardingPage] = [
         OnboardingPage(
@@ -37,7 +38,7 @@ struct OnboardingView: View {
         ZStack(alignment: .topTrailing) {
             TabView(selection: $currentPage) {
                 ForEach(Array(Self.pages.enumerated()), id: \.offset) { index, page in
-                    OnboardingPageView(page: page)
+                    OnboardingPageView(page: page, showsLoginCTA: index == Self.pages.count - 1)
                         .tag(index)
                 }
             }
@@ -92,6 +93,8 @@ private struct OnboardingPage: Identifiable {
 
 private struct OnboardingPageView: View {
     let page: OnboardingPage
+    let showsLoginCTA: Bool
+    @EnvironmentObject private var router: AppRouter
 
     var body: some View {
         VStack(spacing: 24) {
@@ -115,6 +118,21 @@ private struct OnboardingPageView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
+            }
+            if showsLoginCTA {
+                Button {
+                    Haptics.tap()
+                    router.openLogin()
+                } label: {
+                    Text("立即登录")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BiliPaiTheme.biliPink)
+                .padding(.horizontal, 32)
+                .padding(.top, 8)
             }
             Spacer()
         }
