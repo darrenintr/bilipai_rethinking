@@ -104,14 +104,87 @@ struct BiliPlayback: Hashable {
     /// `Referer` header on the AVURLAsset).
     let fallbackURL: URL?
     let referer: URL
-    
+
     /// Optional timestamp (in seconds) to resume playback from.
     /// When set, the player seeks to this position before starting.
     var resumeTime: Double = 0
 
+    /// When set, the bytes for `dash` live on disk in `directory`
+    /// (an already-downloaded video).  `LocalHLSProxyServer` reads
+    /// the init/media segments from the local files instead of the
+    /// upstream CDN.  `referer` is preserved for any defensive
+    /// header checks, but no upstream network calls are made.
+    var localContext: LocalPlaybackContext?
+
     /// True if this playback can be served by the local HLS
     /// proxy.
-    var isDASH: Bool { dash != nil }
+    var isDASH: Bool { dash != nil || localContext != nil }
+}
+
+/// Pointer to an on-disk download that the local HLS proxy
+/// should serve instead of fetching from the B 站 CDN.  Set on
+/// `BiliPlayback.localContext` when `VideoDetailView` opens a
+/// `DownloadRecord`; the proxy then re-routes the init / media
+/// file handlers to `directory` instead of `currentPlayback`.
+///
+/// The struct is intentionally tiny — the heavy data
+/// (`BiliDashSource` tracks, byte ranges, etc.) already lives
+/// on `BiliPlayback.dash`.  The only thing the proxy needs to
+/// know is *where on disk* to read the bytes from.
+struct LocalPlaybackContext: Hashable {
+    /// `Caches/BiliPai/Downloads/ready/{bvid}/`.  The init and
+    /// media m4s files for the video and audio tracks live
+    /// directly under this directory.
+    let directory: URL
+}
+
+/// One row in `DownloadStore.records`.  Persisted as part of
+/// `manifest.json`; the `directory` field is recomputed on
+/// load from the `bvid` (iOS does not let us persist a stable
+/// container URL across launches — `Caches/` may move under
+/// storage pressure).
+struct DownloadRecord: Codable, Identifiable, Hashable {
+    /// `bvid` doubles as the primary key (`BiliVideo.id` is
+    /// `bvid ?? "\(aid)"`), and the on-disk directory name.
+    var id: String { bvid }
+    let bvid: String
+    let aid: Int
+    let cid: Int
+    let title: String
+    let ownerName: String
+    let coverURL: URL?
+    let duration: Int
+    /// `BiliDashSource` as it existed at download time.  Needed
+    /// by `LocalHLSProxyServer.serveLocal(...)` so the synthesised
+    /// `playlist.m3u8` matches the on-disk bytes (byte ranges,
+    /// codecs, bandwidth, …).  We keep the full source rather
+    /// than a slim summary because the struct is tiny and the
+    /// alternative — re-fetching the playurl API offline —
+    /// is impossible.
+    let dash: BiliDashSource
+    let referer: URL
+    let downloadedAt: Date
+    let sizeBytes: Int64
+
+    /// Re-hydrate the `BiliVideo` shape the rest of the app
+    /// already speaks.  Used by `DownloadedVideosView` so the
+    /// row does not have to know about the `DownloadRecord`
+    /// shape itself.
+    var video: BiliVideo {
+        BiliVideo(
+            bvid: bvid,
+            aid: aid,
+            cid: cid,
+            title: title,
+            ownerName: ownerName,
+            coverURL: coverURL,
+            duration: duration,
+            viewCount: 0,
+            danmakuCount: 0,
+            likeCount: 0,
+            description: ""
+        )
+    }
 }
 
 /// `BiliDashSource` is the DASH description we extract from

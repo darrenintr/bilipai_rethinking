@@ -55,6 +55,9 @@
 		100000000000000000000474 /* LiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000473 /* LiveActivityWidget.swift */; };
 		100000000000000000000475 /* LiveRoomActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000464 /* LiveRoomActivityAttributes.swift */; };
 		10000000000000000000047A /* BiliPaiWidget.appex in Embed PlugIns */ = {isa = PBXBuildFile; fileRef = 100000000000000000000479 /* BiliPaiWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		500000000000000000000551 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000550 /* DownloadManager.swift */; };
+		500000000000000000000553 /* DownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000552 /* DownloadStore.swift */; };
+		500000000000000000000555 /* BiliPaiAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000554 /* BiliPaiAppDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -110,6 +113,9 @@
 		100000000000000000000476 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		100000000000000000000478 /* BiliPaiWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BiliPaiWidget.entitlements; sourceTree = "<group>"; };
 		100000000000000000000479 /* BiliPaiWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BiliPaiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		500000000000000000000550 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
+		500000000000000000000552 /* DownloadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStore.swift; sourceTree = "<group>"; };
+		500000000000000000000554 /* BiliPaiAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiliPaiAppDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -183,6 +189,9 @@
 				100000000000000000000463 /* Shared */,
 				100000000000000000000404 /* Auth */,
 				100000000000000000000405 /* Login */,
+				500000000000000000000550 /* DownloadManager.swift */,
+				500000000000000000000552 /* DownloadStore.swift */,
+				500000000000000000000554 /* BiliPaiAppDelegate.swift */,
 			);
 			path = BiliPaiNative;
 			sourceTree = "<group>";
@@ -412,6 +421,9 @@
 				100000000000000000000468 /* ICloudSync.swift in Sources */,
 				10000000000000000000046A /* LiveActivityCoordinator.swift in Sources */,
 				100000000000000000000465 /* LiveRoomActivityAttributes.swift in Sources */,
+				500000000000000000000551 /* DownloadManager.swift in Sources */,
+				500000000000000000000553 /* DownloadStore.swift in Sources */,
+				500000000000000000000555 /* BiliPaiAppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

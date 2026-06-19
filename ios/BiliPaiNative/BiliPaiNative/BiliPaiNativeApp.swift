@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct BiliPaiNativeApp: App {
+    @UIApplicationDelegateAdaptor(BiliPaiAppDelegate.self) private var appDelegate
     @StateObject private var router = AppRouter()
     @StateObject private var authStore = AuthStore()
     @StateObject private var repository: BiliPaiRepository

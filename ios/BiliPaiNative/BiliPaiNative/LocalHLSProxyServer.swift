@@ -80,6 +80,15 @@ final class LocalHLSProxyServer {
     func serve(playback: BiliPlayback) throws {
         lock.lock()
         currentPlayback = playback
+        // `serve(playback:)` is the upstream-CDN path.  If
+        // the caller hands us a playback that also has a
+        // `localContext`, we still set it — the segment
+        // router will read from disk in that case.  This
+        // means a caller that already has a
+        // `BiliPlayback.localContext` populated does not
+        // need to know whether to call `serve` or
+        // `serveLocal`.
+        localContext = playback.localContext
         lock.unlock()
 
         // Evict probe state from any previous playback — the
@@ -87,41 +96,116 @@ final class LocalHLSProxyServer {
         // would point at the wrong bytes if reused.
         resetMediaTotalProbes()
 
-        // Kick off probes so the media playlists can be
-        // multi-segment from the first request.  Probes run
-        // on URLSession's background queue; `serve(playback:)`
-        // returns immediately.
-        let referer = playback.referer.absoluteString
+        // If the playback is downloaded, the file sizes
+        // are already known — seed the probe cache
+        // synchronously.  Otherwise kick off upstream
+        // probes so the media playlists can be
+        // multi-segment from the first request.
+        if let local = playback.localContext {
+            if let video = playback.dash?.video {
+                registerLocalFileSize(
+                    for: video,
+                    directory: local.directory,
+                    fileName: "video.media"
+                )
+            }
+            if let audio = playback.dash?.audio {
+                registerLocalFileSize(
+                    for: audio,
+                    directory: local.directory,
+                    fileName: "audio.media"
+                )
+            }
+        } else {
+            let referer = playback.referer.absoluteString
+            if let video = playback.dash?.video {
+                startMediaTotalProbe(for: video, referer: referer)
+            }
+            if let audio = playback.dash?.audio {
+                startMediaTotalProbe(for: audio, referer: referer)
+            }
+        }
+
+        try ensureListener()
+        diagLog(.playback, "LocalHLSProxyServer starting")
+    }
+
+    /// Stop the server.  After this call `baseURL` is `nil`
+    /// and any in-flight connections are cancelled.  Calling
+    /// `serve(playback:)` again will start a fresh listener
+    /// (with a new OS-assigned port).
+    func stop() {
+        listener?.cancel()
+        listener = nil
+        lock.lock()
+        currentPlayback = nil
+        localContext = nil
+        lock.unlock()
+        diagLog(.playback, "LocalHLSProxyServer stopped")
+    }
+
+    /// Serve a `BiliPlayback` whose bytes are already on
+    /// disk.  Same wire contract as `serve(playback:)` —
+    /// AVPlayer sees a 127.0.0.1 loopback HTTP server
+    /// returning HLS — but the init / media bytes are read
+    /// from `playback.localContext.directory` instead of
+    /// the B 站 CDN.  Falls back to `serve(playback:)` if
+    /// `playback.localContext` is `nil`, so callers can
+    /// use `serveLocal` as a single entry point.
+    func serveLocal(playback: BiliPlayback) throws {
+        guard let local = playback.localContext else {
+            try serve(playback: playback)
+            return
+        }
+        // Wire the playback in.  We need the upstream
+        // playlists to know the byte ranges / codecs /
+        // duration, but `localContext` flips the segment
+        // router to disk-backed reads.
+        lock.lock()
+        currentPlayback = playback
+        localContext = local
+        lock.unlock()
+
+        // We already know the on-disk file sizes (they
+        // are on the filesystem), so seed the probe cache
+        // synchronously.  Without this the playlist
+        // builder would fall back to single-segment mode
+        // for offline playback, which works but loses the
+        // ability to scrub past the buffer.
         if let video = playback.dash?.video {
-            startMediaTotalProbe(for: video, referer: referer)
+            registerLocalFileSize(
+                for: video,
+                directory: local.directory,
+                fileName: "video.media"
+            )
         }
         if let audio = playback.dash?.audio {
-            startMediaTotalProbe(for: audio, referer: referer)
+            registerLocalFileSize(
+                for: audio,
+                directory: local.directory,
+                fileName: "audio.media"
+            )
         }
 
-        if listener != nil { return }
+        // Spin up the listener (shared with `serve(playback:)`).
+        try ensureListener()
+        diagLog(.playback, "LocalHLSProxyServer serveLocal",
+                details: ["bvid": playback.dash.map { _ in "yes" } ?? "no"])
+    }
 
-        // Port 0 = let the OS pick.  We only have one server
-        // per process, so collisions are not a concern.
+    /// Idempotent listener bootstrap.  Pulled out of
+    /// `serve(playback:)` so `serveLocal(playback:)` can
+    /// reuse the exact same listener setup.
+    private func ensureListener() throws {
+        if listener != nil { return }
         let params = NWParameters.tcp
-        // `allowLocalEndpointReuse` lets the OS hand us a port
-        // even if a recently-closed connection is in
-        // TIME_WAIT.  Makes tear-down + restart snappy in
-        // dev loops.
         params.allowLocalEndpointReuse = true
-        // Bind to 127.0.0.1 only — no other device on the LAN
-        // can reach this port.  iOS 14+ still asks the user
-        // for `NSLocalNetworkUsageDescription` even for
-        // loopback, so make sure the Info.plist declares a
-        // reason.
         params.requiredLocalEndpoint = NWEndpoint.hostPort(
             host: .ipv4(.loopback),
             port: .any
         )
-
         let listener = try NWListener(using: params)
         self.listener = listener
-
         listener.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -148,20 +232,31 @@ final class LocalHLSProxyServer {
             self?.accept(connection: connection)
         }
         listener.start(queue: queue)
-        diagLog(.playback, "LocalHLSProxyServer starting")
     }
 
-    /// Stop the server.  After this call `baseURL` is `nil`
-    /// and any in-flight connections are cancelled.  Calling
-    /// `serve(playback:)` again will start a fresh listener
-    /// (with a new OS-assigned port).
-    func stop() {
-        listener?.cancel()
-        listener = nil
+    /// Stat the on-disk m4s file for `track` and seed the
+    /// probe cache with the byte count.  `track.baseURL` is
+    /// the upstream CDN URL — we still key the cache by
+    /// that URL so the existing media-playlist code path
+    /// (`awaitMediaTotalProbe`) can find the size without
+    /// changes.
+    private func registerLocalFileSize(
+        for track: BiliDashSource.Track,
+        directory: URL,
+        fileName: String
+    ) {
+        let url = directory.appendingPathComponent(fileName)
+        guard let attrs = try? FileManager.default.attributesOfItem(
+            atPath: url.path
+        ),
+              let size = attrs[.size] as? Int64,
+              size > 0 else {
+            bpLog("LocalHLSProxyServer local file size failed: \(url.path)")
+            return
+        }
         lock.lock()
-        currentPlayback = nil
+        probedSizes[track.baseURL] = size
         lock.unlock()
-        diagLog(.playback, "LocalHLSProxyServer stopped")
     }
 
     // MARK: internals
@@ -171,6 +266,12 @@ final class LocalHLSProxyServer {
     private var listener: NWListener?
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
+    /// When the active playback is a downloaded video, this
+    /// points at the on-disk directory holding its init/media
+    /// m4s files.  Set by `serveLocal(playback:)`; the
+    /// segment router reads it to decide whether to fetch
+    /// from disk vs. the upstream CDN.
+    private var localContext: LocalPlaybackContext?
     private var activeStreams: [UUID: StreamingProxyTask] = [:]
     /// Tracks in-flight upstream byte ranges so we can detect and
     /// resolve overlaps when AVPlayer issues concurrent sub-segment
@@ -568,6 +669,11 @@ final class LocalHLSProxyServer {
         }
         let pathOnly = req.path.split(separator: "?", maxSplits: 1)
             .first.map(String.init) ?? req.path
+        // Local-playback path: read init/media from disk
+        // instead of the upstream CDN.  Same HLS wire
+        // contract, so the route keys are unchanged; only
+        // the segment handler differs.
+        let isLocal = isLocalMode()
         switch pathOnly {
         case "/playlist.m3u8":
             respondMasterPlaylist(connection: connection, connID: connID)
@@ -578,20 +684,49 @@ final class LocalHLSProxyServer {
             respondMediaPlaylist(for: .audio, connection: connection,
                                  connID: connID)
         case "/init":
-            proxySegment(req: req, connection: connection, mode: .initRange,
-                         connID: connID)
+            if isLocal {
+                proxyLocalSegment(
+                    req: req, connection: connection,
+                    kind: .initRange, connID: connID
+                )
+            } else {
+                proxySegment(req: req, connection: connection,
+                             mode: .initRange, connID: connID)
+            }
         case "/media":
-            proxySegment(req: req, connection: connection, mode: .mediaRange,
-                         connID: connID)
+            if isLocal {
+                proxyLocalSegment(
+                    req: req, connection: connection,
+                    kind: .mediaRange, connID: connID
+                )
+            } else {
+                proxySegment(req: req, connection: connection,
+                             mode: .mediaRange, connID: connID)
+            }
         default:
             if pathOnly.hasPrefix("/seg") {
-                proxySegment(req: req, connection: connection, mode: .passthrough,
-                             connID: connID)
+                if isLocal {
+                    respondError(connection: connection, status: 404,
+                                 reason: "local mode: no /seg",
+                                 connID: connID)
+                } else {
+                    proxySegment(req: req, connection: connection,
+                                 mode: .passthrough, connID: connID)
+                }
             } else {
                 respondError(connection: connection, status: 404,
                              reason: "no route", connID: connID)
             }
         }
+    }
+
+    /// True when the active playback is a downloaded video
+    /// with on-disk bytes.  Re-checked on every request so
+    /// swapping `currentPlayback` immediately flips the
+    /// routing decision.
+    fileprivate func isLocalMode() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return localContext != nil
     }
 
     // MARK: m3u8 synthesise
@@ -983,6 +1118,162 @@ final class LocalHLSProxyServer {
         )
         retain(stream: stream)
         stream.start()
+    }
+
+    // MARK: local segment handler
+
+    /// Local-mode equivalent of `proxySegment`.  Reads the
+    /// init / media m4s file from `localContext.directory`
+    /// and serves the requested byte range straight to the
+    /// downstream socket — no upstream network call, no
+    /// `URLSession`, no `Referer` rewrite.
+    ///
+    /// Status / `Content-Range` rules match `proxySegment`:
+    ///   - no client Range → `200 OK` with the full body
+    ///   - client Range   → `206 Partial Content` with a
+    ///     matching `Content-Range` header
+    fileprivate func proxyLocalSegment(
+        req: HTTPRequest,
+        connection: NWConnection,
+        kind: ProxyMode,
+        connID: String
+    ) {
+        let context: LocalPlaybackContext? = {
+            lock.lock(); defer { lock.unlock() }
+            return localContext
+        }()
+        guard let context else {
+            respondError(connection: connection, status: 503,
+                         reason: "no local context", connID: connID)
+            return
+        }
+        let query = req.path.split(separator: "?", maxSplits: 1)
+            .last.map(String.init) ?? ""
+        let params = parseQuery(query)
+
+        // Decode the upstream URL from the `u` query
+        // parameter so we can match it against the active
+        // `BiliDashSource` and decide whether this
+        // init/media request is for the video or the audio
+        // track.  Same wire contract as the upstream path.
+        let source: BiliDashSource? = {
+            lock.lock(); defer { lock.unlock() }
+            return currentPlayback?.dash
+        }()
+        guard let source else {
+            respondError(connection: connection, status: 503,
+                         reason: "no source", connID: connID)
+            return
+        }
+        guard let encoded = params["u"],
+              let upstreamString = base64urlDecode(encoded),
+              let upstream = URL(string: upstreamString) else {
+            respondError(connection: connection, status: 400,
+                         reason: "missing u", connID: connID)
+            return
+        }
+        let mediaLabel: String
+        if source.video.baseURL == upstream {
+            mediaLabel = "video"
+        } else if source.audio?.baseURL == upstream {
+            mediaLabel = "audio"
+        } else {
+            respondError(connection: connection, status: 400,
+                         reason: "unknown upstream", connID: connID)
+            return
+        }
+
+        // Resolve the on-disk file path and the absolute
+        // byte range the caller is asking for.  The wire
+        // contract mirrors the upstream path: `/init` reads
+        // from `track.initializationRange`, `/media` reads
+        // from `track.mediaStartOffset` for the rest of the
+        // file.
+        let (fileURL, requestStart, requestEnd): (URL, Int64, Int64?) = {
+            switch kind {
+            case .initRange:
+                guard let range = parseByteRange(params["range"]) else {
+                    return (context.directory, 0, nil)
+                }
+                let url = context.directory
+                    .appendingPathComponent("\(mediaLabel).init")
+                return (url, range.offset, range.endOffset)
+            case .mediaRange:
+                guard let startString = params["from"],
+                      let start = Int64(startString) else {
+                    return (context.directory, 0, nil)
+                }
+                let endString = params["to"].flatMap { Int64($0) }
+                let url = context.directory
+                    .appendingPathComponent("\(mediaLabel).media")
+                return (url, start, endString)
+            case .passthrough:
+                return (context.directory, 0, nil)
+            }
+        }()
+
+        guard let fileSize = (try? FileManager.default
+                .attributesOfItem(atPath: fileURL.path))?[.size]
+                as? Int64, fileSize > 0 else {
+            respondError(connection: connection, status: 404,
+                         reason: "missing local file", connID: connID)
+            return
+        }
+        // Clamp the requested range to the file size.
+        let endInclusive: Int64
+        if let requestEnd {
+            endInclusive = min(requestEnd, fileSize - 1)
+        } else {
+            endInclusive = fileSize - 1
+        }
+        let clampedStart = min(max(0, requestStart), fileSize - 1)
+        guard clampedStart <= endInclusive else {
+            respondError(connection: connection, status: 416,
+                         reason: "range not satisfiable", connID: connID)
+            return
+        }
+        let byteCount = endInclusive - clampedStart + 1
+
+        // Read the bytes synchronously.  The files are
+        // bounded (a typical VOD is 50-100 MB) and AVPlayer
+        // typically asks for a sub-range; for a full-file
+        // read we still serve it in one shot because the
+        // player is happy to receive the whole segment
+        // before issuing the next range.
+        let data: Data
+        do {
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(clampedStart))
+            data = handle.readData(ofLength: Int(byteCount))
+        } catch {
+            respondError(connection: connection, status: 500,
+                         reason: "read failed: \(error.localizedDescription)",
+                         connID: connID)
+            return
+        }
+
+        let clientSentRange = req.headers["range"] != nil
+        let status = clientSentRange ? 206 : 200
+        var extra: [String: String] = ["Accept-Ranges": "bytes"]
+        if clientSentRange {
+            extra["Content-Range"] =
+                "bytes \(clampedStart)-\(endInclusive)/\(fileSize)"
+        }
+        let mime: String
+        switch kind {
+        case .initRange, .mediaRange: mime = "video/mp4"
+        case .passthrough:            mime = "video/mp4"
+        }
+        respondBytes(
+            connection: connection,
+            status: status,
+            contentType: mime,
+            body: data,
+            extraHeaders: extra,
+            connID: connID,
+            label: "LOCAL SEGMENT"
+        )
     }
 
     // MARK: response helpers
