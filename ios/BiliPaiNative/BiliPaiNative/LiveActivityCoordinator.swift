@@ -38,7 +38,7 @@ final class LiveActivityCoordinator {
         guard Self.isSupported else { return }
         end(reason: .immediate)
         let attributes = LiveRoomActivityAttributes(
-            roomId: String(room.roomID),
+            roomId: String(room.id),
             title: room.title,
             hostName: room.hostName,
             areaName: room.areaName
