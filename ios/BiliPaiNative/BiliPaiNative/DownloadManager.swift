@@ -437,6 +437,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
 /// `VideoDetailViewModel.downloadState` (commit 11.B2) so
 /// the download button can render the right label.
 enum DownloadState: Equatable {
+    case notDownloaded
     case downloading(progress: Double)
     case downloaded(record: DownloadRecord)
     case failed(message: String)

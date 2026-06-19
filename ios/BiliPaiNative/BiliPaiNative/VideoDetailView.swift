@@ -341,6 +341,7 @@ struct VideoDetailView: View {
             // to `@AppStorage` so a fresh open picks up the user's
             // last choice without a visible refetch round-trip.
             qualityMenu
+            downloadButton
             Menu {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
                     Button(String(format: "%.2gx", speed)) {
@@ -354,6 +355,44 @@ struct VideoDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .bilipaiCardSurface(materialDesign)
+    }
+
+    /// Download button.  Renders one of four labels
+    /// depending on `model.downloadState`:
+    ///   - `.notDownloaded`     → "下载" + down arrow
+    ///   - `.downloading(p)`    → "\(p*100)%" + stop icon,
+    ///     second tap cancels
+    ///   - `.downloaded`        → "已下载" + checkmark
+    ///   - `.failed(message)`   → "重试下载" + retry icon
+    ///
+    /// Disabled (and dimmed) when the device is offline or
+    /// the playback has not yet loaded — the network is
+    /// required to fetch the DASH manifest that backs a
+    /// download, and the user is not yet looking at a video
+    /// they could want to keep.
+    @ViewBuilder
+    private var downloadButton: some View {
+        let canStart = model.playback != nil
+        let label: (String, String)
+        switch model.downloadState {
+        case .notDownloaded:
+            label = ("下载", "arrow.down.circle")
+        case .downloading(let p):
+            label = ("\(Int(p * 100))%", "stop.fill")
+        case .downloaded:
+            label = ("已下载", "checkmark.circle.fill")
+        case .failed:
+            label = ("重试下载", "exclamationmark.arrow.circlepath")
+        }
+        Button {
+            Haptics.tap()
+            model.onDownloadTap()
+        } label: {
+            Label(label.0, systemImage: label.1)
+        }
+        .toggleStyle(.button)
+        .disabled(!canStart)
+        .opacity(canStart ? 1 : 0.5)
     }
 
     /// Quality menu lifted out of `controlPanel` so the helper that

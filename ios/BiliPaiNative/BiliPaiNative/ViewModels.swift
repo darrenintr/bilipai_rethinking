@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 @MainActor
@@ -317,6 +318,12 @@ final class VideoDetailViewModel: ObservableObject {
     /// refetches the playurl with the new ladder entry as the
     /// preferred slot.
     @Published var preferredQn: Int = 80
+    /// Current download state for this video.  Mirrors
+    /// `DownloadStore.records` and `DownloadManager.stateByBvid`
+    /// for `self.detail.bvid` — the view subscribes via
+    /// `$downloadState` to redraw the control-panel button
+    /// when the user starts, completes, or fails a download.
+    @Published var downloadState: DownloadState = .notDownloaded
 
     private var nextCommentCursor: Int?
     /// Fixed page size for comment fetches. The user wants pure
@@ -330,7 +337,95 @@ final class VideoDetailViewModel: ObservableObject {
 
     init(video: BiliVideo) {
         self.detail = video
+        // Initial state — must come before the publisher
+        // subscriptions below so the first emission does
+        // not see a stale `downloadState`.
+        refreshDownloadState()
+        // Subscribe to both the on-disk records (the source
+        // of truth for "already downloaded") and the in-flight
+        // download state (the source of truth for "currently
+        // downloading").  We deliberately do NOT use
+        // `objectWillChange` forwarding because SwiftUI views
+        // observe `$downloadState` directly via
+        // `model.$downloadState` (or via a `@Binding`).
+        cancellables.append(
+            DownloadStore.shared.$records
+                .sink { [weak self] _ in
+                    self?.refreshDownloadState()
+                }
+        )
+        cancellables.append(
+            DownloadManager.shared.$stateByBvid
+                .sink { [weak self] _ in
+                    self?.refreshDownloadState()
+                }
+        )
+        cancellables.append(
+            DownloadManager.shared.$progress
+                .sink { [weak self] _ in
+                    self?.refreshDownloadState()
+                }
+        )
     }
+
+    /// Combine the two sources of truth (on-disk records +
+    /// in-flight download state) into the single
+    /// `downloadState` enum the UI observes.
+    private func refreshDownloadState() {
+        let bvid = detail.bvid
+        if let record = DownloadStore.shared.record(for: bvid) {
+            if downloadState != .downloaded(record: record) {
+                downloadState = .downloaded(record: record)
+            }
+            return
+        }
+        if let mgrState = DownloadManager.shared.stateByBvid[bvid] {
+            switch mgrState {
+            case .downloading:
+                let progress = DownloadManager.shared.progress[bvid] ?? 0
+                let next: DownloadState = .downloading(progress: progress)
+                if downloadState != next { downloadState = next }
+            case .failed(let message):
+                if downloadState != .failed(message: message) {
+                    downloadState = .failed(message: message)
+                }
+            case .downloaded:
+                // The `DownloadStore` subscription will
+                // resolve this to `.downloaded(record:)` as
+                // soon as the store sees the new manifest.
+                break
+            }
+            return
+        }
+        if downloadState != .notDownloaded {
+            downloadState = .notDownloaded
+        }
+    }
+
+    /// User tapped the download button.  Behaviour depends on
+    /// the current state:
+    ///   - `.notDownloaded` → start a download (no-op if
+    ///     `playback` is not yet loaded, or if the user is
+    ///     offline — the button is dimmed by the view).
+    ///   - `.downloading`   → cancel the in-flight download
+    ///     and drop the staging directory.
+    ///   - `.downloaded`    → no-op (the user should swipe
+    ///     the row in the downloads list to remove it).
+    ///   - `.failed`        → start a fresh download attempt.
+    func onDownloadTap() {
+        let bvid = detail.bvid
+        switch downloadState {
+        case .notDownloaded, .failed:
+            guard let playback else { return }
+            DownloadManager.shared.start(video: detail, playback: playback)
+        case .downloading:
+            DownloadManager.shared.cancel(bvid: bvid)
+        case .downloaded:
+            break
+        }
+    }
+
+    private var cancellables: [AnyCancellable] = []
 
     func load(repository: BiliPaiRepository) async {
         isLoading = true
