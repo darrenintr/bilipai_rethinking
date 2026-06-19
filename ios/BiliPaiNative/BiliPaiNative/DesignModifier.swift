@@ -112,19 +112,31 @@ extension View {
     @ViewBuilder
     func bilipaiCardSurface(
         _ design: MaterialDesign,
-        cornerRadius: CGFloat = BiliPaiTheme.cardRadius
+        cornerRadius: CGFloat = BiliPaiTheme.cardRadius,
+        tint: Color? = nil,
+        stroke: Color? = nil,
+        strokeWidth: CGFloat = 0.5
     ) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: BiliPaiTheme.cornerStyle)
 
         switch design {
         case .material3:
-            self.background(BiliPaiTheme.cardBackground, in: shape)
+            self
+                .background(tint ?? BiliPaiTheme.cardBackground, in: shape)
+                .overlay(
+                    shape.strokeBorder(stroke ?? Color.clear, lineWidth: strokeWidth)
+                )
         case .liquidGlass:
             // Keep feed cards in the content layer. Apple recommends
             // reserving Liquid Glass for floating navigation and controls.
             self
-                .background(Color.primary.opacity(0.06), in: shape)
-                .overlay(shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                .background(tint ?? Color.primary.opacity(0.06), in: shape)
+                .overlay(
+                    shape.strokeBorder(
+                        stroke ?? Color.primary.opacity(0.08),
+                        lineWidth: stroke == nil ? 0.5 : strokeWidth
+                    )
+                )
         }
     }
 
