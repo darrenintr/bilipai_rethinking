@@ -54,7 +54,6 @@
 		100000000000000000000472 /* BiliPaiWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000471 /* BiliPaiWidgetBundle.swift */; };
 		100000000000000000000474 /* LiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000473 /* LiveActivityWidget.swift */; };
 		100000000000000000000475 /* LiveRoomActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000464 /* LiveRoomActivityAttributes.swift */; };
-		100000000000000000000477 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000476 /* Info.plist */; };
 		10000000000000000000047A /* BiliPaiWidget.appex in Embed PlugIns */ = {isa = PBXBuildFile; fileRef = 100000000000000000000479 /* BiliPaiWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -360,7 +359,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				100000000000000000000477 /* Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
