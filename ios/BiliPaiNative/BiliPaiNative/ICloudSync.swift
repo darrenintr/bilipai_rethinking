@@ -41,13 +41,25 @@ final class ICloudSync: ObservableObject {
     /// in `ProfileSettingsView` reads this to decide
     /// whether to render the "Open iCloud Settings"
     /// hint vs. just sit disabled.
+    ///
+    /// Source of truth: `FileManager.default.ubiquityIdentityToken`.
+    /// That's the canonical "user is signed in to iCloud" signal
+    /// and is updated by iOS the moment the user signs in or out
+    /// from system Settings (we observe the
+    /// `NSUbiquityIdentityDidChange` notification). The previous
+    /// implementation used `NSUbiquitousKeyValueStore.synchronize()`
+    /// as the gate, which is unreliable: it can return `false`
+    /// in unsigned builds, on first launch, or while the store
+    /// is still warming up — even when the user is signed in.
+    /// That left the iCloud toggle greyed out for users who
+    /// had a working Apple ID.
     @Published private(set) var isAvailable: Bool = false
 
     private let store = NSUbiquitousKeyValueStore.default
 
     private init() {}
 
-    /// Wire up the observer + initial sync. Call once
+    /// Wire up the observers + initial sync. Call once
     /// from the app entry point (`BiliPaiNativeApp`).
     /// Idempotent — calling twice is a no-op.
     func bootstrap() {
@@ -57,13 +69,43 @@ final class ICloudSync: ObservableObject {
             name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
             object: store
         )
-        // `synchronize()` returns `true` when the local
-        // store is in sync with the server. The first
-        // `didChangeExternally` arrives a few hundred ms
-        // later on a real device; treat the initial
-        // return value as "iCloud is reachable right
-        // now" for the UI affordance.
-        isAvailable = store.synchronize()
+        // Observe iCloud account changes (sign-in / sign-out from
+        // system Settings). The notification is delivered on the
+        // posting thread, and `ICloudSync` is `@MainActor`, so we
+        // hop inside the handler.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleIdentityChange(_:)),
+            name: NSUbiquityIdentityDidChange,
+            object: nil
+        )
+        refreshAvailability()
+        // `synchronize()` is fire-and-forget; the first
+        // `didChangeExternally` may arrive a few hundred ms later
+        // on a real device.
+        store.synchronize()
+    }
+
+    /// Recompute `isAvailable` from the current
+    /// `ubiquityIdentityToken`. Safe to call repeatedly —
+    /// idempotent and cheap.
+    private func refreshAvailability() {
+        let signedIn = FileManager.default.ubiquityIdentityToken != nil
+        // Only flip the flag if it actually changed — avoids
+        // spurious SwiftUI re-renders on every notification.
+        if signedIn != isAvailable {
+            isAvailable = signedIn
+        }
+    }
+
+    @objc private func handleIdentityChange(_ note: Notification) {
+        Task { @MainActor in
+            self.refreshAvailability()
+            // Re-sync the store on identity change so a freshly
+            // signed-in user gets the latest values from their
+            // other devices ASAP.
+            self.store.synchronize()
+        }
     }
 
     /// Mirror a single key to iCloud. `value` matches
