@@ -365,6 +365,14 @@ final class VideoDetailViewModel: ObservableObject {
                 errorMessage = "该视频的可用清晰度均不可播放（可能为地区限制或大会员专享）。"
             case .invalidURL, .http:
                 errorMessage = "网络异常，请检查连接后重试。"
+            case .sessionExpired:
+                // The `onAuthFailure` latch on the API client has
+                // already kicked the AppRouter to present the
+                // login sheet — the ViewModel just needs to
+                // surface a coherent inline error so the user
+                // is not staring at a stale spinner while the
+                // sheet slides in.
+                errorMessage = "登录状态已过期，请重新登录。"
             }
             diagLog(.playback,
                     "VideoDetailViewModel.load failed (BilibiliAPIError)",
@@ -486,6 +494,13 @@ final class VideoDetailViewModel: ObservableObject {
                 errorMessage = "无法识别该视频（缺少 aid/bvid）。"
             case .invalidURL, .http:
                 errorMessage = "网络异常，请检查连接后重试。"
+            case .sessionExpired:
+                // Same latch contract as `load()` above: the
+                // app router already has the login sheet on
+                // screen, the inline error just keeps the UI
+                // honest while the quality pick resets to the
+                // previous value on the next playback call.
+                errorMessage = "登录状态已过期，请重新登录。"
             }
         } catch {
             errorMessage = "切换清晰度失败：\(error.localizedDescription)"
