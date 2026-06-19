@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginSheet: View {
     @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var repository: BiliPaiRepository
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: LoginViewModel
 
@@ -43,6 +44,13 @@ struct LoginSheet: View {
         }
         .onChange(of: authStore.activeAccount?.mid) { _, _ in
             if authStore.isLoggedIn {
+                // Successful login → unlatch the 401 interceptor so
+                // the *next* session-expiry (e.g. SESSDATA rotation
+                // in 30 days) can re-pop the sheet. Without this,
+                // the latch would stay set forever after the very
+                // first 401 burst and subsequent expired sessions
+                // would silently fail instead of prompting re-auth.
+                repository.apiClient.resetAuthFailureLatch()
                 Haptics.success()
                 dismiss()
             }

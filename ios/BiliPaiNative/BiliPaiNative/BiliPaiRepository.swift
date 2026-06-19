@@ -10,6 +10,20 @@ final class BiliPaiRepository: ObservableObject {
         self.bundled = bundled
     }
 
+    /// Hook a callback that fires when the underlying `apiClient`
+    /// detects a 401 session-expiry response. The repository takes
+    /// the closure so the app can install it once during `onAppear`
+    /// without having to reach into the API client directly.
+    ///
+    /// The closure fires at most once per session-expiry burst —
+    /// the API client latches the failure so a feed-load that
+    /// fans out into 6 API calls doesn't pop the login sheet 6
+    /// times. `AuthStore.completeLogin(_:)` resets the latch so
+    /// the *next* session-expiry can re-fire.
+    func onSessionExpired(_ handler: @escaping () -> Void) {
+        apiClient.onAuthFailure = handler
+    }
+
     /// Fetch a single page of feed items.
     ///
     /// The supported categories accept a `page` query parameter on the

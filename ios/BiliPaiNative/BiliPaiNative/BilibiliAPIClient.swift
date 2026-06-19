@@ -41,7 +41,30 @@ final class BilibiliAPIClient {
     /// immediately.
     var appConfigProvider: (() -> BiliAppConfig?)?
 
-    /// Static fallback when no account is signed in. Kept on the
+    /// Fired the first time a request returns HTTP 401 in this
+    /// session.  The `BilibiliAPIClient` does not own auth state
+    /// — the app wires this up to whatever surfaces the login
+    /// sheet (`AppRouter.openLogin()`).  Fires once per 401 streak;
+    /// subsequent 401s within the same expiry episode are
+    /// suppressed so we don't queue three login sheets from a
+    /// burst of concurrent failed requests.
+    var onAuthFailure: (() -> Void)?
+
+    /// Latched once a 401 fires in `onAuthFailure`.  Cleared by
+    /// the app when the user re-authenticates (a successful
+    /// login resets it).  Stored here rather than in the closure
+    /// so multiple call sites (concurrent tasks) coordinate
+    /// without a race.
+    private var authFailureReported = false
+
+    /// Reset the 401 latch after a successful login.  Call this
+    /// from `AuthStore.completeLogin(...)` so the next session
+    /// expiry can re-open the sheet.
+    func resetAuthFailureLatch() {
+        authFailureReported = false
+    }
+
+    /// Static fallback when no account is signed in.  Kept on the
     /// client so unit tests and the cached-`BiliAppConfig` callers
     /// can read the same placeholder value the API originally used.
     static var defaultConfig: BiliAppConfig {
@@ -388,7 +411,7 @@ final class BilibiliAPIClient {
         return detail
     }
 
-    func playbackURL(bvid: String, aid: Int = 0, cid: Int) async throws -> BiliPlayback {
+    func playbackURL(bvid: String, aid: Int = 0, cid: Int, preferredQn: Int = 80) async throws -> BiliPlayback {
         // The current canonical path is `/x/player/wbi/playurl` — the
         // non-wbi alias is being phased out.  The `fnval` bitmask is:
         //   1   = legacy MP4 (returns an empty `durl` for most items
@@ -437,7 +460,23 @@ final class BilibiliAPIClient {
         let dumpPlayURL = defaults.bool(forKey: dumpPlayURLKey)
         let alreadyDumped = defaults.bool(forKey: dumpPlayURLDoneKey)
 
-        let qnChain: [Int] = [80, 64, 32, 16]
+        // The qn ladder, but reordered so the user's preferred
+        // quality is tried first. The remaining ladder entries
+        // (lower qualities the user can fall back to when their
+        // pick is gated by VIP / region lock) follow in their
+        // canonical descending order. If the user picked 360P we
+        // don't loop — that already is the bottom of the chain.
+        let canonicalChain: [Int] = [80, 64, 32, 16]
+        let qnChain: [Int]
+        if let idx = canonicalChain.firstIndex(of: preferredQn) {
+            qnChain = Array(canonicalChain[idx...])
+        } else if canonicalChain.contains(preferredQn) {
+            qnChain = canonicalChain
+        } else {
+            // Unknown qn (e.g. legacy caller passing a value we
+            // don't model) — keep canonical behaviour.
+            qnChain = canonicalChain
+        }
         var lastError: Error = BilibiliAPIError.missingData
         for qn in qnChain {
             let queryItems: [URLQueryItem] = identity + [
@@ -1048,6 +1087,20 @@ final class BilibiliAPIClient {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             bpLog("GET \(url.absoluteString) returned HTTP \(status)")
+            // 401 = session expired.  Surface a typed error
+            // (instead of the generic `http`) and let the app
+            // open the login sheet.  The latch in
+            // `authFailureReported` collapses a burst of
+            // concurrent 401s into a single sheet-open so a
+            // single expiry doesn't stack three sheets on top of
+            // each other.
+            if status == 401 {
+                if !authFailureReported {
+                    authFailureReported = true
+                    onAuthFailure?()
+                }
+                throw BilibiliAPIError.sessionExpired
+            }
             throw BilibiliAPIError.http
         }
         if dumpRawBody {
@@ -1122,6 +1175,18 @@ final class BilibiliAPIClient {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             bpLog("POST \(url.absoluteString) returned HTTP \(status)")
+            // Same 401 → sessionExpired mapping as `get(...)` —
+            // POSTs to gated endpoints (post comment, like,
+            // watch-later) all return 401 once the session is
+            // dead, and the app needs to be able to surface the
+            // login sheet without parsing the status code.
+            if status == 401 {
+                if !authFailureReported {
+                    authFailureReported = true
+                    onAuthFailure?()
+                }
+                throw BilibiliAPIError.sessionExpired
+            }
             throw BilibiliAPIError.http
         }
 
@@ -1252,6 +1317,12 @@ enum BilibiliAPIError: Error {
     /// source). Distinct from `missingData` so the UI can say "暂无可
     /// 播放清晰度" rather than a generic "缺少数据".
     case noPlayableFormat
+    /// The server returned HTTP 401 — the cookie session has
+    /// expired or been invalidated (B站 rotates `SESSDATA` every
+    /// ~30 days, and `bili_jct` after each login).  Distinct
+    /// from `http` so the client can auto-open the login sheet
+    /// and re-try the request once the user re-authenticates.
+    case sessionExpired
 }
 
 struct EmptyPayload: Codable {}

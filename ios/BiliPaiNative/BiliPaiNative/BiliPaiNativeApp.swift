@@ -75,6 +75,16 @@ struct BiliPaiNativeApp: App {
                         guard let account = authStore?.activeAccount else { return nil }
                         return BiliAppConfig(buvid3: account.buvid3, mid: account.mid, csrf: account.csrf)
                     }
+                    // When the upstream API returns 401 the user is
+                    // effectively logged out (B站 rotates SESSDATA
+                    // every ~30 days). Pop the login sheet on the
+                    // first 401 of a burst — the API client latches
+                    // the failure so we only show the sheet once,
+                    // and `AuthStore.completeLogin` resets the latch
+                    // so the *next* session-expiry can re-fire.
+                    repository.onSessionExpired { [weak router] in
+                        router?.openLogin()
+                    }
                 }
                 // Invalidate the follow-feed's cached followings set
                 // whenever the active account changes. Without this,
