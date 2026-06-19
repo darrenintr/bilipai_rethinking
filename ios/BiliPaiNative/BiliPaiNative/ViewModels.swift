@@ -394,6 +394,11 @@ final class VideoDetailViewModel: ObservableObject {
                 // resolve this to `.downloaded(record:)` as
                 // soon as the store sees the new manifest.
                 break
+            case .notDownloaded:
+                // `DownloadManager` clears the entry on
+                // cancel, so we should drop back to the
+                // "not downloaded" state — fall through.
+                break
             }
             return
         }

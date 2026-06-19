@@ -370,29 +370,35 @@ struct VideoDetailView: View {
     /// required to fetch the DASH manifest that backs a
     /// download, and the user is not yet looking at a video
     /// they could want to keep.
-    @ViewBuilder
     private var downloadButton: some View {
         let canStart = model.playback != nil
-        let label: (String, String)
-        switch model.downloadState {
-        case .notDownloaded:
-            label = ("下载", "arrow.down.circle")
-        case .downloading(let p):
-            label = ("\(Int(p * 100))%", "stop.fill")
-        case .downloaded:
-            label = ("已下载", "checkmark.circle.fill")
-        case .failed:
-            label = ("重试下载", "exclamationmark.arrow.circlepath")
-        }
-        Button {
+        return Button {
             Haptics.tap()
             model.onDownloadTap()
         } label: {
-            Label(label.0, systemImage: label.1)
+            downloadButtonLabel
         }
         .toggleStyle(.button)
         .disabled(!canStart)
         .opacity(canStart ? 1 : 0.5)
+    }
+
+    /// Pure value builder for the download button label.
+    /// Pulled out of `downloadButton` so the parent can stay
+    /// a regular `some View` (no `@ViewBuilder` gymnastics
+    /// around a `let` + `switch`).
+    @ViewBuilder
+    private var downloadButtonLabel: some View {
+        switch model.downloadState {
+        case .notDownloaded:
+            Label("下载", systemImage: "arrow.down.circle")
+        case .downloading(let p):
+            Label("\(Int(p * 100))%", systemImage: "stop.fill")
+        case .downloaded:
+            Label("已下载", systemImage: "checkmark.circle.fill")
+        case .failed:
+            Label("重试下载", systemImage: "exclamationmark.arrow.circlepath")
+        }
     }
 
     /// Quality menu lifted out of `controlPanel` so the helper that
