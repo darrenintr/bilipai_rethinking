@@ -54,10 +54,14 @@ struct ProfileSettingsView: View {
 
             Section("常用入口") {
                 ProfileQuickActionGrid(items: [
+                    // 离线缓存 is first so the downloads list is
+                    // the top-most landmark on the profile screen —
+                    // discoverable from here AND from the Home tab
+                    // top toolbar.
+                    .init(title: "离线缓存", subtitle: "Downloads", symbol: "arrow.down.circle", destination: .downloads),
                     .init(title: "历史记录", subtitle: "History", symbol: "clock.arrow.circlepath", destination: .history),
                     .init(title: "我的收藏", subtitle: "Favorite", symbol: "star", destination: .favorites),
                     .init(title: "稍后再看", subtitle: "Watch later", symbol: "clock.badge.checkmark", destination: .watchLater),
-                    .init(title: "离线缓存", subtitle: "Downloads", symbol: "arrow.down.circle", destination: .downloads),
                     .init(title: "消息中心", subtitle: "Inbox", symbol: "tray"),
                     .init(title: "追番追剧", subtitle: "Bangumi", symbol: "play.square.stack")
                 ], repository: repository)
@@ -171,16 +175,20 @@ struct ProfileSettingsView: View {
                               subtitle: "查看 / 搜索 / 分享 bpLog 输出",
                               symbol: "doc.text")
                 }
-                // 深度诊断报告 — placeholder until the dedicated
-                // diagnostic report screen lands.  Shown as a
-                // disabled row with a 即将推出 hint rather than a
-                // second row that would push the same LogViewer
-                // (a confusing UX).
-                PluginRow(title: "深度诊断报告",
-                          subtitle: "推荐算法 / 播放 / 全屏排查 · 即将推出",
-                          symbol: "doc.text.magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .accessibilityHint("即将推出")
+                // 深度诊断报告 — now lands on a dedicated screen
+                // (`DeepDiagnosticReportView`) that owns the
+                // generate-and-share flow.  The screen pulls a
+                // snapshot of every signal the engineer needs
+                // (system info, lifecycle, downloads,
+                // on-disk byte counts, bpLog tail) and pops
+                // the iOS share sheet with a single tap.
+                NavigationLink {
+                    DeepDiagnosticReportView()
+                } label: {
+                    PluginRow(title: "深度诊断报告",
+                              subtitle: "推荐算法 / 播放 / 全屏排查 · 一键导出",
+                              symbol: "doc.text.magnifyingglass")
+                }
 
                 // Diagnostic dump toggle.  When on, the next
                 // playurl request logs its raw response body to

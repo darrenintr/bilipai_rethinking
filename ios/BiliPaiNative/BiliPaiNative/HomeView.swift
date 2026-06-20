@@ -44,6 +44,32 @@ struct HomeView: View {
                 .navigationTitle("Paladala")
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
+                        // 离线缓存 quick access. Lives in the top
+                        // toolbar so the user can reach their
+                        // downloaded videos without going through
+                        // the profile tab. Disabled-but-not-hidden
+                        // when the store is empty so the entry
+                        // stays a constant, findable landmark.
+                        Button {
+                            Haptics.tap()
+                            router.open(.downloads)
+                        } label: {
+                            Image(systemName: "arrow.down.circle")
+                                .overlay(alignment: .topTrailing) {
+                                    if !DownloadStore.shared.records.isEmpty {
+                                        Text("\(DownloadStore.shared.records.count)")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(
+                                                Capsule().fill(BiliPaiTheme.biliPink)
+                                            )
+                                            .offset(x: 6, y: -4)
+                                    }
+                                }
+                        }
+                        .accessibilityLabel("离线缓存")
                         Button {
                             Haptics.tap()
                             Task { await model.load(repository: repository, accountMid: accountMid) }

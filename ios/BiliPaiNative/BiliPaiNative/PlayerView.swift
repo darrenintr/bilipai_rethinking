@@ -34,11 +34,61 @@ struct PlayerView: View {
     let video: BiliVideo
     let repository: BiliPaiRepository
     @ObservedObject var controller: PlayerController
+    /// Whether the inline PiP button is wired and visible.
+    /// Driven by the parent's `InlinePiPController.isPiPPossible`
+    /// flag — we toggle this via a `NotificationCenter`
+    /// subscription because the flag flips on the main thread
+    /// without going through a SwiftUI-observable property.
+    @State private var pipPossible: Bool = false
+    /// Holds a strong reference to the inline PiP controller
+    /// so its `AVPictureInPictureController` survives SwiftUI
+    /// re-renders.  See `InlineAVPlayerView.swift` for why a
+    /// strong ref is required.
+    @StateObject private var pipHolder = InlinePiPHolder()
+    /// Token returned by the PiP-possible observer so we can
+    /// remove it on `onDisappear` (the modern non-deprecated
+    /// `NotificationCenter` API requires the token).
+    @State private var pipPossibleObserver: NSObjectProtocol?
 
     var body: some View {
-        VideoPlayer(player: controller.player) {
-            // Content overlay sits BETWEEN the video and the system controls.
-            // This ensures our custom overlays don't block system single-taps.
+        ZStack {
+            // Inline AVPlayerLayer surface.  We use a custom
+            // UIViewRepresentable (instead of SwiftUI's
+            // `VideoPlayer`) so we can attach an
+            // `AVPictureInPictureController` to the layer —
+            // `VideoPlayer` hides the layer behind an
+            // `AVPlayerViewController` and won't let us wire
+            // PiP.  The holder retains the PiP controller so
+            // the system doesn't tear down the session on
+            // re-render.
+            InlineAVPlayerRepresentable(
+                player: controller.player,
+                onPiPRequested: { triggerPiP() },
+                holder: pipHolder
+            )
+            .onAppear {
+                pipHolder.refreshPiPPossible()
+                pipPossible = pipHolder.isPiPPossible
+                pipPossibleObserver = NotificationCenter.default.addObserver(
+                    forName: .bilipaiPiPPossibleChanged,
+                    object: nil,
+                    queue: .main
+                ) { [self] _ in
+                    pipHolder.refreshPiPPossible()
+                    pipPossible = pipHolder.isPiPPossible
+                }
+            }
+            .onDisappear {
+                if let token = pipPossibleObserver {
+                    NotificationCenter.default.removeObserver(token)
+                    pipPossibleObserver = nil
+                }
+            }
+
+            // Overlay sits ABOVE the AVPlayer surface but
+            // below any future system chrome.  Custom
+            // overlays (buffering, double-tap) keep their
+            // previous behaviour.
             ZStack {
                 if controller.isBuffering {
                     loadingOverlay
@@ -51,9 +101,42 @@ struct PlayerView: View {
                     repository: repository,
                     controller: controller
                 )
+
+                // PiP entry button.  Hidden until the system
+                // reports PiP is possible — otherwise the
+                // button looks broken when tapped.  Anchored
+                // to the bottom-trailing corner so it doesn't
+                // collide with the centred double-tap badges
+                // or the fullscreen button (top-leading).
+                if pipPossible && !controller.isPictureInPictureActive {
+                    Button {
+                        Haptics.tap()
+                        triggerPiP()
+                    } label: {
+                        Image(systemName: "pip.enter")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(8)
+                            .background(.black.opacity(0.55), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(10)
+                    .accessibilityLabel("Enter Picture in Picture")
+                }
             }
         }
     }
+
+    /// Push PiP start through the holder so it lands on the
+    /// inline `AVPictureInPictureController`.  If PiP isn't
+    /// possible yet (e.g. audio session is being configured),
+    /// the holder logs and we silently no-op — the user can
+    /// tap again once the system flips the flag.
+    private func triggerPiP() {
+        pipHolder.startPiP()
+    }
+}
 
     /// Spinner + KB/s readout shown during stalls.
     private var loadingOverlay: some View {

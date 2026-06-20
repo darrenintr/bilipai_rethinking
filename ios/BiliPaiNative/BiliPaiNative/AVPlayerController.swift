@@ -385,6 +385,10 @@ final class PlayerController: ObservableObject {
         // would only pause Music, not us.  See B4 in the polish
         // plan.
         setupRemoteCommands()
+        // Subscribe to the inline-PiP lifecycle notifications
+        // so `isPictureInPictureActive` flips consistently for
+        // PiP sessions initiated from the inline surface.
+        observeInlinePiP()
         // First Now Playing write so the lock-screen artwork +
         // title are visible immediately.  Subsequent refreshes
         // piggy-back on the periodic time observer.
@@ -459,6 +463,43 @@ final class PlayerController: ObservableObject {
         isPictureInPictureActive = active
     }
 
+    /// `AVPictureInPictureController` posts no KVO on
+    /// `isPictureInPictureActive`; we drive the published
+    /// state from the inline PiP controller's lifecycle
+    /// notifications AND the fullscreen
+    /// `AVPlayerViewControllerDelegate` callbacks.  Both
+    /// paths funnel through this method so any observer of
+    /// `isPictureInPictureActive` sees a single consistent
+    /// flip regardless of which surface initiated PiP.
+    /// We also surface the new state into
+    /// `MPNowPlayingInfoCenter` because Control Center
+    /// shows a "playing in PiP" hint while PiP is active.
+    private var pipObservers: [NSObjectProtocol] = []
+
+    private func observeInlinePiP() {
+        let center = NotificationCenter.default
+        pipObservers.append(
+            center.addObserver(
+                forName: .bilipaiPiPDidStart, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.isPictureInPictureActive = true
+                    self?.updateNowPlaying()
+                }
+            }
+        )
+        pipObservers.append(
+            center.addObserver(
+                forName: .bilipaiPiPDidStop, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.isPictureInPictureActive = false
+                    self?.updateNowPlaying()
+                }
+            }
+        )
+    }
+
     // MARK: seeking
 
     /// Seek by a relative offset (positive = forward, negative =
@@ -505,6 +546,15 @@ final class PlayerController: ObservableObject {
         statusObserver = nil
         errorObserver = nil
         errorLogObserver = nil
+        // Drop the inline-PiP lifecycle observers so a
+        // torn-down controller doesn't receive notifications
+        // that fire while a successor controller is being
+        // constructed (the singleton NotificationCenter
+        // doesn't know about per-controller lifetimes).
+        pipObservers.forEach {
+            NotificationCenter.default.removeObserver($0)
+        }
+        pipObservers.removeAll()
         observers.removeAll()
         clearNowPlaying()
         diagLog(.playback, "AVPlayerController teardown complete")

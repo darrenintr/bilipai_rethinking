@@ -369,8 +369,6 @@ struct VideoDetailView: View {
                 .toggleStyle(.button)
                 .disabled(true)
                 .opacity(0.5)
-            Toggle("Audio", isOn: $model.audioModeEnabled)
-                .toggleStyle(.button)
             // Quality picker. Maps the four Bilibili accept-quality
             // ladder entries (80 / 64 / 32 / 16) onto the user-facing
             // 1080P / 720P / 480P / 360P labels. Picking a new value
