@@ -5,6 +5,7 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     case home
     case dynamic
     case live
+    case music
     case profile
 
     var id: String { rawValue }
@@ -17,6 +18,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "動態"
         case .live:
             return "直播"
+        case .music:
+            return "音樂"
         case .profile:
             return "我的"
         }
@@ -35,6 +38,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "rectangle.stack"
         case .live:
             return "play.tv"
+        case .music:
+            return "music.note"
         case .profile:
             return "person.crop.circle"
         }
@@ -43,7 +48,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     /// Filled/high-contrast variants that match the new sidebar
     /// design: a solid pink house for the active 首頁 pill, a
     /// compass/scope for 動態, a radiating-wave glyph for 直播,
-    /// and a circle-person badge for the 我的 card.
+    /// a filled music-note glyph for 音樂, and a circle-person
+    /// badge for the 我的 card.
     var sidebarSymbolName: String {
         switch self {
         case .home:
@@ -52,6 +58,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "safari"
         case .live:
             return "dot.radiowaves.left.and.right"
+        case .music:
+            return "music.note"
         case .profile:
             return "person.crop.circle"
         }
@@ -97,6 +105,15 @@ final class AppRouter: ObservableObject {
     /// Set to `true` to present the login sheet. The sheet sets it back
     /// to `false` when it dismisses itself.
     @Published var isLoginSheetPresented = false
+
+    /// Open the music player for `video`. Switches to the 音樂
+    /// tab and pushes `MusicRoute.player(video)` onto the path
+    /// so the existing `.navigationDestination(for:)` machinery
+    /// resolves it into a `MusicPlayerView`.
+    func openMusic(_ video: BiliVideo) {
+        selectedTab = .music
+        path.append(MusicRoute.player(video))
+    }
 
     func open(_ tab: MainTab) {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {

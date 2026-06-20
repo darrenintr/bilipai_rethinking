@@ -94,6 +94,8 @@ struct RootView: View {
             router.open(.dynamic)
         case "live":
             router.open(.live)
+        case "music":
+            router.open(.music)
         case "settings":
             router.open(.profile)
         case "search":
@@ -135,6 +137,10 @@ private struct PhoneRootView: View {
                     .tabItem { Label(MainTab.live.title, systemImage: MainTab.live.symbolName) }
                     .tag(MainTab.live)
 
+                MusicHomeView(repository: repository)
+                    .tabItem { Label(MainTab.music.title, systemImage: MainTab.music.symbolName) }
+                    .tag(MainTab.music)
+
                 ProfileSettingsView(repository: repository)
                     .tabItem { Label(MainTab.profile.title, systemImage: MainTab.profile.symbolName) }
                     .tag(MainTab.profile)
@@ -158,6 +164,12 @@ private struct PhoneRootView: View {
                         heroNamespace: heroNamespace,
                         localRecord: record
                     )
+                }
+            }
+            .navigationDestination(for: MusicRoute.self) { route in
+                switch route {
+                case .player(let video):
+                    MusicPlayerView(video: video, repository: repository)
                 }
             }
         }
@@ -191,10 +203,10 @@ private struct PadRootView: View {
 
     /// Tabs rendered in the sidebar's main list. Excludes `.profile`
     /// because the new design surfaces 我的 as a user card at the
-    /// bottom of the sidebar instead of a regular row. The four-case
+    /// bottom of the sidebar instead of a regular row. The five-case
     /// `MainTab` enum stays unchanged so the phone tab bar keeps
     /// working.
-    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live]
+    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live, .music]
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -214,6 +226,12 @@ private struct PadRootView: View {
                     }
                     .navigationDestination(for: ReplyRoute.self) { route in
                         ReplyListView(video: route.video, rootComment: route.rootComment, repository: repository)
+                    }
+                    .navigationDestination(for: MusicRoute.self) { route in
+                        switch route {
+                        case .player(let video):
+                            MusicPlayerView(video: video, repository: repository)
+                        }
                     }
             }
             .background(BackGestureEnabler(
@@ -236,6 +254,8 @@ private struct PadRootView: View {
             DynamicFeedView(repository: repository, heroNamespace: heroNamespace)
         case .live:
             LiveRoomsView(repository: repository)
+        case .music:
+            MusicHomeView(repository: repository)
         case .profile:
             ProfileSettingsView(repository: repository)
         }

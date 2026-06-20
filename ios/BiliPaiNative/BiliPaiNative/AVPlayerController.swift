@@ -525,6 +525,18 @@ final class PlayerController: ObservableObject {
         player.seek(to: time)
     }
 
+    /// Seek to an absolute timestamp in seconds.  Used by the
+    /// music player's lyric scroller — tapping a lyric line
+    /// seeks the playhead to that line's `startTime` rather
+    /// than jumping by a fixed offset.  Clamps to
+    /// `[0, duration]` for the same reason `seek(by:)` does.
+    func seek(to seconds: Double) {
+        guard seconds.isFinite, duration > 0 else { return }
+        let target = max(0, min(duration, seconds))
+        let time = CMTime(seconds: target, preferredTimescale: 600)
+        player.seek(to: time)
+    }
+
     // MARK: teardown
 
     func tearDown() {
