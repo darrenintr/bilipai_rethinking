@@ -554,7 +554,18 @@ final class VideoDetailViewModel: ObservableObject {
     private static func localPlaybackReady(
         for record: DownloadRecord
     ) -> Bool {
-        guard let dash = record.dash else { return false }
+        // `record.dash` is non-optional on `DownloadRecord`
+        // (contrast with `BiliPlayback.dash`, which is
+        // `BiliDashSource?` — a download always captures
+        // both tracks at download time).  `dash.video` and
+        // `dash.audio` are likewise non-optional
+        // `BiliDashSource.Track` — a video-only source still
+        // carries a zero-bandwidth audio placeholder, so an
+        // Optional binding there is meaningless.  The
+        // on-disk file check is the authoritative "is this
+        // track actually usable" answer — the proxy's
+        // `proxyLocalSegment` would 404 on missing bytes
+        // anyway.
         let directory = DownloadStore.shared.readyDirectory(for: record.bvid)
         let fm = FileManager.default
         func hasBothFiles(_ trackName: String) -> Bool {
@@ -563,8 +574,8 @@ final class VideoDetailViewModel: ObservableObject {
             return fm.fileExists(atPath: initURL.path) &&
                    fm.fileExists(atPath: mediaURL.path)
         }
-        if let video = dash.video, hasBothFiles("video") { return true }
-        if let audio = dash.audio, hasBothFiles("audio") { return true }
+        if hasBothFiles("video") { return true }
+        if hasBothFiles("audio") { return true }
         return false
     }
 
