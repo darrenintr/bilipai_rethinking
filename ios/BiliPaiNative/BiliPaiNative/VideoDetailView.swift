@@ -152,7 +152,22 @@ struct VideoDetailView: View {
             }
             await model.load(repository: repository)
         }
-        .onChange(of: model.playback) { _, playback in
+        // `initial: true` is REQUIRED for the offline (cached
+        // video) path.  When `localRecord` is set, the model
+        // already has a non-nil `playback` at construction time
+        // (set in `VideoDetailViewModel.init` from the saved
+        // `DownloadRecord.dash`); `model.load(...)` then
+        // short-circuits because the local context already
+        // covers playback.  In that case `model.playback`
+        // transitions *zero times* after the view first appears,
+        // so the plain `.onChange` would never fire and
+        // `miniPlayerStore.bind(...)` would never run — leaving
+        // `controller == nil`, the `PlayerView` branch never
+        // entered, and the user staring at the CoverImage
+        // fallback.  `initial: true` (iOS 17+) fires once on
+        // first appear so the offline case is wired the same as
+        // the online case.
+        .onChange(of: model.playback, initial: true) { _, playback in
             // Hand the new playback off to the store. The store's
             // `bind(...)` is idempotent — if the same video is
             // already playing in the mini-player, the call is a

@@ -169,14 +169,34 @@ private struct MusicCard: View {
     @ViewBuilder
     private var cover: some View {
         if let url = video.coverURL {
+            // Use `.contentMode: .fit` (NOT `.fill`) so the 1:1
+            // aspect ratio actually resolves to a bounded square.
+            //
+            // With `.fill`, SwiftUI treats the constraint as
+            // "size in both dimensions ≥ the parent's proposed
+            // size, possibly overflowing".  Inside a
+            // `LazyVGrid` cell the proposed height is unbounded
+            // (the VStack height grows with content), so the
+            // aspect-ratio modifier asks for `height ≥ ∞` while
+            // maintaining 1:1 — SwiftUI gives back an unbounded
+            // height and the cover stretches to fill the entire
+            // VStack content area, making cards visually overlap
+            // each other as the user scrolls.
+            //
+            // With `.fit`, the constraint becomes "size in both
+            // dimensions ≤ proposed".  Width is bounded (cell
+            // width minus padding) so the 1:1 ratio forces
+            // height = width.  This matches how `VideoCard` and
+            // `LiveRoomCard` render their covers (both use
+            // `.fit`).
             ResilientImage(url: url)
-                .aspectRatio(1, contentMode: .fill)
+                .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
         } else {
             RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle)
                 .fill(BiliPaiTheme.biliPink.opacity(0.18))
-                .aspectRatio(1, contentMode: .fill)
+                .aspectRatio(1, contentMode: .fit)
                 .overlay(
                     Image(systemName: "music.note")
                         .font(.system(size: 36, weight: .light))
