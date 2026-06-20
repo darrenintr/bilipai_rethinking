@@ -536,6 +536,38 @@ final class VideoDetailViewModel: ObservableObject {
 
     private var cancellables: [AnyCancellable] = []
 
+    /// Verify that the bytes backing `record` are still on
+    /// disk and the local proxy can serve them.  Returns
+    /// `true` only when at least one of {video, audio}
+    /// tracks has both its `*.init` and `*.media` files
+    /// present in the ready directory.
+    ///
+    /// The `DownloadStore` manifest is the source of truth
+    /// for "user has downloaded this" — but the bytes
+    /// themselves live under `Caches/` and iOS may purge
+    /// them under storage pressure.  Without this guard
+    /// the local-fallback branch in `load()` would build a
+    /// `BiliPlayback` pointing at a directory whose files
+    /// are gone, and `LocalHLSProxyServer.proxyLocalSegment`
+    /// would 404 every segment (`LocalHLSProxyServer.swift`
+    /// "missing local file").
+    private static func localPlaybackReady(
+        for record: DownloadRecord
+    ) -> Bool {
+        guard let dash = record.dash else { return false }
+        let directory = DownloadStore.shared.readyDirectory(for: record.bvid)
+        let fm = FileManager.default
+        func hasBothFiles(_ trackName: String) -> Bool {
+            let initURL = directory.appendingPathComponent("\(trackName).init")
+            let mediaURL = directory.appendingPathComponent("\(trackName).media")
+            return fm.fileExists(atPath: initURL.path) &&
+                   fm.fileExists(atPath: mediaURL.path)
+        }
+        if let video = dash.video, hasBothFiles("video") { return true }
+        if let audio = dash.audio, hasBothFiles("audio") { return true }
+        return false
+    }
+
     func load(repository: BiliPaiRepository) async {
         isLoading = true
         errorMessage = nil
@@ -545,6 +577,53 @@ final class VideoDetailViewModel: ObservableObject {
         // need.  Skip the network calls so the user can
         // open the video on airplane mode.
         if playback?.localContext != nil {
+            isLoading = false
+            return
+        }
+        // Offline-first fallback for non-Downloads entry
+        // points.  The Downloads tab is the only navigation
+        // route that constructs this VM with a
+        // `localRecord:` argument — every other entry point
+        // (home feed, search, dynamic feed, today card,
+        // mini-player expand, history, watch later,
+        // favorites, share-sheet intent, Siri intent)
+        // passes only a `BiliVideo`, so `self.playback` is
+        // still nil here and the early-return above does
+        // not fire.  Without this branch the VM tries
+        // `repository.playback(for:)` against Bilibili's
+        // CDN, which fails immediately when the device is
+        // offline even though the bytes are sitting in
+        // `Caches/BiliPai/Downloads/ready/{bvid}/`.
+        //
+        // Check the on-disk manifest and prefer the local
+        // copy when it is present and complete.  We
+        // intentionally do not try the online path "just
+        // in case" — local-first is what the user wants
+        // here, and going online would either succeed
+        // slowly or fail with a network error that we'd
+        // then have to recover from anyway.
+        if let record = DownloadStore.shared.record(for: detail.bvid),
+           Self.localPlaybackReady(for: record) {
+            let directory = DownloadStore.shared.readyDirectory(for: record.bvid)
+            self.playback = BiliPlayback(
+                dash: record.dash,
+                fallbackURL: nil,
+                referer: record.referer,
+                resumeTime: 0,
+                localContext: LocalPlaybackContext(directory: directory)
+            )
+            diagLog(.playback,
+                    "VideoDetailViewModel.load used local fallback",
+                    details: [
+                        "bvid": detail.bvid,
+                        "isDASH": self.playback?.isDASH ?? false
+                    ])
+            // No comments / AI summary / history fetch —
+            // those all hit the network and would surface
+            // "Could not load public comments." in the UI
+            // without changing what plays.  The view
+            // renders an empty comments section, which is
+            // the right state for offline playback.
             isLoading = false
             return
         }
