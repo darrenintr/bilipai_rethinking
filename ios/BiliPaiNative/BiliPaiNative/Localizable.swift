@@ -236,7 +236,6 @@ enum L10n {
         static let ctaStart = String(localized: "onboarding.ctaStart", defaultValue: "开始")
         static let ctaSkip = String(localized: "onboarding.ctaSkip", defaultValue: "跳过")
     }
-}
 
     // MARK: - AI 视频总结
 
