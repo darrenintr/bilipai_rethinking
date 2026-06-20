@@ -370,6 +370,89 @@ final class BilibiliAPIClient {
         return payload.value?.videos.map(\.model) ?? []
     }
 
+    /// Fetch a page of the 音乐 (music) region feed. The region's
+    /// `rid` is `3` on Bilibili's taxonomy — the same partition the
+    /// Android bilipai client uses for its Music tab. Returns a
+    /// plain `[BiliVideo]` so the Music view can reuse the same
+    /// card / row chrome as the home feed.
+    ///
+    /// Falls back to the popular feed when the music partition is
+    /// temporarily empty / rate-limited; this keeps the screen from
+    /// going to a hard "暂无内容" state on first launch.
+    func musicVideos(page: Int = 1) async throws -> [BiliVideo] {
+        let payload: APIResponse<VideoListPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/dynamic/region",
+            queryItems: [
+                URLQueryItem(name: "rid", value: "3"),
+                URLQueryItem(name: "pn", value: "\(page)"),
+                URLQueryItem(name: "ps", value: "30")
+            ]
+        )
+        try payload.requireOK()
+        return payload.value?.videos.compactMap(\.validModel) ?? []
+    }
+
+    /// Fetch the AI-generated / human-submitted subtitle / lyric
+    /// track for a video. Hits the public `/x/player/v2` endpoint
+    /// and walks the `subtitle.subtitles[]` list for the best
+    /// Chinese match (zh-CN / zh-Hans). Returns `nil` when the
+    /// video has no lyric track at all.
+    ///
+    /// The shape of `subtitle_url` is `//aisubtitle.hdslb.com/...`
+    /// — a protocol-relative JSON document that the caller
+    /// (`videoLyricText(url:)`) fetches and parses.
+    func videoLyricInfo(cid: Int) async throws -> BiliLyricInfo? {
+        guard cid > 0 else { return nil }
+        let payload: APIResponse<LyricInfoPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/player/v2",
+            queryItems: [
+                URLQueryItem(name: "cid", value: "\(cid)")
+            ]
+        )
+        try payload.requireOK()
+        guard let subtitles = payload.value?.subtitle?.subtitles else {
+            return nil
+        }
+        // Prefer Simplified Chinese — the rest of the app surfaces
+        // Simplified-Chinese copy as the default. Fall back to
+        // any Chinese variant, then the first available track.
+        if let sc = subtitles.first(where: { $0.lan == "zh-CN" || $0.lan == "zh-Hans" }) {
+            return sc.model
+        }
+        if let tc = subtitles.first(where: { $0.lan.hasPrefix("zh") }) {
+            return tc.model
+        }
+        return subtitles.first?.model
+    }
+
+    /// Fetch the raw lyric JSON for a `subtitle_url` returned by
+    /// `videoLyricInfo(cid:)`. B站 serves two distinct lyric
+    /// encodings on the same endpoint:
+    ///   * `application/json` — `{ "body": [{from, to, content}, …] }`
+    ///   * `text/plain`        — LRC text (`[mm:ss.xx]lyric`)
+    /// We sniff the first non-whitespace byte to pick a parser.
+    func videoLyricText(info: BiliLyricInfo) async throws -> String {
+        guard let url = info.absoluteURL else {
+            throw BilibiliAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            bpLog("Lyric fetch failed with HTTP \(status): \(url.absoluteString)")
+            throw BilibiliAPIError.http
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw BilibiliAPIError.missingData
+        }
+        return text
+    }
+
     func searchVideos(keyword: String, page: Int = 1) async throws -> [BiliVideo] {
         guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         let payload: APIResponse<VideoListPayload> = try await get(
@@ -2941,4 +3024,66 @@ private extension String {
         }
         return components.url
     }
+}
+
+// MARK: - Music / Lyric payload shapes
+//
+// `/x/player/v2` returns a deeply-nested `data.subtitle.subtitles[]`
+// envelope. We accept it via a hand-rolled `init(from:)` rather than
+// a `Codable` struct because the upstream occasionally omits the
+// `author` block (older video, no AI subtitle yet) and the Swift
+// decoder will reject the whole payload if any nested key is
+// missing. The shape of interest is just the per-track metadata
+// (lan / lan_doc / subtitle_url / id) — we discard the rest.
+
+private struct LyricInfoPayload: Decodable {
+    let subtitle: LyricSubtitleEnvelope?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        subtitle = try? container.decode(LyricSubtitleEnvelope.self, forKey: DynamicKey("subtitle"))
+    }
+}
+
+private struct LyricSubtitleEnvelope: Decodable {
+    let subtitles: [LyricTrackDTO]
+}
+
+private struct LyricTrackDTO: Decodable {
+    let id: Int64
+    let lan: String
+    let lanDoc: String
+    let subtitleURL: String
+    let author: LyricAuthorDTO?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case lan
+        case lanDoc = "lan_doc"
+        case subtitleURL = "subtitle_url"
+        case author
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        id = container.decodeInt64(keys: ["id"]) ?? 0
+        lan = container.decodeString(keys: ["lan"]) ?? ""
+        lanDoc = container.decodeString(keys: ["lan_doc", "lanDoc"]) ?? ""
+        subtitleURL = container.decodeString(keys: ["subtitle_url", "subtitleUrl"]) ?? ""
+        author = try? container.decode(LyricAuthorDTO.self, forKey: DynamicKey("author"))
+    }
+
+    var model: BiliLyricInfo {
+        BiliLyricInfo(
+            id: id,
+            lan: lan,
+            lanDoc: lanDoc,
+            subtitleURL: subtitleURL,
+            author: author?.name
+        )
+    }
+}
+
+private struct LyricAuthorDTO: Decodable {
+    let name: String?
 }

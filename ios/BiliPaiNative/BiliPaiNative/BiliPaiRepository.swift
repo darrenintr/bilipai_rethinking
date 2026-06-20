@@ -143,6 +143,38 @@ final class BiliPaiRepository: ObservableObject {
         try await apiClient.liveRooms()
     }
 
+    // MARK: - Music
+
+    /// Fetch a page of the 音乐 region feed. The repository is a
+    /// thin pass-through here because the music endpoint is just a
+    /// re-skinned `/x/web-interface/dynamic/region` call — no extra
+    /// transformation needed.
+    func musicVideos(page: Int = 1) async throws -> [BiliVideo] {
+        try await apiClient.musicVideos(page: page)
+    }
+
+    /// Fetch the lyric track for `video`. Returns `nil` when:
+    ///   * the video has no subtitle track (most VOD uploads);
+    ///   * the upstream returns no Chinese-language lyric;
+    ///   * the lyric JSON / LRC text fails to parse.
+    /// The Music view treats all three as "lyrics unavailable"
+    /// and shows the cover art full-bleed instead of a half-broken
+    /// lyrics pane.
+    func videoLyrics(for video: BiliVideo) async throws -> BiliLyricTrack? {
+        // We need a real `cid` to query the player endpoint. The
+        // feed entries usually carry one; if not, fall back to a
+        // single detail fetch.
+        var cid = video.cid
+        if cid <= 0 {
+            let detail = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
+            cid = detail.cid
+        }
+        guard cid > 0 else { return nil }
+        guard let info = try await apiClient.videoLyricInfo(cid: cid) else { return nil }
+        let text = try await apiClient.videoLyricText(info: info)
+        return BiliLyricParser.parse(text: text, language: info.lanDoc.isEmpty ? info.lan : info.lanDoc)
+    }
+
     /// Resolve the playable stream URLs for a live room. The result
     /// contains zero, one, or both HLS and FLV slots depending on
     /// what the room's CDN exposes — the player UI is responsible for

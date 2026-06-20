@@ -35,6 +35,27 @@ enum L10n {
         static let dynamic = String(localized: "tabs.dynamic", defaultValue: "动态")
         static let live = String(localized: "tabs.live", defaultValue: "直播")
         static let profile = String(localized: "tabs.profile", defaultValue: "我的")
+        static let music = String(localized: "tabs.music", defaultValue: "音乐")
+    }
+
+    // MARK: - Music
+
+    enum music {
+        /// Tab / list title.
+        static let title = String(localized: "music.title", defaultValue: "音乐")
+        /// Empty-state headline when the music region returns no
+        /// videos for the current page.
+        static let empty = String(localized: "music.empty", defaultValue: "暂无音乐")
+        static let emptyHint = String(localized: "music.emptyHint", defaultValue: "稍后再来，下拉刷新试试。")
+        static let networkError = String(localized: "music.networkError", defaultValue: "音乐列表加载失败")
+        /// "未找到歌词" placeholder shown in the lyrics pane.
+        static let noLyrics = String(localized: "music.noLyrics", defaultValue: "这首歌暂无歌词")
+        /// "纯享" badge on the music tab card / now-playing bar
+        /// to signal "audio only — no video surface".
+        static let audioOnly = String(localized: "music.audioOnly", defaultValue: "纯享")
+        /// "歌词" pane header.
+        static let lyricsHeader = String(localized: "music.lyrics", defaultValue: "歌词")
+        static let artwork = String(localized: "music.artwork", defaultValue: "封面")
     }
 
     // MARK: - Home / categories

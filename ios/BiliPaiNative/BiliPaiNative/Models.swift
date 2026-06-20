@@ -527,3 +527,103 @@ enum CommentSort: String, CaseIterable, Identifiable, Codable {
         }
     }
 }
+
+// MARK: - Music / Lyrics
+//
+// Bilibili exposes per-video lyric tracks through `/x/player/v2`'s
+// `subtitle.subtitles[]` array. The tracks arrive as either
+// protocol-relative JSON (the AI-generated / "AI 字幕" case) or LRC
+// plain text (the human-uploaded case). The Music view unifies both
+// into a `BiliLyricTrack` so the playback view never has to think
+// about the underlying encoding.
+
+/// One lyric track published by the player endpoint. The
+/// `subtitle_url` is a protocol-relative URL — callers must
+/// resolve it against `https:` before fetching.
+struct BiliLyricInfo: Hashable, Codable {
+    let id: Int64
+    let lan: String
+    let lanDoc: String
+    /// Protocol-relative URL — prepended with `https:` to form a
+    /// fetchable absolute URL. We keep the original so the model
+    /// remains `Codable` round-trip-safe (the original may also
+    /// already be absolute on rare tracks).
+    let subtitleURL: String
+    let author: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case lan
+        case lanDoc = "lan_doc"
+        case subtitleURL = "subtitle_url"
+        case author
+    }
+
+    /// Compose a fetchable absolute URL by prepending `https:` if
+    /// the upstream is protocol-relative. Returns `nil` when the
+    /// URL string itself fails to parse — we treat that as "no
+    /// lyric" so the UI shows the existing placeholder instead of
+    /// a generic network error.
+    var absoluteURL: URL? {
+        let raw = subtitleURL.hasPrefix("//") ? "https:\(subtitleURL)" : subtitleURL
+        return URL(string: raw)
+    }
+}
+
+/// The fully-parsed lyric track the Music view scrolls. Stores
+/// the per-line timings as an array of `BiliLyricLine` so the
+/// player can binary-search for the active line in O(log n).
+struct BiliLyricTrack: Hashable, Codable {
+    let lines: [BiliLyricLine]
+    let language: String
+
+    /// `true` if the track has at least one parseable line.
+    var isEmpty: Bool { lines.isEmpty }
+
+    /// The index of the line active at `time` (in seconds). Lines
+    /// whose `startTime` is in the future are skipped; if no line
+    /// is active yet, returns `0` so the UI can show the first
+    /// line as "pending". Returns `lines.count - 1` for time
+    /// past the last line so we don't crash the scroll view.
+    func index(at time: Double) -> Int {
+        guard !lines.isEmpty else { return 0 }
+        // Walk back from the end. Most lyric lookups hit a line
+        // close to the current time so the linear-from-end walk
+        // is faster than a full binary search in practice.
+        var i = lines.count - 1
+        while i > 0 {
+            if lines[i].startTime <= time {
+                return i
+            }
+            i -= 1
+        }
+        return 0
+    }
+}
+
+/// One line of timed lyrics.
+struct BiliLyricLine: Hashable, Codable, Identifiable {
+    /// Position in the parent `BiliLyricTrack.lines` array. The
+    /// line is `Identifiable` so a `ForEach` over the track can
+    /// drive `ScrollViewReader` lookups.
+    let startTime: Double
+    let text: String
+    /// Bilibili occasionally ships "metadata" lines (artist, album,
+    /// composer) inside the same JSON / LRC document. They are not
+    /// singable content, so the Music view downplays them — we
+    /// surface a separate `isMetadata` flag.
+    let isMetadata: Bool
+
+    var id: Int { Int(startTime * 1000) }
+}
+
+// MARK: - Music navigation routes
+
+/// Navigation routes for the Music tab. Pushed onto the router's
+/// `path` so the existing `.navigationDestination(for:)` machinery
+/// resolves them into the right view.
+enum MusicRoute: Hashable {
+    /// Open the fullscreen music player for `video`. The view
+    /// resolves the playback URL + lyric track on appear.
+    case player(BiliVideo)
+}
