@@ -207,10 +207,21 @@ struct LocalPlaybackContext: Hashable {
 }
 
 /// One row in `DownloadStore.records`.  Persisted as part of
-/// `manifest.json`; the `directory` field is recomputed on
-/// load from the `bvid` (iOS does not let us persist a stable
-/// container URL across launches — `Caches/` may move under
-/// storage pressure).
+/// `manifest.json`.
+///
+/// Path-storage note
+/// -----------------
+/// This struct deliberately holds **no** `URL` or string
+/// path field.  The on-disk location
+/// (`Caches/BiliPai/Downloads/ready/{bvid}/`) is recomputed
+/// on every read from the `bvid` via
+/// `DownloadStore.readyDirectory(for:)`.  iOS may rotate the
+/// sandbox container UUID between launches (Build 126's
+/// `443D6288-…` became Build 127's `579E46FD-…` in one
+/// observed run), so persisting any absolute path would
+/// silently rot on the next build and the player would 404
+/// on every segment.  Only `bvid` is treated as a stable
+/// identity; the directory URL is always derived at runtime.
 struct DownloadRecord: Codable, Identifiable, Hashable {
     /// `bvid` doubles as the primary key (`BiliVideo.id` is
     /// `bvid ?? "\(aid)"`), and the on-disk directory name.

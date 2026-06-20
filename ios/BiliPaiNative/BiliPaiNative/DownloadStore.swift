@@ -82,57 +82,94 @@ final class DownloadStore: ObservableObject {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         self.decoder = dec
+
+        // Hydrate the in-memory record list before the
+        // singleton first becomes visible to callers.
+        // `DownloadStore` is `@MainActor`-isolated, so `init()`
+        // runs on the main actor the first time `.shared` is
+        // touched — synchronously, with no async hop.
+        //
+        // The manifest is tiny (~200 bytes per record); even
+        // hundreds of records decode in <5 ms on cold cache,
+        // which is acceptable as launch work.
+        //
+        // Without this, a user tapping a downloaded video
+        // from the Home feed races the old async hydration
+        // in `loadFromDisk()` (the `BiliPaiAppDelegate` fired
+        // it inside a fire-and-forget `Task { @MainActor in
+        // … }`).  `record(for:)` returned nil, the
+        // offline-first branch in
+        // `VideoDetailViewModel.load` was skipped, and the
+        // VM tried the online `repository.playback(for:)`,
+        // which fails offline even though the bytes are
+        // sitting in `Caches/BiliPai/Downloads/ready/{bvid}/`.
+        self.records = hydrateFromDiskSync()
     }
 
     // MARK: lifecycle
 
     /// Read the manifest from disk and rebuild the in-memory
-    /// record list.  Called once from `BiliPaiNativeApp` at
-    /// launch (alongside `DownloadManager.bootstrap()`).
-    /// Tolerates a missing or corrupt manifest by treating it
-    /// as "no records".
+    /// record list.  Synchronous: the manifest is small
+    /// (~200 bytes per record) and decoding is fast, so we
+    /// do it on the caller's thread rather than hopping
+    /// through `ioQueue`.  `init()` already calls this at
+    /// launch so callers can rely on `records` being
+    /// populated before `.shared` first appears — this
+    /// method is kept public for explicit refreshes (e.g.
+    /// after an external write to the manifest, which we do
+    /// not currently do).
     func loadFromDisk() {
-        ioQueue.async { [weak self] in
-            guard let self else { return }
-            do {
-                try FileManager.default.createDirectory(
-                    at: Self.rootURL,
-                    withIntermediateDirectories: true
-                )
-                try FileManager.default.createDirectory(
-                    at: Self.inProgressURL,
-                    withIntermediateDirectories: true
-                )
-                try FileManager.default.createDirectory(
-                    at: Self.readyURL,
-                    withIntermediateDirectories: true
-                )
-            } catch {
-                bpLog("DownloadStore could not create dirs: \(error)")
-            }
-            let onDisk: [DownloadRecord]
-            do {
-                let data = try Data(contentsOf: Self.manifestURL)
-                onDisk = (try? self.decoder.decode(
-                    [DownloadRecord].self, from: data
-                )) ?? []
-            } catch {
-                // File missing is the common case on first
-                // launch — not an error.  Any other read
-                // failure falls back to "empty" so the user
-                // can still use the app; a fresh manifest is
-                // written on the next mutation.
-                onDisk = []
-            }
-            // Re-hydrate the directory URL for each record
-            // (we deliberately do not persist it — see the
-            // comment on `DownloadRecord.id`).
-            let hydrated = onDisk
-                .sorted { $0.downloadedAt > $1.downloadedAt }
-            Task { @MainActor in
-                self.records = hydrated
-            }
+        records = hydrateFromDiskSync()
+    }
+
+    /// Pure read-and-decode helper used by `init()` and
+    /// `loadFromDisk()`.  Creates the on-disk directory
+    /// layout as a side effect so callers do not have to
+    /// remember to do so separately.
+    ///
+    /// Path-storage note: the on-disk directory
+    /// (`Caches/BiliPai/Downloads/ready/{bvid}/`) is *never*
+    /// persisted in `manifest.json` — the manifest holds only
+    /// `bvid` + metadata, and the directory URL is
+    /// recomputed from `bvid` on every read via
+    /// `readyDirectory(for:)`.  iOS may rotate the sandbox
+    /// container UUID between launches (Build 126's
+    /// 443D6288-… became Build 127's 579E46FD-…, for
+    /// example), so persisting any absolute path would
+    /// silently rot on the next build.
+    private func hydrateFromDiskSync() -> [DownloadRecord] {
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.rootURL,
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createDirectory(
+                at: Self.inProgressURL,
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createDirectory(
+                at: Self.readyURL,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            bpLog("DownloadStore could not create dirs: \(error)")
         }
+        let onDisk: [DownloadRecord]
+        do {
+            let data = try Data(contentsOf: Self.manifestURL)
+            onDisk = (try? self.decoder.decode(
+                [DownloadRecord].self, from: data
+            )) ?? []
+        } catch {
+            // File missing is the common case on first
+            // launch — not an error.  Any other read
+            // failure falls back to "empty" so the user
+            // can still use the app; a fresh manifest is
+            // written on the next mutation.
+            onDisk = []
+        }
+        return onDisk
+            .sorted { $0.downloadedAt > $1.downloadedAt }
     }
 
     // MARK: directory helpers

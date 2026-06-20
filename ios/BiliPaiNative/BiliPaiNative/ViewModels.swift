@@ -613,30 +613,51 @@ final class VideoDetailViewModel: ObservableObject {
         // here, and going online would either succeed
         // slowly or fail with a network error that we'd
         // then have to recover from anyway.
-        if let record = DownloadStore.shared.record(for: detail.bvid),
-           Self.localPlaybackReady(for: record) {
-            let directory = DownloadStore.shared.readyDirectory(for: record.bvid)
-            self.playback = BiliPlayback(
-                dash: record.dash,
-                fallbackURL: nil,
-                referer: record.referer,
-                resumeTime: 0,
-                localContext: LocalPlaybackContext(directory: directory)
-            )
+        if let record = DownloadStore.shared.record(for: detail.bvid) {
+            if Self.localPlaybackReady(for: record) {
+                let directory = DownloadStore.shared.readyDirectory(for: record.bvid)
+                self.playback = BiliPlayback(
+                    dash: record.dash,
+                    fallbackURL: nil,
+                    referer: record.referer,
+                    resumeTime: 0,
+                    localContext: LocalPlaybackContext(directory: directory)
+                )
+                diagLog(.playback,
+                        "VideoDetailViewModel.load used local fallback",
+                        details: [
+                            "bvid": detail.bvid,
+                            "isDASH": self.playback?.isDASH ?? false
+                        ])
+                // No comments / AI summary / history fetch —
+                // those all hit the network and would surface
+                // "Could not load public comments." in the UI
+                // without changing what plays.  The view
+                // renders an empty comments section, which is
+                // the right state for offline playback.
+                isLoading = false
+                return
+            }
+            // Manifest says "downloaded" but the on-disk
+            // bytes are gone — most likely iOS evicted the
+            // `Caches/` directory under storage pressure.
+            // The user-visible outcome is the same as the
+            // no-local-record path (online fetch fails
+            // offline), but logging this case lets us
+            // distinguish "user opened a video they never
+            // downloaded" from "user's downloads got
+            // silently wiped by the OS" in the diagnostic
+            // report.  We do NOT log the inverse case
+            // (`record(for:) == nil`) because it is the
+            // common path for every video the user has not
+            // downloaded and would spam the log.
             diagLog(.playback,
-                    "VideoDetailViewModel.load used local fallback",
+                    "manifest entry present but on-disk bytes missing",
                     details: [
                         "bvid": detail.bvid,
-                        "isDASH": self.playback?.isDASH ?? false
+                        "readyDir": DownloadStore.shared
+                            .readyDirectory(for: record.bvid).lastPathComponent
                     ])
-            // No comments / AI summary / history fetch —
-            // those all hit the network and would surface
-            // "Could not load public comments." in the UI
-            // without changing what plays.  The view
-            // renders an empty comments section, which is
-            // the right state for offline playback.
-            isLoading = false
-            return
         }
         do {
             detail = try await repository.detail(for: detail)
