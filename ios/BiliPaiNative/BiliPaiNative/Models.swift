@@ -587,6 +587,11 @@ struct BiliLyricTrack: Hashable, Codable {
     /// past the last line so we don't crash the scroll view.
     func index(at time: Double) -> Int {
         guard !lines.isEmpty else { return 0 }
+        // NaN comparisons always return false, so a non-finite
+        // `time` would fall through to "line 0" but with the
+        // active-line highlight sitting on the wrong row.
+        // Treat any non-finite value as "not yet started".
+        guard time.isFinite else { return 0 }
         // Walk back from the end. Most lyric lookups hit a line
         // close to the current time so the linear-from-end walk
         // is faster than a full binary search in practice.
@@ -613,8 +618,17 @@ struct BiliLyricLine: Hashable, Codable, Identifiable {
     /// singable content, so the Music view downplays them — we
     /// surface a separate `isMetadata` flag.
     let isMetadata: Bool
+    /// Stable parse-order identity for `ForEach`. Two lines can
+    /// share the same `startTime` (chorus refrains with the same
+    /// timestamp, dual-language lines that fire together, etc.) —
+    /// using `startTime * 1000` as `id` made `ForEach` collide on
+    /// duplicates, which broke `ScrollViewReader.scrollTo` and
+    /// caused random "active line" mis-hits on iOS 18. The
+    /// parser assigns a monotonically increasing `ordinal` so
+    /// each line has a unique id that survives the post-sort.
+    let ordinal: Int
 
-    var id: Int { Int(startTime * 1000) }
+    var id: Int { ordinal }
 }
 
 // MARK: - Music navigation routes

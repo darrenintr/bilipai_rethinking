@@ -220,8 +220,23 @@ struct MusicPlayerView: View {
                     .frame(maxHeight: 320)
                 metadataAndControls
                     .padding(.top, 20)
-                LyricScrollView(track: lyrics, currentTime: controller?.currentTime ?? 0)
+                // Only mount the lyric pane once the controller is
+                // alive — `LyricScrollView` observes the controller
+                // for `currentTime`, so without a controller the
+                // active-line highlight would be stuck on line 0.
+                if let controller {
+                    LyricScrollView(
+                        track: lyrics,
+                        controller: controller,
+                        onSeek: { [weak controller] timestamp in
+                            controller?.seek(to: timestamp)
+                        }
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    lyricPlaceholder
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, BiliPaiTheme.contentPadding)
@@ -254,6 +269,21 @@ struct MusicPlayerView: View {
             controller?.tearDown()
             controller = nil
         }
+    }
+
+    /// Shown until `controller` finishes its first `refresh()` —
+    /// the lyric pane has no useful state to render before the
+    /// player reports its first `currentTime`.
+    private var lyricPlaceholder: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "text.alignleft")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(L10n.music.noLyrics)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - View sections
@@ -419,7 +449,18 @@ struct MusicPlayerView: View {
 
 private struct LyricScrollView: View {
     let track: BiliLyricTrack?
-    let currentTime: Double
+    /// Observed directly so the view re-renders every time the
+    /// player's periodic time observer publishes a new
+    /// `currentTime`. Reading the value at the call site
+    /// (`controller?.currentTime ?? 0`) wouldn't subscribe
+    /// SwiftUI to the `@Published` change, leaving the
+    /// active-line highlight stuck on whichever line was
+    /// active at first render.
+    @ObservedObject var controller: PlayerController
+    /// Fires when the user taps a lyric line. The owner wires
+    /// this to `controller.seek(to:)` — without it the tap
+    /// only flips a `@State` and never moves the playhead.
+    let onSeek: (Double) -> Void
 
     @State private var userScrolledAt: Date?
     @State private var userSelectedLineID: Int?
@@ -427,7 +468,7 @@ private struct LyricScrollView: View {
     /// Reuse the bottom-line index from the track so we don't
     /// recompute on every `currentTime` tick.
     private var activeIndex: Int {
-        track?.index(at: currentTime) ?? 0
+        track?.index(at: controller.currentTime) ?? 0
     }
 
     /// `true` while the user-initiated seek window is open —
@@ -459,6 +500,12 @@ private struct LyricScrollView: View {
                                 .onTapGesture {
                                     userScrolledAt = Date()
                                     userSelectedLineID = line.id
+                                    // The whole point of Apple-Music-style
+                                    // lyrics: tap a line to jump there.
+                                    // Without this the tap only flipped
+                                    // the highlight and the user had to
+                                    // slide back to the playhead.
+                                    onSeek(line.startTime)
                                 }
                             }
                             Color.clear.frame(height: 80)
@@ -466,9 +513,14 @@ private struct LyricScrollView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 12)
                     }
-                    .onChange(of: currentTime) { _, _ in
+                    .onChange(of: controller.currentTime) { _, newTime in
                         guard !isInUserSeekWindow, !track.lines.isEmpty else { return }
-                        let id = track.lines[activeIndex].id
+                        // Look up the active index for `newTime`
+                        // explicitly — `activeIndex` reads from the
+                        // *previous* `currentTime` until SwiftUI
+                        // re-evaluates `body`, and the animation
+                        // would otherwise target the wrong line.
+                        let id = track.lines[track.index(at: newTime)].id
                         withAnimation(.easeInOut(duration: 0.32)) {
                             proxy.scrollTo(id, anchor: .center)
                         }
@@ -542,6 +594,11 @@ private struct MusicProgressBar: View {
                         dragValue = newValue
                     }
                 ),
+                // `max(0.1, …)` keeps the slider usable while
+                // `duration` is still unknown (the very first
+                // frame). Showing `0:00 / 0:00` would suggest the
+                // track is empty; the placeholder label below
+                // makes the loading state explicit.
                 in: 0...max(0.1, controller.duration),
                 onEditingChanged: { editing in
                     if editing {
@@ -563,7 +620,7 @@ private struct MusicProgressBar: View {
             HStack {
                 Text(formatTime(dragging ? dragValue : controller.currentTime))
                 Spacer()
-                Text(formatTime(controller.duration))
+                Text(formatDuration(controller.duration))
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -575,6 +632,18 @@ private struct MusicProgressBar: View {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }
         let total = Int(seconds.rounded())
         return "\(total / 60):\(String(format: "%02d", total % 60))"
+    }
+
+    /// Mirrors Apple's loading hint for an unknown track length.
+    /// The diagnostic logs (Paladala_Diagnostic_*.txt) show the
+    /// first frame after the controller init reports
+    /// `duration = 0` because the AVPlayer hasn't parsed the
+    /// master playlist yet; rendering that as "0:00" implied a
+    /// 3-second clip on a 462-second track, which made the
+    /// progress bar look broken.
+    private func formatDuration(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds > 0 else { return "—:—" }
+        return formatTime(seconds)
     }
 }
 

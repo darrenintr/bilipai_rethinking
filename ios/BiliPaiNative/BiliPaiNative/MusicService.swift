@@ -52,17 +52,24 @@ enum BiliLyricParser {
         guard let envelope = try? JSONDecoder().decode(LyricJSONEnvelope.self, from: data) else {
             return nil
         }
+        // `ordinal` must be unique across the track. Assign it at
+        // parse time so subsequent `.sorted { ... }` cannot shuffle
+        // identities.
+        var ordinalCounter = 0
         let lines = envelope.body
             .compactMap { entry -> BiliLyricLine? in
                 let cleaned = entry.content
                     .replacingOccurrences(of: "\n", with: " ")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !cleaned.isEmpty else { return nil }
-                return BiliLyricLine(
+                let line = BiliLyricLine(
                     startTime: entry.from,
                     text: cleaned,
-                    isMetadata: false
+                    isMetadata: false,
+                    ordinal: ordinalCounter
                 )
+                ordinalCounter += 1
+                return line
             }
             .sorted { $0.startTime < $1.startTime }
         return BiliLyricTrack(lines: lines, language: language)
@@ -89,16 +96,39 @@ enum BiliLyricParser {
         // Match `[mm:ss.xx]` (1- or 2-digit minutes, 2-digit seconds,
         // 1-3 fractional digits). Capture each timestamp.
         let pattern = #"\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]"#
-        return try! NSRegularExpression(pattern: pattern, options: [])
+        // The pattern is a compile-time constant that has compiled
+        // successfully on every iOS version we ship, but `try!`
+        // traps the *entire process* on a future regex-grammar
+        // tightening.  Fall back to a never-matching regex so a
+        // compile failure surfaces as "no lyric" instead of a crash.
+        do {
+            return try NSRegularExpression(pattern: pattern, options: [])
+        } catch {
+            assertionFailure("BiliLyricParser.lrcLineRegex failed to compile: \(error)")
+            // `.{99999}` requires 99 999+ chars to match — effectively
+            // a no-op for any real lyric line.
+            return try! NSRegularExpression(pattern: ".{99999}", options: [])
+        }
     }()
 
     private static let metadataRegex: NSRegularExpression = {
         let pattern = #"\[(ar|ti|al|by|offset|length):[^\]]*\]"#
-        return try! NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+        do {
+            return try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+        } catch {
+            assertionFailure("BiliLyricParser.metadataRegex failed to compile: \(error)")
+            return try! NSRegularExpression(pattern: ".{99999}", options: [])
+        }
     }()
 
     private static func parseLRC(_ text: String, language: String) -> BiliLyricTrack? {
         var lines: [BiliLyricLine] = []
+        // `ordinal` is the parse-order identity. Two LRC lines can
+        // share a timestamp (a chorus refrain `[00:30.00][00:30.00]x`
+        // or two singers starting in unison) — without a per-line
+        // counter those would collide in `BiliLyricLine.id` and
+        // break `ForEach` / `ScrollViewReader.scrollTo`.
+        var ordinalCounter = 0
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
         for raw in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
@@ -146,8 +176,10 @@ enum BiliLyricParser {
                 lines.append(BiliLyricLine(
                     startTime: startTime,
                     text: lyricText.isEmpty ? "♪" : lyricText,
-                    isMetadata: isMetadata
+                    isMetadata: isMetadata,
+                    ordinal: ordinalCounter
                 ))
+                ordinalCounter += 1
             }
         }
         let sorted = lines.sorted { $0.startTime < $1.startTime }
