@@ -137,7 +137,10 @@ struct DeepDiagnosticReportView: View {
         let diagCount = DiagnosticLogger.shared.events.count
         let dlRecords = DownloadStore.shared.records.count
         let inFlight = DownloadManager.shared.stateByBvid
-            .filter { $0.value == .downloading }.count
+            .filter {
+                if case .downloading = $0.value { return true }
+                return false
+            }.count
         return VStack(spacing: 8) {
             summaryRow(
                 icon: "doc.text.magnifyingglass",

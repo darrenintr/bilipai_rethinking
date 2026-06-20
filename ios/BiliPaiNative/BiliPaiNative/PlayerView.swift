@@ -69,13 +69,21 @@ struct PlayerView: View {
             .onAppear {
                 pipHolder.refreshPiPPossible()
                 pipPossible = pipHolder.isPiPPossible
+                // Hold a strong reference to the holder so the
+                // observer closure can read its main-actor state
+                // without a Sendable warning.  The token returned
+                // by `addObserver` keeps the registration alive;
+                // we remove it in `onDisappear`.
+                let holder = pipHolder
                 pipPossibleObserver = NotificationCenter.default.addObserver(
                     forName: .bilipaiPiPPossibleChanged,
                     object: nil,
                     queue: .main
-                ) { [self] _ in
-                    pipHolder.refreshPiPPossible()
-                    pipPossible = pipHolder.isPiPPossible
+                ) { _ in
+                    Task { @MainActor in
+                        holder.refreshPiPPossible()
+                        pipPossible = holder.isPiPPossible
+                    }
                 }
             }
             .onDisappear {
@@ -136,7 +144,6 @@ struct PlayerView: View {
     private func triggerPiP() {
         pipHolder.startPiP()
     }
-}
 
     /// Spinner + KB/s readout shown during stalls.
     private var loadingOverlay: some View {
@@ -265,43 +272,6 @@ struct FullscreenPlayerView: View {
 }
 
 // MARK: - UIKit bridge
-
-/// `UIViewControllerRepresentable` for `AVPlayerViewController`
-/// used by the inline `PlayerView`.  Unlike SwiftUI's `VideoPlayer`,
-/// this exposes `showsPlaybackControls` so we can force the transport
-/// UI to appear.  The `Coordinator` holds a strong reference to the
-/// controller so the `AVPlayer` outlives any SwiftUI re-render.
-private struct InlineAVPlayerRepresentable: UIViewControllerRepresentable {
-    let player: AVPlayer
-
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = player
-        controller.showsPlaybackControls = true
-        controller.videoGravity = .resizeAspect
-        // Strong reference keeps the controller alive across
-        // SwiftUI re-renders that don't replace the representable.
-        context.coordinator.controller = controller
-        return controller
-    }
-
-    func updateUIViewController(
-        _ uiViewController: AVPlayerViewController,
-        context: Context
-    ) {
-        if uiViewController.player !== player {
-            uiViewController.player = player
-        }
-        // Keep the coordinator's reference current.
-        context.coordinator.controller = uiViewController
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class Coordinator {
-        weak var controller: AVPlayerViewController?
-    }
-}
 
 /// `UIViewControllerRepresentable` for `AVPlayerViewController`,
 /// used by `FullscreenPlayerView`.  SwiftUI's `VideoPlayer`

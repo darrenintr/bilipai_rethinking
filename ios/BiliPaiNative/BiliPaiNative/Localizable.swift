@@ -217,15 +217,16 @@ enum L10n {
     }
 }
 
-// MARK: - AI 视频总结
+    // MARK: - AI 视频总结
 
-enum aiSummary {
-    /// "AI 视频总结" — chip header for the AI summary section.
-    /// Mirrors the upstream "AI 小助手" label for users who
-    /// are familiar with the web player.
-    static let title = String(localized: "aiSummary.title", defaultValue: "AI 视频总结")
-    /// "章节" — small heading above the chapter outline list.
-    static let chapters = String(localized: "aiSummary.chapters", defaultValue: "章节")
+    enum aiSummary {
+        /// "AI 视频总结" — chip header for the AI summary section.
+        /// Mirrors the upstream "AI 小助手" label for users who
+        /// are familiar with the web player.
+        static let title = String(localized: "aiSummary.title", defaultValue: "AI 视频总结")
+        /// "章节" — small heading above the chapter outline list.
+        static let chapters = String(localized: "aiSummary.chapters", defaultValue: "章节")
+    }
 }
 
 // MARK: - Bundle resolution helper

@@ -138,6 +138,7 @@ struct InlineAVPlayerRepresentable: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    @MainActor
     final class Coordinator {
         /// Strong reference to the PiP controller — see the
         /// file header for why this matters.
@@ -156,10 +157,18 @@ struct InlineAVPlayerRepresentable: UIViewRepresentable {
                 diagLog(.playback, "PiP not supported on this device / config")
                 return
             }
-            let controller = InlinePiPController(
+            guard let controller = InlinePiPController(
                 layer: layer,
                 onPiPRequested: onPiPRequested
-            )
+            ) else {
+                // Failable init returned nil — typically
+                // because the layer isn't on-screen yet or
+                // the audio session hasn't been activated.
+                // The holder will retry on the next
+                // `.bilipaiPiPPossibleChanged` notification.
+                diagLog(.playback, "InlinePiPController init returned nil")
+                return
+            }
             pip = controller
             // Hand the strong reference to the holder so the
             // controller outlives any SwiftUI re-render of
@@ -216,9 +225,18 @@ final class InlinePiPController: NSObject, AVPictureInPictureControllerDelegate 
     /// changes) — we only care about the transition.
     private var didLogPossible = false
 
-    init(layer: AVPlayerLayer, onPiPRequested: @escaping () -> Void) {
+    /// `AVPictureInPictureController.init(playerLayer:)` is
+    /// failable on iOS 15+ — the system returns `nil` when
+    /// the layer isn't on-screen yet or when the audio session
+    /// is not configured.  We hand the optional through
+    /// `guard let` at the call site and surface a clean no-op
+    /// (see `Coordinator.attachPiP`).
+    init?(layer: AVPlayerLayer, onPiPRequested: @escaping () -> Void) {
         self.onPiPRequestedHandler = onPiPRequested
-        self.controller = AVPictureInPictureController(playerLayer: layer)
+        guard let pip = AVPictureInPictureController(playerLayer: layer) else {
+            return nil
+        }
+        self.controller = pip
         super.init()
         controller.delegate = self
         // iOS 14.2+: enter PiP directly from the inline
@@ -431,28 +449,28 @@ final class InlinePiPHolder: ObservableObject {
     /// `isPiPPossible` after the system starts/stops a
     /// session.  The flag toggles many times during a
     /// session; we re-read on every change so the SwiftUI
-    /// button stays in sync.
+    /// button stays in sync.  The hop through
+    /// `Task { @MainActor in ... }` keeps the call site
+    /// Sendable-clean for Swift 6 — `refreshPiPPossible` is
+    /// main-actor-isolated.
     private func observePiPSession() {
         let center = NotificationCenter.default
-        observers.append(
-            center.addObserver(
-                forName: .bilipaiPiPWillStart, object: nil, queue: .main
-            ) { [weak self] _ in self?.refreshPiPPossible() }
-        )
-        observers.append(
-            center.addObserver(
-                forName: .bilipaiPiPDidStart, object: nil, queue: .main
-            ) { [weak self] _ in self?.refreshPiPPossible() }
-        )
-        observers.append(
-            center.addObserver(
-                forName: .bilipaiPiPWillStop, object: nil, queue: .main
-            ) { [weak self] _ in self?.refreshPiPPossible() }
-        )
-        observers.append(
-            center.addObserver(
-                forName: .bilipaiPiPDidStop, object: nil, queue: .main
-            ) { [weak self] _ in self?.refreshPiPPossible() }
-        )
+        let names: [Notification.Name] = [
+            .bilipaiPiPWillStart,
+            .bilipaiPiPDidStart,
+            .bilipaiPiPWillStop,
+            .bilipaiPiPDidStop
+        ]
+        for name in names {
+            observers.append(
+                center.addObserver(
+                    forName: name, object: nil, queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.refreshPiPPossible()
+                    }
+                }
+            )
+        }
     }
 }
