@@ -134,7 +134,7 @@ private struct MusicCard: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(.black.opacity(0.62), in: RoundedRectangle(corRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle))
+                    .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: BiliPaiTheme.pillRadius, style: BiliPaiTheme.cornerStyle))
                     .padding(8)
             }
             Text(video.title)
@@ -163,7 +163,7 @@ private struct MusicCard: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(10)
         .bilipaiCardSurface(materialDesign)
-        .clipShape(RoundedRectangle(corRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+        .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
     }
 
     @ViewBuilder
@@ -172,9 +172,9 @@ private struct MusicCard: View {
             ResilientImage(url: url)
                 .aspectRatio(1, contentMode: .fill)
                 .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(corRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
+                .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle))
         } else {
-            RoundedRectangle(corRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle)
+            RoundedRectangle(cornerRadius: BiliPaiTheme.cardRadius, style: BiliPaiTheme.cornerStyle)
                 .fill(BiliPaiTheme.biliPink.opacity(0.18))
                 .aspectRatio(1, contentMode: .fill)
                 .overlay(
@@ -276,10 +276,10 @@ struct MusicPlayerView: View {
             if let url = video.coverURL {
                 ResilientImage(url: url)
                     .aspectRatio(1, contentMode: .fill)
-                    .clipShape(RoundedRectangle(corRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle))
+                    .clipShape(RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle))
                     .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
             } else {
-                RoundedRectangle(corRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
+                RoundedRectangle(cornerRadius: BiliPaiTheme.cornerRadius, style: BiliPaiTheme.cornerStyle)
                     .fill(BiliPaiTheme.biliPink.opacity(0.4))
                     .aspectRatio(1, contentMode: .fit)
                     .overlay(
