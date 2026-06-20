@@ -400,9 +400,13 @@ final class InlinePiPHolder: ObservableObject {
     /// re-renders.  `AVPictureInPictureController` does NOT
     /// retain its delegate, so we have to.
     private var pip: InlinePiPController?
-    /// Observer tokens, retained so we can remove them on
-    /// deallocation.
-    private var observers: [NSObjectProtocol] = []
+    /// Long-running observation task.  Cancelled in
+    /// `deinit` so the AsyncSequence subscriptions tear
+    /// down with the holder.  One task per name keeps the
+    /// bookkeeping simple — the alternative (a single
+    /// multiplexed `for await` over `merge(...)`) is
+    /// denser to read for four event types.
+    private var observationTasks: [Task<Void, Never>] = []
 
     init() {
         // The actual `InlinePiPController` is created in
@@ -414,9 +418,7 @@ final class InlinePiPHolder: ObservableObject {
     }
 
     deinit {
-        observers.forEach {
-            NotificationCenter.default.removeObserver($0)
-        }
+        observationTasks.forEach { $0.cancel() }
     }
 
     /// Hook the inline PiP controller into the holder.  Called
@@ -445,16 +447,14 @@ final class InlinePiPHolder: ObservableObject {
         pip?.startPictureInPicture()
     }
 
-    /// Observe PiP session notifications so we can refresh
-    /// `isPiPPossible` after the system starts/stops a
-    /// session.  The flag toggles many times during a
-    /// session; we re-read on every change so the SwiftUI
-    /// button stays in sync.  The hop through
-    /// `Task { @MainActor in ... }` keeps the call site
-    /// Sendable-clean for Swift 6 — `refreshPiPPossible` is
-    /// main-actor-isolated.
+    /// Subscribe to the four PiP-lifecycle notifications and
+    /// refresh `isPiPPossible` after each.  Each subscription
+    /// runs in its own `Task` so cancellation is
+    /// per-subscription; using the modern
+    /// `NotificationCenter.notifications(named:)` AsyncSequence
+    /// (iOS 15+) avoids the `addObserver` + `removeObserver`
+    /// dance and the `@Sendable` closure warnings.
     private func observePiPSession() {
-        let center = NotificationCenter.default
         let names: [Notification.Name] = [
             .bilipaiPiPWillStart,
             .bilipaiPiPDidStart,
@@ -462,12 +462,17 @@ final class InlinePiPHolder: ObservableObject {
             .bilipaiPiPDidStop
         ]
         for name in names {
-            observers.append(
-                center.addObserver(
-                    forName: name, object: nil, queue: .main
-                ) { [weak self] _ in
-                    Task { @MainActor in
-                        self?.refreshPiPPossible()
+            observationTasks.append(
+                Task { [weak self] in
+                    for await _ in NotificationCenter.default.notifications(named: name) {
+                        // The AsyncSequence delivers on the
+                        // posting thread (typically the
+                        // AVPiP delegate callbacks fire on
+                        // the main thread); we re-enter the
+                        // MainActor explicitly so the call
+                        // site stays Sendable-clean under
+                        // Swift 6.
+                        await self?.refreshPiPPossible()
                     }
                 }
             )

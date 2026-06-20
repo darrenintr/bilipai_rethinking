@@ -45,10 +45,13 @@ struct PlayerView: View {
     /// re-renders.  See `InlineAVPlayerView.swift` for why a
     /// strong ref is required.
     @StateObject private var pipHolder = InlinePiPHolder()
-    /// Token returned by the PiP-possible observer so we can
-    /// remove it on `onDisappear` (the modern non-deprecated
-    /// `NotificationCenter` API requires the token).
-    @State private var pipPossibleObserver: NSObjectProtocol?
+    /// Long-running task that drains
+    /// `.bilipaiPiPPossibleChanged` notifications and mirrors
+    /// the system flag into `pipPossible`.  Stored so we can
+    /// cancel it on disappear; using the AsyncSequence API
+    /// (iOS 15+) keeps the `addObserver` + `removeObserver`
+    /// token dance out of the view body.
+    @State private var pipObservationTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -69,28 +72,26 @@ struct PlayerView: View {
             .onAppear {
                 pipHolder.refreshPiPPossible()
                 pipPossible = pipHolder.isPiPPossible
-                // Hold a strong reference to the holder so the
-                // observer closure can read its main-actor state
-                // without a Sendable warning.  The token returned
-                // by `addObserver` keeps the registration alive;
-                // we remove it in `onDisappear`.
+                // Drain `.bilipaiPiPPossibleChanged` for the
+                // lifetime of the view.  The AsyncSequence
+                // delivers on the posting thread, so we hop
+                // back to the MainActor explicitly to read
+                // the holder's main-actor-isolated state.
+                // Cancelled in `onDisappear`.
                 let holder = pipHolder
-                pipPossibleObserver = NotificationCenter.default.addObserver(
-                    forName: .bilipaiPiPPossibleChanged,
-                    object: nil,
-                    queue: .main
-                ) { _ in
-                    Task { @MainActor in
+                pipObservationTask = Task { @MainActor in
+                    for await _ in NotificationCenter.default.notifications(
+                        named: .bilipaiPiPPossibleChanged
+                    ) {
+                        guard !Task.isCancelled else { return }
                         holder.refreshPiPPossible()
                         pipPossible = holder.isPiPPossible
                     }
                 }
             }
             .onDisappear {
-                if let token = pipPossibleObserver {
-                    NotificationCenter.default.removeObserver(token)
-                    pipPossibleObserver = nil
-                }
+                pipObservationTask?.cancel()
+                pipObservationTask = nil
             }
 
             // Overlay sits ABOVE the AVPlayer surface but

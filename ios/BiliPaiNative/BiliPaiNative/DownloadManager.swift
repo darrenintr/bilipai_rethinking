@@ -686,4 +686,15 @@ enum DownloadState: Equatable {
     case downloading(progress: Double)
     case downloaded(record: DownloadRecord)
     case failed(message: String)
+
+    /// `true` while a download is in flight.  Centralised
+    /// here so the diagnostic report and any future UI that
+    /// wants the "in flight" count doesn't have to repeat
+    /// the `if case .downloading` pattern — and so a future
+    /// "queued" or "verifying" case only needs a single
+    /// switch update.
+    var isDownloading: Bool {
+        if case .downloading = self { return true }
+        return false
+    }
 }
