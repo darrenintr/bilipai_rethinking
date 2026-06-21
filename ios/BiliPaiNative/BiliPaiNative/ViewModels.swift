@@ -364,7 +364,8 @@ final class VideoDetailViewModel: ObservableObject {
         // No network call is made for offline playback —
         // the user can be on airplane mode and the video
         // will still play.
-        if let record = localRecord {
+        if let record = localRecord,
+           Self.localPlaybackReady(for: record) {
             let directory = DownloadStore.shared.readyDirectory(
                 for: record.bvid
             )
@@ -375,6 +376,10 @@ final class VideoDetailViewModel: ObservableObject {
                 resumeTime: 0,
                 localContext: LocalPlaybackContext(directory: directory)
             )
+        } else if let record = localRecord {
+            diagLog(.playback,
+                    "local record opened but offline bytes incomplete",
+                    details: ["bvid": record.bvid])
         }
         // Initial state — must come before the publisher
         // subscriptions below so the first emission does
@@ -538,9 +543,9 @@ final class VideoDetailViewModel: ObservableObject {
 
     /// Verify that the bytes backing `record` are still on
     /// disk and the local proxy can serve them.  Returns
-    /// `true` only when at least one of {video, audio}
-    /// tracks has both its `*.init` and `*.media` files
-    /// present in the ready directory.
+    /// `true` only when every track implied by the saved
+    /// manifest is backed by both its `*.init` and
+    /// `*.media` files in the ready directory.
     ///
     /// The `DownloadStore` manifest is the source of truth
     /// for "user has downloaded this" — but the bytes
@@ -574,9 +579,11 @@ final class VideoDetailViewModel: ObservableObject {
             return fm.fileExists(atPath: initURL.path) &&
                    fm.fileExists(atPath: mediaURL.path)
         }
-        if hasBothFiles("video") { return true }
-        if hasBothFiles("audio") { return true }
-        return false
+        guard hasBothFiles("video") else { return false }
+        if record.dash.audio != nil, !hasBothFiles("audio") {
+            return false
+        }
+        return true
     }
 
     func load(repository: BiliPaiRepository) async {
