@@ -168,8 +168,45 @@ final class DownloadStore: ObservableObject {
             // written on the next mutation.
             onDisk = []
         }
-        return onDisk
+        let filtered = onDisk.filter { record in
+            hasCompleteLocalBytes(for: record)
+        }
+        if filtered.count != onDisk.count {
+            let dropped = onDisk.count - filtered.count
+            diagLog(.download, "DownloadStore pruned stale manifest entries",
+                    details: ["dropped": dropped])
+            do {
+                let data = try self.encoder.encode(filtered)
+                try data.write(to: Self.manifestURL, options: .atomic)
+            } catch {
+                bpLog("DownloadStore stale-manifest rewrite failed: \(error)")
+            }
+        }
+        return filtered
             .sorted { $0.downloadedAt > $1.downloadedAt }
+    }
+
+    /// Returns `true` only when every track implied by the
+    /// manifest still has both of its on-disk files.  iOS may
+    /// purge `Caches/` under storage pressure; when that
+    /// happens we do not want to keep surfacing a manifest
+    /// entry that can never play.
+    private func hasCompleteLocalBytes(for record: DownloadRecord) -> Bool {
+        let directory = readyDirectory(for: record.bvid)
+        let fm = FileManager.default
+
+        func hasBothFiles(_ trackName: String) -> Bool {
+            let initURL = directory.appendingPathComponent("\(trackName).init")
+            let mediaURL = directory.appendingPathComponent("\(trackName).media")
+            return fm.fileExists(atPath: initURL.path) &&
+                   fm.fileExists(atPath: mediaURL.path)
+        }
+
+        guard hasBothFiles("video") else { return false }
+        if record.dash.audio != nil, !hasBothFiles("audio") {
+            return false
+        }
+        return true
     }
 
     // MARK: directory helpers
