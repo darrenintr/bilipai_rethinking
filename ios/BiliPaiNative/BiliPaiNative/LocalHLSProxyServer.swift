@@ -2037,7 +2037,23 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         // when it DOES send Range we answer `206` with a
         // `Content-Range` that has been shifted down to the
         // sub-resource's byte coordinates.
-        let isLogicalSubResource = (mode == "init" || mode == "media")
+        //
+        // NOTE: `/init` and `/media` are NOT symmetric:
+        //   * `/init` is a *logical* sub-resource — AVPlayer
+        //     never asks for a Range on it, and the body is
+        //     the init bytes in their entirety. 200 OK +
+        //     Content-Length is correct.
+        //   * `/media` is a *partial* sub-resource — its
+        //     body is a slice of the upstream file (init
+        //     bytes are served separately by `/init`).
+        //     Even when the single-segment playlist
+        //     fallback is in effect and AVPlayer does not
+        //     send a Range, the HTTP contract is still
+        //     206 + Content-Range, because the resource is
+        //     a slice of a larger file.  Returning 200
+        //     here makes AVPlayer RST the socket
+        //     (NWError 54) and/or blacklist the track.
+        let isInitSubResource = (mode == "init")
         let status: Int
         if clientSentRange {
             // Client asked for a byte range — MUST be 206.
@@ -2061,16 +2077,32 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                 // coordinates.
                 extraHeaders["Content-Range"] = upstreamContentRange
             }
-        } else if isLogicalSubResource {
-            // No client Range, but the URL is a logical
-            // sub-resource (`/init` or `/media`).  Expose it
-            // as a flat document: 200 OK, `Content-Length` set
-            // to the sub-resource length, no `Content-Range`.
+        } else if isInitSubResource {
+            // `/init` (no client Range): serve the upstream's
+            // 206 body as a flat `200 OK` resource.  Drop
+            // `Content-Range` so AVPlayer treats the body as
+            // a complete sub-resource.
             status = 200
         } else {
-            // `/seg` passthrough with no client Range — forward
-            // the upstream's status (typically 200).
+            // `/media` (no client Range) and `/seg` (no client
+            // Range): pass the upstream status through.  B 站
+            // answered 206 because we asked for a Range; we
+            // shift the absolute Content-Range down to a
+            // *relative* range the client can use against the
+            // logical sub-resource.
             status = http.statusCode
+            if let upstreamContentRange,
+               let shift = contentRangeShift,
+               let shifted = server.shiftedContentRange(
+                    upstreamContentRange,
+                    by: shift
+               ) {
+                extraHeaders["Content-Range"] = shifted
+            } else if let upstreamContentRange,
+                      mode == "passthrough" {
+                // `/seg` passthrough: forward verbatim.
+                extraHeaders["Content-Range"] = upstreamContentRange
+            }
         }
         let contentLength = http.expectedContentLength >= 0
             ? http.expectedContentLength
