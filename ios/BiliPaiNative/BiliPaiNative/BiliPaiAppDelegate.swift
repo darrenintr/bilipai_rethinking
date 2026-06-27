@@ -1,3 +1,4 @@
+import FirebaseCore
 import UIKit
 
 /// App delegate wired via `@UIApplicationDelegateAdaptor` in
@@ -20,6 +21,13 @@ final class BiliPaiAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // Boot Firebase first so the very first analytics event
+        // (`app_launch` from `BiliPaiNativeApp.init`) finds a
+        // configured SDK. We deliberately do NOT read the opt-in
+        // toggle here — `Analytics.log` reads it per call and
+        // silently no-ops when the toggle is off, so Firebase can
+        // safely initialise regardless of the user's preference.
+        FirebaseApp.configure()
         // Force `DownloadStore.shared` to initialise here so
         // its `records` array is hydrated before SwiftUI body
         // renders.  Hydration runs synchronously inside

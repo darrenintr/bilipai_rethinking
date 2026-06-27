@@ -27,6 +27,10 @@ local.properties
 *.keystore
 *.jks
 google-services.json
+# Firebase iOS SDK config — generated per-developer / per-target
+# from the Firebase Console, never commit (otherwise the same
+# project_id would leak across teammates + CI).
+GoogleService-Info.plist
 signing.properties
 keystore.properties
 

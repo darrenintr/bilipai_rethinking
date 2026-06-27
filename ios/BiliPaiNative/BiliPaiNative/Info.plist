@@ -32,6 +32,10 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_IDFA_COLLECTION_ENABLED</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
