@@ -36,11 +36,14 @@ struct RootView: View {
             switch phase {
             case .active:
                 diagLog(.lifecycle, "app.foreground")
+                Analytics.log("app_foreground")
                 router.consumePendingIntentRoute()
             case .background:
                 diagLog(.lifecycle, "app.background")
+                Analytics.log("app_background")
             case .inactive:
                 diagLog(.lifecycle, "app.inactive")
+                Analytics.log("app_inactive")
             @unknown default:
                 break
             }

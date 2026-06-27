@@ -36,6 +36,18 @@ struct BiliPaiNativeApp: App {
                 Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
                 as? String ?? "?"
         ])
+        // Mirror the cold-start anchor into Firebase Analytics so
+        // the console can compute session / retention funnels
+        // against it. Honours the `analytics.optIn` toggle.
+        Analytics.log("app_launch", [
+            "marketingVersion":
+                Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+                as? String ?? "?",
+            "build":
+                Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
+                as? String ?? "?"
+        ])
+        Analytics.breadcrumb("APP", "app.launch")
         DeviceInfo.shared.startIfNeeded()
     }
 

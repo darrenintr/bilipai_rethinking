@@ -47,6 +47,18 @@ struct VideoCard: View {
 
     var body: some View {
         Button {
+            // Centralised "user tapped a card" analytics hook —
+            // single point of instrumentation covers home / follow
+            // / search / history / favorites / watch-later /
+            // dynamic feeds because every call site uses
+            // `VideoCard`. `bvid` is the only identifying param
+            // we ship; everything else (duration, view count,
+            // etc.) is recoverable by joining against the
+            // server-side bvid table.
+            Analytics.log("card_select", [
+                "bvid": video.id,
+                "duration": video.duration
+            ])
             Haptics.tap()
             action()
         } label: {
@@ -97,6 +109,15 @@ struct VideoCard: View {
         .clipped()
         .buttonStyle(.plain)
         .modifier(VideoContextMenuIfAvailable(video: video, repository: repository))
+        // Impression fires once per card every time it enters
+        // the visible viewport. For long feeds this can be
+        // noisy; if analytics volume becomes a concern later,
+        // swap this for a debounced / sampled impression hook
+        // (e.g. only fire on first appearance per session,
+        // keyed by bvid in a Set).
+        .onAppear {
+            Analytics.log("card_impression", ["bvid": video.id])
+        }
     }
 
     /// The cover image, kept as a property so we can apply the
