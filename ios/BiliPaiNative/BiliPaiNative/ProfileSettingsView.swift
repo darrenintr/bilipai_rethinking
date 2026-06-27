@@ -42,6 +42,11 @@ struct ProfileSettingsView: View {
     /// the upstream HLS slot is actually called.  Default off
     /// so the diagnostic export stays readable in normal use.
     @AppStorage("bilipai.dumpPlayURL") private var dumpPlayURL = false
+    // Backing key shared with `Analytics` (`Analytics.optInKey`).
+    // Default-on so Firebase Console immediately sees installs;
+    // user can flip off in 我的 → 系统与诊断 to silence all
+    // telemetry without uninstalling. Survives app restarts.
+    @AppStorage("analytics.optIn") private var analyticsOptIn: Bool = true
 
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var authStore: AuthStore
@@ -199,6 +204,25 @@ struct ProfileSettingsView: View {
                         Text("记录 playurl 原始响应")
                             .font(.subheadline)
                         Text("下次播放视频时,把 B 站返回的 JSON 前 4 KB 写入日志")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // Analytics opt-out.  When on, `Analytics.log`,
+                // `Analytics.recordError`, and
+                // `Analytics.breadcrumb` all become no-ops
+                // (guarded in `Analytics.swift`).  Crash
+                // reports from `FirebaseCrashlytics` are also
+                // suppressed because `recordError` is the only
+                // non-fatal path the app uses; native Swift
+                // `fatalError`s still ship to Crashlytics
+                // regardless because they bypass our facade.
+                Toggle(isOn: $analyticsOptIn) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("分享使用统计")
+                            .font(.subheadline)
+                        Text("发送崩溃报告与匿名使用事件到 Firebase,帮助改进 App")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

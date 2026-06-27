@@ -589,6 +589,13 @@ final class VideoDetailViewModel: ObservableObject {
     func load(repository: BiliPaiRepository) async {
         isLoading = true
         errorMessage = nil
+        // Top-of-funnel signal — fires before the local-first /
+        // offline-fallback early returns so we can later
+        // distinguish "user opened a video we served from cache"
+        // (high conversion, no network) from "user opened a
+        // video that required a live playurl call" (where the
+        // `video_play_error` rate matters).
+        Analytics.log("video_open", ["bvid": detail.bvid])
         // For locally-downloaded videos the playback is
         // already populated from the `DownloadRecord` and
         // the detail block already has the metadata we
@@ -677,6 +684,17 @@ final class VideoDetailViewModel: ObservableObject {
                         "isDASH": self.playback?.isDASH ?? false,
                         "hasFallback": self.playback?.fallbackURL != nil
                     ])
+            // Playback funnel success — emit only when we
+            // actually have a usable `BiliPlayback`. The `qn`
+            // param lets the console slice by quality tier
+            // (e.g. "1080P funnel conversion" vs "480P fallback
+            // funnel").
+            Analytics.log("video_play_start", [
+                "bvid": detail.bvid,
+                "qn": preferredQn,
+                "isDASH": self.playback?.isDASH ?? false,
+                "hasFallback": self.playback?.fallbackURL != nil
+            ])
             await loadComments(repository: repository)
             // Fetch the official AI 视频总结. Runs in parallel with
             // the comments fetch above via the `await` keyword; both
@@ -691,6 +709,16 @@ final class VideoDetailViewModel: ObservableObject {
                 try? await repository.reportHistory(for: detail, cid: detail.cid, progress: 0)
             }
         } catch let error as BilibiliAPIError {
+            // Funnel drop — record the failure to Crashlytics
+            // before the per-case `errorMessage` assignment so
+            // the breadcrumb still correlates against the
+            // original error (not the localised copy).
+            Analytics.recordError(error, context: "video_load")
+            Analytics.log("video_play_error", [
+                "bvid": detail.bvid,
+                "kind": "api",
+                "case": "\(error)"
+            ])
             switch error {
             case .api(let message):
                 errorMessage = message
@@ -722,6 +750,11 @@ final class VideoDetailViewModel: ObservableObject {
                     ])
             await loadComments(repository: repository)
         } catch {
+            Analytics.recordError(error, context: "video_load")
+            Analytics.log("video_play_error", [
+                "bvid": detail.bvid,
+                "kind": "unknown"
+            ])
             errorMessage = "播放失败：\(error.localizedDescription)"
             diagLog(.playback,
                     "VideoDetailViewModel.load failed (unknown)",

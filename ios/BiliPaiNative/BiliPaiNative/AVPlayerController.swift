@@ -320,6 +320,17 @@ final class PlayerController: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.isPlaying = false
+                // End-of-stream = the user watched all the way
+                // through (or AVPlayer hit the end and stopped).
+                // This is the strongest "engaged" signal we have
+                // without a periodic heartbeat, and feeds the
+                // completion-rate denominator for the playback
+                // funnel.
+                let totalSeconds = self?.currentItem?.duration.seconds ?? 0
+                Analytics.log("video_complete", [
+                    "duration_seconds": totalSeconds
+                ])
+                Analytics.breadcrumb("PLAY", "video_complete")
             }
         }
         errorObserver = NotificationCenter.default.addObserver(
@@ -331,6 +342,13 @@ final class PlayerController: ObservableObject {
             diagLog(.playback, "AVPlayerItem failed to play to end", details: [
                 "error": err.map { String(describing: $0) } ?? "unknown"
             ])
+            if let err {
+                Analytics.recordError(err, context: "video_playback_end")
+                Analytics.log("video_playback_end_error", [
+                    "domain": (err as NSError).domain,
+                    "code": (err as NSError).code
+                ])
+            }
             MainActor.assumeIsolated {
                 self?.isPlaying = false
                 self?.isBuffering = false

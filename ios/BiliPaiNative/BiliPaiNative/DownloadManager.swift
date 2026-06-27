@@ -202,6 +202,16 @@ final class DownloadManager: NSObject, ObservableObject {
                 ])
         stateByBvid[bvid] = .downloading(progress: 0)
         progress[bvid] = 0
+        // Funnel start — only fire once per bvid because
+        // `guard stateByBvid[bvid] == nil` above rejects
+        // duplicate calls. `expected_segments` lets the
+        // console compute the completion denominator later.
+        Analytics.log("download_start", [
+            "bvid": bvid,
+            "title": video.title,
+            "expected_segments": expected
+        ])
+        Analytics.breadcrumb("DOWN", "download_start \(bvid)")
         let staging = DownloadStore.shared.inProgressDirectory(for: bvid)
         do {
             try FileManager.default.createDirectory(
@@ -552,6 +562,17 @@ final class DownloadManager: NSObject, ObservableObject {
                     "expected": pending.expectedSegments,
                     "has_audio": pending.playback.dash?.audio != nil
                 ])
+        // Funnel success — fire only after the byte budget is
+        // known so the console can compute "average download
+        // size" / "average MB/sec" rollups. `has_audio` lets us
+        // slice by DASH-with-audio vs video-only fallback.
+        Analytics.log("download_complete", [
+            "bvid": bvid,
+            "title": pending.video.title,
+            "size_bytes": totalSize,
+            "has_audio": pending.playback.dash?.audio != nil
+        ])
+        Analytics.breadcrumb("DOWN", "download_complete \(bvid)")
         DownloadStore.shared.add(record)
         diagLog(.download, "handed record to DownloadStore",
                 details: ["bvid": bvid, "size_bytes": totalSize])
@@ -649,6 +670,19 @@ extension DownloadManager: URLSessionDownloadDelegate {
                 message: nsError.localizedDescription
             )
             self.progress[bvid] = nil
+            // Funnel failure — fires once per bvid when the
+            // single retry is exhausted. Multiple segments can
+            // independently reach this branch, so the same
+            // `bvid` may emit several events for one failed
+            // download; the console will dedupe visually.
+            Analytics.recordError(nsError, context: "download")
+            Analytics.log("download_error", [
+                "bvid": bvid,
+                "domain": nsError.domain,
+                "code": nsError.code
+            ])
+            Analytics.breadcrumb("DOWN",
+                "download_error \(bvid) code=\(nsError.code)")
             // Wipe the half-finished staging directory so a
             // retry of the whole download starts clean.
             let staging = DownloadStore.shared.inProgressDirectory(
