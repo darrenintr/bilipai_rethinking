@@ -160,6 +160,8 @@ jobs:
       # guard below keeps this step a no-op for them.
       # ------------------------------------------------------------------
       - name: Decode Firebase plist from secret
+        env:
+          FIREBASE_PLIST_BASE64: ${{ secrets.FIREBASE_PLIST_BASE64 }}
         run: |
           set -euo pipefail
           PLIST="$PROJECT_DIR/$PROJECT_NAME/GoogleService-Info.plist"
@@ -167,20 +169,17 @@ jobs:
             echo "Found existing GoogleService-Info.plist at $PLIST; using it as-is."
             exit 0
           fi
+          echo "::notice::FIREBASE_PLIST_BASE64 length: ${#FIREBASE_PLIST_BASE64} bytes"
           if [ -z "${FIREBASE_PLIST_BASE64:-}" ]; then
-            echo "::error::FIREBASE_PLIST_BASE64 is unset or empty."
-            echo "::error::gh secret list reports the secret exists, but the runner sees an empty value."
-            echo "::error::Most likely causes:"
-            echo "::error::* the value field was saved blank"
+            echo "::error::FIREBASE_PLIST_BASE64 secret value is empty after env injection."
+            echo "::error::The secret exists in repo Settings -> Secrets and variables -> Actions,"
+            echo "::error::but the workflow runner received an empty string. Common causes:"
+            echo "::error::* the value field was saved blank (paste never landed)"
             echo "::error::* a stray newline split the value into two halves and GitHub only kept the empty half"
             echo "::error::* the value was saved as plain text instead of base64"
             echo "::error::Re-open Settings -> Secrets and variables -> Actions -> FIREBASE_PLIST_BASE64 -> Update, paste the base64 string, and save again."
             exit 1
           fi
-          # Diagnostic: surface the secret length so an empty-value mistake
-          # (typing into the wrong field, paste losing the buffer) shows up
-          # as "decoded 0 bytes" instead of a downstream parse failure.
-          echo "::notice::FIREBASE_PLIST_BASE64 length: ${#FIREBASE_PLIST_BASE64} bytes"
           echo "::notice::Decoding FIREBASE_PLIST_BASE64 -> $PLIST"
           mkdir -p "$(dirname "$PLIST")"
           printf '%s' "$FIREBASE_PLIST_BASE64" | base64 --decode > "$PLIST"
