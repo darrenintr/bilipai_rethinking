@@ -171,6 +171,10 @@ jobs:
             echo "::error::FIREBASE_PLIST_BASE64 secret is not set on this repo. Either drop a GoogleService-Info.plist into ios/Paladala/Paladala/ on the runner, or set the secret in Settings -> Secrets and variables -> Actions."
             exit 1
           fi
+          # Diagnostic: surface the secret length so an empty-value mistake
+          # (typing into the wrong field, paste losing the buffer) shows up
+          # as "decoded 0 bytes" instead of a downstream parse failure.
+          echo "::notice::FIREBASE_PLIST_BASE64 length: ${#FIREBASE_PLIST_BASE64} bytes"
           echo "::notice::Decoding FIREBASE_PLIST_BASE64 -> $PLIST"
           mkdir -p "$(dirname "$PLIST")"
           printf '%s' "$FIREBASE_PLIST_BASE64" | base64 --decode > "$PLIST"
