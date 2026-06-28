@@ -326,7 +326,7 @@ final class PlayerController: ObservableObject {
                 // without a periodic heartbeat, and feeds the
                 // completion-rate denominator for the playback
                 // funnel.
-                let totalSeconds = self?.currentItem?.duration.seconds ?? 0
+                let totalSeconds = self?.player.currentItem?.duration.seconds ?? 0
                 Analytics.log("video_complete", [
                     "duration_seconds": totalSeconds
                 ])
