@@ -146,6 +146,42 @@ jobs:
           xcodebuild -list -project "$PROJECT" -json \
             | python3 -c "import json,sys; schemes=json.load(sys.stdin)['project']['schemes']; assert '$PROJECT_NAME' in schemes, f'Scheme $PROJECT_NAME not found in {schemes}'; print('Scheme $PROJECT_NAME present')"
 
+      # ------------------------------------------------------------------
+      # The Paladala target ships GoogleService-Info.plist in Copy
+      # Bundle Resources (Firebase init at runtime, Crashlytics symbol
+      # upload at build time). The real file is .gitignored — every
+      # developer / CI runner gets their own copy from the Firebase
+      # Console — so the runner never has one in the checkout.
+      #
+      # We materialise a placeholder plist here so xcodebuild's input
+      # check is satisfied. The values are deliberately fake; the
+      # unsigned CI artifact is never run, and Firebase init against
+      # dummy IDs is harmless. Local devs keep their real plist in
+      # ios/Paladala/Paladala/GoogleService-Info.plist and this step
+      # is a no-op.
+      # ------------------------------------------------------------------
+      - name: Materialise placeholder GoogleService-Info.plist
+        run: |
+          set -euo pipefail
+          PLIST="$PROJECT_DIR/$PROJECT_NAME/GoogleService-Info.plist"
+          if [ ! -f "$PLIST" ]; then
+            echo "::notice::No GoogleService-Info.plist in checkout (gitignored); writing CI placeholder."
+            mkdir -p "$(dirname "$PLIST")"
+            /usr/bin/plutil -create binary1 "$PLIST"
+            /usr/bin/plutil -insert BUNDLE_ID -string "com.dt.paladala.ci" "$PLIST"
+            /usr/bin/plutil -insert PROJECT_ID -string "paladala-ci-placeholder" "$PLIST"
+            /usr/bin/plutil -insert GOOGLE_APP_ID -string "1:000000000000:ios:0000000000000000000000" "$PLIST"
+            /usr/bin/plutil -insert IS_ANALYTICS_ENABLED -bool false "$PLIST"
+            /usr/bin/plutil -insert IS_APPINVITE_ENABLED -bool false "$PLIST"
+            /usr/bin/plutil -insert IS_GCM_ENABLED -bool false "$PLIST"
+            /usr/bin/plutil -insert IS_SIGNIN_ENABLED -bool false "$PLIST"
+            /usr/bin/plutil -insert IS_ADS_ENABLED -bool false "$PLIST"
+            /usr/bin/plutil -insert STORAGE_BUCKET -string "paladala-ci-placeholder.firebasestorage.app" "$PLIST"
+            /usr/bin/plutil -insert PLIST_VERSION -integer 1 "$PLIST"
+          else
+            echo "Found existing GoogleService-Info.plist at $PLIST; using it as-is."
+          fi
+
       - name: Build device app without signing
         run: |
           set -euo pipefail
