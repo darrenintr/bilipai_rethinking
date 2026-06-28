@@ -200,6 +200,12 @@ jobs:
       - name: Build device app without signing
         run: |
           set -euo pipefail
+          # upload-symbols reads GOOGLE_APP_ID from the build environment,
+          # not from the on-disk GoogleService-Info.plist. The CI placeholder
+          # plist (above) satisfies xcodebuild's input-file check; we also
+          # pass GOOGLE_APP_ID directly so the Crashlytics run script can
+          # validate and skip the network upload step cleanly. The value is
+          # intentionally fake — the unsigned artifact is never launched.
           xcodebuild \
             -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
             -scheme "$PROJECT_NAME" \
@@ -210,6 +216,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            GOOGLE_APP_ID="1:000000000000:ios:0000000000000000000000" \
             build
 
       # ------------------------------------------------------------------
