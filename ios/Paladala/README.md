@@ -14,7 +14,7 @@ Implemented:
 - Public video comment loading on the video detail screen
 - Dynamic, live, profile/settings, plugin-center-inspired surfaces
 - App Intents for opening Paladala, searching, continuing the latest video, and adding a recent video to Watch Later
-- `paladala://` deep links for home, dynamic, live, settings, and search (`bilipai://` remains compatible)
+- `paladala://` deep links for home, dynamic, live, settings, and search
 - Cached, downsampled cover images and lazy feed grids for smoother scrolling
 
 Current limitations:
@@ -27,16 +27,16 @@ Current limitations:
 Build on macOS:
 
 ```sh
-cd ios/BiliPaiNative
-open BiliPaiNative.xcodeproj
+cd ios/Paladala
+open Paladala.xcodeproj
 ```
 
-Then select the `BiliPaiNative` scheme and an iPhone or iPad simulator.
+Then select the `Paladala` scheme and an iPhone or iPad simulator.
 
 Build unsigned IPA on GitHub Actions:
 
 1. Open the `iOS Unsigned IPA` workflow in GitHub Actions.
-2. Run it manually, or push a change under `ios/BiliPaiNative/`.
+2. Run it manually, or push a change under `ios/Paladala/`.
 3. Download the `Paladala-unsigned-ipa` artifact.
 4. Re-sign and install the Paladala IPA with your sideloading tool.
 
