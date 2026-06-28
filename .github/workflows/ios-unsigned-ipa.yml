@@ -126,7 +126,7 @@ jobs:
           if [ "$HIGHEST" -gt "$BASE" ]; then BASE="$HIGHEST"; fi
           NEW=$((BASE + 1))
           /usr/bin/plutil -replace CFBundleVersion -string "$NEW" "$PLIST"
-          echo "Bumped CFBundleVersion: $CURRENT → $NEW (highest existing prerelease = $HIGHEST)"
+          echo "Bumped CFBundleVersion: $CURRENT -> $NEW (highest existing prerelease = $HIGHEST)"
           echo "BUNDLE_VERSION=$NEW" >> "$GITHUB_ENV"
 
       # ------------------------------------------------------------------
@@ -168,10 +168,10 @@ jobs:
             exit 0
           fi
           if [ -z "${FIREBASE_PLIST_BASE64:-}" ]; then
-            echo "::error::FIREBASE_PLIST_BASE64 secret is not set on this repo. Either drop a GoogleService-Info.plist into ios/Paladala/Paladala/ on the runner, or set the secret in Settings → Secrets and variables → Actions."
+            echo "::error::FIREBASE_PLIST_BASE64 secret is not set on this repo. Either drop a GoogleService-Info.plist into ios/Paladala/Paladala/ on the runner, or set the secret in Settings -> Secrets and variables -> Actions."
             exit 1
           fi
-          echo "::notice::Decoding FIREBASE_PLIST_BASE64 → $PLIST"
+          echo "::notice::Decoding FIREBASE_PLIST_BASE64 -> $PLIST"
           mkdir -p "$(dirname "$PLIST")"
           printf '%s' "$FIREBASE_PLIST_BASE64" | base64 --decode > "$PLIST"
           /usr/bin/plutil -lint "$PLIST"
