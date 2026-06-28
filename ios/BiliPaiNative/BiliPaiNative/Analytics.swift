@@ -39,7 +39,7 @@ enum Analytics {
     /// catch-all blocks scattered across the repo.
     static func recordError(_ error: Error, context: String) {
         guard UserDefaults.standard.bool(forKey: optInKey) else { return }
-        Crashlytics.Crashlytics.crashlytics().record(
+        Crashlytics.crashlytics().record(
             error: error,
             userInfo: ["context": context]
         )
@@ -52,6 +52,6 @@ enum Analytics {
     /// report.
     static func breadcrumb(_ category: String, _ message: String) {
         guard UserDefaults.standard.bool(forKey: optInKey) else { return }
-        Crashlytics.Crashlytics.crashlytics().log("\(category): \(message)")
+        Crashlytics.crashlytics().log("\(category): \(message)")
     }
 }
