@@ -171,22 +171,14 @@ jobs:
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
-<key>API_KEY</key>
-<string>AIzaSyCI-placeholder-CI-placeholder-CI-placeholder</string>
-<key>GCM_SENDER_ID</key>
-<string>000000000000</string>
-<key>PLIST_VERSION</key>
-<integer>1</integer>
 <key>BUNDLE_ID</key>
 <string>com.dt.paladala.ci</string>
 <key>PROJECT_ID</key>
 <string>paladala-ci-placeholder</string>
-<key>STORAGE_BUCKET</key>
-<string>paladala-ci-placeholder.firebasestorage.app</string>
 <key>GOOGLE_APP_ID</key>
 <string>1:000000000000:ios:0000000000000000000000</string>
-<key>IS_ADS_ENABLED</key>
-<false/>
+<key>PLIST_VERSION</key>
+<integer>1</integer>
 <key>IS_ANALYTICS_ENABLED</key>
 <false/>
 <key>IS_APPINVITE_ENABLED</key>
@@ -194,6 +186,8 @@ jobs:
 <key>IS_GCM_ENABLED</key>
 <false/>
 <key>IS_SIGNIN_ENABLED</key>
+<false/>
+<key>IS_ADS_ENABLED</key>
 <false/>
 </dict>
 </plist>
