@@ -167,17 +167,32 @@ jobs:
           if [ ! -f "$PLIST" ]; then
             echo "::notice::No GoogleService-Info.plist in checkout (gitignored); writing CI placeholder."
             mkdir -p "$(dirname "$PLIST")"
-            /usr/bin/plutil -create binary1 "$PLIST"
-            /usr/bin/plutil -insert BUNDLE_ID -string "com.dt.paladala.ci" "$PLIST"
-            /usr/bin/plutil -insert PROJECT_ID -string "paladala-ci-placeholder" "$PLIST"
-            /usr/bin/plutil -insert GOOGLE_APP_ID -string "1:000000000000:ios:0000000000000000000000" "$PLIST"
-            /usr/bin/plutil -insert IS_ANALYTICS_ENABLED -bool false "$PLIST"
-            /usr/bin/plutil -insert IS_APPINVITE_ENABLED -bool false "$PLIST"
-            /usr/bin/plutil -insert IS_GCM_ENABLED -bool false "$PLIST"
-            /usr/bin/plutil -insert IS_SIGNIN_ENABLED -bool false "$PLIST"
-            /usr/bin/plutil -insert IS_ADS_ENABLED -bool false "$PLIST"
-            /usr/bin/plutil -insert STORAGE_BUCKET -string "paladala-ci-placeholder.firebasestorage.app" "$PLIST"
-            /usr/bin/plutil -insert PLIST_VERSION -integer 1 "$PLIST"
+            cat > "$PLIST" <<'EOF_PLACEHOLDER'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>BUNDLE_ID</key>
+            <string>com.dt.paladala.ci</string>
+            <key>PROJECT_ID</key>
+            <string>paladala-ci-placeholder</string>
+            <key>GOOGLE_APP_ID</key>
+            <string>1:000000000000:ios:0000000000000000000000</string>
+            <key>PLIST_VERSION</key>
+            <integer>1</integer>
+            <key>IS_ANALYTICS_ENABLED</key>
+            <false/>
+            <key>IS_APPINVITE_ENABLED</key>
+            <false/>
+            <key>IS_GCM_ENABLED</key>
+            <false/>
+            <key>IS_SIGNIN_ENABLED</key>
+            <false/>
+            <key>IS_ADS_ENABLED</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF_PLACEHOLDER
           else
             echo "Found existing GoogleService-Info.plist at $PLIST; using it as-is."
           fi
