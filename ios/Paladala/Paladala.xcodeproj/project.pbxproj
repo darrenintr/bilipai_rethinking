@@ -24,6 +24,7 @@
 		10000000000000000000010F /* PaladalaAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020F /* PaladalaAppIntents.swift */; };
 		100000000000000000000110 /* PlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000211 /* PlayerView.swift */; };
 		100000000000000000000111 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000212 /* Assets.xcassets */; };
+		600000000000000000000A04 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000A03 /* GoogleService-Info.plist */; };
 		100000000000000000000112 /* DesignModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000213 /* DesignModifier.swift */; };
 		100000000000000000000113 /* BundledFeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000214 /* BundledFeedService.swift */; };
 		100000000000000000000114 /* StoredAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000215 /* StoredAccount.swift */; };
@@ -91,6 +92,7 @@
 		100000000000000000000210 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		100000000000000000000211 /* PlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerView.swift; sourceTree = "<group>"; };
 		100000000000000000000212 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		600000000000000000000A03 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = GoogleService-Info.plist; sourceTree = "<group>"; };
 		100000000000000000000213 /* DesignModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignModifier.swift; sourceTree = "<group>"; };
 		100000000000000000000214 /* BundledFeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledFeedService.swift; sourceTree = "<group>"; };
 		100000000000000000000215 /* StoredAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredAccount.swift; sourceTree = "<group>"; };
@@ -211,6 +213,7 @@
 				100000000000000000000469 /* LiveActivityCoordinator.swift */,
 				10000000000000000000046B /* Paladala.entitlements */,
 				600000000000000000000901 /* PrivacyInfo.xcprivacy */,
+				600000000000000000000A03 /* GoogleService-Info.plist */,
 				100000000000000000000463 /* Shared */,
 				100000000000000000000404 /* Auth */,
 				100000000000000000000405 /* Login */,
@@ -418,6 +421,7 @@
 			files = (
 				100000000000000000000111 /* Assets.xcassets in Resources */,
 				600000000000000000000804 /* PrivacyInfo.xcprivacy in Resources */,
+				600000000000000000000A04 /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -450,7 +454,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "GOOGLE_SERVICE_INFO_PLIST=\"${SRCROOT}/GoogleService-Info.plist\"\nif [ -f \"$GOOGLE_SERVICE_INFO_PLIST\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nelse\n  echo \"Skipping Crashlytics symbol upload: GoogleService-Info.plist not found at $GOOGLE_SERVICE_INFO_PLIST (unsigned CI build).\"\nfi\n";
+			shellScript = "GOOGLE_SERVICE_INFO_PLIST=\"${SRCROOT}/Paladala/GoogleService-Info.plist\"\nif [ -f \"$GOOGLE_SERVICE_INFO_PLIST\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nelse\n  echo \"Skipping Crashlytics symbol upload: GoogleService-Info.plist not found at $GOOGLE_SERVICE_INFO_PLIST (unsigned CI build).\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
