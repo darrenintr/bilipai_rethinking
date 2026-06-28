@@ -3,7 +3,7 @@
 import sys
 import uuid
 
-PROJECT = "ios/BiliPaiNative/BiliPaiNative.xcodeproj/project.pbxproj"
+PROJECT = "ios/Paladala/Paladala.xcodeproj/project.pbxproj"
 
 
 def gen_id():

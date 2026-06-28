@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fetch_mobilelockit.sh — download the prebuilt MobileVLCKit xcframework
 # from VLC's CocoaPods CDN and place it where the local Swift Package
-# (ios/BiliPaiNative/LocalPackages/MobileVLCKit/Package.swift) expects it.
+# (ios/Paladala/LocalPackages/MobileVLCKit/Package.swift) expects it.
 #
 # Run this once after cloning, and any time the pinned URL is bumped.
 # The .xcframework is NOT committed to the repo (see
@@ -51,7 +51,7 @@ VLC_XCFRAMEWORK_SHA256="${VLC_XCFRAMEWORK_SHA256:-0d04059906962ddc9a7bd1ebaa12e1
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DEST_DIR="${REPO_ROOT}/ios/BiliPaiNative/LocalPackages/MobileVLCKit/Sources/MobileVLCKit"
+DEST_DIR="${REPO_ROOT}/ios/Paladala/LocalPackages/MobileVLCKit/Sources/MobileVLCKit"
 
 # ---------------------------------------------------------------------------
 # Argument handling

@@ -20,8 +20,8 @@ jobs:
     name: Build unsigned IPA
     runs-on: macos-15
     env:
-      PROJECT_DIR: ios/BiliPaiNative
-      PROJECT_NAME: BiliPaiNative
+      PROJECT_DIR: ios/Paladala
+      PROJECT_NAME: Paladala
       PRODUCT_NAME: Paladala
       CONFIGURATION: Release
       DERIVED_DATA: build/ios-derived-data

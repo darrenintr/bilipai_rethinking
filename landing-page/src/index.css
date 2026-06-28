@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-bili-pink: #FB7299;
+  --color-bili-pink-hover: #E05B80;
+  --color-bili-pink-light: #FFF0F3;
+  --color-bili-blue: #00AEEC;
+  --color-bili-dark: #1F1F23;
+  --color-bili-gray: #757575;
+}
+
+@layer utilities {
+  .text-glow-bili {
+    text-shadow: 0 0 20px rgba(251, 114, 153, 0.4);
+  }
+  .bg-grid-pattern {
+    background-size: 30px 30px;
+    background-image: linear-gradient(to right, rgba(251, 114, 153, 0.05) 1px, transparent 1px),
+                      linear-gradient(to bottom, rgba(251, 114, 153, 0.05) 1px, transparent 1px);
+  }
+  .bg-grid-pattern-light {
+    background-size: 40px 40px;
+    background-image: linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+                      linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #FFFFFF;
+}
+::-webkit-scrollbar-thumb {
+  background: #FB7299;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #E05B80;
+}
