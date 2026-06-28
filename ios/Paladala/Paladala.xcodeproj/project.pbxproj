@@ -454,7 +454,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "GOOGLE_SERVICE_INFO_PLIST=\"${SRCROOT}/Paladala/GoogleService-Info.plist\"\nif [ -f \"$GOOGLE_SERVICE_INFO_PLIST\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" -gsp \"$GOOGLE_SERVICE_INFO_PLIST\"\nelse\n  echo \"Skipping Crashlytics symbol upload: GoogleService-Info.plist not found at $GOOGLE_SERVICE_INFO_PLIST (unsigned CI build).\"\nfi\n";
+			shellScript = "GOOGLE_SERVICE_INFO_PLIST=\"${SRCROOT}/Paladala/GoogleService-Info.plist\"\nif [ -f \"$GOOGLE_SERVICE_INFO_PLIST\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nelse\n  echo \"Skipping Crashlytics symbol upload: GoogleService-Info.plist not found at $GOOGLE_SERVICE_INFO_PLIST (unsigned CI build).\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
