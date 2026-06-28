@@ -182,7 +182,7 @@ jobs:
           fi
           echo "::notice::Decoding FIREBASE_PLIST_BASE64 -> $PLIST"
           mkdir -p "$(dirname "$PLIST")"
-          printf '%s' "$FIREBASE_PLIST_BASE64" | base64 --decode > "$PLIST"
+          base64 --decode <<<"$FIREBASE_PLIST_BASE64" > "$PLIST"
           /usr/bin/plutil -lint "$PLIST"
           echo "Decoded $(wc -c < "$PLIST") bytes of plist content."
 
