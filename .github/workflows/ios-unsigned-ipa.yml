@@ -168,7 +168,13 @@ jobs:
             exit 0
           fi
           if [ -z "${FIREBASE_PLIST_BASE64:-}" ]; then
-            echo "::error::FIREBASE_PLIST_BASE64 secret is not set on this repo. Either drop a GoogleService-Info.plist into ios/Paladala/Paladala/ on the runner, or set the secret in Settings -> Secrets and variables -> Actions."
+            echo "::error::FIREBASE_PLIST_BASE64 is unset or empty."
+            echo "::error::gh secret list reports the secret exists, but the runner sees an empty value."
+            echo "::error::Most likely causes:"
+            echo "::error::* the value field was saved blank"
+            echo "::error::* a stray newline split the value into two halves and GitHub only kept the empty half"
+            echo "::error::* the value was saved as plain text instead of base64"
+            echo "::error::Re-open Settings -> Secrets and variables -> Actions -> FIREBASE_PLIST_BASE64 -> Update, paste the base64 string, and save again."
             exit 1
           fi
           # Diagnostic: surface the secret length so an empty-value mistake
