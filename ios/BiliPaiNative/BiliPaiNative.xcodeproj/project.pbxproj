@@ -432,6 +432,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		600000000000000000000A01 /* Upload Crashlytics Symbols */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -795,7 +796,7 @@
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
 			requirement = {
 				kind = upToNextMajorVersion;
-				majorVersion = 11;
+				minimumVersion = 11.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
