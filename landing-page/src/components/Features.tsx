@@ -48,7 +48,7 @@ export default function Features() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="text-gray-500 text-lg"
           >
-            BiliPai replaces every webview and JavaScript bridge with native Swift. Here's how the architecture delivers a faster, lighter Bilibili experience.
+            Paladala replaces every webview and JavaScript bridge with native Swift. Here's how the architecture delivers a faster, lighter Bilibili experience.
           </motion.p>
         </div>
 

@@ -31,7 +31,7 @@ export default function Header() {
           </div>
           <div className="flex flex-col">
             <span className="font-black text-xl tracking-tight text-gray-900 group-hover:text-bili-pink transition-colors duration-300 leading-none">
-              BiliPai
+              Paladala
             </span>
             <span className="text-[9px] font-mono text-bili-pink font-semibold tracking-widest leading-none mt-1">
               PURE SWIFT
@@ -50,7 +50,7 @@ export default function Header() {
 
         <div className="flex items-center gap-3">
           <a
-            href="https://github.com/darrenintr/bilipai_rethinking"
+            href="https://github.com/darrenintr/pure-bilibili-rethinking"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gray-900 hover:bg-bili-pink text-white text-xs font-semibold tracking-wide shadow-md shadow-gray-950/10 hover:shadow-bili-pink/30 hover:-translate-y-0.5 transition-all duration-300"

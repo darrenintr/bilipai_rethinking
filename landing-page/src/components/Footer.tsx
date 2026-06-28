@@ -18,7 +18,7 @@ export default function Footer() {
                 <path d="M54 81C56 83.5 58 84.5 60 84.5C62 84.5 64 83.5 66 81C68 83.5 70 84.5 72 84.5C74 84.5 76 83.5 78 81" stroke="#FB7299" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-            <span className="font-black text-md tracking-wider text-white">BiliPai</span>
+            <span className="font-black text-md tracking-wider text-white">Paladala</span>
           </div>
           <p className="text-xs text-gray-400 max-w-sm leading-relaxed text-center md:text-left">
             A native Swift rewrite of the Bilibili iOS client. Local HLS proxy, dual design language, AVKit player, and zero webview dependencies.
@@ -31,7 +31,7 @@ export default function Footer() {
           <a href="#metrics" className="hover:text-bili-pink transition-colors">Performance</a>
           <span>&middot;</span>
           <a
-            href="https://github.com/darrenintr/bilipai_rethinking"
+            href="https://github.com/darrenintr/pure-bilibili-rethinking"
             target="_blank"
             rel="noopener noreferrer"
             className="text-bili-pink hover:text-bili-pink-hover font-semibold inline-flex items-center gap-1 transition-colors"
@@ -47,7 +47,7 @@ export default function Footer() {
             <span className="text-gray-400">in pure Swift</span>
           </div>
           <span className="text-[10px] text-gray-650 font-mono">
-            &copy; {new Date().getFullYear()} BiliPai. MIT License.
+            &copy; {new Date().getFullYear()} Paladala. MIT License.
           </span>
         </div>
       </div>

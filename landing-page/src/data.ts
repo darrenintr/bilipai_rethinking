@@ -3,21 +3,21 @@ import { Metric, FeatureCard } from "./types";
 export const PERFORMANCE_METRICS: Metric[] = [
   {
     label: "App Bundle Size",
-    bilipaiValue: "~14 MB",
+    paladalaValue: "~14 MB",
     officialValue: "~340 MB",
     improvement: "24x Smaller",
     unit: "MB",
   },
   {
     label: "Memory Footprint",
-    bilipaiValue: "~34 MB",
+    paladalaValue: "~34 MB",
     officialValue: "~520 MB",
     improvement: "15x Lower",
     unit: "MB",
   },
   {
     label: "Cold Boot Startup",
-    bilipaiValue: "~0.1s",
+    paladalaValue: "~0.1s",
     officialValue: "~2.0s",
     improvement: "20x Faster",
     unit: "Seconds",
@@ -81,5 +81,5 @@ export const SAMPLE_DANMAKUS: string[] = [
   "Pure SwiftUI + AVKit 播放器 🔥",
   "Diagnostic Logger 幫我 debug 咗好多嘢",
   "開源精神！感謝作者",
-  "BiliPai 繼續加油 💪",
+  "Paladala 繼續加油 💪",
 ];

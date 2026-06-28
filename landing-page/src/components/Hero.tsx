@@ -50,12 +50,12 @@ export default function Hero() {
       "func fetchRecommendations() async",
       "struct VideoDetailView",
       "let proxy = LocalHLSProxyServer()",
-      "BiliPaiTheme.biliPink",
+      "PaladalaTheme.paladalaPink",
       "AVPlayer(url: streamURL)",
       "struct MiniPlayerOverlay",
       "enum ThemeMode: String",
       "BilibiliAPIClient.shared",
-      "func bilipaiCardSurface()",
+      "func paladalaCardSurface()",
       "let haptic = Haptics.tap()",
       "struct VideoCard: View",
       "class AuthStore: ObservableObject",
@@ -235,7 +235,7 @@ export default function Hero() {
           transition={{ delay: 0.1, duration: 0.6 }}
           className="font-mono text-xs font-bold tracking-[0.4em] uppercase text-bili-pink mb-4"
         >
-          BILIPAI NATIVE CLIENT
+          PALADALA NATIVE CLIENT
         </motion.p>
 
         <motion.h1
@@ -256,7 +256,7 @@ export default function Hero() {
           transition={{ delay: 0.3, duration: 0.8 }}
           className="max-w-3xl text-gray-300 text-base sm:text-lg md:text-xl tracking-normal leading-relaxed mb-12 text-center"
         >
-          BiliPai is a ground-up native Swift rewrite of the Bilibili iOS client.
+          Paladala is a ground-up native Swift rewrite of the Bilibili iOS client.
           No webviews, no bloat. Local HLS proxy, dual design language (Material 3 & Liquid Glass),
           AVKit-powered player with Picture-in-Picture, and 13,784 lines of pure Swift.
         </motion.p>
@@ -268,7 +268,7 @@ export default function Hero() {
           className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full sm:w-auto"
         >
           <a
-            href="https://github.com/darrenintr/bilipai_rethinking"
+            href="https://github.com/darrenintr/pure-bilibili-rethinking"
             target="_blank"
             rel="noopener noreferrer"
             className="group relative w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl bg-bili-pink text-white font-bold tracking-wide shadow-lg shadow-bili-pink/30 hover:bg-bili-pink-hover hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 cursor-pointer text-center"

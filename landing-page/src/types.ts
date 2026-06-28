@@ -1,6 +1,6 @@
 export interface Metric {
   label: string;
-  bilipaiValue: string;
+  paladalaValue: string;
   officialValue: string;
   improvement: string;
   unit: string;

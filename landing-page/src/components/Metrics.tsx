@@ -43,7 +43,7 @@ export default function Metrics() {
               Native vs. Hybrid
             </h2>
             <p className="mt-4 text-gray-500 text-base md:text-lg">
-              Hardware metrics comparing BiliPai's compiled Swift binary against the official Bilibili app. Tested on identical iOS devices.
+              Hardware metrics comparing Paladala's compiled Swift binary against the official Bilibili app. Tested on identical iOS devices.
             </p>
           </div>
 
@@ -127,12 +127,12 @@ export default function Metrics() {
                     <div className="flex justify-between items-end">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs font-black px-1.5 py-0.5 rounded bg-bili-pink text-white">
-                          BILIPAI
+                          PALADALA
                         </span>
                         <span className="font-extrabold text-sm text-gray-800">Swift Native Core</span>
                       </div>
                       <span className="font-mono font-bold text-bili-pink text-base">
-                        {selectedMetric.bilipaiValue}
+                        {selectedMetric.paladalaValue}
                       </span>
                     </div>
                     <div className="w-full h-8 bg-gray-50 rounded-lg overflow-hidden border border-gray-100 flex items-center px-1">
