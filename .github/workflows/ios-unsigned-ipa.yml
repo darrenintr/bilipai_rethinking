@@ -182,7 +182,15 @@ jobs:
           fi
           echo "::notice::Decoding FIREBASE_PLIST_BASE64 -> $PLIST"
           mkdir -p "$(dirname "$PLIST")"
-          base64 --decode <<<"$FIREBASE_PLIST_BASE64" > "$PLIST"
+          # base64 on macOS's BSD userland reads stdin as (null) when the
+          # input is delivered via pipe or <<< from a secret env var, even
+          # when the variable is non-empty. Stage the base64 bytes into a
+          # temp file and read with --input / -i instead.
+          TMP_B64="$(mktemp -t firebase-b64).txt"
+          printf '%s' "$FIREBASE_PLIST_BASE64" > "$TMP_B64"
+          echo "::notice::Staged $(wc -c < "$TMP_B64") bytes of base64 to $TMP_B64"
+          base64 --decode --input="$TMP_B64" --output="$PLIST"
+          rm -f "$TMP_B64"
           /usr/bin/plutil -lint "$PLIST"
           echo "Decoded $(wc -c < "$PLIST") bytes of plist content."
 
