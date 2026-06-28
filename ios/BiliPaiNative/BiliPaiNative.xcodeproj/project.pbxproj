@@ -661,7 +661,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bilipai.nativeios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dt.paladala;
 				PRODUCT_NAME = Paladala;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -691,7 +691,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bilipai.nativeios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dt.paladala;
 				PRODUCT_NAME = Paladala;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -720,7 +720,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bilipai.nativeios.BiliPaiWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dt.paladala.BiliPaiWidget;
 				PRODUCT_NAME = BiliPaiWidget;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -750,7 +750,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bilipai.nativeios.BiliPaiWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dt.paladala.BiliPaiWidget;
 				PRODUCT_NAME = BiliPaiWidget;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

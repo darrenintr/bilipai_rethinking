@@ -15,7 +15,7 @@ struct KeychainStore {
 
     let service: String
 
-    init(service: String = "com.bilipai.nativeios.auth") {
+    init(service: String = "com.dt.paladala.auth") {
         self.service = service
     }
 

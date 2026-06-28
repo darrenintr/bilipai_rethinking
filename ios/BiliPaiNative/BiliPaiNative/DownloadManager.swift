@@ -39,7 +39,7 @@ final class DownloadManager: NSObject, ObservableObject {
     /// Background session identifier.  Stable across launches
     /// so the system can match a resumed task to the right
     /// session on app relaunch.
-    static let sessionIdentifier = "com.bilipai.nativeios.download"
+    static let sessionIdentifier = "com.dt.paladala.download"
 
     /// Per-bvid progress publisher, observed by
     /// `VideoDetailViewModel` to update the download button
