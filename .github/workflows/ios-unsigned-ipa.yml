@@ -187,26 +187,26 @@ jobs:
           # handles arbitrary bytes from any source — and write to the
           # expected plist path.
           python3 - <<'PYEOF' "$PLIST"
-import base64
-import os
-import sys
-plist_path = sys.argv[1]
-secret = os.environ.get("FIREBASE_PLIST_BASE64", "")
-if not secret:
-    sys.stderr.write("FIREBASE_PLIST_BASE64 env var is empty\n")
-    sys.exit(1)
-# Strip whitespace defensively (newlines, trailing spaces from paste)
-clean = "".join(secret.split())
-try:
-    decoded = base64.b64decode(clean, validate=True)
-except Exception as e:
-    sys.stderr.write(f"base64.b64decode failed: {e}\n")
-    sys.stderr.write(f"First 80 chars of cleaned secret: {clean[:80]!r}\n")
-    sys.exit(1)
-with open(plist_path, "wb") as f:
-    f.write(decoded)
-print(f"Wrote {len(decoded)} bytes to {plist_path}")
-PYEOF
+          import base64
+          import os
+          import sys
+          plist_path = sys.argv[1]
+          secret = os.environ.get("FIREBASE_PLIST_BASE64", "")
+          if not secret:
+              sys.stderr.write("FIREBASE_PLIST_BASE64 env var is empty\n")
+              sys.exit(1)
+          # Strip whitespace defensively (newlines, trailing spaces from paste)
+          clean = "".join(secret.split())
+          try:
+              decoded = base64.b64decode(clean, validate=True)
+          except Exception as e:
+              sys.stderr.write(f"base64.b64decode failed: {e}\n")
+              sys.stderr.write(f"First 80 chars of cleaned secret: {clean[:80]!r}\n")
+              sys.exit(1)
+          with open(plist_path, "wb") as f:
+              f.write(decoded)
+          print(f"Wrote {len(decoded)} bytes to {plist_path}")
+          PYEOF
           /usr/bin/plutil -lint "$PLIST"
           echo "Decoded $(wc -c < "$PLIST") bytes of plist content."
 
