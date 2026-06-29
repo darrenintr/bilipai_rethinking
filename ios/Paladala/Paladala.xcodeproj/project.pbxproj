@@ -454,7 +454,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "GOOGLE_SERVICE_INFO_PLIST=\"${SRCROOT}/Paladala/GoogleService-Info.plist\"\nif [ -f \"$GOOGLE_SERVICE_INFO_PLIST\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nelse\n  echo \"Skipping Crashlytics symbol upload: GoogleService-Info.plist not found at $GOOGLE_SERVICE_INFO_PLIST (unsigned CI build).\"\nfi\n";
+			shellScript = "GOOGLE_SERVICE_INFO_PLIST=\"${SRCROOT}/Paladala/GoogleService-Info.plist\"\n# Crashlytics' upload-symbols synchronously validates GOOGLE_APP_ID against\n# the build environment (the env var is set on the xcodebuild command line\n# but Xcode does not export custom build settings to the Run Script\n# sandbox, see sandbox-exec -D flags) and the dSYM upload step itself is\n# meaningless without a signed/distributable artifact. Skip the whole\n# upload phase on unsigned CI builds (CODE_SIGNING_ALLOWED=NO) so\n# xcodebuild never invokes Crashlytics' run script in that mode.\nif [ \"${CODE_SIGNING_ALLOWED:-}\" = \"NO\" ]; then\n  echo \"Skipping Crashlytics symbol upload: CODE_SIGNING_ALLOWED=NO (unsigned CI build).\"\n  exit 0\nfi\nif [ -f \"$GOOGLE_SERVICE_INFO_PLIST\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nelse\n  echo \"Skipping Crashlytics symbol upload: GoogleService-Info.plist not found at $GOOGLE_SERVICE_INFO_PLIST (unsigned CI build).\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

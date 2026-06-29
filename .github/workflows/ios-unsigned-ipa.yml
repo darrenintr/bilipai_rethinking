@@ -227,12 +227,14 @@ jobs:
       - name: Build device app without signing
         run: |
           set -euo pipefail
-          # upload-symbols reads GOOGLE_APP_ID from the build environment,
-          # not from the on-disk GoogleService-Info.plist. The CI placeholder
-          # plist (above) satisfies xcodebuild's input-file check; we also
-          # pass GOOGLE_APP_ID directly so the Crashlytics run script can
-          # validate and skip the network upload step cleanly. The value is
-          # intentionally fake — the unsigned artifact is never launched.
+          # Crashlytics is still linked into the binary (Firebase init at
+          # runtime) but its Run Script phase ("Upload Crashlytics Symbols")
+          # is gated on CODE_SIGNING_ALLOWED — when we pass =NO here, the
+          # project script short-circuits and never invokes upload-symbols,
+          # so we don't need to plumb GOOGLE_APP_ID through Xcode's sandbox
+          # env (which doesn't export custom build settings to Run Scripts
+          # anyway). dSYM upload is meaningless for an unsigned artifact
+          # that will never be distributed, so skipping it is correct.
           xcodebuild \
             -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
             -scheme "$PROJECT_NAME" \
@@ -243,7 +245,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            GOOGLE_APP_ID="1:000000000000:ios:0000000000000000000000" \
             build
 
       # ------------------------------------------------------------------
