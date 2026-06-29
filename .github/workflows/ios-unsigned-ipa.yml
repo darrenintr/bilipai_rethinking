@@ -189,18 +189,32 @@ jobs:
           python3 - <<'PYEOF' "$PLIST"
           import base64
           import os
+          import string
           import sys
           plist_path = sys.argv[1]
           secret = os.environ.get("FIREBASE_PLIST_BASE64", "")
           if not secret:
               sys.stderr.write("FIREBASE_PLIST_BASE64 env var is empty\n")
               sys.exit(1)
-          # Strip whitespace defensively (newlines, trailing spaces from paste)
-          clean = "".join(secret.split())
+          # Filter to base64-safe ASCII characters only. Plain
+          # whitespace stripping leaves invisible Unicode alone
+          # (BOM U+FEFF, NBSP U+00A0, zero-width space U+200B, ...)
+          # which `base64.b64decode` rejects with "string argument
+          # should contain only ASCII characters". Keeping only the
+          # base64 alphabet handles all of those in one pass.
+          B64_CHARS = frozenset(string.ascii_letters + string.digits + "+/=")
+          clean = "".join(c for c in secret if c in B64_CHARS)
+          if not clean:
+              sys.stderr.write("FIREBASE_PLIST_BASE64 contained no base64 characters\n")
+              sys.exit(1)
+          stripped = len(secret) - len(clean)
+          if stripped:
+              print(f"::warning::Stripped {stripped} non-base64 characters from FIREBASE_PLIST_BASE64 (likely invisible Unicode from paste)")
           try:
               decoded = base64.b64decode(clean, validate=True)
           except Exception as e:
               sys.stderr.write(f"base64.b64decode failed: {e}\n")
+              sys.stderr.write(f"Cleaned secret length: {len(clean)} chars\n")
               sys.stderr.write(f"First 80 chars of cleaned secret: {clean[:80]!r}\n")
               sys.exit(1)
           with open(plist_path, "wb") as f:
