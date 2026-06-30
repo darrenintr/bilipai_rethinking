@@ -252,6 +252,13 @@ final class LocalHLSProxyServer {
               let size = attrs[.size] as? Int64,
               size > 0 else {
             bpLog("LocalHLSProxyServer local file size failed: \(url.path)")
+            Analytics.recordError(
+                NSError(domain: "paladala.proxy", code: 0, userInfo: [
+                    NSLocalizedDescriptionKey: "local file size failed",
+                    "path": url.path
+                ]),
+                context: "proxy_localFileSize"
+            )
             return
         }
         lock.lock()
@@ -1297,6 +1304,13 @@ final class LocalHLSProxyServer {
         reason: String,
         connID: String
     ) {
+        Analytics.recordError(
+            NSError(domain: "paladala.proxy", code: status, userInfo: [
+                NSLocalizedDescriptionKey: reason,
+                "connID": connID
+            ]),
+            context: "proxy_respondError"
+        )
         let body = "{\"error\":\"\(reason)\"}"
         respondBytes(
             connection: connection,

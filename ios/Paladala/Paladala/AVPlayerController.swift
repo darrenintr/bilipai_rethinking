@@ -306,6 +306,11 @@ final class PlayerController: ObservableObject {
                 var details: [String: Any] = ["status": status]
                 if let err {
                     details["error"] = String(describing: err)
+                    Analytics.recordError(err, context: "player_item_status_failed")
+                    Analytics.log("player_item_status_failed", [
+                        "status": status,
+                        "error": String(describing: err)
+                    ])
                 }
                 diagLog(.playback, "AVPlayerItem status changed", details: details)
             }
@@ -383,6 +388,21 @@ final class PlayerController: ObservableObject {
                 "count": entries.count,
                 "last3": summary
             ])
+            if let last = entries.first {
+                Analytics.recordError(
+                    NSError(domain: "paladala.player", code: last.errorStatusCode, userInfo: [
+                        NSLocalizedDescriptionKey: last.errorComment ?? "AVPlayer error log entry",
+                        "errorDomain": last.errorDomain,
+                        "errorStatusCode": last.errorStatusCode
+                    ]),
+                    context: "player_errorLogEntry"
+                )
+                Analytics.log("player_error_log_entry", [
+                    "count": entries.count,
+                    "domain": last.errorDomain,
+                    "code": last.errorStatusCode
+                ])
+            }
         }
 
         // Periodically poll: AVPlayer does not push a
