@@ -42,6 +42,17 @@ final class MiniPlayerStore: ObservableObject {
     @Published private(set) var isPlaying: Bool = true
     @Published private(set) var isBuffering: Bool = false
     @Published private(set) var networkSpeed: Double = 0
+    /// Mirrors `PlayerController.playerError` so the mini-player
+    /// overlay can show the same error UI without a direct
+    /// reference to the controller.
+    @Published private(set) var playerError: PlayerPlaybackError?
+
+    /// Mirrors `PlayerController.proxyIsDegraded` — `true` when
+    /// the local HLS proxy is operating in single-segment fallback
+    /// mode (size probe timed out).  The player UI shows a subtle
+    /// degraded badge so the user understands why scrubbing past
+    /// the current buffer may stall.
+    @Published private(set) var proxyIsDegraded: Bool = false
 
     private var watchSession: WatchSession?
     private var cancellables: Set<AnyCancellable> = []
@@ -49,7 +60,13 @@ final class MiniPlayerStore: ObservableObject {
     /// Bind a new playback to the store. Idempotent: if the same
     /// video is already bound, the call returns without rebuilding
     /// the controller or re-firing `WatchSession.start()`.
-    func bind(video: BiliVideo, playback: BiliPlayback, repository: PaladalaRepository) {
+    func bind(
+        video: BiliVideo,
+        playback: BiliPlayback,
+        repository: PaladalaRepository,
+        onRecovery: (() -> Void)? = nil,
+        onQualityFallback: ((Int) -> Void)? = nil
+    ) {
         if let current = currentVideo,
            current.id == video.id,
            let existing = controller,
@@ -67,6 +84,10 @@ final class MiniPlayerStore: ObservableObject {
         teardownController()
 
         let newController = PlayerController(playback: playback, video: video)
+        // Wire error-recovery callbacks so the player overlay can
+        // re-init playback or switch quality.
+        newController.onRecoveryRequested = onRecovery
+        newController.onQualityFallbackRequested = onQualityFallback
         controller = newController
         currentVideo = video
 
@@ -99,6 +120,16 @@ final class MiniPlayerStore: ObservableObject {
             newController.$networkSpeed
                 .receive(on: RunLoop.main)
                 .sink { [weak self] in self?.networkSpeed = $0 }
+        )
+        cancellables.insert(
+            newController.$playerError
+                .receive(on: RunLoop.main)
+                .sink { [weak self] in self?.playerError = $0 }
+        )
+        cancellables.insert(
+            newController.$proxyIsDegraded
+                .receive(on: RunLoop.main)
+                .sink { [weak self] in self?.proxyIsDegraded = $0 }
         )
 
         // Start the history reporter. WatchSession reads
@@ -183,6 +214,8 @@ final class MiniPlayerStore: ObservableObject {
         isPlaying = true
         isBuffering = false
         networkSpeed = 0
+        playerError = nil
+        proxyIsDegraded = false
     }
 
     /// True when the controller's player item has a finite, non-NaN

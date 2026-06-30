@@ -68,6 +68,13 @@ final class LocalHLSProxyServer {
     /// network-speed overlay on the loading screen.
     private(set) var byteCount: Int64 = 0
 
+    /// `true` when at least one media playlist fell back to
+    /// single-segment mode because the upstream size probe
+    /// timed out.  This means scrubbing past the current
+    /// buffer will stall.  Exposed to the player UI so it
+    /// can show a subtle "degraded" indicator.
+    private(set) var isInDegradedMode: Bool = false
+
     // MARK: lifecycle
 
     /// Start (or rebind) the server to a new playback.  If the
@@ -95,6 +102,8 @@ final class LocalHLSProxyServer {
         // upstream URLs are per-video and the cached totals
         // would point at the wrong bytes if reused.
         resetMediaTotalProbes()
+        // New playback — not degraded until proven otherwise.
+        isInDegradedMode = false
 
         // If the playback is downloaded, the file sizes
         // are already known — seed the probe cache
@@ -881,6 +890,7 @@ final class LocalHLSProxyServer {
         // which is the legacy behaviour — works for normal
         // playback but loses the ability to scrub past the
         // buffer.
+        isInDegradedMode = true
         diagLog(.playback,
                 "LocalHLSProxyServer single-segment playlist fallback",
                 details: [
@@ -2028,6 +2038,13 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                         "attempts": Self.maxRetries + 1,
                         "error": "5xx: \(http.statusCode)"
                     ])
+            // Notify the player controller so it surfaces a
+            // proxy-specific error overlay.
+            NotificationCenter.default.post(
+                name: .paladalaProxyFailed,
+                object: nil,
+                userInfo: ["httpStatus": http.statusCode]
+            )
             finishWhenSendsDrain()
             return
         }
@@ -2331,6 +2348,13 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     contentType: "application/json",
                     contentLength: nil,
                     connID: connID
+                )
+                // Notify the player controller so it surfaces a
+                // proxy-specific error overlay.
+                NotificationCenter.default.post(
+                    name: .paladalaProxyFailed,
+                    object: nil,
+                    userInfo: ["httpStatus": 502]
                 )
             }
         }

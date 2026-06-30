@@ -37,6 +37,162 @@ import CoreMedia
 import MediaPlayer
 import UIKit
 
+// MARK: - Error handling
+
+/// Result of `buildAssetAndProxy`.  On success carries the
+/// asset and whether the proxy is in use.  On failure carries
+/// the error to surface in the player overlay.
+private enum AssetBuildResult {
+    case success(asset: AVURLAsset, usesProxy: Bool)
+    case failure(PlayerPlaybackError)
+
+    var isSuccess: Bool {
+        if case .success = self { return true }
+        return false
+    }
+}
+
+/// Try to stand up the proxy and build the `AVURLAsset` for
+/// the given playback.  Returns `AssetBuildResult` — the init
+/// reads `.success` to proceed or `.failure` to bail out with
+/// a user-visible error and a nil player.
+private static func buildAssetAndProxy(
+    playback: BiliPlayback,
+    referer: String
+) -> AssetBuildResult {
+    if playback.dash != nil {
+        // VOD DASH path: stand up the local HLS proxy and
+        // point AVPlayer at the synthesised master playlist.
+        // The proxy holds the dash source / referer and
+        // serves the manifests + segment bytes.
+        do {
+            try LocalHLSProxyServer.shared.serve(playback: playback)
+        } catch {
+            diagLog(.playback,
+                    "Failed to start LocalHLSProxyServer",
+                    details: ["error": error.localizedDescription])
+        }
+        // The listener's `ready` state arrives on the
+        // server's dispatch queue.  AVPlayer can not
+        // meaningfully retry a missing port, so block
+        // briefly here (main thread) until the port is
+        // known.  In practice this is a few milliseconds.
+        let deadline = Date().addingTimeInterval(2.0)
+        while LocalHLSProxyServer.shared.baseURL == nil
+                && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        guard let baseURL = LocalHLSProxyServer.shared.baseURL else {
+            diagLog(.playback, "LocalHLSProxyServer did not become ready in time")
+            return .failure(.proxyFailed(code: 0))
+        }
+        let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
+        let asset = AVURLAsset(url: playlistURL)
+        diagLog(.playback,
+                "AVPlayerController bound to local HLS proxy",
+                details: ["url": playlistURL.absoluteString])
+        return .success(asset: asset, usesProxy: true)
+    } else if let fallback = playback.fallbackURL {
+        // Direct URL path: live HLS or legacy MP4.  AVPlayer
+        // can consume either directly, but B站's CDN still
+        // gates segments on the `Referer` header.  Inject
+        // it through `AVURLAssetHTTPHeaderFieldsKey` so
+        // every sub-request (m3u8 + ts) carries it.
+        let asset = AVURLAsset(
+            url: fallback,
+            options: [
+                "AVURLAssetHTTPHeaderFieldsKey": [
+                    "Referer": referer,
+                    "User-Agent":
+                        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 "
+                        + "like Mac OS X) AppleWebKit/605.1.15 "
+                        + "(KHTML, like Gecko) Version/18.0 "
+                        + "Mobile/15E148 Safari/604.1",
+                ]
+            ]
+        )
+        diagLog(.playback,
+                "AVPlayerController using direct asset",
+                details: ["url": fallback.absoluteString])
+        return .success(asset: asset, usesProxy: false)
+    } else {
+        diagLog(.playback, "BiliPlayback has no DASH source and no fallback")
+        return .failure(.itemFailed(detail: "该视频无可用播放源。"))
+    }
+}
+
+// MARK: - Player error types
+
+/// Errors surfaced in the player overlay.  Each case maps to a
+/// specific `AVPlayerItem` failure mode so the user gets a
+/// meaningful message instead of a generic spinner.
+enum PlayerPlaybackError: Equatable {
+    /// AVPlayer gave up on the item (codec rejection,
+    /// unsupported container, etc.).  `detail` is the
+    /// `AVPlayerItemErrorLogEntry.errorComment` text when available.
+    case itemFailed(detail: String?)
+    /// The item stopped mid-stream (network dropout,
+    /// server-side error, CDN reset).  `detail` is the
+    /// `AVPlayerItemFailedToPlayToEndTimeErrorKey` text.
+    case stoppedMidStream(detail: String?)
+    /// The proxy server returned a hard error after all retries.
+    /// `code` is the HTTP status (e.g. 502).
+    case proxyFailed(code: Int)
+    /// AVPlayer is buffering but the stall has lasted more
+    /// than 10 seconds.  Tracked separately so we don't
+    /// immediately show the overlay for a brief network hiccup.
+    case prolongedStall
+
+    var title: String {
+        switch self {
+        case .itemFailed:       return "无法播放此视频"
+        case .stoppedMidStream: return "播放中断"
+        case .proxyFailed:      return "服务器连接失败"
+        case .prolongedStall:   return "加载缓慢"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .itemFailed(let detail):
+            if let d = detail, !d.isEmpty {
+                return d
+            }
+            return "视频格式不支持或播放源已失效。"
+        case .stoppedMidStream(let detail):
+            if let d = detail, !d.isEmpty {
+                return d
+            }
+            return "网络连接中断，请检查网络后重试。"
+        case .proxyFailed(let code):
+            return "视频代理服务器返回错误（\(code)），请稍后重试。"
+        case .prolongedStall:
+            return "加载时间过长，可能是网络问题。"
+        }
+    }
+
+    var recoveryAction: RecoveryAction {
+        switch self {
+        case .itemFailed:       return .retryPlayback
+        case .stoppedMidStream: return .retryPlayback
+        case .proxyFailed:      return .retryPlayback
+        case .prolongedStall:   return .retrySeek
+        }
+    }
+}
+
+enum RecoveryAction {
+    case retryPlayback   // full playback re-init (DASH re-fetch)
+    case retrySeek       // seek to current time (buffer refetch)
+
+    var buttonLabel: String {
+        switch self {
+        case .retryPlayback: return "重新播放"
+        case .retrySeek:     return "重新加载"
+        }
+    }
+}
+
 @MainActor
 final class PlayerController: ObservableObject {
     // MARK: published state
@@ -48,6 +204,22 @@ final class PlayerController: ObservableObject {
     @Published private(set) var isPictureInPictureActive: Bool = false
     @Published private(set) var networkSpeed: Double = 0
 
+    /// Human-readable error shown in the player overlay.
+    /// `nil` means no active error — the player is either playing
+    /// or buffering normally.
+    @Published private(set) var playerError: PlayerPlaybackError?
+
+    /// The most recent `AVPlayerItem.newErrorLogEntry` text, useful
+    /// for the diagnostic report.  The string is truncated to the
+    /// first 500 chars so it never grows unbounded in memory.
+    @Published private(set) var lastErrorLogEntry: String?
+
+    /// `true` when the proxy server fell back to single-segment
+    /// mode (the size probe timed out).  Scrubbing past the
+    /// buffered range will stall.  The player UI shows a subtle
+    /// "degraded" badge while this is set.
+    @Published private(set) var proxyIsDegraded: Bool = false
+
     // MARK: underlying AVPlayer
 
     /// The single `AVPlayer` instance the view layer binds to
@@ -56,15 +228,17 @@ final class PlayerController: ObservableObject {
     /// Owned for the lifetime of the controller; `tearDown` calls
     /// `pause()` and removes the observers but does not
     /// deallocate the player (it lives as long as the controller
-    /// does).
-    let player: AVPlayer
-    private let playerItem: AVPlayerItem
-    private let asset: AVURLAsset
+    /// does).  `nil` when the controller failed to initialize
+    /// (e.g. proxy didn't start, or no playable source); the
+    /// view falls back to the cover image with an error overlay.
+    let player: AVPlayer?
+    private var playerItem: AVPlayerItem?
+    private var asset: AVURLAsset?
     /// `true` if this controller is fed by the local HLS proxy
     /// (the VOD DASH path).  When `false`, the asset is a direct
     /// `AVURLAsset` (live HLS or legacy MP4) and the proxy is
     /// not involved.
-    private let usesProxy: Bool
+    private var usesProxy: Bool = false
 
     // MARK: observers / timer
 
@@ -92,6 +266,21 @@ final class PlayerController: ObservableObject {
     /// line per chunk.  We emit at most once every 500 ms.
     private var lastRangesLogAt: Date = .distantPast
 
+    /// When `isBuffering` flipped to `true`, used to detect
+    /// a prolonged stall (> 10 s) that should surface an
+    /// actionable error overlay.
+    private var bufferingStartedAt: Date?
+
+    /// Closure invoked when the user taps the recovery button
+    /// in the player error overlay.  Set by the view layer so
+    /// `VideoDetailViewModel` can re-init playback.
+    var onRecoveryRequested: (() -> Void)?
+
+    /// Closure invoked when the user taps the quality-pick
+    /// suggested in the error overlay (e.g. "try 480P").
+    /// Set by the view layer.
+    var onQualityFallbackRequested: ((Int) -> Void)?
+
     // MARK: now-playing metadata
 
     /// Title shown in `MPNowPlayingInfoCenter`.  Set from the
@@ -109,6 +298,10 @@ final class PlayerController: ObservableObject {
 
     // MARK: lifecycle
 
+    /// Convenience init that sets up the player from a `BiliPlayback`.
+    /// If the proxy can't start or there's no playable source, the
+    /// controller is still created with `playerError` set and `player = nil`.
+    /// The view then shows the cover image with an error overlay.
     init(playback: BiliPlayback, video: BiliVideo? = nil) {
         diagLog(.playback, "Initialising AVPlayerController", details: [
             "isDASH": playback.isDASH,
@@ -119,83 +312,32 @@ final class PlayerController: ObservableObject {
         self.nowPlayingArtist = video?.ownerName ?? "Paladala"
         self.nowPlayingCoverURL = video?.coverURL
 
-        let referer = playback.referer.absoluteString
-        let asset: AVURLAsset
-        let usesProxy: Bool
+        // Try to build the asset.  If anything fails we still
+        // construct the controller — just with `player = nil` and
+        // an error set so the view shows a coherent failure.
+        var item: AVPlayerItem?
 
-        if playback.dash != nil {
-            // VOD DASH path: stand up the local HLS proxy and
-            // point AVPlayer at the synthesised master playlist.
-            // The proxy holds the dash source / referer and
-            // serves the manifests + segment bytes.
-            do {
-                try LocalHLSProxyServer.shared.serve(playback: playback)
-            } catch {
-                diagLog(.playback,
-                        "Failed to start LocalHLSProxyServer",
-                        details: ["error": error.localizedDescription])
-            }
-            // The listener's `ready` state arrives on the
-            // server's dispatch queue.  AVPlayer can not
-            // meaningfully retry a missing port, so block
-            // briefly here (main thread) until the port is
-            // known.  In practice this is a few milliseconds.
-            let deadline = Date().addingTimeInterval(2.0)
-            while LocalHLSProxyServer.shared.baseURL == nil
-                    && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-            guard let baseURL = LocalHLSProxyServer.shared.baseURL else {
-                fatalError("LocalHLSProxyServer did not become ready in time")
-            }
-            let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
-            asset = AVURLAsset(url: playlistURL)
-            usesProxy = true
-            diagLog(.playback,
-                    "AVPlayerController bound to local HLS proxy",
-                    details: ["url": playlistURL.absoluteString])
-        } else if let fallback = playback.fallbackURL {
-            // Direct URL path: live HLS or legacy MP4.  AVPlayer
-            // can consume either directly, but B站's CDN still
-            // gates segments on the `Referer` header.  Inject
-            // it through `AVURLAssetHTTPHeaderFieldsKey` so
-            // every sub-request (m3u8 + ts) carries it.
-            asset = AVURLAsset(
-                url: fallback,
-                options: [
-                    "AVURLAssetHTTPHeaderFieldsKey": [
-                        "Referer": referer,
-                        "User-Agent":
-                            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 "
-                            + "like Mac OS X) AppleWebKit/605.1.15 "
-                            + "(KHTML, like Gecko) Version/18.0 "
-                            + "Mobile/15E148 Safari/604.1",
-                    ]
-                ]
-            )
-            usesProxy = false
-            diagLog(.playback,
-                    "AVPlayerController using direct asset",
-                    details: ["url": fallback.absoluteString])
-        } else {
-            fatalError("BiliPlayback has no DASH source and no fallback")
+        switch Self.buildAssetAndProxy(playback: playback, referer: referer) {
+        case .failure(let error):
+            self.player = nil
+            self.playerError = error
+            return
+
+        case .success(let asset, let usesProxy):
+            self.asset = asset
+            self.usesProxy = usesProxy
+            item = AVPlayerItem(asset: asset)
         }
 
-        self.asset = asset
-        self.usesProxy = usesProxy
-
-        let item = AVPlayerItem(asset: asset)
-        
-        // Optimization: Seek to the resume time *before* assigning the player
-        // to the view controller (or here, before assigning the item to the
-        // player). This is more efficient as the media only loads at the
+        // Optimization: Seek to the resume time *before* assigning the item to the
+        // player. This is more efficient as the media only loads at the
         // actual start time.
         if playback.resumeTime > 0 {
-            item.seek(to: CMTime(seconds: playback.resumeTime, preferredTimescale: 600), completionHandler: nil)
+            item?.seek(to: CMTime(seconds: playback.resumeTime, preferredTimescale: 600), completionHandler: nil)
         }
-        
+
         self.playerItem = item
-        self.player = AVPlayer(playerItem: item)
+        self.player = AVPlayer(playerItem: item!)
 
         // Audio session: play in silent mode like the AliPlayer
         // path did.  `.playback` lets the audio play when the
@@ -242,6 +384,15 @@ final class PlayerController: ObservableObject {
                 let empty = change.newValue ?? false
                 MainActor.assumeIsolated {
                     self?.isBuffering = empty
+                    if empty {
+                        self?.bufferingStartedAt = Date()
+                    } else {
+                        // Buffer recovered — clear any stall error.
+                        self?.bufferingStartedAt = nil
+                        if self?.playerError == .prolongedStall {
+                            self?.playerError = nil
+                        }
+                    }
                 }
             }
         )
@@ -302,7 +453,7 @@ final class PlayerController: ObservableObject {
                 [weak self] _, change in
                 let status = change.newValue
                     .map { String(describing: $0) } ?? "nil"
-                let err = self?.player.currentItem?.error
+                let err = self?.player?.currentItem?.error
                 var details: [String: Any] = ["status": status]
                 if let err {
                     details["error"] = String(describing: err)
@@ -311,6 +462,16 @@ final class PlayerController: ObservableObject {
                         "status": status,
                         "error": String(describing: err)
                     ])
+                    // Surface the failure to the user as an actionable overlay.
+                    let detail = err.localizedDescription
+                    MainActor.assumeIsolated {
+                        self?.playerError = .itemFailed(detail: detail)
+                    }
+                } else if status == "readyToPlay" {
+                    // Status recovered — clear any stale error.
+                    MainActor.assumeIsolated {
+                        self?.playerError = nil
+                    }
                 }
                 diagLog(.playback, "AVPlayerItem status changed", details: details)
             }
@@ -331,7 +492,7 @@ final class PlayerController: ObservableObject {
                 // without a periodic heartbeat, and feeds the
                 // completion-rate denominator for the playback
                 // funnel.
-                let totalSeconds = self?.player.currentItem?.duration.seconds ?? 0
+                let totalSeconds = self?.player?.currentItem?.duration.seconds ?? 0
                 Analytics.log("video_complete", [
                     "duration_seconds": totalSeconds
                 ])
@@ -357,6 +518,9 @@ final class PlayerController: ObservableObject {
             MainActor.assumeIsolated {
                 self?.isPlaying = false
                 self?.isBuffering = false
+                self?.playerError = .stoppedMidStream(
+                    detail: err.map { String(describing: $0) }
+                )
             }
         }
         // The "new error log entry" notification is what fires
@@ -379,14 +543,15 @@ final class PlayerController: ObservableObject {
         errorLogObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.newErrorLogEntryNotification,
             object: item, queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             let entries = item.errorLog()?.events ?? []
             let summary = entries.prefix(3).map { e -> String in
                 String(describing: e)
             }.joined(separator: " | ")
+            let truncated = String(summary.prefix(500))
             diagLog(.playback, "AVPlayerItem new error log entry", details: [
                 "count": entries.count,
-                "last3": summary
+                "last3": truncated
             ])
             if let last = entries.first {
                 Analytics.recordError(
@@ -402,6 +567,10 @@ final class PlayerController: ObservableObject {
                     "domain": last.errorDomain,
                     "code": last.errorStatusCode
                 ])
+                // Persist for the diagnostic report.
+                MainActor.assumeIsolated {
+                    self?.lastErrorLogEntry = String(describing: last).prefix(500).description
+                }
             }
         }
 
@@ -427,6 +596,10 @@ final class PlayerController: ObservableObject {
         // so `isPictureInPictureActive` flips consistently for
         // PiP sessions initiated from the inline surface.
         observeInlinePiP()
+        // Subscribe to proxy failure notifications from the
+        // LocalHLSProxyServer so we can surface a proxy-specific
+        // error in the overlay instead of a generic stall.
+        observeProxyFailures()
         // First Now Playing write so the lock-screen artwork +
         // title are visible immediately.  Subsequent refreshes
         // piggy-back on the periodic time observer.
@@ -475,8 +648,10 @@ final class PlayerController: ObservableObject {
 
     // MARK: playback control
 
-    /// Toggle play/pause.
+    /// Toggle play/pause.  No-ops if the controller was
+    /// created with an error (player is nil).
     func toggle() {
+        guard let player else { return }
         if player.timeControlStatus == .playing {
             player.pause()
         } else {
@@ -485,15 +660,18 @@ final class PlayerController: ObservableObject {
     }
 
     func play() {
+        guard let player else { return }
         player.play()
     }
 
     func pause() {
+        guard let player else { return }
         player.pause()
     }
 
     /// Change the playback rate (e.g., 2.0 for 2x speed).
     func setRate(_ rate: Float) {
+        guard let player else { return }
         player.rate = rate
     }
 
@@ -513,6 +691,17 @@ final class PlayerController: ObservableObject {
     /// `MPNowPlayingInfoCenter` because Control Center
     /// shows a "playing in PiP" hint while PiP is active.
     private var pipObservers: [NSObjectProtocol] = []
+
+    /// Called by `LocalHLSProxyServer` when the proxy reports a
+    /// hard error after all retries are exhausted.  This lets the
+    /// player overlay show a proxy-specific error instead of the
+    /// generic "prolonged stall".
+    func reportProxyFailure(httpStatus: Int) {
+        playerError = .proxyFailed(code: httpStatus)
+    }
+
+    /// Token for the proxy failure notification observer.
+    private var proxyFailureObserver: NSObjectProtocol?
 
     private func observeInlinePiP() {
         let center = NotificationCenter.default
@@ -538,6 +727,19 @@ final class PlayerController: ObservableObject {
         )
     }
 
+    private func observeProxyFailures() {
+        proxyFailureObserver = NotificationCenter.default.addObserver(
+            forName: .paladalaProxyFailed,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let httpStatus = note.userInfo?["httpStatus"] as? Int ?? 502
+            MainActor.assumeIsolated {
+                self?.playerError = .proxyFailed(code: httpStatus)
+            }
+        }
+    }
+
     // MARK: seeking
 
     /// Seek by a relative offset (positive = forward, negative =
@@ -556,6 +758,7 @@ final class PlayerController: ObservableObject {
     /// sluggish.  The 10-second double-tap skip is a short hop
     /// that users expect to feel instant.
     func seek(by offset: Double) {
+        guard let player else { return }
         let now = CMTimeGetSeconds(player.currentTime())
         guard now.isFinite, duration > 0 else { return }
         let target = max(0, min(duration, now + offset))
@@ -569,6 +772,7 @@ final class PlayerController: ObservableObject {
     /// than jumping by a fixed offset.  Clamps to
     /// `[0, duration]` for the same reason `seek(by:)` does.
     func seek(to seconds: Double) {
+        guard let player else { return }
         guard seconds.isFinite, duration > 0 else { return }
         let target = max(0, min(duration, seconds))
         let time = CMTime(seconds: target, preferredTimescale: 600)
@@ -579,8 +783,8 @@ final class PlayerController: ObservableObject {
 
     func tearDown() {
         stopPolling()
-        player.pause()
-        if let token = timeObserver {
+        player?.pause()
+        if let token = timeObserver, let player {
             player.removeTimeObserver(token)
         }
         timeObserver = nil
@@ -605,6 +809,10 @@ final class PlayerController: ObservableObject {
             NotificationCenter.default.removeObserver($0)
         }
         pipObservers.removeAll()
+        if let token = proxyFailureObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        proxyFailureObserver = nil
         observers.removeAll()
         clearNowPlaying()
         diagLog(.playback, "AVPlayerController teardown complete")
@@ -650,13 +858,14 @@ final class PlayerController: ObservableObject {
         // Lock-screen scrubber drag.
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self,
-                  let positionEvent = event as? MPChangePlaybackPositionCommandEvent
+                  let positionEvent = event as? MPChangePlaybackPositionCommandEvent,
+                  let player = self.player
             else {
                 return .commandFailed
             }
             let target = max(0, positionEvent.positionTime)
             let time = CMTime(seconds: target, preferredTimescale: 600)
-            self.player.seek(to: time)
+            player.seek(to: time)
             // Position changed — push the new value to Now Playing
             // immediately rather than waiting for the next 0.5s
             // tick, so the lock-screen thumb tracks the drag.
@@ -704,7 +913,8 @@ final class PlayerController: ObservableObject {
     /// drags to a position past the buffer, the `ranges`
     /// array will be empty or stale.
     private func logLoadedTimeRanges() {
-        guard let item = player.currentItem else { return }
+        guard let player = player,
+              let item = player.currentItem else { return }
         let now = Date()
         guard now.timeIntervalSince(lastRangesLogAt) >= 0.5 else { return }
         lastRangesLogAt = now
@@ -747,6 +957,9 @@ final class PlayerController: ObservableObject {
     }
 
     private func refresh() {
+        // No-op if the controller was created with an error (player is nil).
+        guard let player else { return }
+
         // Current time — pulled from the AVPlayer's clock.
         let ct = CMTimeGetSeconds(player.currentTime())
         if ct.isFinite, ct >= 0 {
@@ -754,8 +967,7 @@ final class PlayerController: ObservableObject {
         }
         // Total duration — surfaced on the item once the master
         // playlist has been parsed and the EXTINF sum is known.
-        let d = CMTimeGetSeconds(playerItem.duration)
-        if d.isFinite, d > 0 {
+        if let d = playerItem?.duration.seconds, d.isFinite, d > 0 {
             duration = d
         }
         // `isPlaying` is driven by `timeControlStatus`; AVPlayer
@@ -767,6 +979,22 @@ final class PlayerController: ObservableObject {
             isPlaying = playing
             diagLog(.playback, "AVPlayer timeControlStatus changed",
                     details: ["isPlaying": playing])
+        }
+        // Prolonged-stall detection: if we've been buffering for more
+        // than 10 seconds, surface the overlay so the user knows
+        // something is wrong.  Brief hiccups (< 10 s) are silent.
+        if isBuffering, let started = bufferingStartedAt {
+            let stallDuration = Date().timeIntervalSince(started)
+            if stallDuration > 10, playerError != .prolongedStall {
+                diagLog(.playback, "AVPlayer prolonged stall detected",
+                        details: ["stallSeconds": stallDuration])
+                playerError = .prolongedStall
+            }
+        }
+        // Mirror the proxy's degraded state so the UI can show
+        // a subtle badge when multi-segment mode failed.
+        if usesProxy {
+            proxyIsDegraded = LocalHLSProxyServer.shared.isInDegradedMode
         }
         // Network speed.  For the proxy path we have a real
         // byte counter on `LocalHLSProxyServer`; for the direct

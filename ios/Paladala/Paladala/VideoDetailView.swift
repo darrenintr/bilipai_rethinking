@@ -174,7 +174,17 @@ struct VideoDetailView: View {
             // no-op and the player keeps running across the
             // mini-player → inline re-mount.
             guard let playback else { return }
-            miniPlayerStore.bind(video: model.detail, playback: playback, repository: repository)
+            miniPlayerStore.bind(
+                video: model.detail,
+                playback: playback,
+                repository: repository,
+                onRecovery: { [weak model] in
+                    Task { await model?.load(repository: repository) }
+                },
+                onQualityFallback: { [weak model] qn in
+                    Task { await model?.setPreferredQn(qn, repository: repository) }
+                }
+            )
         }
         .onDisappear {
             // Suppress teardown during the iPad fullscreen quirk
