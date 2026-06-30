@@ -315,6 +315,7 @@ final class PlayerController: ObservableObject {
         // Try to build the asset.  If anything fails we still
         // construct the controller — just with `player = nil` and
         // an error set so the view shows a coherent failure.
+        let referer = playback.referer.absoluteString
         var item: AVPlayerItem?
 
         switch Self.buildAssetAndProxy(playback: playback, referer: referer) {
@@ -956,7 +957,7 @@ final class PlayerController: ObservableObject {
         pollTimer = nil
     }
 
-    private func refresh() {
+    @MainActor private func refresh() {
         // No-op if the controller was created with an error (player is nil).
         guard let player else { return }
 
