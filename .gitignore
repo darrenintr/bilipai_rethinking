@@ -71,8 +71,8 @@ skills-lock.json
 
 # Node / npm（顶层 experimental 目录，不入仓）
 node_modules/
-package.json
-package-lock.json
+/package.json
+/package-lock.json
 
 # Xcode workspace 用户态（contents.xcworkspacedata 与
 # xcshareddata/IDEWorkspaceChecks.plist 仍需入库）
