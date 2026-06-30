@@ -30,7 +30,7 @@ export default function Metrics() {
 
   return (
     <section
-      className="relative py-24 md:py-32 bg-gray-50 text-gray-900 border-b border-gray-150"
+      className="relative py-24 md:py-32 bg-gray-50 text-gray-900 border-b border-gray-150 scroll-mt-20"
       id="metrics"
     >
       <div className="max-w-7xl mx-auto px-6">

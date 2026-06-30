@@ -14,7 +14,7 @@ function DynamicIcon({ name, className }: { name: string; className?: string }) 
 export default function Features() {
   return (
     <section
-      className="relative py-24 md:py-32 bg-white text-gray-900 overflow-hidden bg-grid-pattern-light border-y border-gray-100"
+      className="relative py-24 md:py-32 bg-white text-gray-900 overflow-hidden bg-grid-pattern-light border-y border-gray-100 scroll-mt-20"
       id="features"
     >
       <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-gray-50/50 to-transparent pointer-events-none" />

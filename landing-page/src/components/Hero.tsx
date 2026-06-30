@@ -202,7 +202,7 @@ export default function Hero() {
 
   return (
     <section
-      className="relative w-full min-h-screen flex items-center justify-center overflow-hidden bg-gray-950 text-white pt-20"
+      className="relative w-full min-h-screen flex items-center justify-center overflow-hidden bg-gray-950 text-white pt-20 scroll-mt-20"
       id="hero"
     >
       <video

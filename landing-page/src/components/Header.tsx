@@ -40,10 +40,10 @@ export default function Header() {
         </a>
 
         <nav className="hidden md:flex items-center gap-10 text-sm font-medium text-gray-600">
-          <a href="#features" className="hover:text-bili-pink transition-colors duration-200">
+          <a href="#features" onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-bili-pink transition-colors duration-200">
             Features
           </a>
-          <a href="#metrics" className="hover:text-bili-pink transition-colors duration-200">
+          <a href="#metrics" onClick={(e) => { e.preventDefault(); document.getElementById('metrics')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-bili-pink transition-colors duration-200">
             Performance
           </a>
         </nav>
