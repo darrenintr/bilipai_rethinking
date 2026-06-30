@@ -54,11 +54,11 @@ export const FEATURES_LIST: FeatureCard[] = [
     iconName: "Globe",
   },
   {
-    title: "Apple Watch Companion",
+    title: "Live Room Streaming",
     description:
-      "WatchSession reports playback progress every 30 seconds. Native watchOS integration for remote control.",
-    badge: "Ecosystem",
-    iconName: "Watch",
+      "Real-time live room browsing with FLV/HLS protocol fallback. Native AVPlayer playback with auto-quality selection.",
+    badge: "Live",
+    iconName: "Cast",
   },
   {
     title: "Diagnostic Logger",
@@ -76,7 +76,7 @@ export const SAMPLE_DANMAKUS: string[] = [
   "Liquid Glass 效果靚到爆",
   "13,784 行 Swift 代碼，零依賴",
   "Mini Player 好好用，切 page 都唔斷",
-  "Apple Watch 都支援，太強了",
+  "Live Room 直播都好順 🔥",
   "Material 3 同 Liquid Glass 隨時切換",
   "Pure SwiftUI + AVKit 播放器 🔥",
   "Diagnostic Logger 幫我 debug 咗好多嘢",
