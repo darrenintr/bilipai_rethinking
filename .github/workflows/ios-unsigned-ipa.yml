@@ -246,15 +246,31 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee "$LOGFILE" ; XC_EXIT=${PIPESTATUS[0]}
-          set -uo pipefail
+            build > "$LOGFILE" 2>&1
+          XC_EXIT=$?
+          echo "xcodebuild exited with code $XC_EXIT"
           if [ "$XC_EXIT" -ne 0 ]; then
-            echo ""
-            echo "::group::Swift/Xcode errors"
-            grep -E "error:" "$LOGFILE" | head -30 || echo "(no error: lines found)"
-            echo "::endgroup::"
-            exit $XC_EXIT
+            echo "::error::Build failed with exit code $XC_EXIT"
+            echo "Last 60 lines of build log:"
+            tail -n 60 "$LOGFILE"
+            echo "---"
+            echo "Swift error lines:"
+            grep -E "error:" "$LOGFILE" | head -20 || echo "(no error: lines)"
+            # Upload the build log as an artifact so it can be
+            # inspected from the GitHub UI when the log is too
+            # long for the inline annotation.
+            cp "$LOGFILE" "$GITHUB_WORKSPACE/xcodebuild_build.log"
+            exit 1
           fi
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-build-log
+          path: xcodebuild_build.log
+          retention-days: 3
+          if-no-files-found: ignore
 
       # ------------------------------------------------------------------
       # Derive a release tag from the build number we just bumped.
