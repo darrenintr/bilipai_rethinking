@@ -122,6 +122,15 @@ final class PlayerController: ObservableObject {
     @Published private(set) var isPlaying: Bool = true
     @Published private(set) var isBuffering: Bool = false
     @Published private(set) var isPictureInPictureActive: Bool = false
+
+    /// Human-readable error shown in the player overlay.
+    /// `nil` means no active error — the player is either playing
+    /// or buffering normally.
+    ///
+    /// Step 2 of the graceful-error-overlay feature: declared
+    /// here so the view layer can render the overlay; the init
+    /// path will start setting it in step 3.
+    @Published private(set) var playerError: PlayerPlaybackError?
     @Published private(set) var networkSpeed: Double = 0
 
     // MARK: underlying AVPlayer

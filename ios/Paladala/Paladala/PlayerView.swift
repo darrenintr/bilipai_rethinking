@@ -99,7 +99,11 @@ struct PlayerView: View {
             // overlays (buffering, double-tap) keep their
             // previous behaviour.
             ZStack {
-                if controller.isBuffering {
+                // Error overlay takes priority over buffering.
+                if let error = controller.playerError {
+                    PlayerErrorOverlay(error: error, onRecovery: {})
+                        .transition(.opacity)
+                } else if controller.isBuffering {
                     loadingOverlay
                         .transition(.opacity)
                         .allowsHitTesting(false)
@@ -468,7 +472,11 @@ private struct FullscreenPlayerOverlay: View {
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showingSpeedBadge)
 
-            if controller.isBuffering {
+            // Error overlay takes priority over buffering.
+            if let error = controller.playerError {
+                PlayerErrorOverlay(error: error, onRecovery: {})
+                    .transition(.opacity)
+            } else if controller.isBuffering {
                 VStack(spacing: 10) {
                     ProgressView()
                         .tint(.white)
@@ -490,6 +498,7 @@ private struct FullscreenPlayerOverlay: View {
             }
         }
         .animation(.default, value: controller.isBuffering)
+        .animation(.easeInOut(duration: 0.25), value: controller.playerError != nil)
     }
 
     private func formatNetworkSpeed(_ bytesPerSecond: Double) -> String {
@@ -803,4 +812,83 @@ private struct GestureHint: View {
         }
         .frame(maxWidth: .infinity)
     }
+}
+
+// MARK: - Player error overlay
+
+/// Full-screen overlay shown on the player surface when a playback
+/// error is detected.  Displays a clear title, a user-facing message,
+/// and an actionable recovery button.  Replaces the spinner when
+/// AVPlayer stalls for more than 10 s or hits a fatal error.
+struct PlayerErrorOverlay: View {
+    let error: PlayerPlaybackError
+    /// Callback invoked when the user taps the recovery button.
+    /// The view-model layer wires this so a tap re-inits playback.
+    let onRecovery: () -> Void
+
+    var body: some View {
+        ZStack {
+            // Semi-transparent backdrop so the error is legible
+            // regardless of the video content behind it.
+            Color.black.opacity(0.72)
+                .allowsHitTesting(false)
+
+            VStack(spacing: 16) {
+                // Error icon
+                Image(systemName: errorIcon)
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundStyle(.white.opacity(0.9))
+
+                VStack(spacing: 6) {
+                    Text(error.title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+
+                    Text(error.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.78))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Primary recovery button
+                Button {
+                    Haptics.medium()
+                    onRecovery()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: recoveryIcon)
+                        Text(error.recoveryAction.buttonLabel)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(.white, in: RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(28)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Playback error: \(error.title). \(error.message)")
+        .accessibilityHint("Tap the button to retry playback.")
+    }
+
+    private var errorIcon: String {
+        switch error {
+        case .itemFailed:       return "exclamationmark.triangle"
+        case .stoppedMidStream: return "wifi.exclamationmark"
+        case .proxyFailed:      return "server.rack"
+        case .prolongedStall:   return "clock.badge.exclamationmark"
+        }
+    }
+
+    private var recoveryIcon: String {
+        switch error.recoveryAction {
+        case .retryPlayback: return "arrow.clockwise"
+        case .retrySeek:     return "arrow.counterclockwise"
+        }
+    }
+}
 }
