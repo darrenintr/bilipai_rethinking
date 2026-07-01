@@ -249,6 +249,8 @@ jobs:
             build > "$LOGFILE" 2>&1
           XC_EXIT=$?
           echo "xcodebuild exited with code $XC_EXIT"
+          echo "LOGFILE=$LOGFILE"
+          ls -la "$LOGFILE" || echo "LOGFILE NOT FOUND"
           if [ "$XC_EXIT" -ne 0 ]; then
             # Pull just the Swift error lines into a short summary
             # and post it to the run summary (visible in the
@@ -280,9 +282,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-build-log-${{ github.run_number }}
-          path: ${{ runner.temp }}/build_log.txt
+          path: ${{ env.RUNNER_TEMP }}/build_log.txt
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: error
 
       # ------------------------------------------------------------------
       # Derive a release tag from the build number we just bumped.
