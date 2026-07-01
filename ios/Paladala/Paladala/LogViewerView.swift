@@ -206,28 +206,22 @@ struct LogViewerView: View {
     // MARK: - actions
 
     private func copyToClipboard() {
-        let report = MainActor.run {
-            DiagnosticLogger.shared.generateReport(
-                activeAccount: authStore.activeAccount
-            )
-        }
+        let report = DiagnosticLogger.shared.generateReport(
+            activeAccount: authStore.activeAccount
+        )
         UIPasteboard.general.string = report
         flashToast("已复制 (\(report.count) 字符)")
     }
 
     private func exportAndShare() {
-        let url = MainActor.run {
-            DiagnosticLogger.shared.export(
-                activeAccount: authStore.activeAccount
-            )
-        }
+        let url = DiagnosticLogger.shared.export(
+            activeAccount: authStore.activeAccount
+        )
         guard let url else {
             // Fall back to clipboard.
-            let report = MainActor.run {
-                DiagnosticLogger.shared.generateReport(
-                    activeAccount: authStore.activeAccount
-                )
-            }
+            let report = DiagnosticLogger.shared.generateReport(
+                activeAccount: authStore.activeAccount
+            )
             UIPasteboard.general.string = report
             flashToast("已复制 (\(report.count) 字符)")
             return

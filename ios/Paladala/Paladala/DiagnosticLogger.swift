@@ -276,12 +276,9 @@ final class DiagnosticLogger: ObservableObject {
     }
 
     func export(activeAccount: StoredAccount? = nil) -> URL? {
-        // generateReport is @MainActor; we are typically called
-        // from a button on the main thread.  Use MainActor.run
-        // to keep the call synchronous.
-        let report = MainActor.run {
-            generateReport(activeAccount: activeAccount)
-        }
+        // generateReport is @MainActor; called from a button on the
+        // main thread — direct call is safe (implicitly on MainActor).
+        let report = generateReport(activeAccount: activeAccount)
         let fileName = "Paladala_Diagnostic_\(Int(Date().timeIntervalSince1970)).txt"
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(fileName)
