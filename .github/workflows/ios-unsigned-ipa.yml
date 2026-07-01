@@ -250,16 +250,29 @@ jobs:
           XC_EXIT=$?
           echo "xcodebuild exited with code $XC_EXIT"
           if [ "$XC_EXIT" -ne 0 ]; then
-            echo "::error::Build failed with exit code $XC_EXIT"
-            echo "Last 60 lines of build log:"
-            tail -n 60 "$LOGFILE"
-            echo "---"
-            echo "Swift error lines:"
+            # Pull just the Swift error lines into a short summary
+            # and post it to the run summary (visible in the
+            # Actions UI even when the annotation is truncated).
+            {
+              echo "## xcodebuild build failed (exit $XC_EXIT)"
+              echo ""
+              echo "### Swift error lines"
+              echo '```'
+              grep -E "error:" "$LOGFILE" | head -20 || echo "(no error: lines found)"
+              echo '```'
+              echo ""
+              echo "### Last 40 lines of build log"
+              echo '```'
+              tail -n 40 "$LOGFILE"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            # Also dump to the step log so the inline view
+            # has the context.
+            echo ""
+            echo "=== Swift error lines ==="
             grep -E "error:" "$LOGFILE" | head -20 || echo "(no error: lines)"
-            # Upload the build log as an artifact so it can be
-            # inspected from the GitHub UI when the log is too
-            # long for the inline annotation.
-            cp "$LOGFILE" "$GITHUB_WORKSPACE/xcodebuild_build.log"
+            echo "=== Last 40 lines of build log ==="
+            tail -n 40 "$LOGFILE"
             exit 1
           fi
 
@@ -267,10 +280,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-build-log
-          path: xcodebuild_build.log
-          retention-days: 3
-          if-no-files-found: ignore
+          name: xcodebuild-build-log-${{ env.TAG }}
+          path: ${{ runner.temp }}/build_log.txt
+          retention-days: 7
+          if-no-files-found: warn
 
       # ------------------------------------------------------------------
       # Derive a release tag from the build number we just bumped.
