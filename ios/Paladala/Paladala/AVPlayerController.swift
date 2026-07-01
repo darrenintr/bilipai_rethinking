@@ -122,6 +122,7 @@ final class PlayerController: ObservableObject {
     @Published private(set) var isPlaying: Bool = true
     @Published private(set) var isBuffering: Bool = false
     @Published private(set) var isPictureInPictureActive: Bool = false
+    @Published private(set) var playerError: PlayerPlaybackError?
     @Published private(set) var networkSpeed: Double = 0
 
     // MARK: underlying AVPlayer
