@@ -280,11 +280,17 @@ jobs:
 
       - name: Upload xcodebuild build log
         run: |
-          cp "$RUNNER_TEMP/build_log.txt" "$GITHUB_WORKSPACE/build_log.txt" 2>/dev/null && echo "Copied log to workspace" || echo "No log to copy"
-        if: always()
+          if [ -f "$RUNNER_TEMP/build_log.txt" ]; then
+            cp "$RUNNER_TEMP/build_log.txt" "$GITHUB_WORKSPACE/build_log.txt"
+            echo "Copied log to workspace"
+          else
+            echo "No build log to copy (build succeeded)"
+            exit 1
+          fi
+        if: failure()
 
       - name: Upload xcodebuild build log (artifact)
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-build-log-${{ github.run_number }}
