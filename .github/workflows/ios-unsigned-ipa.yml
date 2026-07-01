@@ -235,6 +235,7 @@ jobs:
           # env (which doesn't export custom build settings to Run Scripts
           # anyway). dSYM upload is meaningless for an unsigned artifact
           # that will never be distributed, so skipping it is correct.
+          LOGFILE=$(mktemp)
           xcodebuild \
             -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
             -scheme "$PROJECT_NAME" \
@@ -245,7 +246,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee "$LOGFILE" || XC_EXIT=$?
+          if [ "${XC_EXIT:-0}" -ne 0 ]; then
+            echo ""
+            echo "::group::Swift/Xcode errors"
+            grep -E "error:" "$LOGFILE" | head -50
+            echo "::endgroup::"
+            exit "${XC_EXIT:-1}"
+          fi
 
       # ------------------------------------------------------------------
       # Derive a release tag from the build number we just bumped.
