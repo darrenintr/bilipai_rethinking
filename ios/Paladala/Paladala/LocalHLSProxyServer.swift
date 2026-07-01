@@ -63,6 +63,51 @@ final class LocalHLSProxyServer {
     /// process unless `stop()` is called.
     private(set) var baseURL: URL?
 
+    /// Non-blocking semaphore-backed waiter for the `baseURL` to
+    /// become non-nil.  Returns the URL once the listener reports
+    /// `.ready`, or `nil` if the timeout elapses first.
+    ///
+    /// Prefer this over polling with `Thread.sleep — it does not
+    /// wake the thread every few milliseconds and makes the intent
+    /// explicit.  Must be called after `serve(playback:)` has
+    /// kicked off the listener; safe to call even if the server is
+    /// already running (the semaphore returns immediately).
+    func waitForReady(timeout: TimeInterval = 2.0) -> URL? {
+        if let url = baseURL { return url }
+        let sem = DispatchSemaphore(value: 0)
+        var result: URL?
+        let observation = DispatchSource.makeTimerSource(queue: queue)
+        observation.schedule(deadline: .now(), repeating: .milliseconds(10))
+        let deadline = DispatchTime.now() + timeout
+        var fired = false
+        let lock = NSLock()
+        observation.setEventHandler {
+            lock.lock()
+            defer { lock.unlock() }
+            if !fired, let url = self.baseURL {
+                fired = true
+                result = url
+                observation.cancel()
+                sem.signal()
+            }
+        }
+        let timeoutSource = DispatchSource.makeTimerSource(queue: queue)
+        timeoutSource.schedule(deadline: deadline)
+        timeoutSource.setEventHandler {
+            lock.lock()
+            defer { lock.unlock() }
+            if !fired {
+                fired = true
+                observation.cancel()
+                sem.signal()
+            }
+        }
+        observation.resume()
+        timeoutSource.resume()
+        _ = sem.wait(timeout: deadline + .milliseconds(100))
+        return result
+    }
+
     /// Total bytes streamed from the B站 CDN to AVPlayer.
     /// Sampled by `PlayerController.refresh()` for the
     /// network-speed overlay on the loading screen.

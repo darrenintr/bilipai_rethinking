@@ -206,7 +206,7 @@ struct LogViewerView: View {
     // MARK: - actions
 
     private func copyToClipboard() {
-        let report = MainActor.assumeIsolated {
+        let report = MainActor.run {
             DiagnosticLogger.shared.generateReport(
                 activeAccount: authStore.activeAccount
             )
@@ -216,14 +216,14 @@ struct LogViewerView: View {
     }
 
     private func exportAndShare() {
-        let url = MainActor.assumeIsolated {
+        let url = MainActor.run {
             DiagnosticLogger.shared.export(
                 activeAccount: authStore.activeAccount
             )
         }
         guard let url else {
             // Fall back to clipboard.
-            let report = MainActor.assumeIsolated {
+            let report = MainActor.run {
                 DiagnosticLogger.shared.generateReport(
                     activeAccount: authStore.activeAccount
                 )

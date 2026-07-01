@@ -212,17 +212,15 @@ final class PlayerController: ObservableObject {
                         "Failed to start LocalHLSProxyServer",
                         details: ["error": error.localizedDescription])
             }
-            // The listener's `ready` state arrives on the
-            // server's dispatch queue.  AVPlayer can not
-            // meaningfully retry a missing port, so block
-            // briefly here (main thread) until the port is
-            // known.  In practice this is a few milliseconds.
-            let deadline = Date().addingTimeInterval(2.0)
-            while LocalHLSProxyServer.shared.baseURL == nil
-                    && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-            guard let baseURL = LocalHLSProxyServer.shared.baseURL else {
+            // The `waitForReady()` method blocks on a semaphore until the
+            // NWListener fires its `.ready` state callback on the
+            // proxy's queue, or until the 2-second timeout elapses.
+            // Compared to the previous `while + Thread.sleep` polling
+            // loop this uses far less CPU (no thread wake every 10 ms)
+            // and is explicit about the intent.  The semaphore waits
+            // on the proxy's serial `queue`, which is safe to block —
+            // the queue has no async work pending at init time.
+            guard let baseURL = LocalHLSProxyServer.shared.waitForReady() else {
                 fatalError("LocalHLSProxyServer did not become ready in time")
             }
             let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
@@ -294,10 +292,10 @@ final class PlayerController: ObservableObject {
             let seconds = CMTimeGetSeconds(cm)
             if seconds.isFinite, seconds >= 0 {
                 // The `.main` queue means we're on the main actor;
-                // assumeIsolated silences the Swift 6 concurrency
+                // Task { @MainActor in } bridges from whatever queue
                 // check without the Task allocation overhead of the
                 // KVO observers.
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self?.currentTime = seconds
                     // Keep the lock-screen playhead in sync.  Two
                     // updates per second is cheap (the dict has no
@@ -317,7 +315,7 @@ final class PlayerController: ObservableObject {
                 options: [.new, .initial]
             ) { [weak self] _, change in
                 let empty = change.newValue ?? false
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self?.isBuffering = empty
                 }
             }
@@ -328,7 +326,7 @@ final class PlayerController: ObservableObject {
                 options: [.new, .initial]
             ) { [weak self] _, change in
                 let likely = change.newValue ?? false
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     if likely { self?.isBuffering = false }
                 }
             }
@@ -342,7 +340,7 @@ final class PlayerController: ObservableObject {
         observers.insert(
             item.observe(\.loadedTimeRanges, options: [.new]) {
                 [weak self] _, _ in
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self?.logLoadedTimeRanges()
                 }
             }
@@ -400,7 +398,7 @@ final class PlayerController: ObservableObject {
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.isPlaying = false
                 // End-of-stream = the user watched all the way
                 // through (or AVPlayer hit the end and stopped).
@@ -431,7 +429,7 @@ final class PlayerController: ObservableObject {
                     "code": (err as NSError).code
                 ])
             }
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.isPlaying = false
                 self?.isBuffering = false
             }
@@ -597,7 +595,7 @@ final class PlayerController: ObservableObject {
             center.addObserver(
                 forName: .paladalaPiPDidStart, object: nil, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self?.isPictureInPictureActive = true
                     self?.updateNowPlaying()
                 }
@@ -607,7 +605,7 @@ final class PlayerController: ObservableObject {
             center.addObserver(
                 forName: .paladalaPiPDidStop, object: nil, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self?.isPictureInPictureActive = false
                     self?.updateNowPlaying()
                 }
