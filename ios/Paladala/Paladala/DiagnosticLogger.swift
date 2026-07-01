@@ -275,6 +275,7 @@ final class DiagnosticLogger: ObservableObject {
         return report
     }
 
+    @MainActor
     func export(activeAccount: StoredAccount? = nil) -> URL? {
         // generateReport is @MainActor; called from a button on the
         // main thread — direct call is safe (implicitly on MainActor).
