@@ -595,20 +595,16 @@ final class PlayerController: ObservableObject {
             center.addObserver(
                 forName: .paladalaPiPDidStart, object: nil, queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
-                    self?.isPictureInPictureActive = true
-                    self?.updateNowPlaying()
-                }
+                self?.isPictureInPictureActive = true
+                self?.updateNowPlaying()
             }
         )
         pipObservers.append(
             center.addObserver(
                 forName: .paladalaPiPDidStop, object: nil, queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
-                    self?.isPictureInPictureActive = false
-                    self?.updateNowPlaying()
-                }
+                self?.isPictureInPictureActive = false
+                self?.updateNowPlaying()
             }
         )
     }

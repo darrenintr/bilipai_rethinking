@@ -61,7 +61,16 @@ final class LocalHLSProxyServer {
     /// `nil` before the first `serve(playback:)` call hands a
     /// port to us.  The URL is stable for the lifetime of the
     /// process unless `stop()` is called.
+    /// **All reads and writes must hold `lock`.**  Use
+    /// `safeBaseURL` for safe reads from any queue.
     private(set) var baseURL: URL?
+
+    /// Thread-safe read of `baseURL`.  Holds `lock` for the
+    /// duration of the read so it is safe to call from any queue.
+    var safeBaseURL: URL? {
+        lock.lock(); defer { lock.unlock() }
+        return baseURL
+    }
 
     /// Non-blocking semaphore-backed waiter for the `baseURL` to
     /// become non-nil.  Returns the URL once the listener reports
@@ -73,7 +82,7 @@ final class LocalHLSProxyServer {
     /// kicked off the listener; safe to call even if the server is
     /// already running (the semaphore returns immediately).
     func waitForReady(timeout: TimeInterval = 2.0) -> URL? {
-        if let url = baseURL { return url }
+        if let url = safeBaseURL { return url }
         let sem = DispatchSemaphore(value: 0)
         var result: URL?
         let observation = DispatchSource.makeTimerSource(queue: queue)
@@ -185,6 +194,8 @@ final class LocalHLSProxyServer {
         lock.lock()
         currentPlayback = nil
         localContext = nil
+        port = 0
+        baseURL = nil
         lock.unlock()
         diagLog(.playback, "LocalHLSProxyServer stopped")
     }
@@ -256,10 +267,12 @@ final class LocalHLSProxyServer {
             switch state {
             case .ready:
                 if let p = self.listener?.port {
+                    self.lock.lock()
                     self.port = p.rawValue
                     self.baseURL = URL(
                         string: "http://127.0.0.1:\(p.rawValue)"
                     )
+                    self.lock.unlock()
                     diagLog(.playback, "LocalHLSProxyServer ready",
                             details: ["port": p.rawValue])
                 }
@@ -267,8 +280,10 @@ final class LocalHLSProxyServer {
                 diagLog(.playback, "LocalHLSProxyServer failed",
                         details: ["error": error.localizedDescription])
             case .cancelled:
+                self.lock.lock()
                 self.port = 0
                 self.baseURL = nil
+                self.lock.unlock()
             default:
                 break
             }
@@ -795,7 +810,7 @@ final class LocalHLSProxyServer {
     private func respondMasterPlaylist(connection: NWConnection,
                                       connID: String) {
         guard let (source, _) = snapshot(),
-              baseURL != nil else {
+              safeBaseURL != nil else {
             respondError(connection: connection, status: 503,
                          reason: "no playback", connID: connID)
             return
@@ -840,7 +855,7 @@ final class LocalHLSProxyServer {
         connID: String
     ) {
         guard let (source, _) = snapshot(),
-              baseURL != nil else {
+              safeBaseURL != nil else {
             respondError(connection: connection, status: 503,
                          reason: "no playback", connID: connID)
             return

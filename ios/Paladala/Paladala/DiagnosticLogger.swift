@@ -94,7 +94,41 @@ final class DiagnosticLogger: ObservableObject {
     private static let retentionInterval: TimeInterval = 24 * 3600
 
     private init() {
-        rehydrateFromDisk()
+        // Defer disk read to avoid blocking init (which may be on the
+        // main thread).  Events start empty; the background read
+        // populates them once it finishes.
+        diskQueue.async { [weak self] in
+            let rehydrated = self?.loadEventsFromDisk() ?? []
+            DispatchQueue.main.async {
+                self?.events = rehydrated
+            }
+        }
+    }
+
+    /// Load events from the on-disk JSONL.  Runs on `diskQueue`.
+    private func loadEventsFromDisk() -> [Event] {
+        guard FileManager.default.fileExists(atPath: Self.logFilePath) else { return [] }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: Self.logFilePath)),
+              let str = String(data: data, encoding: .utf8) else { return [] }
+        let cutoff = Date().addingTimeInterval(-Self.retentionInterval)
+        var rehydrated: [Event] = []
+        for line in str.split(separator: "\n") {
+            guard let lineData = line.data(using: .utf8),
+                  let entry = try? JSONDecoder().decode(LogEntry.self, from: lineData),
+                  entry.timestamp >= cutoff else { continue }
+            guard let category = Category(rawValue: entry.category) else { continue }
+            let details = entry.details?.mapValues { $0 as Any }
+            rehydrated.append(Event(
+                timestamp: entry.timestamp,
+                category: category,
+                message: entry.message,
+                details: details
+            ))
+        }
+        if rehydrated.count > maxEvents {
+            rehydrated.removeFirst(rehydrated.count - maxEvents)
+        }
+        return rehydrated
     }
 
     // MARK: - public API
@@ -293,33 +327,6 @@ final class DiagnosticLogger: ObservableObject {
     }
 
     // MARK: - disk persistence
-
-    private func rehydrateFromDisk() {
-        guard FileManager.default.fileExists(atPath: Self.logFilePath) else { return }
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: Self.logFilePath)),
-              let str = String(data: data, encoding: .utf8) else { return }
-        let cutoff = Date().addingTimeInterval(-Self.retentionInterval)
-        var rehydrated: [Event] = []
-        for line in str.split(separator: "\n") {
-            guard let lineData = line.data(using: .utf8),
-                  let entry = try? JSONDecoder().decode(LogEntry.self, from: lineData),
-                  entry.timestamp >= cutoff else { continue }
-            guard let category = Category(rawValue: entry.category) else { continue }
-            let details = entry.details?.mapValues { $0 as Any }
-            rehydrated.append(Event(
-                timestamp: entry.timestamp,
-                category: category,
-                message: entry.message,
-                details: details
-            ))
-        }
-        if rehydrated.count > maxEvents {
-            rehydrated.removeFirst(rehydrated.count - maxEvents)
-        }
-        lock.lock()
-        events = rehydrated
-        lock.unlock()
-    }
 
     private func appendToDisk(event: Event) {
         let entry = LogEntry(
