@@ -37,6 +37,82 @@ import CoreMedia
 import MediaPlayer
 import UIKit
 
+// MARK: - Player error types
+
+/// Errors surfaced in the player overlay.  Each case maps to a
+/// specific `AVPlayerItem` failure mode so the user gets a
+/// meaningful message instead of a generic spinner.
+///
+/// Plain value type — no MainActor, no UIKit dependencies — so
+/// it can be declared at file scope under Swift 5.0 without
+/// triggering concurrency checks.
+enum PlayerPlaybackError: Equatable {
+    /// AVPlayer gave up on the item (codec rejection,
+    /// unsupported container, etc.).  `detail` is the
+    /// `AVPlayerItemErrorLogEntry.errorComment` text when available.
+    case itemFailed(detail: String?)
+    /// The item stopped mid-stream (network dropout,
+    /// server-side error, CDN reset).  `detail` is the
+    /// `AVPlayerItemFailedToPlayToEndTimeErrorKey` text.
+    case stoppedMidStream(detail: String?)
+    /// The proxy server returned a hard error after all retries.
+    /// `code` is the HTTP status (e.g. 502).
+    case proxyFailed(code: Int)
+    /// AVPlayer is buffering but the stall has lasted more
+    /// than 10 seconds.  Tracked separately so we don't
+    /// immediately show the overlay for a brief network hiccup.
+    case prolongedStall
+
+    var title: String {
+        switch self {
+        case .itemFailed:       return "无法播放此视频"
+        case .stoppedMidStream: return "播放中断"
+        case .proxyFailed:      return "服务器连接失败"
+        case .prolongedStall:   return "加载缓慢"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .itemFailed(let detail):
+            if let d = detail, !d.isEmpty {
+                return d
+            }
+            return "视频格式不支持或播放源已失效。"
+        case .stoppedMidStream(let detail):
+            if let d = detail, !d.isEmpty {
+                return d
+            }
+            return "网络连接中断，请检查网络后重试。"
+        case .proxyFailed(let code):
+            return "视频代理服务器返回错误（\(code)），请稍后重试。"
+        case .prolongedStall:
+            return "加载时间过长，可能是网络问题。"
+        }
+    }
+
+    var recoveryAction: RecoveryAction {
+        switch self {
+        case .itemFailed:       return .retryPlayback
+        case .stoppedMidStream: return .retryPlayback
+        case .proxyFailed:      return .retryPlayback
+        case .prolongedStall:   return .retrySeek
+        }
+    }
+}
+
+enum RecoveryAction {
+    case retryPlayback   // full playback re-init (DASH re-fetch)
+    case retrySeek       // seek to current time (buffer refetch)
+
+    var buttonLabel: String {
+        switch self {
+        case .retryPlayback: return "重新播放"
+        case .retrySeek:     return "重新加载"
+        }
+    }
+}
+
 @MainActor
 final class PlayerController: ObservableObject {
     // MARK: published state
