@@ -359,18 +359,13 @@ final class PlayerController: ObservableObject {
         ) { [weak self] cm in
             let seconds = CMTimeGetSeconds(cm)
             if seconds.isFinite, seconds >= 0 {
-                // The `.main` queue means we're on the main actor;
-                // assumeIsolated silences the Swift 6 concurrency
-                // check without the Task allocation overhead of the
-                // KVO observers.
-                MainActor.assumeIsolated {
-                    self?.currentTime = seconds
-                    // Keep the lock-screen playhead in sync.  Two
-                    // updates per second is cheap (the dict has no
-                    // new keys after the first write) and gives
-                    // Control Center a moving scrubber.
-                    self?.updateNowPlaying()
-                }
+                // The `.main` queue means we're on the main thread.
+                self?.currentTime = seconds
+                // Keep the lock-screen playhead in sync.  Two
+                // updates per second is cheap (the dict has no
+                // new keys after the first write) and gives
+                // Control Center a moving scrubber.
+                self?.updateNowPlaying()
             }
         }
 
@@ -383,16 +378,14 @@ final class PlayerController: ObservableObject {
                 options: [.new, .initial]
             ) { [weak self] _, change in
                 let empty = change.newValue ?? false
-                MainActor.assumeIsolated {
-                    self?.isBuffering = empty
-                    if empty {
-                        self?.bufferingStartedAt = Date()
-                    } else {
-                        // Buffer recovered — clear any stall error.
-                        self?.bufferingStartedAt = nil
-                        if self?.playerError == .prolongedStall {
-                            self?.playerError = nil
-                        }
+                self?.isBuffering = empty
+                if empty {
+                    self?.bufferingStartedAt = Date()
+                } else {
+                    // Buffer recovered — clear any stall error.
+                    self?.bufferingStartedAt = nil
+                    if self?.playerError == .prolongedStall {
+                        self?.playerError = nil
                     }
                 }
             }
@@ -403,9 +396,7 @@ final class PlayerController: ObservableObject {
                 options: [.new, .initial]
             ) { [weak self] _, change in
                 let likely = change.newValue ?? false
-                MainActor.assumeIsolated {
-                    if likely { self?.isBuffering = false }
-                }
+                if likely { self?.isBuffering = false }
             }
         )
 
@@ -415,11 +406,9 @@ final class PlayerController: ObservableObject {
         // at 80%" with "buffer covers 80–82%" (or "buffer
         // is empty, hence the stall").
         observers.insert(
-            item.observe(\.loadedTimeRanges, options: [.new]) {
+            item.observe(\.loadedTimeRanges, options: [.new]            ) {
                 [weak self] _, _ in
-                MainActor.assumeIsolated {
-                    self?.logLoadedTimeRanges()
-                }
+                self?.logLoadedTimeRanges()
             }
         )
 
@@ -465,14 +454,10 @@ final class PlayerController: ObservableObject {
                     ])
                     // Surface the failure to the user as an actionable overlay.
                     let detail = err.localizedDescription
-                    MainActor.assumeIsolated {
-                        self?.playerError = .itemFailed(detail: detail)
-                    }
+                    self?.playerError = .itemFailed(detail: detail)
                 } else if status == "readyToPlay" {
                     // Status recovered — clear any stale error.
-                    MainActor.assumeIsolated {
-                        self?.playerError = nil
-                    }
+                    self?.playerError = nil
                 }
                 diagLog(.playback, "AVPlayerItem status changed", details: details)
             }
@@ -485,20 +470,18 @@ final class PlayerController: ObservableObject {
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.isPlaying = false
-                // End-of-stream = the user watched all the way
-                // through (or AVPlayer hit the end and stopped).
-                // This is the strongest "engaged" signal we have
-                // without a periodic heartbeat, and feeds the
-                // completion-rate denominator for the playback
-                // funnel.
-                let totalSeconds = self?.player?.currentItem?.duration.seconds ?? 0
-                Analytics.log("video_complete", [
-                    "duration_seconds": totalSeconds
-                ])
-                Analytics.breadcrumb("PLAY", "video_complete")
-            }
+            self?.isPlaying = false
+            // End-of-stream = the user watched all the way
+            // through (or AVPlayer hit the end and stopped).
+            // This is the strongest "engaged" signal we have
+            // without a periodic heartbeat, and feeds the
+            // completion-rate denominator for the playback
+            // funnel.
+            let totalSeconds = self?.player?.currentItem?.duration.seconds ?? 0
+            Analytics.log("video_complete", [
+                "duration_seconds": totalSeconds
+            ])
+            Analytics.breadcrumb("PLAY", "video_complete")
         }
         errorObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemFailedToPlayToEndTime,
@@ -516,13 +499,11 @@ final class PlayerController: ObservableObject {
                     "code": (err as NSError).code
                 ])
             }
-            MainActor.assumeIsolated {
-                self?.isPlaying = false
-                self?.isBuffering = false
-                self?.playerError = .stoppedMidStream(
-                    detail: err.map { String(describing: $0) }
-                )
-            }
+            self?.isPlaying = false
+            self?.isBuffering = false
+            self?.playerError = .stoppedMidStream(
+                detail: err.map { String(describing: $0) }
+            )
         }
         // The "new error log entry" notification is what fires
         // when AVPlayer refuses to play a media format (codec
@@ -569,9 +550,7 @@ final class PlayerController: ObservableObject {
                     "code": last.errorStatusCode
                 ])
                 // Persist for the diagnostic report.
-                MainActor.assumeIsolated {
-                    self?.lastErrorLogEntry = String(describing: last).prefix(500).description
-                }
+                self?.lastErrorLogEntry = String(describing: last).prefix(500).description
             }
         }
 
@@ -710,20 +689,16 @@ final class PlayerController: ObservableObject {
             center.addObserver(
                 forName: .paladalaPiPDidStart, object: nil, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.isPictureInPictureActive = true
-                    self?.updateNowPlaying()
-                }
+                self?.isPictureInPictureActive = true
+                self?.updateNowPlaying()
             }
         )
         pipObservers.append(
             center.addObserver(
                 forName: .paladalaPiPDidStop, object: nil, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.isPictureInPictureActive = false
-                    self?.updateNowPlaying()
-                }
+                self?.isPictureInPictureActive = false
+                self?.updateNowPlaying()
             }
         )
     }
@@ -735,9 +710,7 @@ final class PlayerController: ObservableObject {
             queue: .main
         ) { [weak self] note in
             let httpStatus = note.userInfo?["httpStatus"] as? Int ?? 502
-            MainActor.assumeIsolated {
-                self?.playerError = .proxyFailed(code: httpStatus)
-            }
+            self?.playerError = .proxyFailed(code: httpStatus)
         }
     }
 
