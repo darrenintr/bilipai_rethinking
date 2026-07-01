@@ -1,5 +1,6 @@
 // Firebase imports removed — Firebase is not in the Podfile.
 // Analytics calls are stubbed to bpLog until Firebase is added.
+import Foundation
 
 /// Thin facade mirroring the existing `bpLog` / `diagLog` style.
 ///
