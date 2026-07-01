@@ -284,6 +284,7 @@ jobs:
         if: always()
 
       - name: Upload xcodebuild build log (artifact)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-build-log-${{ github.run_number }}
