@@ -84,12 +84,12 @@ final class WatchSession {
         }
     }
 
-    /// Cancel the timer.  Safe to call from `onDisappear`; the
-    /// next `start` will fire a fresh `progress=0` to mark the
-    /// new session start.
-    func stop() {
-        timer?.invalidate()
-        timer = nil
+    /// Idempotent cancel.  Safe to call from `onDisappear`.
+    nonisolated func stop() {
+        Task { @MainActor in
+            timer?.invalidate()
+            timer = nil
+        }
     }
 
     @MainActor

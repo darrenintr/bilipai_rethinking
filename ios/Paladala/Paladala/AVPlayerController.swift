@@ -858,6 +858,6 @@ final class PlayerController: ObservableObject {
     }
 
     deinit {
-        pollTimer?.invalidate()
+        tearDown()
     }
 }

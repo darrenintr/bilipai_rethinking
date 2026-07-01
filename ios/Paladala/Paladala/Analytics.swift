@@ -1,5 +1,5 @@
-import FirebaseAnalytics
-import FirebaseCrashlytics
+// Firebase imports removed — Firebase is not in the Podfile.
+// Analytics calls are stubbed to bpLog until Firebase is added.
 
 /// Thin facade mirroring the existing `bpLog` / `diagLog` style.
 ///
