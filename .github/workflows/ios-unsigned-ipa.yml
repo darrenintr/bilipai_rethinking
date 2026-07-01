@@ -276,11 +276,10 @@ jobs:
             exit 1
           fi
 
-      - name: Upload build log on failure
-        if: failure()
+      - name: Upload xcodebuild build log
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-build-log-${{ env.TAG }}
+          name: xcodebuild-build-log-${{ github.run_number }}
           path: ${{ runner.temp }}/build_log.txt
           retention-days: 7
           if-no-files-found: warn
