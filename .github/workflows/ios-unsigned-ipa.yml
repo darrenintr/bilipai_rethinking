@@ -226,7 +226,7 @@ jobs:
 
       - name: Build device app without signing
         run: |
-          set -euo pipefail
+          set -uo pipefail
           # Crashlytics is still linked into the binary (Firebase init at
           # runtime) but its Run Script phase ("Upload Crashlytics Symbols")
           # is gated on CODE_SIGNING_ALLOWED — when we pass =NO here, the
@@ -235,7 +235,7 @@ jobs:
           # env (which doesn't export custom build settings to Run Scripts
           # anyway). dSYM upload is meaningless for an unsigned artifact
           # that will never be distributed, so skipping it is correct.
-          LOGFILE=$(mktemp)
+          LOGFILE="$RUNNER_TEMP/build_log.txt"
           xcodebuild \
             -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
             -scheme "$PROJECT_NAME" \
@@ -246,13 +246,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee "$LOGFILE" || XC_EXIT=$?
-          if [ "${XC_EXIT:-0}" -ne 0 ]; then
+            build 2>&1 | tee "$LOGFILE" ; XC_EXIT=${PIPESTATUS[0]}
+          set -uo pipefail
+          if [ "$XC_EXIT" -ne 0 ]; then
             echo ""
             echo "::group::Swift/Xcode errors"
-            grep -E "error:" "$LOGFILE" | head -50
+            grep -E "error:" "$LOGFILE" | head -30 || echo "(no error: lines found)"
             echo "::endgroup::"
-            exit "${XC_EXIT:-1}"
+            exit $XC_EXIT
           fi
 
       # ------------------------------------------------------------------
