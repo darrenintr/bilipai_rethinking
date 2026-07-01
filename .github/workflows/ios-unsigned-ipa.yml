@@ -279,10 +279,15 @@ jobs:
           fi
 
       - name: Upload xcodebuild build log
+        run: |
+          cp "$RUNNER_TEMP/build_log.txt" "$GITHUB_WORKSPACE/build_log.txt" 2>/dev/null && echo "Copied log to workspace" || echo "No log to copy"
+        if: always()
+
+      - name: Upload xcodebuild build log (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-build-log-${{ github.run_number }}
-          path: ${{ env.RUNNER_TEMP }}/build_log.txt
+          path: ${{ github.workspace }}/build_log.txt
           retention-days: 7
           if-no-files-found: error
 
