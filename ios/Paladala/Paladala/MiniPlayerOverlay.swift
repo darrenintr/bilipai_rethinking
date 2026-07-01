@@ -67,26 +67,10 @@ struct MiniPlayerOverlay: View {
                     Haptics.selection()
                     store.togglePlayPause()
                 } label: {
-                    ZStack {
-                        Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 36, height: 36)
-                        // Compact error badge overlaid on the play button.
-                        // Tapping expands the mini-player to the full
-                        // detail view where the full error overlay shows.
-                        if store.playerError != nil {
-                            Image(systemName: "exclamationmark.circle.fill")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.orange)
-                                .background(
-                                    Circle()
-                                        .fill(.white)
-                                        .frame(width: 10, height: 10)
-                                        .offset(x: 10, y: -10)
-                                )
-                        }
-                    }
+                    Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 36, height: 36)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(store.isPlaying ? "Pause" : "Play")

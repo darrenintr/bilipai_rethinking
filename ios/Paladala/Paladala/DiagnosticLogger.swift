@@ -275,11 +275,13 @@ final class DiagnosticLogger: ObservableObject {
         return report
     }
 
-    @MainActor
     func export(activeAccount: StoredAccount? = nil) -> URL? {
-        // generateReport is @MainActor; all callers are SwiftUI View
-        // structs (implicitly @MainActor), so direct call is safe.
-        let report = generateReport(activeAccount: activeAccount)
+        // generateReport is @MainActor; we are typically called
+        // from a button on the main thread.  Use MainActor.assumeIsolated
+        // to keep the call synchronous.
+        let report = MainActor.assumeIsolated {
+            generateReport(activeAccount: activeAccount)
+        }
         let fileName = "Paladala_Diagnostic_\(Int(Date().timeIntervalSince1970)).txt"
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(fileName)

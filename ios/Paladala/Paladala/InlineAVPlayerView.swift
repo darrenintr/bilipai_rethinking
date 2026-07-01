@@ -378,13 +378,6 @@ extension Notification.Name {
     /// finishes activating) and the button would stay
     /// hidden forever.
     static let paladalaPiPPossibleChanged = Notification.Name("paladala.pip.possibleChanged")
-    /// Posted by `LocalHLSProxyServer` when a segment request
-    /// exhausts all retries and sends a hard 502 to AVPlayer.
-    /// `userInfo["httpStatus"]` carries the HTTP status code.
-    /// `PlayerController` observes this and sets
-    /// `playerError = .proxyFailed` so the overlay shows a
-    /// proxy-specific message instead of the generic stall.
-    static let paladalaProxyFailed = Notification.Name("paladala.proxy.failed")
 }
 
 // MARK: - Holder

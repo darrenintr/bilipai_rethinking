@@ -99,15 +99,7 @@ struct PlayerView: View {
             // overlays (buffering, double-tap) keep their
             // previous behaviour.
             ZStack {
-                // Error overlay takes priority over buffering.
-                if let error = controller.playerError {
-                    PlayerErrorOverlay(
-                        error: error,
-                        onRecovery: { controller.onRecoveryRequested?() },
-                        onQualityFallback: { qn in controller.onQualityFallbackRequested?(qn) }
-                    )
-                    .transition(.opacity)
-                } else if controller.isBuffering {
+                if controller.isBuffering {
                     loadingOverlay
                         .transition(.opacity)
                         .allowsHitTesting(false)
@@ -155,33 +147,17 @@ struct PlayerView: View {
     }
 
     /// Spinner + KB/s readout shown during stalls.
-    /// Includes a "degraded" badge when the proxy is in
-    /// single-segment fallback mode so users understand
-    /// why scrubbing past the buffer may stall.
     private var loadingOverlay: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             ProgressView()
                 .tint(.white)
                 .controlSize(.regular)
             Text(formatNetworkSpeed(controller.networkSpeed))
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.white.opacity(0.9))
-            // Degraded mode badge: shown when the proxy fell
-            // back to single-segment because the size probe
-            // timed out.  Users may wonder why scrubbing stalls;
-            // this makes the root cause visible.
-            if controller.proxyIsDegraded {
-                HStack(spacing: 4) {
-                    Image(systemName: "wifi.exclamationmark")
-                        .font(.caption2)
-                    Text("弱网模式")
-                        .font(.caption2)
-                }
-                .foregroundStyle(.orange)
-            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(
             .black.opacity(0.55),
             in: RoundedRectangle(
@@ -190,7 +166,7 @@ struct PlayerView: View {
             )
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(controller.proxyIsDegraded ? "Loading video, weak network mode" : "Loading video")
+        .accessibilityLabel("Loading video")
     }
 
     private func formatNetworkSpeed(_ bytesPerSecond: Double) -> String {
@@ -461,13 +437,13 @@ private struct FullscreenPlayerOverlay: View {
                         showingSpeedBadge = false
                     }
                 }
-
+            
             DoubleTapOverlay(
                 video: video,
                 repository: repository,
                 controller: controller
             )
-
+            
             VStack {
                 if showingSpeedBadge {
                     HStack {
@@ -492,15 +468,7 @@ private struct FullscreenPlayerOverlay: View {
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showingSpeedBadge)
 
-            // Error overlay takes priority over buffering.
-            if let error = controller.playerError {
-                PlayerErrorOverlay(
-                    error: error,
-                    onRecovery: { controller.onRecoveryRequested?() },
-                    onQualityFallback: { qn in controller.onQualityFallbackRequested?(qn) }
-                )
-                .transition(.opacity)
-            } else if controller.isBuffering {
+            if controller.isBuffering {
                 VStack(spacing: 10) {
                     ProgressView()
                         .tint(.white)
@@ -522,7 +490,6 @@ private struct FullscreenPlayerOverlay: View {
             }
         }
         .animation(.default, value: controller.isBuffering)
-        .animation(.easeInOut(duration: 0.25), value: controller.playerError != nil)
     }
 
     private func formatNetworkSpeed(_ bytesPerSecond: Double) -> String {
@@ -534,124 +501,6 @@ private struct FullscreenPlayerOverlay: View {
             return String(format: "%.0f KB/s", bytesPerSecond / 1_000)
         }
         return String(format: "%.0f B/s", bytesPerSecond)
-    }
-}
-
-// MARK: - Player error overlay
-
-/// Full-screen overlay shown on the player surface when a playback
-/// error is detected.  Displays a clear title, a user-facing message,
-/// and an actionable recovery button.  Replaces the spinner when
-/// AVPlayer stalls for more than 10 s or hits a fatal error.
-struct PlayerErrorOverlay: View {
-    let error: PlayerPlaybackError
-    /// Callback invoked when the user taps the recovery button.
-    /// Wired by `PlayerView` / `FullscreenPlayerOverlay` so the
-    /// view model can re-init playback.
-    let onRecovery: () -> Void
-    /// Optional quality-fallback hint.  When non-nil, shows a
-    /// secondary "try 480P" link below the main recovery button.
-    let onQualityFallback: ((Int) -> Void)?
-
-    /// Suggested fallback quality code.  When non-nil, renders a
-    /// "try 480P" button beneath the main retry.
-    private let suggestedQn: Int?
-
-    init(error: PlayerPlaybackError, onRecovery: @escaping () -> Void, onQualityFallback: ((Int) -> Void)? = nil, suggestedQn: Int? = nil) {
-        self.error = error
-        self.onRecovery = onRecovery
-        self.onQualityFallback = onQualityFallback
-        self.suggestedQn = suggestedQn
-    }
-
-    var body: some View {
-        ZStack {
-            // Semi-transparent backdrop so the error is legible
-            // regardless of the video content behind it.
-            Color.black.opacity(0.72)
-                .allowsHitTesting(false)
-
-            VStack(spacing: 16) {
-                // Error icon
-                Image(systemName: errorIcon)
-                    .font(.system(size: 48, weight: .light))
-                    .foregroundStyle(.white.opacity(0.9))
-
-                VStack(spacing: 6) {
-                    Text(error.title)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-
-                    Text(error.message)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.78))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                // Primary recovery button
-                Button {
-                    Haptics.medium()
-                    onRecovery()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: recoveryIcon)
-                        Text(error.recoveryAction.buttonLabel)
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(.white, in: RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle))
-                }
-                .buttonStyle(.plain)
-
-                // Quality-fallback hint (shown for format / VIP errors).
-                if let qn = suggestedQn ?? fallbackQn {
-                    Button {
-                        Haptics.tap()
-                        onQualityFallback?(qn)
-                    } label: {
-                        Text("尝试降低画质")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.65))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, -6)
-                }
-            }
-            .padding(28)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Playback error: \(error.title). \(error.message)")
-        .accessibilityHint("Tap the button to retry playback.")
-    }
-
-    private var errorIcon: String {
-        switch error {
-        case .itemFailed:       return "exclamationmark.triangle"
-        case .stoppedMidStream: return "wifi.exclamationmark"
-        case .proxyFailed:      return "server.rack"
-        case .prolongedStall:  return "clock.badge.exclamationmark"
-        }
-    }
-
-    private var recoveryIcon: String {
-        switch error.recoveryAction {
-        case .retryPlayback: return "arrow.clockwise"
-        case .retrySeek:    return "arrow.counterclockwise"
-        }
-    }
-
-    /// Hardcoded 480P (qn=16) as the quality-fallback hint.
-    /// Tapping it triggers `onQualityFallback(16)` in the VM.
-    private var fallbackQn: Int? {
-        switch error {
-        case .itemFailed: return 16   // codec / format issue — try lower
-        case .stoppedMidStream: return nil
-        case .proxyFailed: return nil
-        case .prolongedStall: return nil
-        }
     }
 }
 

@@ -206,24 +206,28 @@ struct LogViewerView: View {
     // MARK: - actions
 
     private func copyToClipboard() {
-        // Both DiagnosticLogger.shared and the View are @MainActor,
-        // so direct call is safe without assumeIsolated.
-        let report = DiagnosticLogger.shared.generateReport(
-            activeAccount: authStore.activeAccount
-        )
+        let report = MainActor.assumeIsolated {
+            DiagnosticLogger.shared.generateReport(
+                activeAccount: authStore.activeAccount
+            )
+        }
         UIPasteboard.general.string = report
         flashToast("已复制 (\(report.count) 字符)")
     }
 
     private func exportAndShare() {
-        let url = DiagnosticLogger.shared.export(
-            activeAccount: authStore.activeAccount
-        )
-        guard let url else {
-            // Fall back to clipboard.
-            let report = DiagnosticLogger.shared.generateReport(
+        let url = MainActor.assumeIsolated {
+            DiagnosticLogger.shared.export(
                 activeAccount: authStore.activeAccount
             )
+        }
+        guard let url else {
+            // Fall back to clipboard.
+            let report = MainActor.assumeIsolated {
+                DiagnosticLogger.shared.generateReport(
+                    activeAccount: authStore.activeAccount
+                )
+            }
             UIPasteboard.general.string = report
             flashToast("已复制 (\(report.count) 字符)")
             return
