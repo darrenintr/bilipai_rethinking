@@ -287,6 +287,7 @@ private struct EventRow: View {
         case .app, .lifecycle:       return .purple
         case .system:                return .gray
         case .download:              return .indigo
+        case .music:                 return .yellow
         }
     }
 }
