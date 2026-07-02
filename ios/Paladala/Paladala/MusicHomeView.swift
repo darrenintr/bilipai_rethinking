@@ -46,6 +46,10 @@ struct MusicHomeView: View {
                         ForEach(model.videos) { video in
                             Button {
                                 Haptics.tap()
+                                diagLog(.music, "MusicCard tap", details: [
+                                    "bvid": video.bvid,
+                                    "title": video.title
+                                ])
                                 router.openMusic(video)
                             } label: {
                                 MusicCard(video: video)
@@ -61,6 +65,12 @@ struct MusicHomeView: View {
         .scrollIndicators(.hidden)
         .navigationTitle(L10n.music.title)
         .task {
+            diagLog(.music, "MusicHomeView appeared")
+        }
+        .onDisappear {
+            diagLog(.music, "MusicHomeView disappeared")
+        }
+        .task(id: "music-load") {
             await model.load(repository: repository)
         }
         .refreshable {
@@ -282,10 +292,18 @@ struct MusicPlayerView: View {
             }
         }
         .task {
+            diagLog(.music, "MusicPlayerView appeared", details: [
+                "bvid": video.bvid,
+                "title": video.title
+            ])
             await loadPlayback()
             await loadLyrics()
         }
         .onDisappear {
+            diagLog(.music, "MusicPlayerView disappeared", details: [
+                "bvid": video.bvid,
+                "hadController": controller != nil
+            ])
             controller?.tearDown()
             controller = nil
         }
@@ -412,6 +430,10 @@ struct MusicPlayerView: View {
     // MARK: - Player lifecycle
 
     private func loadPlayback() async {
+        diagLog(.music, "MusicPlayerView.loadPlayback start", details: [
+            "bvid": video.bvid,
+            "qn": 80
+        ])
         do {
             let resolved = try await repository.playback(for: video, qn: 80)
             playback = resolved
@@ -419,12 +441,25 @@ struct MusicPlayerView: View {
                 controller = PlayerController(playback: resolved, video: video)
             }
             errorMessage = nil
+            diagLog(.music, "MusicPlayerView.loadPlayback success", details: [
+                "bvid": video.bvid,
+                "isDASH": resolved.dash != nil,
+                "hasFallback": false
+            ])
         } catch {
             errorMessage = "\(error.localizedDescription)"
+            diagLog(.music, "MusicPlayerView.loadPlayback failed", details: [
+                "bvid": video.bvid,
+                "error": "\(error)",
+                "localized": error.localizedDescription
+            ])
         }
     }
 
     private func loadLyrics() async {
+        diagLog(.music, "MusicPlayerView.loadLyrics start", details: [
+            "bvid": video.bvid
+        ])
         do {
             let track = try await repository.videoLyrics(for: video)
             // Tiny delay so the user sees the loading placeholder
@@ -432,9 +467,18 @@ struct MusicPlayerView: View {
             // so fast it looks like a render bug.
             try? await Task.sleep(nanoseconds: 200_000_000)
             lyrics = track
+            diagLog(.music, "MusicPlayerView.loadLyrics success", details: [
+                "bvid": video.bvid,
+                "lineCount": track?.lines.count ?? 0
+            ])
         } catch {
             // Non-fatal: the view falls back to "no lyrics" copy.
             lyrics = nil
+            diagLog(.music, "MusicPlayerView.loadLyrics failed", details: [
+                "bvid": video.bvid,
+                "error": "\(error)",
+                "localized": error.localizedDescription
+            ])
         }
     }
 

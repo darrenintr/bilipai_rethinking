@@ -45,6 +45,7 @@ final class DiagnosticLogger: ObservableObject {
         case lifecycle = "LC"   // scenePhase transitions
         case session = "SES"    // network-type transitions, AuthStore.refresh
         case download = "DOWN"  // DownloadManager + DownloadStore lifecycle
+        case music = "MUSIC"    // MusicHomeView / MusicPlayerView
     }
 
     struct Event: Identifiable {

@@ -111,6 +111,10 @@ final class AppRouter: ObservableObject {
     /// so the existing `.navigationDestination(for:)` machinery
     /// resolves it into a `MusicPlayerView`.
     func openMusic(_ video: BiliVideo) {
+        diagLog(.music, "AppRouter.openMusic", details: [
+            "bvid": video.bvid,
+            "title": video.title
+        ])
         selectedTab = .music
         path.append(MusicRoute.player(video))
     }

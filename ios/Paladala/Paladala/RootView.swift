@@ -10,6 +10,24 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @AppStorage("paladala.didOnboard") private var didOnboard: Bool = false
+    /// Timestamp of the most recent transition out of `.active`
+    /// (i.e. when the user locked the screen or switched apps).
+    /// Used by the `scenePhase` change handler to decide whether
+    /// the upcoming `.active` is a "long" background — if it
+    /// is, we tear down `LocalHLSProxyServer` so the next
+    /// `serve(playback:)` starts on a fresh port.  Without
+    /// this the user gets a stuck spinner and `NSURLError
+    /// -1004 "Could not connect to the server."` for every
+    /// video they try to play after the screen has been
+    /// locked for more than a few seconds.
+    @State private var lastBackgroundAt: Date?
+    /// The threshold above which a background → foreground
+    /// transition is treated as "long" and triggers a proxy
+    /// teardown.  Picked at 5 s: shorter than that and we
+    /// would race the user's own quick app-switches; longer
+    /// than that and iOS has had time to suspend the
+    /// `NWListener` and the upstream `URLSession` leg.
+    private static let longBackgroundThreshold: TimeInterval = 5
 
     /// Mirror of `networkMonitor.isOnline` so the `RootView.body`
     /// re-evaluates when connectivity changes. We don't observe the
@@ -35,10 +53,37 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
-                diagLog(.lifecycle, "app.foreground")
+                // Recreate the local HLS proxy on the long
+                // background → foreground path.  iOS suspends
+                // the `NWListener` and the upstream
+                // `URLSession` legs while we are backgrounded;
+                // the listener's `state` callback never fires
+                // `.cancelled`, so the proxy stays alive-but-
+                // dead and every video opened after a long
+                // lock screen fails with `NSURLError -1004`.
+                // Tearing the proxy down here forces the
+                // next `serve(playback:)` to allocate a new
+                // port and a fresh upstream session.
+                let backgroundDuration: TimeInterval? =
+                    lastBackgroundAt.map {
+                        Date().timeIntervalSince($0)
+                    }
+                let wasLong = (backgroundDuration ?? 0)
+                    >= Self.longBackgroundThreshold
+                diagLog(.lifecycle, "app.foreground", details: [
+                    "backgroundSeconds":
+                        backgroundDuration.map { String(format: "%.2f", $0) }
+                            ?? "unknown",
+                    "longBackground": wasLong
+                ])
+                if wasLong {
+                    LocalHLSProxyServer.shared.recreateForResume()
+                }
+                lastBackgroundAt = nil
                 Analytics.log("app_foreground")
                 router.consumePendingIntentRoute()
             case .background:
+                lastBackgroundAt = Date()
                 diagLog(.lifecycle, "app.background")
                 Analytics.log("app_background")
             case .inactive:

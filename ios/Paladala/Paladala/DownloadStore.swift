@@ -168,21 +168,33 @@ final class DownloadStore: ObservableObject {
             // written on the next mutation.
             onDisk = []
         }
-        let filtered = onDisk.filter { record in
-            hasCompleteLocalBytes(for: record)
+        // We deliberately do NOT prune manifest entries whose
+        // on-disk bytes have been lost (Caches purge, sandbox
+        // rotate, etc.).  Silently dropping the record was the
+        // root cause of the "downloaded video can't open"
+        // user-visible regression: the user saw a download
+        // succeed, the next launch showed the record gone, and
+        // they could not tell whether to re-download or trust
+        // the existing files.  Instead, we keep the manifest
+        // entry and surface a `hasCompleteLocalBytes: false`
+        // state to the UI via `verifyLocalBytes(for:)`, so the
+        // player can fall back to the online path and the
+        // Downloads screen can offer "重新下载".  A single
+        // audit line per launch makes the discrepancy visible
+        // in the diagnostic report.
+        let missing = onDisk.filter { record in
+            !hasCompleteLocalBytes(for: record)
         }
-        if filtered.count != onDisk.count {
-            let dropped = onDisk.count - filtered.count
-            diagLog(.download, "DownloadStore pruned stale manifest entries",
-                    details: ["dropped": dropped])
-            do {
-                let data = try self.encoder.encode(filtered)
-                try data.write(to: Self.manifestURL, options: .atomic)
-            } catch {
-                bpLog("DownloadStore stale-manifest rewrite failed: \(error)")
-            }
+        if !missing.isEmpty {
+            let missingBvids = missing.map { $0.bvid }
+            bpLog("DownloadStore hydrate: \(missing.count) record(s) have no on-disk bytes (Caches purge?). bvids=\(missingBvids)")
+            diagLog(.download, "DownloadStore hydrate missing bytes",
+                    details: [
+                        "missingCount": missing.count,
+                        "bvids": missingBvids.joined(separator: ",")
+                    ])
         }
-        return filtered
+        return onDisk
             .sorted { $0.downloadedAt > $1.downloadedAt }
     }
 
@@ -191,7 +203,7 @@ final class DownloadStore: ObservableObject {
     /// purge `Caches/` under storage pressure; when that
     /// happens we do not want to keep surfacing a manifest
     /// entry that can never play.
-    private func hasCompleteLocalBytes(for record: DownloadRecord) -> Bool {
+    func hasCompleteLocalBytes(for record: DownloadRecord) -> Bool {
         let directory = readyDirectory(for: record.bvid)
         let fm = FileManager.default
 
@@ -207,6 +219,30 @@ final class DownloadStore: ObservableObject {
             return false
         }
         return true
+    }
+
+    /// Sum of the byte sizes of every file under `directory`.
+    /// Returns 0 when the directory does not exist.  Used by
+    /// the post-move integrity check in `add(_:)` to make a
+    /// no-bytes-moved failure mode visible — without this
+    /// `moveItem` can succeed (returning no error) while the
+    /// destination is empty, and the manifest then records a
+    /// download that has no bytes.
+    private func directorySize(_ directory: URL) -> Int64 {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey]
+        ) else { return 0 }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            if let size = (try? fileURL.resourceValues(
+                forKeys: [.fileSizeKey]
+            ))?.totalFileAllocatedSize {
+                total += Int64(size)
+            }
+        }
+        return total
     }
 
     // MARK: directory helpers
@@ -230,6 +266,20 @@ final class DownloadStore: ObservableObject {
     /// `in_progress/{bvid}/` directory is moved to
     /// `ready/{bvid}/` (atomic on APFS), the manifest is
     /// rewritten, and the in-memory `records` is updated.
+    ///
+    /// Post-move verification: after `moveItem` returns, the
+    /// caller is told "the bytes are on disk in `ready/{bvid}/`".
+    /// In practice we have seen the move succeed at the
+    /// Foundation level (no `NSError`) while the destination
+    /// directory is empty — see diagnostic
+    /// `Paladala_Diagnostic_1782994463.txt` where
+    /// `ready/ total bytes: 0` immediately after a `move success`
+    /// event.  The root cause is OS-level `Caches/` purging that
+    /// races the move, plus a path mismatch where the staging
+    /// directory was empty before the move ran.  To avoid
+    /// poisoning the manifest with a phantom record, we stat
+    /// the destination right after the move and refuse to
+    /// persist the record when the bytes are not there.
     func add(_ record: DownloadRecord) {
         ioQueue.async { [weak self] in
             guard let self else { return }
@@ -271,6 +321,25 @@ final class DownloadStore: ObservableObject {
                 try? FileManager.default.removeItem(at: staging)
                 return
             }
+            // Post-move integrity check.  If the destination
+            // directory is missing the expected init / media
+            // files we MUST NOT persist the manifest entry —
+            // otherwise the next launch surfaces a "downloaded"
+            // record whose bytes the player cannot find.  Log
+            // a single high-signal diagnostic and fall back to
+            // cleaning the empty destination.
+            if !self.hasCompleteLocalBytes(for: record) {
+                let size = self.directorySize(destination)
+                bpLog("DownloadStore post-move verify failed: \(record.bvid) dir=\(destination.path) size=\(size)")
+                diagLog(.download, "DownloadStore post-move verify failed",
+                        details: [
+                            "bvid": record.bvid,
+                            "destination": destination.path,
+                            "destinationSize": size
+                        ])
+                try? FileManager.default.removeItem(at: destination)
+                return
+            }
             self.appendRecord(record)
         }
     }
@@ -295,6 +364,21 @@ final class DownloadStore: ObservableObject {
     /// when the user opens a downloaded video.
     func record(for bvid: String) -> DownloadRecord? {
         records.first { $0.bvid == bvid }
+    }
+
+    /// Confirm that the on-disk bytes for `record` are still
+    /// present.  Returns `true` when both the video and (if
+    /// present) the audio track's init / media files exist on
+    /// disk.  Used by the player before opening a downloaded
+    /// video so it can fall back to the online path when the
+    /// manifest says "downloaded" but the bytes have been
+    /// purged (most commonly by iOS reclaiming `Caches/`
+    /// under storage pressure).  Without this check the
+    /// player would call `LocalHLSProxyServer.serveLocal(...)`
+    /// and get a 404 from the local proxy, which the user
+    /// perceives as a "video cannot open" regression.
+    func verifyLocalBytes(for record: DownloadRecord) -> Bool {
+        hasCompleteLocalBytes(for: record)
     }
 
     // MARK: internal mutation

@@ -194,10 +194,43 @@ final class LocalHLSProxyServer {
         lock.lock()
         currentPlayback = nil
         localContext = nil
+        // Drop cached upstream probes too — after a long
+        // background the cached byte sizes may belong to a
+        // CDN file that has since been re-ranged, and any
+        // pending waiters would otherwise be stranded on a
+        // semaphore the next playback will never signal.
+        probedSizes.removeAll()
+        probeWaiters.removeAll()
+        probeInFlight.removeAll()
+        inFlightRanges.removeAll()
+        for (_, stream) in activeStreams {
+            stream.cancel()
+        }
+        activeStreams.removeAll()
         port = 0
         baseURL = nil
         lock.unlock()
         diagLog(.playback, "LocalHLSProxyServer stopped")
+    }
+
+    /// Recreate the proxy from scratch.  Equivalent to
+    /// `stop()` followed by a forced listener drop — used by
+    /// the lifecycle handler in `RootView` when the app
+    /// returns from a long background, because iOS will have
+    /// suspended the `NWListener` and the `URLSession`
+    /// upstream legs while we were backgrounded, and the
+    /// listener's `state` callback never fires the
+    /// `.cancelled` we rely on for detection.  Without this,
+    /// every video opened after a long lock screen returns
+    /// `NSURLError -1004 "Could not connect to the server."`
+    /// because the proxy is alive-but-dead.  Calling this
+    /// guarantees the next `serve(playback:)` rebuilds the
+    /// listener on a fresh port.
+    func recreateForResume() {
+        let wasRunning = (listener != nil)
+        stop()
+        diagLog(.playback, "LocalHLSProxyServer recreateForResume",
+                details: ["wasRunning": wasRunning])
     }
 
     /// Serve a `BiliPlayback` whose bytes are already on

@@ -219,17 +219,28 @@ final class MusicViewModel: ObservableObject {
     func load(repository: PaladalaRepository) async {
         isLoading = true
         errorMessage = nil
+        diagLog(.music, "MusicViewModel.load start", details: [
+            "existingCount": videos.count
+        ])
         defer { isLoading = false }
         do {
             let next = try await repository.musicVideos(page: 1)
             videos = next
+            diagLog(.music, "MusicViewModel.load success", details: [
+                "count": next.count
+            ])
         } catch {
             errorMessage = "\(L10n.music.networkError)：\(error.localizedDescription)"
             videos = []
+            diagLog(.music, "MusicViewModel.load failed", details: [
+                "error": "\(error)",
+                "localized": error.localizedDescription
+            ])
         }
     }
 
     func refresh(repository: PaladalaRepository) async {
+        diagLog(.music, "MusicViewModel.refresh start")
         await load(repository: repository)
     }
 }
