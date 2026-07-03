@@ -635,12 +635,25 @@ final class LocalHLSProxyServer {
     // MARK: diagnostic helpers
 
     /// Toggle for the raw-wire diagnostic dump in
-    /// `dumpWireBytes`.  We leave this on while diagnosing the
-    /// scrubber-seek-to-unbuffered bug; once the wire-level
-    /// root cause is identified and fixed, flip it to `false`
-    /// so the log isn't drowned in 500-byte byte dumps on
-    /// every segment.
-    fileprivate static let wireDumpEnabled = true
+    /// `dumpWireBytes`.  Off by default — the byte dumps
+    /// dominate the per-segment log cost (each fMP4 segment
+    /// produces ~3 dumps that together write 1.5 KB of binary
+    /// to the JSONL and run a `JSONEncoder` round-trip), and
+    /// a 5-minute 1080P video at 200 segments generates ~1,000
+    /// diagLog calls during a single playback. Flip to `true`
+    /// locally to debug the scrubber-seek-to-unbuffered bug.
+    fileprivate static let wireDumpEnabled = false
+
+    /// Toggle for the per-segment request / response metadata
+    /// lines — `upstream request`, `Content-Length sanity`,
+    /// `multi-segment playlist`, `single-segment playlist
+    /// fallback`. Each fires once per fMP4 segment and
+    /// dictionary-allocates on the calling queue, then hops to
+    /// main for the in-memory ring append and to the disk
+    /// queue for the JSONL write. Off by default for the same
+    /// reason as `wireDumpEnabled`; flip on locally when
+    /// debugging segment-level issues.
+    fileprivate static let requestMetadataLogEnabled = false
 
     /// Render the first 500 bytes of `data` as UTF-8 so the
     /// diagnostic log shows the actual HTTP framing we put on
@@ -950,18 +963,20 @@ final class LocalHLSProxyServer {
                 segmentURL: mediaURL,
                 initURL: initURL
             ) {
-                diagLog(.playback,
-                        "LocalHLSProxyServer multi-segment playlist",
-                        details: [
-                            "conn": connID,
-                            "kind": kind == .video ? "video" : "audio",
-                            "mediaTotalBytes": probedTotal,
-                            "mediaStartOffset": track.mediaStartOffset,
-                            "duration": total,
-                            "segmentCount": lines.filter {
-                                $0.hasPrefix("#EXTINF:")
-                            }.count
-                        ])
+                if Self.requestMetadataLogEnabled {
+                    diagLog(.playback,
+                            "LocalHLSProxyServer multi-segment playlist",
+                            details: [
+                                "conn": connID,
+                                "kind": kind == .video ? "video" : "audio",
+                                "mediaTotalBytes": probedTotal,
+                                "mediaStartOffset": track.mediaStartOffset,
+                                "duration": total,
+                                "segmentCount": lines.filter {
+                                    $0.hasPrefix("#EXTINF:")
+                                }.count
+                            ])
+                }
                 respondText(connection: connection, connID: connID,
                             body: lines.joined(separator: "\n"))
                 return
@@ -974,14 +989,16 @@ final class LocalHLSProxyServer {
         // which is the legacy behaviour — works for normal
         // playback but loses the ability to scrub past the
         // buffer.
-        diagLog(.playback,
-                "LocalHLSProxyServer single-segment playlist fallback",
-                details: [
-                    "conn": connID,
-                    "kind": kind == .video ? "video" : "audio",
-                    "probedTotal": probedTotal ?? -1,
-                    "mediaStartOffset": track.mediaStartOffset
-                ])
+        if Self.requestMetadataLogEnabled {
+            diagLog(.playback,
+                    "LocalHLSProxyServer single-segment playlist fallback",
+                    details: [
+                        "conn": connID,
+                        "kind": kind == .video ? "video" : "audio",
+                        "probedTotal": probedTotal ?? -1,
+                        "mediaStartOffset": track.mediaStartOffset
+                    ])
+        }
         let lines: [String] = [
             "#EXTM3U",
             "#EXT-X-VERSION:6",
@@ -1190,19 +1207,21 @@ final class LocalHLSProxyServer {
             lock.unlock()
         }
 
-        diagLog(.playback,
-                "LocalHLSProxyServer upstream request",
-                details: [
-                    "conn": connID,
-                    "mode": mode.logName,
-                    "host": upstream.host ?? "",
-                    "hasReferer": upstreamReq.value(
-                        forHTTPHeaderField: "Referer"
-                    ) != nil,
-                    "range": upstreamReq.value(
-                        forHTTPHeaderField: "Range"
-                    ) ?? ""
-                ])
+        if Self.requestMetadataLogEnabled {
+            diagLog(.playback,
+                    "LocalHLSProxyServer upstream request",
+                    details: [
+                        "conn": connID,
+                        "mode": mode.logName,
+                        "host": upstream.host ?? "",
+                        "hasReferer": upstreamReq.value(
+                            forHTTPHeaderField: "Referer"
+                        ) != nil,
+                        "range": upstreamReq.value(
+                            forHTTPHeaderField: "Range"
+                        ) ?? ""
+                    ])
+        }
         let stream = StreamingProxyTask(
             server: self,
             connection: connection,
@@ -2229,21 +2248,23 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         let upstreamCL: Int64 = http.expectedContentLength >= 0
             ? http.expectedContentLength
             : -1
-        diagLog(.network,
-                "LocalHLSProxyServer Content-Length sanity",
-                details: [
-                    "conn": connID,
-                    "mode": mode,
-                    "upstreamStatus": http.statusCode,
-                    "expectedContentLength": upstreamCL,
-                    "parsedContentRange": upstreamContentRange ?? "",
-                    "parsedRangeStart": rangeStart,
-                    "parsedRangeEnd": rangeEnd,
-                    "parsedRangeTotal": rangeTotal,
-                    "computedEndMinusStartPlus1": computed,
-                    "matches": upstreamCL < 0 || computed < 0
-                        || upstreamCL == computed
-                ])
+        if Self.requestMetadataLogEnabled {
+            diagLog(.network,
+                    "LocalHLSProxyServer Content-Length sanity",
+                    details: [
+                        "conn": connID,
+                        "mode": mode,
+                        "upstreamStatus": http.statusCode,
+                        "expectedContentLength": upstreamCL,
+                        "parsedContentRange": upstreamContentRange ?? "",
+                        "parsedRangeStart": rangeStart,
+                        "parsedRangeEnd": rangeEnd,
+                        "parsedRangeTotal": rangeTotal,
+                        "computedEndMinusStartPlus1": computed,
+                        "matches": upstreamCL < 0 || computed < 0
+                            || upstreamCL == computed
+                    ])
+        }
         diagLog(.playback,
                 "LocalHLSProxyServer upstream response",
                 details: [
