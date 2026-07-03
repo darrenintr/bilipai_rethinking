@@ -23,17 +23,15 @@ struct LiveRoomsView: View {
                     SkeletonGrid()
                         .padding(.top, 4)
                 } else if model.rooms.isEmpty {
-                    VStack(spacing: 14) {
-                        Image(systemName: "play.tv")
-                            .font(.system(size: 48, weight: .light))
-                            .foregroundStyle(PaladalaTheme.biliPink.opacity(0.7))
-                        Text(model.errorMessage == nil ? "暂无直播间" : "直播间列表暂不可用")
-                            .font(.headline)
-                        Text(model.errorMessage == nil ? "稍后再来，下拉刷新试试。" : "Bilibili 未返回公开的直播列表。")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
+                    ContentUnavailableView(
+                        model.errorMessage == nil ? "暂无直播间" : "直播间列表暂不可用",
+                        systemImage: "play.tv",
+                        description: Text(model.errorMessage == nil
+                                          ? "稍后再来，下拉刷新试试。"
+                                          : "Bilibili 未返回公开的直播列表。")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 260)
+                    .overlay(alignment: .bottom) {
                         Button {
                             Haptics.tap()
                             Task { await model.load(repository: repository) }
@@ -42,10 +40,8 @@ struct LiveRoomsView: View {
                                 .font(.subheadline.weight(.semibold))
                         }
                         .buttonStyle(.bordered)
+                        .padding(.bottom, 24)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 260)
-                    .padding()
-                    .paladalaCardSurface(materialDesign)
                 } else {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(model.rooms) { room in
@@ -179,10 +175,17 @@ private struct LivePlayerView: View {
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
+            // Color-only status indicators must pair with an
+            // icon + shape per HIG. We use both the brand-pink
+            // "watching" label and a system-red dot to encode
+            // the live status; `accessibilityHidden(true)` keeps
+            // the decorative dot from being read aloud so the
+            // label is the single source of truth.
             HStack(spacing: 6) {
                 Circle()
-                    .fill(.red)
+                    .fill(Color(uiColor: .systemRed))
                     .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
                 Text("\(room.viewerCount.compactCount) watching")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(PaladalaTheme.biliPink)

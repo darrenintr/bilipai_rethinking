@@ -97,7 +97,7 @@ struct LoginSheet: View {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 32))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color(uiColor: .systemOrange))
                     Text(message)
                         .font(.caption)
                         .foregroundStyle(.secondary)

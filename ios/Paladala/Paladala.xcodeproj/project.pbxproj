@@ -44,7 +44,6 @@
 		100000000000000000000123 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000225 /* NetworkMonitor.swift */; };
 		100000000000000000000124 /* MiniPlayerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000226 /* MiniPlayerStore.swift */; };
 		100000000000000000000125 /* MiniPlayerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000227 /* MiniPlayerOverlay.swift */; };
-		100000000000000000000126 /* BackGestureEnabler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000228 /* BackGestureEnabler.swift */; };
 		10000000000000000000012A /* Localizable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022A /* Localizable.swift */; };
 		10000000000000000000012B /* MusicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022B /* MusicService.swift */; };
 		10000000000000000000012C /* MusicHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022C /* MusicHomeView.swift */; };
@@ -112,7 +111,6 @@
 		100000000000000000000225 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		100000000000000000000226 /* MiniPlayerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerStore.swift; sourceTree = "<group>"; };
 		100000000000000000000227 /* MiniPlayerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerOverlay.swift; sourceTree = "<group>"; };
-		100000000000000000000228 /* BackGestureEnabler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackGestureEnabler.swift; sourceTree = "<group>"; };
 		10000000000000000000022A /* Localizable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localizable.swift; sourceTree = "<group>"; };
 		10000000000000000000022B /* MusicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicService.swift; sourceTree = "<group>"; };
 		10000000000000000000022C /* MusicHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicHomeView.swift; sourceTree = "<group>"; };
@@ -199,7 +197,6 @@
 				100000000000000000000225 /* NetworkMonitor.swift */,
 				100000000000000000000226 /* MiniPlayerStore.swift */,
 				100000000000000000000227 /* MiniPlayerOverlay.swift */,
-				100000000000000000000228 /* BackGestureEnabler.swift */,
 				10000000000000000000022A /* Localizable.swift */,
 				10000000000000000000022B /* MusicService.swift */,
 				10000000000000000000022C /* MusicHomeView.swift */,
@@ -498,7 +495,6 @@
 				100000000000000000000123 /* NetworkMonitor.swift in Sources */,
 				100000000000000000000124 /* MiniPlayerStore.swift in Sources */,
 				100000000000000000000125 /* MiniPlayerOverlay.swift in Sources */,
-				100000000000000000000126 /* BackGestureEnabler.swift in Sources */,
 				10000000000000000000012A /* Localizable.swift in Sources */,
 				10000000000000000000012B /* MusicService.swift in Sources */,
 				10000000000000000000012C /* MusicHomeView.swift in Sources */,

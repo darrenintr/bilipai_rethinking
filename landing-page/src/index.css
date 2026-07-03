@@ -1,10 +1,29 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  /* Apple-style font stack: SF Pro Display / SF Pro Text on Apple
+     devices, Inter as the cross-platform fallback that matches SF
+     Pro's letter shapes and metrics. Mono uses the system mono
+     stack (SF Mono / Menlo) so it tracks the OS instead of pulling
+     in JetBrains Mono. */
+  --font-sans: "SF Pro Display", "SF Pro Text", -apple-system,
+               BlinkMacSystemFont, "Inter", "Helvetica Neue",
+               system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 
+  /* Apple-actual product-page colors. */
+  --color-text-primary: #1d1d1f;
+  --color-text-secondary: #6e6e73;
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f5f5f7;
+  --color-accent: #0071e3;
+  --color-accent-hover: #0077ed;
+  --color-border-hairline: rgba(0, 0, 0, 0.08);
+  --color-border-hover: rgba(0, 0, 0, 0.16);
+
+  /* Bilibili brand — kept but restricted to one accent use per
+     section. The page primarily leans on Apple's neutral palette. */
   --color-bili-pink: #FB7299;
   --color-bili-pink-hover: #E05B80;
   --color-bili-pink-light: #FFF0F3;
@@ -14,18 +33,43 @@
 }
 
 @layer utilities {
-  .text-glow-bili {
-    text-shadow: 0 0 20px rgba(251, 114, 153, 0.4);
-  }
-  .bg-grid-pattern {
-    background-size: 30px 30px;
-    background-image: linear-gradient(to right, rgba(251, 114, 153, 0.05) 1px, transparent 1px),
-                      linear-gradient(to bottom, rgba(251, 114, 153, 0.05) 1px, transparent 1px);
-  }
+  /* Apple-style subtle grid; no pink tint. */
   .bg-grid-pattern-light {
     background-size: 40px 40px;
     background-image: linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
                       linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+  }
+
+  /* Apple hairline border. */
+  .border-hairline {
+    border: 1px solid var(--color-border-hairline);
+  }
+  .border-hairline-hover:hover {
+    border-color: var(--color-border-hover);
+  }
+
+  /* Apple-quiet CTA: filled pill, no shadow / glow / scale. */
+  .apple-pill {
+    background: var(--color-accent);
+    color: #ffffff;
+    border-radius: 980px;
+    padding: 12px 22px;
+    font-size: 17px;
+    font-weight: 400;
+    transition: background-color 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .apple-pill:hover {
+    background: var(--color-accent-hover);
+  }
+
+  /* Apple-quiet secondary "Learn more →" text CTA. */
+  .apple-link {
+    color: var(--color-accent);
+    font-size: 17px;
+    transition: opacity 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .apple-link:hover {
+    opacity: 0.7;
   }
 }
 
@@ -37,12 +81,25 @@ html {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #FFFFFF;
+  background: #ffffff;
 }
 ::-webkit-scrollbar-thumb {
-  background: #FB7299;
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #E05B80;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* Respect prefers-reduced-motion — disable smooth scrolling and
+   any transitions the system would otherwise animate. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

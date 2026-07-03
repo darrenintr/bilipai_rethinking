@@ -42,34 +42,35 @@ struct HomeView: View {
             feedContent(scrollProxy: proxy)
                 .background(Color.clear)
                 .navigationTitle("Paladala")
+                // System-provided search bar. Replaces the
+                // hand-rolled pill surface in `feedContent` —
+                // gets the magnifying-glass icon, clear
+                // button, cancel affordance, and search scopes
+                // integration for free.
+                .searchable(
+                    text: $model.searchQuery,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "搜索 Bilibili 视频"
+                )
+                .onSubmit(of: .search) {
+                    model.category = .search
+                    Task { await model.load(repository: repository, accountMid: accountMid) }
+                }
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         // 离线缓存 quick access. Lives in the top
                         // toolbar so the user can reach their
                         // downloaded videos without going through
-                        // the profile tab. Disabled-but-not-hidden
-                        // when the store is empty so the entry
-                        // stays a constant, findable landmark.
+                        // the profile tab. `.badge(Int)` gives the
+                        // iOS-standard corner pill — adapts to dark
+                        // mode + Increase Contrast automatically.
                         Button {
                             Haptics.tap()
                             router.open(.downloads)
                         } label: {
-                            Image(systemName: "arrow.down.circle")
-                                .overlay(alignment: .topTrailing) {
-                                    if !DownloadStore.shared.records.isEmpty {
-                                        Text("\(DownloadStore.shared.records.count)")
-                                            .font(.system(size: 9, weight: .bold))
-                                            .foregroundStyle(.white)
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 1)
-                                            .background(
-                                                Capsule().fill(PaladalaTheme.biliPink)
-                                            )
-                                            .offset(x: 6, y: -4)
-                                    }
-                                }
+                            Label("离线缓存", systemImage: "arrow.down.circle")
                         }
-                        .accessibilityLabel("离线缓存")
+                        .badge(DownloadStore.shared.records.count)
                         Button {
                             Haptics.tap()
                             Task { await model.load(repository: repository, accountMid: accountMid) }
@@ -132,7 +133,6 @@ struct HomeView: View {
                     .frame(height: 0)
                     .id("feedTop")
 
-                searchBar
                 categoryStrip
                 if model.category == .popular {
                     popularSubCategoryStrip
@@ -230,31 +230,6 @@ struct HomeView: View {
                 proxy.scrollTo("feedTop", anchor: .top)
             }
         }
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("搜索 Bilibili 视频", text: $model.searchQuery)
-                .textInputAutocapitalization(.never)
-                .submitLabel(.search)
-                .onSubmit {
-                    model.category = .search
-                    Task { await model.load(repository: repository, accountMid: accountMid) }
-                }
-            if !model.searchQuery.isEmpty {
-                Button {
-                    model.searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 44)
-        .paladalaPillSurface(materialDesign)
     }
 
     private var categoryStrip: some View {
@@ -416,20 +391,11 @@ private struct HomeEmptyState: View {
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: systemImage)
-                .font(.system(size: 56, weight: .light))
-                .foregroundStyle(PaladalaTheme.biliPink.opacity(0.8))
-                .padding(.bottom, 2)
-            VStack(spacing: 8) {
-                Text(title)
-                    .font(.headline)
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-            }
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
+            Text(description)
+        } actions: {
             HStack(spacing: 10) {
                 if let onRetry {
                     Button {
@@ -456,8 +422,6 @@ private struct HomeEmptyState: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 260)
-        .padding()
-        .paladalaCardSurface(materialDesign)
     }
 
     private var title: String {

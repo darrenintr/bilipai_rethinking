@@ -39,17 +39,23 @@ struct LogViewerView: View {
     /// push/dismiss cycle can't interfere with the parent
     /// settings view.
     @State private var shareURL: URL? = nil
-    @State private var showShareSheet = false
     @State private var copyToast: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
             filterChipsBar
-            searchField
             eventList
         }
         .navigationTitle("诊断日志")
         .navigationBarTitleDisplayMode(.inline)
+        // System-provided search bar. Replaces the hand-rolled
+        // pill surface — gets the magnifying-glass icon, clear
+        // button, and cancel affordance for free.
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "搜索消息 / 详情"
+        )
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -58,17 +64,24 @@ struct LogViewerView: View {
                     Image(systemName: "doc.on.clipboard")
                 }
                 .accessibilityLabel("复制报告")
-                Button {
-                    exportAndShare()
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
+                if let shareURL {
+                    // Once the URL is prepared, the system
+                    // `ShareLink` takes over — gives AirDrop /
+                    // Save-to-Files / Mail / Messages for free
+                    // without an `UIActivityViewController`
+                    // bridge.
+                    ShareLink(item: shareURL) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("分享报告")
+                } else {
+                    Button {
+                        exportAndShare()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("分享报告")
                 }
-                .accessibilityLabel("分享报告")
-            }
-        }
-        .sheet(isPresented: $showShareSheet) {
-            if let url = shareURL {
-                ShareSheet(activityItems: [url])
             }
         }
         .overlay(alignment: .bottom) {
@@ -137,32 +150,6 @@ struct LogViewerView: View {
         }
     }
 
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("搜索消息 / 详情", text: $searchText)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(8)
-        .background(
-            Color(uiColor: .secondarySystemBackground),
-            in: RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
-        )
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
-    }
-
     private var filtered: [DiagnosticLogger.Event] {
         let needle = searchText
         return logger.events.reversed().filter { event in
@@ -226,13 +213,10 @@ struct LogViewerView: View {
             flashToast("已复制 (\(report.count) 字符)")
             return
         }
-        // Set the URL on the same main-actor tick that flips
-        // the boolean.  SwiftUI re-evaluates the .sheet content
-        // closure once and sees both `url` non-nil and
-        // `showShareSheet == true`, so the iOS share sheet
-        // appears with the file ready to share.
+        // Set the URL so the toolbar's `ShareLink` picks it up
+        // on the next render. No sheet flip needed — the system
+        // share sheet pops itself when the user taps the link.
         shareURL = url
-        showShareSheet = true
     }
 
     private func flashToast(_ message: String) {
@@ -279,15 +263,18 @@ private struct EventRow: View {
     }
 
     private func categoryColor(_ c: DiagnosticLogger.Category) -> Color {
+        // System colors adapt to dark mode + Increase Contrast
+        // automatically; raw `Color.blue/orange/...` literals
+        // stay locked to a single fixed value.
         switch c {
         case .playback, .fullscreen: return PaladalaTheme.biliPink
-        case .network, .session:     return .blue
-        case .auth:                  return .orange
-        case .recommendation:        return .green
-        case .app, .lifecycle:       return .purple
-        case .system:                return .gray
-        case .download:              return .indigo
-        case .music:                 return .yellow
+        case .network, .session:     return Color(uiColor: .systemBlue)
+        case .auth:                  return Color(uiColor: .systemOrange)
+        case .recommendation:        return Color(uiColor: .systemGreen)
+        case .app, .lifecycle:       return Color(uiColor: .systemPurple)
+        case .system:                return Color(uiColor: .systemGray)
+        case .download:              return Color(uiColor: .systemIndigo)
+        case .music:                 return Color(uiColor: .systemYellow)
         }
     }
 }

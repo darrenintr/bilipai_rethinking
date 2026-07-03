@@ -31,12 +31,14 @@ import UIKit
 struct DeepDiagnosticReportView: View {
     @EnvironmentObject private var authStore: AuthStore
 
-    /// Local sheet state.  Set on the same main-actor tick
-    /// as `showShareSheet = true` so the sheet content
-    /// closure sees both `shareURL` and the boolean together
-    /// — no blank-sheet race.
+    /// Lazily-prepared report URL.  We delay building it
+    /// until the user taps "导出深度诊断报告", because
+    /// `DiagnosticLogger.export` writes to the temp directory
+    /// (which is fine but not free).  Once `shareURL` is
+    /// non-nil the primary action flips to a `ShareLink`;
+    /// if the temp-file write fails we copy the report to
+    /// the clipboard instead.
     @State private var shareURL: URL? = nil
-    @State private var showShareSheet = false
     @State private var generating = false
     @State private var copyToast: String? = nil
 
@@ -49,23 +51,40 @@ struct DeepDiagnosticReportView: View {
             }
 
             Section {
-                Button {
-                    Haptics.tap()
-                    generateAndShare()
-                } label: {
-                    HStack {
-                        if generating {
-                            ProgressView().controlSize(.small)
-                        } else {
+                if let shareURL {
+                    // Once the URL is prepared, the system
+                    // `ShareLink` takes over — gives AirDrop /
+                    // Save-to-Files / Mail / Messages for free
+                    // without an `UIActivityViewController`
+                    // bridge.
+                    ShareLink(item: shareURL) {
+                        HStack {
                             Image(systemName: "square.and.arrow.up.on.square")
+                            Text("导出深度诊断报告")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
                         }
-                        Text("导出深度诊断报告")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
+                } else {
+                    Button {
+                        Haptics.tap()
+                        generateAndShare()
+                    } label: {
+                        HStack {
+                            if generating {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "square.and.arrow.up.on.square")
+                            }
+                            Text("导出深度诊断报告")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .disabled(generating)
                 }
-                .disabled(generating)
             } header: {
                 Text("操作")
             } footer: {
@@ -92,11 +111,6 @@ struct DeepDiagnosticReportView: View {
         }
         .navigationTitle("深度诊断报告")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showShareSheet) {
-            if let url = shareURL {
-                ShareSheet(activityItems: [url])
-            }
-        }
         .overlay(alignment: .bottom) {
             if let copyToast {
                 Text(copyToast)
@@ -191,15 +205,13 @@ struct DeepDiagnosticReportView: View {
     private func generateAndShare() {
         generating = true
         defer { generating = false }
-        let url = DiagnosticLogger.shared.export(
+        if let url = DiagnosticLogger.shared.export(
             activeAccount: authStore.activeAccount
-        )
-        guard let url else {
+        ) {
+            shareURL = url
+        } else {
             copyReportToClipboard()
-            return
         }
-        shareURL = url
-        showShareSheet = true
     }
 
     /// Copy the report text to the clipboard and flash a

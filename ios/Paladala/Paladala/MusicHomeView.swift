@@ -92,17 +92,13 @@ struct MusicHomeView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(PaladalaTheme.biliPink.opacity(0.7))
-            Text(model.errorMessage == nil ? L10n.music.empty : L10n.music.networkError)
-                .font(.headline)
-            Text(L10n.music.emptyHint)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+        ContentUnavailableView(
+            model.errorMessage == nil ? L10n.music.empty : L10n.music.networkError,
+            systemImage: "music.note.list",
+            description: Text(L10n.music.emptyHint)
+        )
+        .frame(maxWidth: .infinity, minHeight: 260)
+        .overlay(alignment: .bottom) {
             Button {
                 Haptics.tap()
                 Task { await model.refresh(repository: repository) }
@@ -111,10 +107,8 @@ struct MusicHomeView: View {
                     .font(.subheadline.weight(.semibold))
             }
             .buttonStyle(.bordered)
+            .padding(.bottom, 24)
         }
-        .frame(maxWidth: .infinity, minHeight: 260)
-        .padding()
-        .paladalaCardSurface(materialDesign)
     }
 }
 

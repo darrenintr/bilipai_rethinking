@@ -23,8 +23,13 @@ struct DownloadedVideosView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var authStore: AuthStore
     @ObservedObject private var store = DownloadStore.shared
+    /// Lazily-prepared report URL. We delay building it until
+    /// the user taps, because `DiagnosticLogger.export` writes
+    /// to the temp directory (which is fine but not free).
+    /// Once `shareURL` is non-nil the toolbar shows a
+    /// `ShareLink`; if the temp-file write fails we copy the
+    /// report to the clipboard instead.
     @State private var shareURL: URL? = nil
-    @State private var showShareSheet = false
 
     var body: some View {
         Group {
@@ -57,19 +62,27 @@ struct DownloadedVideosView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Haptics.tap()
-                    shareDiagnosticReport()
-                } label: {
-                    Image(systemName: "square.and.arrow.up.on.square")
+                if let shareURL {
+                    // Once the URL is prepared, the system
+                    // `ShareLink` takes over — gives AirDrop /
+                    // Save-to-Files / Mail / Messages for free
+                    // without an `UIActivityViewController`
+                    // bridge.
+                    ShareLink(item: shareURL) {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                    }
+                    .accessibilityLabel("导出诊断日志")
+                    .accessibilityHint("导出诊断日志可发送给开发者排查下载问题")
+                } else {
+                    Button {
+                        Haptics.tap()
+                        shareDiagnosticReport()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                    }
+                    .accessibilityLabel("导出诊断日志")
+                    .accessibilityHint("导出诊断日志可发送给开发者排查下载问题")
                 }
-                .accessibilityLabel("导出诊断日志")
-                .accessibilityHint("导出诊断日志可发送给开发者排查下载问题")
-            }
-        }
-        .sheet(isPresented: $showShareSheet) {
-            if let url = shareURL {
-                ShareSheet(activityItems: [url])
             }
         }
     }
@@ -85,48 +98,64 @@ struct DownloadedVideosView: View {
                 systemImage: "arrow.down.circle",
                 description: Text("在视频页点击下载按钮保存到本地")
             )
-            Button {
-                Haptics.tap()
-                shareDiagnosticReport()
-            } label: {
-                Label("导出诊断日志", systemImage: "square.and.arrow.up")
-                    .font(.footnote.weight(.semibold))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(
-                            cornerRadius: PaladalaTheme.cardRadius,
-                            style: PaladalaTheme.cornerStyle
+            if let shareURL {
+                ShareLink(item: shareURL) {
+                    Label("导出诊断日志", systemImage: "square.and.arrow.up")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(
+                                cornerRadius: PaladalaTheme.cardRadius,
+                                style: PaladalaTheme.cornerStyle
+                            )
+                            .fill(PaladalaTheme.biliPink.opacity(0.14))
                         )
-                        .fill(PaladalaTheme.biliPink.opacity(0.14))
-                    )
-                    .foregroundStyle(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.biliPink)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("下载卡住时把日志发给开发者")
+            } else {
+                Button {
+                    Haptics.tap()
+                    shareDiagnosticReport()
+                } label: {
+                    Label("导出诊断日志", systemImage: "square.and.arrow.up")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(
+                                cornerRadius: PaladalaTheme.cardRadius,
+                                style: PaladalaTheme.cornerStyle
+                            )
+                            .fill(PaladalaTheme.biliPink.opacity(0.14))
+                        )
+                        .foregroundStyle(PaladalaTheme.biliPink)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("下载卡住时把日志发给开发者")
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("下载卡住时把日志发给开发者")
         }
         .padding(.bottom, 24)
     }
 
     /// Build the diagnostic report (which now includes a
     /// "Downloads" section with manifest + on-disk byte
-    /// counts + in-flight state) and pop the iOS share sheet.
+    /// counts + in-flight state) and store the file URL so
+    /// the toolbar / empty-state `ShareLink` can pick it up.
     /// Falls back to clipboard if the temp-file write fails
-    /// (rare on iOS but the share sheet cannot survive a nil
-    /// `shareURL`).
+    /// (rare on iOS but `ShareLink` cannot survive a nil URL).
     private func shareDiagnosticReport() {
-        let url = DiagnosticLogger.shared.export(
+        if let url = DiagnosticLogger.shared.export(
             activeAccount: authStore.activeAccount
-        )
-        guard let url else {
-            let report = DiagnosticLogger.shared.generateReport(
+        ) {
+            shareURL = url
+        } else {
+            UIPasteboard.general.string = DiagnosticLogger.shared.generateReport(
                 activeAccount: authStore.activeAccount
             )
-            UIPasteboard.general.string = report
-            return
         }
-        shareURL = url
-        showShareSheet = true
     }
 }
 

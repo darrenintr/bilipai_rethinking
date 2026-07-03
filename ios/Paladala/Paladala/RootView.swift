@@ -221,20 +221,9 @@ private struct PhoneRootView: View {
                 }
             }
         }
-        // Middle-of-screen / left-edge swipe-back. The enabler
-        // is a no-op on the root (where the path is empty) and
-        // pops the last item from the navigation path on a
-        // successful drag. We wrap the pop in `withAnimation`
-        // so the path removal gets the same slide animation
-        // the system edge-swipe uses.
-        .background(BackGestureEnabler(
-            isEnabled: !router.path.isEmpty,
-            onPop: {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    router.path.removeLast()
-                }
-            }
-        ))
+        // System-provided interactive pop gesture handles back
+        // navigation; `NavigationStack` (iOS 16+) ships with
+        // swipe-from-edge built in. No custom gesture needed.
     }
 }
 
@@ -282,14 +271,8 @@ private struct PadRootView: View {
                         }
                     }
             }
-            .background(BackGestureEnabler(
-                isEnabled: !router.path.isEmpty,
-                onPop: {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        router.path.removeLast()
-                    }
-                }
-            ))
+            // System-provided interactive pop gesture handles
+            // back navigation; no custom recognizer needed.
         }
     }
 

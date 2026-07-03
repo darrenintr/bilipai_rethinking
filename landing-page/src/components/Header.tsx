@@ -1,49 +1,68 @@
 import { motion } from "motion/react";
-import { Github, ExternalLink } from "lucide-react";
+import { Github, ChevronRight } from "lucide-react";
 
 export default function Header() {
   return (
     <motion.header
       initial={{ y: -50, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.6, ease: "easeOut" }}
-      className="fixed top-0 left-0 w-full z-50 px-4 py-3 md:py-4 bg-white/70 backdrop-blur-md border-b border-bili-pink/10 shadow-sm"
+      transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
+      className="fixed top-0 left-0 w-full z-50 px-4 py-3 md:py-4"
+      style={{
+        background: "rgba(251, 251, 253, 0.8)",
+        backdropFilter: "saturate(180%) blur(20px)",
+        WebkitBackdropFilter: "saturate(180%) blur(20px)",
+        borderBottom: "1px solid var(--color-border-hairline)",
+      }}
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <a href="#hero" className="flex items-center gap-2.5 group">
-          <div className="relative w-10 h-10 shrink-0 group-hover:scale-105 transition-transform duration-300">
+          <div className="w-8 h-8 shrink-0">
             <svg
               viewBox="0 0 120 120"
-              className="w-10 h-10"
+              className="w-8 h-8"
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
             >
-              <rect x="12" y="32" width="96" height="74" rx="22" stroke="#FB7299" strokeWidth="7.5" fill="white" />
-              <path d="M42 32L24 12" stroke="#FB7299" strokeWidth="8" strokeLinecap="round" />
-              <path d="M78 32L96 12" stroke="#FB7299" strokeWidth="8" strokeLinecap="round" />
-              <path d="M38 106V114" stroke="#FB7299" strokeWidth="8" strokeLinecap="round" />
-              <path d="M82 106V114" stroke="#FB7299" strokeWidth="8" strokeLinecap="round" />
-              <path d="M38 68L46 73L38 78" stroke="#FB7299" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M82 68L74 73L82 78" stroke="#FB7299" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M54 81C56 83.5 58 84.5 60 84.5C62 84.5 64 83.5 66 81C68 83.5 70 84.5 72 84.5C74 84.5 76 83.5 78 81" stroke="#FB7299" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
+              <rect x="12" y="32" width="96" height="74" rx="22" stroke="#1d1d1f" strokeWidth="7.5" fill="white" />
+              <path d="M42 32L24 12" stroke="#1d1d1f" strokeWidth="8" strokeLinecap="round" />
+              <path d="M78 32L96 12" stroke="#1d1d1f" strokeWidth="8" strokeLinecap="round" />
+              <path d="M38 106V114" stroke="#1d1d1f" strokeWidth="8" strokeLinecap="round" />
+              <path d="M82 106V114" stroke="#1d1d1f" strokeWidth="8" strokeLinecap="round" />
+              <path d="M38 68L46 73L38 78" stroke="#1d1d1f" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M82 68L74 73L82 78" stroke="#1d1d1f" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M54 81C56 83.5 58 84.5 60 84.5C62 84.5 64 83.5 66 81C68 83.5 70 84.5 72 84.5C74 84.5 76 83.5 78 81" stroke="#1d1d1f" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <div className="absolute top-0 right-0 w-2.5 h-2.5 rounded-full bg-bili-blue border-2 border-white animate-pulse" />
           </div>
-          <div className="flex flex-col">
-            <span className="font-black text-xl tracking-tight text-gray-900 group-hover:text-bili-pink transition-colors duration-300 leading-none">
-              Paladala
-            </span>
-            <span className="text-[9px] font-mono text-bili-pink font-semibold tracking-widest leading-none mt-1">
-              PURE SWIFT
-            </span>
-          </div>
+          <span
+            className="font-semibold text-[color:var(--color-text-primary)] leading-none"
+            style={{ fontSize: "17px", letterSpacing: "-0.01em" }}
+          >
+            Paladala
+          </span>
         </a>
 
-        <nav className="hidden md:flex items-center gap-10 text-sm font-medium text-gray-600">
-          <a href="#features" onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-bili-pink transition-colors duration-200">
+        <nav className="hidden md:flex items-center gap-10 text-[14px] text-[color:var(--color-text-primary)]">
+          <a
+            href="#features"
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="hover:opacity-70"
+            style={{ transition: "opacity 200ms cubic-bezier(0.4, 0, 0.2, 1)" }}
+          >
             Features
           </a>
-          <a href="#metrics" onClick={(e) => { e.preventDefault(); document.getElementById('metrics')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-bili-pink transition-colors duration-200">
+          <a
+            href="#metrics"
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById("metrics")?.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="hover:opacity-70"
+            style={{ transition: "opacity 200ms cubic-bezier(0.4, 0, 0.2, 1)" }}
+          >
             Performance
           </a>
         </nav>
@@ -53,11 +72,12 @@ export default function Header() {
             href="https://github.com/darrenintr/pure-bilibili-rethinking"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gray-900 hover:bg-bili-pink text-white text-xs font-semibold tracking-wide shadow-md shadow-gray-950/10 hover:shadow-bili-pink/30 hover:-translate-y-0.5 transition-all duration-300"
+            className="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[14px] text-[color:var(--color-text-primary)] hover:opacity-70"
+            style={{ transition: "opacity 200ms cubic-bezier(0.4, 0, 0.2, 1)" }}
           >
-            <Github className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">GitHub</span>
-            <ExternalLink className="w-3 h-3 opacity-70" />
+            <Github className="w-4 h-4" />
+            <span>GitHub</span>
+            <ChevronRight className="w-3 h-3 opacity-60 group-hover:translate-x-0.5" style={{ transition: "transform 200ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
           </a>
         </div>
       </div>

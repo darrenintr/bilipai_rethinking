@@ -152,13 +152,9 @@ private struct OnboardingPageView: View {
             Spacer(minLength: 40)
             Image(systemName: page.symbol)
                 .font(.system(size: 96, weight: .light))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [page.tint, page.tint.opacity(0.6)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .foregroundStyle(page.tint.gradient)
+                .symbolRenderingMode(.hierarchical)
+                .accessibilityHidden(true)
                 .padding(.bottom, 8)
             VStack(spacing: 12) {
                 Text(page.title)
@@ -197,6 +193,11 @@ private struct OnboardingPageView: View {
 /// `@AppStorage` keys the settings screen reads, so the choice
 /// survives a relaunch and is mirrored to iCloud on the user's
 /// other devices (when `ICloudSync` is enabled).
+///
+/// Uses native SwiftUI controls (`Picker(.segmented)` +
+/// `Toggle`) so the choices match iOS Settings.app conventions
+/// — automatic Dynamic Type, dark-mode and accessibility
+/// behaviour, no custom tap targets to maintain.
 private struct OnboardingPreferencesPage: View {
     @Binding var currentPage: Int
     @AppStorage("paladala.themeMode") private var themeMode: ThemeMode = .system
@@ -207,22 +208,14 @@ private struct OnboardingPreferencesPage: View {
     @AppStorage("paladala.todayWatch") private var todayWatch = true
     @AppStorage("paladala.didOnboard") private var didOnboard: Bool = false
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 120), spacing: 10)
-    ]
-
     var body: some View {
         VStack(spacing: 18) {
             VStack(spacing: 6) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 56, weight: .light))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [PaladalaTheme.biliPink, PaladalaTheme.biliPink.opacity(0.6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .foregroundStyle(PaladalaTheme.biliPink.gradient)
+                    .symbolRenderingMode(.hierarchical)
+                    .accessibilityHidden(true)
                 Text("定制你的体验")
                     .font(.title2.weight(.bold))
                 Text("挑你想用的功能，其余保持默认")
@@ -246,73 +239,67 @@ private struct OnboardingPreferencesPage: View {
 
     @ViewBuilder
     private var preferencesCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("主题与界面")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(ThemeMode.allCases) { mode in
-                    Color.clear
-                        .paladalaPickerChip(
-                            selection: $themeMode,
-                            value: mode,
-                            design: materialDesign,
-                            title: mode.title,
-                            symbol: mode == .system ? "circle.lefthalf.filled"
-                                : mode == .light ? "sun.max.fill" : "moon.fill"
-                        )
+        VStack(alignment: .leading, spacing: 18) {
+            // Theme — segmented picker (3 options).
+            VStack(alignment: .leading, spacing: 8) {
+                Label("主题", systemImage: themeIcon(themeMode))
+                    .font(.subheadline.weight(.semibold))
+                Picker("主题", selection: $themeMode) {
+                    ForEach(ThemeMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
                 }
-                ForEach(MaterialDesign.allCases) { design in
-                    Color.clear
-                        .paladalaPickerChip(
-                            selection: $materialDesign,
-                            value: design,
-                            design: materialDesign,
-                            title: design.title,
-                            symbol: design == .material3 ? "rectangle.3.group" : "sparkles"
-                        )
+                .pickerStyle(.segmented)
+                .accessibilityLabel("主题")
+            }
+
+            // Material design — segmented picker (2 options).
+            VStack(alignment: .leading, spacing: 8) {
+                Label("界面设计", systemImage: materialDesign == .liquidGlass
+                      ? "sparkles" : "rectangle.3.group")
+                    .font(.subheadline.weight(.semibold))
+                Picker("界面设计", selection: $materialDesign) {
+                    ForEach(MaterialDesign.allCases) { design in
+                        Text(design.title).tag(design)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("界面设计")
             }
 
             Divider().padding(.vertical, 4)
 
-            Text("功能开关")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            LazyVGrid(columns: columns, spacing: 10) {
-                Color.clear
-                    .paladalaToggleChip(
-                        isOn: $danmakuEnabled,
-                        design: materialDesign,
-                        title: "弹幕",
-                        symbol: "text.bubble.fill"
-                    )
-                Color.clear
-                    .paladalaToggleChip(
-                        isOn: $backgroundAudio,
-                        design: materialDesign,
-                        title: "后台音频",
-                        symbol: "speaker.wave.2.fill"
-                    )
-                Color.clear
-                    .paladalaToggleChip(
-                        isOn: $iCloudSync,
-                        design: materialDesign,
-                        title: "iCloud 同步",
-                        symbol: "icloud.fill",
-                        disabled: !ICloudSync.shared.isAvailable
-                    )
-                Color.clear
-                    .paladalaToggleChip(
-                        isOn: $todayWatch,
-                        design: materialDesign,
-                        title: "今日看什么",
-                        symbol: "list.star"
-                    )
+            // Feature toggles — native `Toggle` rows.
+            VStack(alignment: .leading, spacing: 12) {
+                Label("功能开关", systemImage: "switch.2")
+                    .font(.subheadline.weight(.semibold))
+                Toggle(isOn: $danmakuEnabled) {
+                    Label("弹幕", systemImage: "text.bubble.fill")
+                }
+                Toggle(isOn: $backgroundAudio) {
+                    Label("后台音频", systemImage: "speaker.wave.2.fill")
+                }
+                Toggle(isOn: $iCloudSync) {
+                    Label("iCloud 同步", systemImage: "icloud.fill")
+                }
+                .disabled(!ICloudSync.shared.isAvailable)
+                Toggle(isOn: $todayWatch) {
+                    Label("今日看什么", systemImage: "list.star")
+                }
             }
         }
         .padding(PaladalaTheme.Spacing.content)
         .paladalaCardSurface(materialDesign)
+    }
+
+    /// SF Symbol for the currently-selected `ThemeMode`. Drives
+    /// the leading icon in the segmented-picker section header.
+    private func themeIcon(_ mode: ThemeMode) -> String {
+        switch mode {
+        case .system: return "circle.lefthalf.filled"
+        case .light: return "sun.max.fill"
+        case .dark: return "moon.fill"
+        }
     }
 
     @ViewBuilder

@@ -189,7 +189,7 @@ struct LiveRoomCard: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
-                        .background(.red, in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle))
+                        .background(Color(uiColor: .systemRed), in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle))
                         .padding(8)
                 }
                 Text(room.title)
@@ -409,22 +409,11 @@ struct ErrorBanner: View {
     var body: some View {
         Label(message, systemImage: "exclamationmark.triangle.fill")
             .font(.subheadline)
-            .foregroundStyle(.orange)
+            .foregroundStyle(Color(uiColor: .systemOrange))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+            .background(Color(uiColor: .systemOrange).opacity(0.12), in: RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
     }
-}
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    let applicationActivities: [UIActivity]? = nil
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: applicationActivities)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Video context menu

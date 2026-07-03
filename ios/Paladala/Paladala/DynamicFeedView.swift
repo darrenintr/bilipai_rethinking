@@ -27,16 +27,15 @@ struct DynamicFeedView: View {
                 ErrorBanner(message: error)
                     .listRowSeparator(.hidden)
             } else if model.posts.isEmpty {
-                VStack(spacing: 14) {
-                    Image(systemName: "rectangle.stack.badge.minus")
-                        .font(.system(size: 48, weight: .light))
-                        .foregroundStyle(PaladalaTheme.biliPink.opacity(0.7))
-                    Text("暂无动态")
-                        .font(.headline)
-                    Text("关注 UP 主后，他们的视频、专栏、番剧和开播提醒会出现在这里。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                ContentUnavailableView(
+                    "暂无动态",
+                    systemImage: "rectangle.stack.badge.minus",
+                    description: Text("关注 UP 主后，他们的视频、专栏、番剧和开播提醒会出现在这里。")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+                .listRowSeparator(.hidden)
+                .overlay(alignment: .bottom) {
                     Button {
                         Haptics.tap()
                         Task { await model.load(repository: repository) }
@@ -45,10 +44,8 @@ struct DynamicFeedView: View {
                             .font(.subheadline.weight(.semibold))
                     }
                     .buttonStyle(.bordered)
+                    .padding(.bottom, 24)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-                .listRowSeparator(.hidden)
             } else {
                 ForEach(Array(model.posts.enumerated()), id: \.element.id) { index, post in
                     VStack(alignment: .leading, spacing: 12) {
