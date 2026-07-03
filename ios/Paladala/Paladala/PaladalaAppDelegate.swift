@@ -104,16 +104,24 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate, MXMetricManage
         completionHandler: @escaping () -> Void
     ) {
         for payload in payloads {
-            let launches = payload.appLaunchMetrics
+            let launches = payload.applicationLaunchMetrics
             guard !launches.isEmpty else { continue }
             // Log one summary row per launch metric.  Buckets
             // are aggregated server-side; we report the bucket
             // count and total sample count so the log is
             // scannable, and the full histogram is recoverable
             // from `payload.jsonRepresentation()` if needed.
+            //
+            // Only `histogrammedTimeToFirstDraw` is reported
+            // here — it is the canonical "cold start" histogram
+            // and the one that maps to the milestones
+            // `LaunchMetrics` emits.  Other histograms
+            // (`histogrammedTimeToFirstDrawOptimized` on
+            // iOS 16+, `histogrammedApplicationResumeTime`
+            // for background → foreground) are still accessible
+            // via the full payload if needed.
             for (i, launch) in launches.enumerated() {
                 let ttfd = launch.histogrammedTimeToFirstDraw
-                let appLaunch = launch.histogrammedAppLaunchTime
                 DiagnosticLogger.shared.log(
                     .app,
                     "metric_kit.app_launch",
@@ -121,8 +129,7 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate, MXMetricManage
                         "index": i,
                         "payloadTimeBegin": ISO8601DateFormatter().string(from: payload.timeStampBegin),
                         "payloadTimeEnd": ISO8601DateFormatter().string(from: payload.timeStampEnd),
-                        "ttfdBuckets": ttfd.totalBucketCount.description,
-                        "appLaunchBuckets": appLaunch.totalBucketCount.description
+                        "ttfdBuckets": ttfd.totalBucketCount.description
                     ]
                 )
             }

@@ -1,5 +1,5 @@
 import Foundation
-import os.signpost
+import os
 
 /// Public milestones emitted during the cold-start path.
 ///
