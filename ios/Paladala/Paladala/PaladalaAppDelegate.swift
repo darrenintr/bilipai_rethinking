@@ -104,8 +104,12 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate, MXMetricManage
         completionHandler: @escaping () -> Void
     ) {
         for payload in payloads {
-            let launches = payload.applicationLaunchMetrics
-            guard !launches.isEmpty else { continue }
+            // `applicationLaunchMetrics` is an Optional in
+            // the SDK — it can be nil if the system has
+            // nothing to report. Unwrap and skip empty payloads
+            // so we don't log noise rows.
+            guard let launches = payload.applicationLaunchMetrics,
+                  !launches.isEmpty else { continue }
             // Log one summary row per launch metric.  Buckets
             // are aggregated server-side; we report the bucket
             // count and total sample count so the log is

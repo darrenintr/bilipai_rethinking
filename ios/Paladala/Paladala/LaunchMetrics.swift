@@ -60,7 +60,14 @@ struct LaunchMilestone: Codable {
 final class LaunchMetrics {
     static let shared = LaunchMetrics()
 
-    private let signposter = OSSignposter(
+    /// The `OSLog` handle for the cold-start signpost category.
+    /// Shared across all milestones so Instruments shows them
+    /// on one timeline. We use the C `os_signpost` API
+    /// directly (not the Swift `OSSignposter` class) because
+    /// the Swift overlay's `event(_:)` method is not exposed
+    /// on the iOS 18.5 SDK the CI runner uses — the C function
+    /// has been stable since iOS 12 and works on every SDK.
+    private static let coldStartLog = OSLog(
         subsystem: "app.paladala.ios",
         category: "ColdStart"
     )
@@ -92,30 +99,34 @@ final class LaunchMetrics {
         lock.unlock()
 
         // Sink 1: Instruments signpost.
-        // `event(_:)` is the iOS 15+ point-event API — cheap,
-        // no begin/end pairing required. Filter in Instruments
-        // by subsystem `app.paladala.ios`, category `ColdStart`.
+        // We use the C `os_signpost(.event, …)` macro directly
+        // rather than the Swift `OSSignposter.event(_:)` method
+        // because the Swift overlay is incomplete on the SDK
+        // the CI runner uses (Xcode 16.4 / iOS 18.5). The C
+        // function has been stable since iOS 12 and is
+        // available on every SDK we'd realistically build
+        // against.
         //
-        // `event(_:)` takes a `StaticString`, not a `String`,
-        // so the name has to be a string literal — no
-        // interpolation.  A switch is the cheapest way to
-        // map each case to a literal without losing the
-        // human-readable suffix in Instruments.
+        // Filter in Instruments by subsystem
+        // `app.paladala.ios`, category `ColdStart`. Each
+        // `os_signpost(.event, …)` appears as a labelled point
+        // in the timeline; the suffix is human-readable so the
+        // seven milestones are easy to tell apart.
         switch event {
         case .appInitStart:
-            signposter.event("ColdStart.app_init_start")
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.app_init_start")
         case .appInitComplete:
-            signposter.event("ColdStart.app_init_complete")
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.app_init_complete")
         case .appDelegateStart:
-            signposter.event("ColdStart.app_delegate_start")
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.app_delegate_start")
         case .appDelegateComplete:
-            signposter.event("ColdStart.app_delegate_complete")
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.app_delegate_complete")
         case .firstRootViewAppeared:
-            signposter.event("ColdStart.first_root_view_appeared")
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.first_root_view_appeared")
         case .firstFeedNetworkStart:
-            signposter.event("ColdStart.first_feed_network_start")
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.first_feed_network_start")
         case .firstFeedNetworkComplete:
-            signposter.event("ColdStart.first_feed_network_complete")
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.first_feed_network_complete")
         }
 
         // Sink 2: in-app log viewer. The `.app` category is
