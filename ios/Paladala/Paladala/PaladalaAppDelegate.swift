@@ -104,12 +104,11 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate, MXMetricManage
         completionHandler: @escaping () -> Void
     ) {
         for payload in payloads {
-            // `applicationLaunchMetrics` is an Optional in
-            // the SDK — it can be nil if the system has
-            // nothing to report. Unwrap and skip empty payloads
-            // so we don't log noise rows.
-            guard let launches = payload.applicationLaunchMetrics,
-                  !launches.isEmpty else { continue }
+            // `applicationLaunchMetrics` is `MXAppLaunchMetric?`
+            // in this SDK — at most one launch metric per
+            // payload. Unwrap and skip the payload if the
+            // system had nothing to report.
+            guard let launch = payload.applicationLaunchMetrics else { continue }
             // Log one summary row per launch metric.  Buckets
             // are aggregated server-side; we report the bucket
             // count and total sample count so the log is
@@ -124,19 +123,16 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate, MXMetricManage
             // iOS 16+, `histogrammedApplicationResumeTime`
             // for background → foreground) are still accessible
             // via the full payload if needed.
-            for (i, launch) in launches.enumerated() {
-                let ttfd = launch.histogrammedTimeToFirstDraw
-                DiagnosticLogger.shared.log(
-                    .app,
-                    "metric_kit.app_launch",
-                    details: [
-                        "index": i,
-                        "payloadTimeBegin": ISO8601DateFormatter().string(from: payload.timeStampBegin),
-                        "payloadTimeEnd": ISO8601DateFormatter().string(from: payload.timeStampEnd),
-                        "ttfdBuckets": ttfd.totalBucketCount.description
-                    ]
-                )
-            }
+            let ttfd = launch.histogrammedTimeToFirstDraw
+            DiagnosticLogger.shared.log(
+                .app,
+                "metric_kit.app_launch",
+                details: [
+                    "payloadTimeBegin": ISO8601DateFormatter().string(from: payload.timeStampBegin),
+                    "payloadTimeEnd": ISO8601DateFormatter().string(from: payload.timeStampEnd),
+                    "ttfdBuckets": ttfd.totalBucketCount.description
+                ]
+            )
         }
         completionHandler()
     }
