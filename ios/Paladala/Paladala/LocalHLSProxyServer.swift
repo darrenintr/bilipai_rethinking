@@ -2248,7 +2248,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         let upstreamCL: Int64 = http.expectedContentLength >= 0
             ? http.expectedContentLength
             : -1
-        if Self.requestMetadataLogEnabled {
+        if LocalHLSProxyServer.requestMetadataLogEnabled {
             diagLog(.network,
                     "LocalHLSProxyServer Content-Length sanity",
                     details: [
