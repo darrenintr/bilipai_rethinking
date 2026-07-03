@@ -74,12 +74,26 @@ final class LaunchMetrics {
     private var startMachTime: UInt64 = 0
     private let lock = NSLock()
     private var milestones: [LaunchMilestone] = []
+    /// Set of event names already recorded in this process.  We
+    /// gate `mark(_:)` to fire at most once per event per
+    /// process — `RootView.onAppear` and the per-tab `.task`
+    /// modifiers re-fire on every background → foreground
+    /// transition, and without this gate the "first appearance"
+    /// milestones would log bogus elapsedMS values of tens of
+    /// thousands of ms after a long background.  The cold-start
+    /// events themselves (`appInit*`, `appDelegate*`) only
+    /// fire once per process by construction, so the gate is
+    /// a no-op for them.
+    private var firedEvents: Set<String> = []
 
     private init() {}
 
     /// Record a milestone. Safe to call from any thread. The first
-    /// call anchors `startMachTime` to "now"; every subsequent call
-    /// is a delta from that anchor in milliseconds.
+    /// call anchors `startMachTime` to "now"; every subsequent
+    /// call within the same process is a delta from that anchor
+    /// in milliseconds.  If the same event has already been
+    /// recorded in this process, the call is a no-op — see
+    /// `firedEvents` above.
     func mark(_ event: LaunchEvent) {
         let now = mach_absolute_time()
         let elapsedMS: Double
@@ -87,6 +101,19 @@ final class LaunchMetrics {
         let milestone: LaunchMilestone
 
         lock.lock()
+        // Gate: skip events that have already fired in this
+        // process.  This is the fix for the diagnostic-log bug
+        // where `mark(.firstRootViewAppeared)` and
+        // `mark(.firstFeedNetwork*)` were logging
+        // elapsedMS in the 80–99 second range after a long
+        // background, because `RootView.onAppear` and the
+        // per-tab `.task` modifiers re-fire on every
+        // foreground transition.
+        if firedEvents.contains(event.rawValue) {
+            lock.unlock()
+            return
+        }
+        firedEvents.insert(event.rawValue)
         if startMachTime == 0 { startMachTime = now }
         elapsedMS = Self.machTimeToMS(now - startMachTime)
         thread = Thread.isMainThread ? "main" : "bg"
