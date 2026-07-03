@@ -172,6 +172,19 @@ final class AppRouter: ObservableObject {
         path.append(LocalVideoRoute.local(record))
     }
 
+    /// Open a UP (content creator) public profile.  Pushes
+    /// `UPProfileRoute.up(mid:)` onto the current navigation
+    /// stack.  The `RootView` `navigationDestination(for:)`
+    /// resolves it into `UPProfileView`, which renders the
+    /// UP's card, stats, and published-videos list.  Tapping
+    /// a row in that list pushes another `VideoDetailView`
+    /// via the existing `BiliVideo` destination.
+    func openUP(mid: Int64) {
+        guard mid > 0 else { return }
+        diagLog(.recommendation, "AppRouter.openUP", details: ["mid": mid])
+        path.append(UPProfileRoute.up(mid: mid))
+    }
+
     func consumePendingIntentRoute() {
         guard let route = IntentRouteStore.consumeRoute() else { return }
         switch route {

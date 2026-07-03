@@ -160,6 +160,16 @@ struct RootView: View {
             router.openSearch(query)
         case "login":
             router.openLogin()
+        case "up":
+            // `paladala://up/<mid>` deep link — resolve the
+            // numeric mid from the first path component and
+            // push the UP profile. Falls through silently on
+            // a non-numeric mid so a malformed URL never
+            // crashes the app.
+            let mid = Int64(url.pathComponents.first(where: { $0 != "/" }) ?? "")
+            if let mid, mid > 0 {
+                router.openUP(mid: mid)
+            }
         default:
             break
         }
@@ -226,6 +236,12 @@ private struct PhoneRootView: View {
                     MusicPlayerView(video: video, repository: repository)
                 }
             }
+            .navigationDestination(for: UPProfileRoute.self) { route in
+                switch route {
+                case .up(let mid):
+                    UPProfileView(mid: mid, repository: repository)
+                }
+            }
         }
         // System-provided interactive pop gesture handles back
         // navigation; `NavigationStack` (iOS 16+) ships with
@@ -274,6 +290,12 @@ private struct PadRootView: View {
                         switch route {
                         case .player(let video):
                             MusicPlayerView(video: video, repository: repository)
+                        }
+                    }
+                    .navigationDestination(for: UPProfileRoute.self) { route in
+                        switch route {
+                        case .up(let mid):
+                            UPProfileView(mid: mid, repository: repository)
                         }
                     }
             }

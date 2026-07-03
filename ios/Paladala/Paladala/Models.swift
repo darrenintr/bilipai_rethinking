@@ -111,6 +111,31 @@ extension BiliVideo {
     }
 }
 
+/// Public profile card for a Bilibili user. Returned by
+/// `/x/space/wbi/acc/info` and surfaced on `UPProfileView` as
+/// the header row. `sign` is the user's signature (a free-form
+/// one-liner); `level` is the user-growth level (0-6); `vipType`
+/// is the legacy VIP type code (0 = none). All optional fields
+/// default to safe placeholders so a partial upstream response
+/// (e.g. a banned or shadow-banned user) still renders.
+struct BiliUserCard: Codable, Hashable {
+    let mid: Int64
+    let name: String
+    let faceURL: URL?
+    let sign: String
+    let level: Int
+    let vipType: Int
+
+    init(mid: Int64, name: String, faceURL: URL? = nil, sign: String = "", level: Int = 0, vipType: Int = 0) {
+        self.mid = mid
+        self.name = name
+        self.faceURL = faceURL
+        self.sign = sign
+        self.level = level
+        self.vipType = vipType
+    }
+}
+
 /// Bilibili's official "AI 视频总结" payload returned by
 /// `/x/web-interface/view/conclusion/get`. The summary text is
 /// Markdown-formatted prose from B站's NLP pipeline; the
@@ -508,6 +533,16 @@ struct FavoriteFolderVideosPage: Hashable {
 struct ReplyRoute: Hashable {
     let video: BiliVideo
     let rootComment: BiliComment
+}
+
+/// Navigation route to a UP (content creator) public profile.
+/// Pushed onto the router's `path` by `AppRouter.openUP(mid:)`
+/// and resolved by `RootView`'s `navigationDestination(for:)`
+/// into `UPProfileView`. Lives here (not in `AppRouter.swift`)
+/// so it can be `Hashable` alongside the other route values
+/// without a circular import.
+enum UPProfileRoute: Hashable {
+    case up(mid: Int64)
 }
 
 /// Sort order for the comment list. Persisted in `@AppStorage` so the

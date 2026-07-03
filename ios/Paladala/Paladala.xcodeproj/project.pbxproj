@@ -70,6 +70,7 @@
 		600000000000000000000804 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000901 /* PrivacyInfo.xcprivacy */; };
 		600000000000000000000805 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000902 /* PrivacyInfo.xcprivacy */; };
 		10000000000000000000012D /* LaunchMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022D /* LaunchMetrics.swift */; };
+		10000000000000000000012E /* UPProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022E /* UPProfileView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -137,6 +138,7 @@
 		600000000000000000000901 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		600000000000000000000902 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		10000000000000000000022D /* LaunchMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetrics.swift; sourceTree = "<group>"; };
+		10000000000000000000022E /* UPProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPProfileView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -224,6 +226,7 @@
 				50000000000000000000055B /* InlineAVPlayerView.swift */,
 				50000000000000000000055C /* Analytics.swift */,
 				10000000000000000000022D /* LaunchMetrics.swift */,
+				10000000000000000000022E /* UPProfileView.swift */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -515,6 +518,7 @@
 				50000000000000000000055A /* InlineAVPlayerView.swift in Sources */,
 				50000000000000000000055D /* Analytics.swift in Sources */,
 				10000000000000000000012D /* LaunchMetrics.swift in Sources */,
+				10000000000000000000012E /* UPProfileView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

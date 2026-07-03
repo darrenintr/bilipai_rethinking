@@ -31,6 +31,7 @@ struct VideoDetailView: View {
     let localRecord: DownloadRecord?
 
     @StateObject private var model: VideoDetailViewModel
+    @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var miniPlayerStore: MiniPlayerStore
     @State private var isFullscreenPresented = false
     @State private var fullscreenTransitionUntil: Date = .distantPast
@@ -101,6 +102,36 @@ struct VideoDetailView: View {
         .navigationTitle(model.detail.ownerName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Tappable owner-name button in the nav-bar centre.
+            // Replaces the default title text with a button
+            // that pushes the UP's public profile. Hidden when
+            // `ownerMid == 0` because many `BiliVideo`s (history
+            // rows, search hits, dynamic-feed archive) are
+            // synthesised with `ownerMid = 0` — for those the
+            // user sees the plain title text instead. We
+            // intentionally do NOT mutate `navigationTitle` so
+            // the back-button label still reads the owner
+            // name on the next screen.
+            ToolbarItem(placement: .principal) {
+                if video.ownerMid > 0 {
+                    Button {
+                        Haptics.selection()
+                        router.openUP(mid: video.ownerMid)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(model.detail.ownerName)
+                                .font(.headline)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("查看 UP 主 \(model.detail.ownerName) 的个人主页")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 // ShareLink with the canonical Bilibili URL. The
                 // `subject:` populates the Mail subject line and

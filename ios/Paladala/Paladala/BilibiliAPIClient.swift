@@ -1042,6 +1042,51 @@ final class BilibiliAPIClient {
         return payload.value?.dynamicCount ?? 0
     }
 
+    /// Fetch a user's public profile card (avatar, name, signature,
+    /// level, VIP status). The endpoint is WBI-signed; a missing
+    /// or rate-limited response throws `BilibiliAPIError.http`
+    /// and the call site falls back to a placeholder card.
+    func userCardInfo(mid: Int64) async throws -> BiliUserCard {
+        let payload: APIResponse<UserCardInfoPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/space/wbi/acc/info",
+            queryItems: [URLQueryItem(name: "mid", value: "\(mid)")],
+            signWithWBI: true
+        )
+        try payload.requireOK()
+        let card = payload.value?.toBiliUserCard(mid: mid) ?? BiliUserCard(mid: mid, name: "Unknown")
+        return card
+    }
+
+    /// Page through a UP's published videos. Bilibili returns
+    /// at most `ps` items per page; we use 20 (the same page
+    /// size as the home feed) and signal `hasMore` when the
+    /// upstream returns a full page. The `pubdate` order is
+    /// newest-first, matching what users expect from a
+    /// channel-style listing.
+    func userVideos(mid: Int64, page: Int = 1) async throws -> (videos: [BiliVideo], hasMore: Bool) {
+        let payload: APIResponse<UserVideosPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/space/wbi/arc/search",
+            queryItems: [
+                URLQueryItem(name: "mid", value: "\(mid)"),
+                URLQueryItem(name: "pn", value: "\(page)"),
+                URLQueryItem(name: "ps", value: "20"),
+                URLQueryItem(name: "order", value: "pubdate")
+            ],
+            signWithWBI: true
+        )
+        try payload.requireOK()
+        let videos = payload.value?.vlist.map(\.model) ?? []
+        // A full page is a "there might be more" signal. A short
+        // page definitively ends the list. The endpoint also
+        // returns `page.count` (total count); we ignore it
+        // because trusting a stale server-side count can over-
+        // iterate if a UP deletes a video between page loads.
+        let hasMore = videos.count >= 20
+        return (videos, hasMore)
+    }
+
     func commentsPage(aid: Int, next: Int? = nil, pageSize: Int = 20, sort: CommentSort = .hot) async throws -> CommentPage {
         guard aid > 0 else {
             return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
@@ -1694,6 +1739,122 @@ private struct VideoDTO: Decodable {
         viewCount = stat?.decodeInt(keys: ["view", "view_count"]) ?? container.decodeInt(keys: ["play"]) ?? 0
         danmakuCount = stat?.decodeInt(keys: ["danmaku"]) ?? container.decodeInt(keys: ["danmaku"]) ?? 0
         likeCount = stat?.decodeInt(keys: ["like"]) ?? 0
+    }
+}
+
+/// Internal decoder for the public profile-card endpoint
+/// (`/x/space/wbi/acc/info`). The `data` envelope has the user
+/// fields at the top level (not nested under `card` as the docs
+/// imply) and `vip` is its own nested object whose `type` is the
+/// legacy VIP code. We pull the four fields the header needs
+/// (name, face, sign, level, vipType) via a hand-rolled
+/// `init(from:)` so a partial response still decodes.
+private struct UserCardInfoPayload: Decodable {
+    let mid: Int64
+    let name: String
+    let face: String
+    let sign: String
+    let level: Int
+    let vipType: Int
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        mid = container.decodeInt64(keys: ["mid"]) ?? 0
+        name = container.decodeString(keys: ["name"]) ?? "Unknown"
+        face = container.decodeString(keys: ["face"]) ?? ""
+        sign = container.decodeString(keys: ["sign"]) ?? ""
+        level = container.decodeInt(keys: ["level"]) ?? 0
+        // `vip` is a nested object; missing on banned or
+        // never-VIP users so default to 0.
+        let vip = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("vip"))
+        vipType = vip?.decodeInt(keys: ["type"]) ?? 0
+    }
+
+    func toBiliUserCard(mid: Int64) -> BiliUserCard {
+        BiliUserCard(
+            mid: self.mid != 0 ? self.mid : mid,
+            name: name,
+            faceURL: face.httpsURL,
+            sign: sign,
+            level: level,
+            vipType: vipType
+        )
+    }
+}
+
+/// Internal decoder for `/x/space/wbi/arc/search` (a UP's
+/// published-videos list). The `data` envelope is
+/// `{ list: { vlist: [...] }, page: { count, pn, ps } }`. The
+/// `vlist` items have a different shape than the home-feed
+/// `VideoDTO` — notably `length` is a `"MM:SS"` string (not
+/// seconds), `author` carries the owner name (not `owner.name`),
+/// and `like` is absent — so we project through a separate
+/// `UserVideoDTO` and convert on the way to `BiliVideo`.
+private struct UserVideosPayload: Decodable {
+    let vlist: [UserVideoDTO]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        let list = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("list"))
+        vlist = (try? list?.decode([UserVideoDTO].self, forKey: DynamicKey("vlist"))) ?? []
+    }
+}
+
+private struct UserVideoDTO: Decodable {
+    let bvid: String
+    let aid: Int
+    let title: String
+    let author: String
+    let mid: Int64
+    let pic: String
+    let length: String
+    let play: Int
+    let comment: Int
+    let description: String
+    let created: Int
+
+    var model: BiliVideo {
+        BiliVideo(
+            bvid: bvid,
+            aid: aid,
+            cid: 0,                    // not present on this endpoint; the detail view fills it in
+            title: title,
+            ownerName: author.isEmpty ? "Unknown" : author,
+            coverURL: pic.httpsURL,
+            duration: Self.parseDuration(length),
+            viewCount: play,
+            danmakuCount: comment,
+            likeCount: 0,              // not exposed on this endpoint
+            description: description,
+            ownerMid: mid
+        )
+    }
+
+    /// Convert Bilibili's `"MM:SS"` / `"HH:MM:SS"` duration string
+    /// into seconds. Returns 0 on the malformed / empty case so
+    /// the row never shows a "NaN:NaN" pill.
+    static func parseDuration(_ raw: String) -> Int {
+        let parts = raw.split(separator: ":").compactMap { Int($0) }
+        switch parts.count {
+        case 2: return parts[0] * 60 + parts[1]
+        case 3: return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        default: return 0
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        bvid = container.decodeString(keys: ["bvid", "param"]) ?? ""
+        aid = container.decodeInt(keys: ["aid", "id"]) ?? 0
+        title = container.decodeString(keys: ["title"])?.strippingHTML ?? "Untitled"
+        author = container.decodeString(keys: ["author"]) ?? "Unknown"
+        mid = container.decodeInt64(keys: ["mid"]) ?? 0
+        pic = container.decodeString(keys: ["pic"]) ?? ""
+        length = container.decodeString(keys: ["length"]) ?? "0:00"
+        play = container.decodeInt(keys: ["play"]) ?? 0
+        comment = container.decodeInt(keys: ["comment"]) ?? 0
+        description = container.decodeString(keys: ["description"]) ?? ""
+        created = container.decodeInt(keys: ["created"]) ?? 0
     }
 }
 

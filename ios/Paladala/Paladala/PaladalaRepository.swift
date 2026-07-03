@@ -380,12 +380,31 @@ final class PaladalaRepository: ObservableObject {
         // Fetch in parallel
         async let relation = apiClient.userRelationStat(mid: mid)
         async let dynamic = apiClient.userDynamicCount(mid: mid)
-        
+
         let (rel, dyn) = try await (relation, dynamic)
         return (
             following: rel.following.compactCount,
             follower: rel.follower.compactCount,
             dynamic: dyn.compactCount
         )
+    }
+
+    /// Fetch a user's public profile card. Thin pass-through to
+    /// `BilibiliAPIClient.userCardInfo(mid:)`; exists so
+    /// `UPProfileViewModel` calls the repository (not the raw
+    /// client) for symmetry with `userStats(mid:)` and the
+    /// other user-scoped helpers above.
+    func userCardInfo(mid: Int64) async throws -> BiliUserCard {
+        try await apiClient.userCardInfo(mid: mid)
+    }
+
+    /// Page through a UP's published videos. Thin pass-through
+    /// to `BilibiliAPIClient.userVideos(mid:page:)`. The
+    /// `(videos, hasMore)` shape mirrors
+    /// `FavoriteFolderVideosPage` so `UPProfileViewModel` can
+    /// reuse the same pagination pattern as
+    /// `HistoryListViewModel` / `FavoriteFolderVideosViewModel`.
+    func userVideos(mid: Int64, page: Int = 1) async throws -> (videos: [BiliVideo], hasMore: Bool) {
+        try await apiClient.userVideos(mid: mid, page: page)
     }
 }
