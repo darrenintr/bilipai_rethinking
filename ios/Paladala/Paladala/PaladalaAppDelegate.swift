@@ -1,4 +1,5 @@
 import FirebaseCore
+import MetricKit
 import UIKit
 
 /// App delegate wired via `@UIApplicationDelegateAdaptor` in
@@ -16,11 +17,17 @@ import UIKit
 /// exactly once per wake, otherwise the system assumes we
 /// are still doing work and keeps the app foregrounded,
 /// burning battery.
-final class PaladalaAppDelegate: NSObject, UIApplicationDelegate {
+///
+/// Also conforms to `MXMetricManagerSubscriber` so the system
+/// delivers `MXAppLaunchMetric` payloads (real-user cold-start
+/// times) at next foreground after a 24 h collection window.
+/// See `didReceive(_:completionHandler:)` below.
+final class PaladalaAppDelegate: NSObject, UIApplicationDelegate, MXMetricManagerSubscriber {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        LaunchMetrics.shared.mark(.appDelegateStart)
         // Boot Firebase first so the very first analytics event
         // (`app_launch` from `PaladalaApp.init`) finds a
         // configured SDK. We deliberately do NOT read the opt-in
@@ -41,6 +48,12 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate {
         // cascade of -999 cancelled errors" in the
         // diagnostic log.
         _ = DownloadStore.shared
+        // Subscribe to MetricKit payloads (cold-start histograms,
+        // hang rates, etc.).  The system delivers aggregated
+        // payloads from the previous 24 h at the next app
+        // foreground, so this captures real-user launch times
+        // without us having to ship our own analytics for that.
+        MXMetricManager.shared.add(self)
         // Bootstrap the download manager at launch so the
         // system has time to resume any in-flight tasks
         // from a prior run before we attach the delegate.
@@ -48,6 +61,7 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate {
         Task { @MainActor in
             DownloadManager.shared.bootstrap()
         }
+        LaunchMetrics.shared.mark(.appDelegateComplete)
         return true
     }
 
@@ -76,5 +90,43 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate {
                 completionHandler
             )
         }
+    }
+
+    // MARK: - MXMetricManagerSubscriber
+
+    /// Called by `MXMetricManager` once per day with aggregated
+    /// metrics from the previous 24 h.  We forward any
+    /// `MXAppLaunchMetric` payloads to `DiagnosticLogger` so the
+    /// in-app log viewer / `cold-start.jsonl` can show real-user
+    /// cold-start distributions, not just our own milestones.
+    func didReceive(
+        _ payloads: [MXMetricPayload],
+        completionHandler: @escaping () -> Void
+    ) {
+        for payload in payloads {
+            let launches = payload.appLaunchMetrics
+            guard !launches.isEmpty else { continue }
+            // Log one summary row per launch metric.  Buckets
+            // are aggregated server-side; we report the bucket
+            // count and total sample count so the log is
+            // scannable, and the full histogram is recoverable
+            // from `payload.jsonRepresentation()` if needed.
+            for (i, launch) in launches.enumerated() {
+                let ttfd = launch.histogrammedTimeToFirstDraw
+                let appLaunch = launch.histogrammedAppLaunchTime
+                DiagnosticLogger.shared.log(
+                    .app,
+                    "metric_kit.app_launch",
+                    details: [
+                        "index": i,
+                        "payloadTimeBegin": ISO8601DateFormatter().string(from: payload.timeStampBegin),
+                        "payloadTimeEnd": ISO8601DateFormatter().string(from: payload.timeStampEnd),
+                        "ttfdBuckets": ttfd.totalBucketCount.description,
+                        "appLaunchBuckets": appLaunch.totalBucketCount.description
+                    ]
+                )
+            }
+        }
+        completionHandler()
     }
 }

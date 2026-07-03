@@ -93,7 +93,9 @@ struct HomeView: View {
                 .modifier(HomeToolbarGlassModifier(materialDesign: materialDesign))
                 .task {
                     if model.videos.isEmpty && model.liveRooms.isEmpty {
+                        LaunchMetrics.shared.mark(.firstFeedNetworkStart)
                         await model.load(repository: repository, accountMid: accountMid)
+                        LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
                     }
                 }
                 .onChange(of: model.category) { _, _ in

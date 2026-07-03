@@ -48,6 +48,12 @@ struct RootView: View {
             }
         }
         .onAppear {
+            // First frame has been rendered.  This is the
+            // canonical "time to first frame" anchor — anything
+            // visible on screen from here onward is post-load
+            // and gets attributed to interactive time, not
+            // cold-start time.
+            LaunchMetrics.shared.mark(.firstRootViewAppeared)
             router.consumePendingIntentRoute()
         }
         .onChange(of: scenePhase) { _, phase in

@@ -14,6 +14,7 @@ struct PaladalaApp: App {
     @AppStorage("paladala.glassMigrationVersion") private var glassMigrationVersion = 0
 
     init() {
+        LaunchMetrics.shared.mark(.appInitStart)
         PlayerAudioSession.activate()
         let client = BilibiliAPIClient()
         let repo = PaladalaRepository(apiClient: client)
@@ -49,6 +50,17 @@ struct PaladalaApp: App {
         ])
         Analytics.breadcrumb("APP", "app.launch")
         DeviceInfo.shared.startIfNeeded()
+        LaunchMetrics.shared.mark(.appInitComplete)
+        // If the user opted in via the `PALADALA_COLD_START_DUMP=1`
+        // env var (e.g. in the Xcode scheme for a perf run), write
+        // the milestone log to `Application Support/Paladala/cold-start.jsonl`
+        // on a background queue. The dump is opt-in so production
+        // devices never accumulate the file.
+        if ProcessInfo.processInfo.environment["PALADALA_COLD_START_DUMP"] == "1" {
+            DispatchQueue.global(qos: .utility).async {
+                LaunchMetrics.shared.dumpColdStartReport()
+            }
+        }
     }
 
     var body: some Scene {

@@ -71,7 +71,9 @@ struct MusicHomeView: View {
             diagLog(.music, "MusicHomeView disappeared")
         }
         .task(id: "music-load") {
+            LaunchMetrics.shared.mark(.firstFeedNetworkStart)
             await model.load(repository: repository)
+            LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
         }
         .refreshable {
             Haptics.medium()

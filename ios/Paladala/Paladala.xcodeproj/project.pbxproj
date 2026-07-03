@@ -69,6 +69,7 @@
 		600000000000000000000803 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 600000000000000000000703 /* FirebaseCrashlytics */; };
 		600000000000000000000804 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000901 /* PrivacyInfo.xcprivacy */; };
 		600000000000000000000805 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000902 /* PrivacyInfo.xcprivacy */; };
+		10000000000000000000012D /* LaunchMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022D /* LaunchMetrics.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -135,6 +136,7 @@
 		50000000000000000000055C /* Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Analytics.swift; sourceTree = "<group>"; };
 		600000000000000000000901 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		600000000000000000000902 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		10000000000000000000022D /* LaunchMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetrics.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -221,6 +223,7 @@
 				500000000000000000000559 /* DeepDiagnosticReportView.swift */,
 				50000000000000000000055B /* InlineAVPlayerView.swift */,
 				50000000000000000000055C /* Analytics.swift */,
+				10000000000000000000022D /* LaunchMetrics.swift */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -511,6 +514,7 @@
 				500000000000000000000558 /* DeepDiagnosticReportView.swift in Sources */,
 				50000000000000000000055A /* InlineAVPlayerView.swift in Sources */,
 				50000000000000000000055D /* Analytics.swift in Sources */,
+				10000000000000000000012D /* LaunchMetrics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
