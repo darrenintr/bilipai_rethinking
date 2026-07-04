@@ -107,7 +107,7 @@ struct VideoCard: View {
         }
         .frame(maxWidth: .infinity)
         .clipped()
-        .buttonStyle(.plain)
+        .buttonStyle(PaladalaPressBounceButtonStyle())
         .modifier(VideoContextMenuIfAvailable(video: video, repository: repository))
         // Impression fires once per card every time it enters
         // the visible viewport. For long feeds this can be
@@ -212,7 +212,7 @@ struct LiveRoomCard: View {
         }
         .frame(maxWidth: .infinity)
         .clipped()
-        .buttonStyle(.plain)
+        .buttonStyle(PaladalaPressBounceButtonStyle())
     }
 }
 
@@ -643,6 +643,6 @@ struct SkeletonCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(10)
-        .redacted(reason: .placeholder)
+        .paladalaShimmer()
     }
 }

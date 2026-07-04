@@ -95,6 +95,26 @@ struct VideoDetailView: View {
                     .frame(width: isImmersiveMode ? geo.size.width * 0.9 : nil, alignment: .center)
                     .clipped()
 
+                // Prominent UP entry point. Lives between the
+                // player surface and the comments scroll so it
+                // stays pinned in view as the user scrolls the
+                // comments — the toolbar principal slot is too
+                // small to be discoverable on its own. Uses
+                // Apple's `NavigationLink(value:)` idiom so the
+                // navigation is registered with the parent
+                // `NavigationStack` (state-restorable, deep-
+                // linkable, previewable). Hidden when
+                // `ownerMid == 0` because many `BiliVideo`s
+                // (history rows, search hits, dynamic-feed
+                // archive) are synthesised with `ownerMid = 0`.
+                if video.ownerMid > 0 {
+                    upEntryCard
+                        .transition(
+                            .move(edge: .top)
+                                .combined(with: .opacity)
+                        )
+                }
+
                 commentsScrollView
             }
         }
@@ -103,21 +123,17 @@ struct VideoDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // Tappable owner-name button in the nav-bar centre.
-            // Replaces the default title text with a button
-            // that pushes the UP's public profile. Hidden when
-            // `ownerMid == 0` because many `BiliVideo`s (history
-            // rows, search hits, dynamic-feed archive) are
-            // synthesised with `ownerMid = 0` — for those the
-            // user sees the plain title text instead. We
-            // intentionally do NOT mutate `navigationTitle` so
-            // the back-button label still reads the owner
-            // name on the next screen.
+            // Uses `NavigationLink(value:)` — Apple's official
+            // idiom — so the destination is registered with the
+            // parent `NavigationStack` rather than mutating the
+            // router directly. The plain button style suppresses
+            // the default link tint so the title keeps the
+            // system chrome. Hidden when `ownerMid == 0` so
+            // synthesised `BiliVideo`s (history rows, search
+            // hits) fall back to plain title text.
             ToolbarItem(placement: .principal) {
                 if video.ownerMid > 0 {
-                    Button {
-                        Haptics.selection()
-                        router.openUP(mid: video.ownerMid)
-                    } label: {
+                    NavigationLink(value: UPProfileRoute.up(mid: video.ownerMid)) {
                         HStack(spacing: 4) {
                             Text(model.detail.ownerName)
                                 .font(.headline)
@@ -130,6 +146,7 @@ struct VideoDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("查看 UP 主 \(model.detail.ownerName) 的个人主页")
+                    .accessibilityHint("打开 UP 主个人主页")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -807,7 +824,7 @@ private struct CommentRow: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PaladalaPressBounceButtonStyle())
                 }
                 
                 Button {

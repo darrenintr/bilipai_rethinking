@@ -146,7 +146,7 @@ private struct DynamicFeedSkeletonRow: View {
             }
         }
         .padding(.vertical, 8)
-        .redacted(reason: .placeholder)
+        .paladalaShimmer()
     }
 }
 

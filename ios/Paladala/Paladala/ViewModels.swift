@@ -26,6 +26,14 @@ final class HomeViewModel: ObservableObject {
     /// expose this so the home view can render an "离线样例" caption and
     /// so the pagination footer can offer a "重新加载" action.
     @Published var isShowingBundledFallback = false
+    /// Flips `false → true` the first time the home feed paints
+    /// with real videos, so the staggered fan-in animation in
+    /// `HomeView` only runs once per session and only on the
+    /// *initial* load (not on category switches or
+    /// refreshes). The view reads this with `.animation(_,
+    /// value:)` so re-flipping is a no-op once the cards are
+    /// already on screen.
+    @Published var firstPageAnimated = false
 
     private var page = 1
     private var requestGeneration: UInt64 = 0
@@ -59,6 +67,13 @@ final class HomeViewModel: ObservableObject {
         await loadPage(repository: repository, accountMid: accountMid, replacing: true, requestID: requestID)
         guard isCurrentRequest(requestID) else { return }
         isLoading = false
+        // Trigger the one-shot fan-in animation in `HomeView` only
+        // when this is the first successful load of the session
+        // (skip refreshes / category switches). The `!isShowingBundledFallback`
+        // guard avoids animating a fan-in over the offline sample.
+        if !firstPageAnimated, !videos.isEmpty, !isShowingBundledFallback {
+            firstPageAnimated = true
+        }
     }
 
     func loadMore(repository: PaladalaRepository, accountMid: Int64 = 0) async {

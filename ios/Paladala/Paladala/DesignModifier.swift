@@ -20,6 +20,27 @@ struct PaladalaGlassButtonStyle: ButtonStyle {
     }
 }
 
+/// Spring-bounce press feedback for inline buttons. Heavier scale
+/// (0.92) and a springier easing than `PaladalaGlassButtonStyle`,
+/// so taps on follow / like / favourite / watch-later targets
+/// feel tactile. Compose with `.buttonStyle(.plain)` + your
+/// custom chrome — this style only owns the press animation.
+///
+/// Reduce Motion short-circuits the scale so accessibility users
+/// still get the press state through the visual highlight only.
+struct PaladalaPressBounceButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .animation(
+                configuration.isPressed
+                    ? .spring(response: 0.18, dampingFraction: 0.6)
+                    : .spring(response: 0.32, dampingFraction: 0.7),
+                value: configuration.isPressed
+            )
+    }
+}
+
 private struct PaladalaInteractiveGlassModifier<S: InsettableShape>: ViewModifier {
     let design: MaterialDesign
     let shape: S
@@ -336,6 +357,52 @@ extension View {
             PaladalaBackdrop()
         }
     }
+
+    /// Liquid Glass presentation background for sheets. On iOS 26+
+    /// uses `.glassEffect(.regular)` for the live refraction; on
+    /// iOS 17 / 18 falls back to `.regularMaterial` with a matching
+    /// `presentationCornerRadius`. Apply to the *sheet content*
+    /// (not the `.sheet(isPresented:)` modifier), so the system
+    /// applies it to the host that wraps the body.
+    @ViewBuilder
+    func paladalaSheetGlass() -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            self
+                .presentationBackground(.regularMaterial)
+                .presentationCornerRadius(28)
+        } else {
+            self
+                .presentationBackground(.regularMaterial)
+                .presentationCornerRadius(28)
+        }
+        #else
+        self
+            .presentationBackground(.regularMaterial)
+            .presentationCornerRadius(28)
+        #endif
+    }
+
+    /// Sweeping shimmer overlay used by skeleton placeholders while
+    /// the first feed / profile / comments page is loading. A
+    /// translucent `LinearGradient` slides across the content shape
+    /// in a 1.4 s loop, masked to the underlying view so the
+    /// gradient only paints inside the rounded rectangles / circles.
+    /// `redacted(reason: .placeholder)` is intentionally NOT used
+    /// here — the system redaction mask conflicts with the manual
+    /// overlay, and you end up with no shimmer at all.
+    @ViewBuilder
+    func paladalaShimmer(active: Bool = true) -> some View {
+        if active {
+            modifier(PaladalaShimmerModifier())
+        } else {
+            // No-op: lets call sites write a single modifier chain
+            // and disable the shimmer (e.g. during Reduce Motion).
+            // SwiftUI skips the modifier entirely so the static
+            // placeholder paints as-is.
+            self
+        }
+    }
 }
 
 /// Internal label view used by `paladalaPickerChip` and
@@ -359,5 +426,63 @@ private struct PaladalaChip: View {
         .foregroundStyle(isSelected ? PaladalaTheme.biliPink : .primary)
         .frame(maxWidth: .infinity, minHeight: 44)
         .padding(.horizontal, 8)
+    }
+}
+
+/// Sweeping shimmer animation. A 90 pt translucent white gradient
+/// slides left-to-right across the masked content in a 1.4 s loop,
+/// `repeatForever(autoreverses: false)`. The host view is duplicated
+/// as the `mask` so the gradient only paints inside the rounded
+/// rectangles / circles the placeholder already draws — the
+/// surrounding card padding stays clear.
+///
+/// Reduce Motion (`@Environment(\.accessibilityReduceMotion)`)
+/// short-circuits the animation entirely; the placeholder still
+/// paints but with no sweeping highlight.
+private struct PaladalaShimmerModifier: ViewModifier {
+    @State private var phase: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            content
+                .overlay {
+                    GeometryReader { geo in
+                        // Width of the sweeping band — kept narrow so
+                        // a single shimmer reads as a "highlight
+                        // passing through" rather than a wash.
+                        LinearGradient(
+                            stops: [
+                                .init(color: .white.opacity(0), location: 0),
+                                .init(color: .white.opacity(0.45), location: 0.5),
+                                .init(color: .white.opacity(0), location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: 90)
+                        // Translate the band across the full width
+                        // plus its own width so it fully enters and
+                        // exits the visible rect on every cycle.
+                        .offset(x: phase * (geo.size.width + 90))
+                        .blendMode(.plusLighter)
+                    }
+                    // Clip the band to the placeholder rects so the
+                    // shimmer does not bleed across card padding.
+                    .mask(content)
+                }
+                .onAppear {
+                    // Single one-shot kick — `repeatForever` keeps
+                    // driving `phase` from the new resting state.
+                    withAnimation(
+                        .linear(duration: 1.4)
+                            .repeatForever(autoreverses: false)
+                    ) {
+                        phase = 1
+                    }
+                }
+        }
     }
 }

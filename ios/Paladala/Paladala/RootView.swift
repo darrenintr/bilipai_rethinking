@@ -120,6 +120,7 @@ struct RootView: View {
         }
         .sheet(isPresented: $router.isLoginSheetPresented) {
             LoginSheet()
+                .paladalaSheetGlass()
         }
         .modifier(LiquidGlassTabBarModifier(materialDesign: materialDesign))
         .fullScreenCover(isPresented: Binding(
@@ -514,6 +515,8 @@ private func profileRouteView(_ route: ProfileRoute, repository: PaladalaReposit
         HistoryListView(repository: repository)
     case .favorites(let mid):
         FavoriteFoldersView(repository: repository, mid: mid)
+    case .favoriteFolder(let folder):
+        FavoriteFolderVideosView(repository: repository, folder: folder)
     case .watchLater:
         WatchLaterListView(repository: repository)
     case .downloads:
