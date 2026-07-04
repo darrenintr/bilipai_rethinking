@@ -292,6 +292,57 @@ struct VideoDetailView: View {
     ///    `playerScale` 1.0..0.5. Scrolling down shrinks the
     ///    player; scrolling back up grows it back to its rest
     ///    size. Animated with a spring for a smooth feel.
+    /// Prominent UP entry card. Renders between the player
+    /// surface and the comments scroll so it stays pinned in
+    /// view while the user scrolls the comments — the
+    /// toolbar-principal button is too small to be
+    /// discoverable on its own. The whole row is wrapped in a
+    /// `NavigationLink(value:)` so the push is registered
+    /// with the parent `NavigationStack` (state-restorable,
+    /// deep-linkable, previewable). We do not surface an
+    /// avatar here because `BiliVideo` does not carry one
+    /// (the upstream `/x/web-interface/view` endpoint
+    /// returns a `pic` cover but not an owner face URL) —
+    /// keeping the row text-only avoids a placeholder gap.
+    private var upEntryCard: some View {
+        NavigationLink(value: UPProfileRoute.up(mid: video.ownerMid)) {
+            HStack(spacing: 12) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(PaladalaTheme.biliPink)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.detail.ownerName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text("查看 UP 主个人主页")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius,
+                                 style: PaladalaTheme.cornerStyle)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius,
+                                           style: PaladalaTheme.cornerStyle))
+        }
+        .buttonStyle(PaladalaPressBounceButtonStyle())
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("打开 UP 主个人主页")
+    }
+
     private var commentsScrollView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {

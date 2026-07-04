@@ -1122,7 +1122,7 @@ final class BilibiliAPIClient {
             ]
         )
         try payload.requireOK()
-        return payload.code
+        return payload.code ?? 0
     }
 
     /// Page through a UP's published videos. Bilibili returns
@@ -1181,9 +1181,14 @@ final class BilibiliAPIClient {
         // `nil`; we compactMap so the rendered list matches
         // what the upstream intended to show.
         let posts = payload.value?.items.compactMap(\.post) ?? []
+        // `DynamicCardDTO.id` is decoded from the JSON key
+        // `id_str` (see the DTO's `init(from:)`) but the
+        // stored Swift property is plain `id`. Using `.id_str`
+        // here was a hold-over from when we followed the JSON
+        // key name verbatim; the compiler catches it now.
         return DynamicFeedPage(
             items: posts,
-            nextOffset: payload.value?.items.last?.id_str ?? "",
+            nextOffset: payload.value?.items.last?.id ?? "",
             hasMore: payload.value?.hasMore ?? false
         )
     }
