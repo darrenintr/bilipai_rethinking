@@ -42,6 +42,12 @@ struct HomeView: View {
             feedContent(scrollProxy: proxy)
                 .background(Color.clear)
                 .navigationTitle("Paladala")
+                // Apple large-title guidance for top-level
+                // navigation: the title collapses into the
+                // chrome on scroll and re-expands when the
+                // scroll returns to top. The system handles
+                // the animation; we just enable the mode.
+                .navigationBarTitleDisplayMode(.large)
                 // System-provided search bar. Replaces the
                 // hand-rolled pill surface in `feedContent` —
                 // gets the magnifying-glass icon, clear

@@ -94,6 +94,7 @@ struct DynamicFeedView: View {
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .navigationTitle("动态")
+        .navigationBarTitleDisplayMode(.large)
         .task { await model.load(repository: repository) }
         .refreshable {
             Haptics.medium()

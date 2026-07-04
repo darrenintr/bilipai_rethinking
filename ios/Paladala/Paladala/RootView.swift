@@ -119,7 +119,14 @@ struct RootView: View {
             handle(url)
         }
         .sheet(isPresented: $router.isLoginSheetPresented) {
+            // Apple's iOS 26 sheet guidance: surface a drag
+            // indicator so the user can see the sheet is
+            // dismissable without first trying to drag. The
+            // explicit "关闭" toolbar button is the primary
+            // dismiss affordance; the indicator is the
+            // secondary gesture affordance.
             LoginSheet()
+                .presentationDragIndicator(.visible)
                 .paladalaSheetGlass()
         }
         .modifier(LiquidGlassTabBarModifier(materialDesign: materialDesign))
@@ -207,23 +214,63 @@ private struct PhoneRootView: View {
         NavigationStack(path: $router.path) {
             TabView(selection: $router.selectedTab) {
                 HomeView(repository: repository, heroNamespace: heroNamespace)
-                    .tabItem { Label(MainTab.home.title, systemImage: MainTab.home.symbolName) }
+                    .tabItem {
+                        // Apple's recommended "select bounce" — the
+                        // SF Symbol scales up + back down when the
+                        // value flips. Keyed off `selectedTab` so
+                        // only the newly-selected icon bounces (not
+                        // all five on every render).
+                        Label {
+                            Text(MainTab.home.title)
+                        } icon: {
+                            Image(systemName: MainTab.home.symbolName)
+                                .symbolEffect(.bounce, value: router.selectedTab)
+                        }
+                    }
                     .tag(MainTab.home)
 
                 DynamicFeedView(repository: repository, heroNamespace: heroNamespace)
-                    .tabItem { Label(MainTab.dynamic.title, systemImage: MainTab.dynamic.symbolName) }
+                    .tabItem {
+                        Label {
+                            Text(MainTab.dynamic.title)
+                        } icon: {
+                            Image(systemName: MainTab.dynamic.symbolName)
+                                .symbolEffect(.bounce, value: router.selectedTab)
+                        }
+                    }
                     .tag(MainTab.dynamic)
 
                 LiveRoomsView(repository: repository)
-                    .tabItem { Label(MainTab.live.title, systemImage: MainTab.live.symbolName) }
+                    .tabItem {
+                        Label {
+                            Text(MainTab.live.title)
+                        } icon: {
+                            Image(systemName: MainTab.live.symbolName)
+                                .symbolEffect(.bounce, value: router.selectedTab)
+                        }
+                    }
                     .tag(MainTab.live)
 
                 MusicHomeView(repository: repository)
-                    .tabItem { Label(MainTab.music.title, systemImage: MainTab.music.symbolName) }
+                    .tabItem {
+                        Label {
+                            Text(MainTab.music.title)
+                        } icon: {
+                            Image(systemName: MainTab.music.symbolName)
+                                .symbolEffect(.bounce, value: router.selectedTab)
+                        }
+                    }
                     .tag(MainTab.music)
 
                 ProfileSettingsView(repository: repository)
-                    .tabItem { Label(MainTab.profile.title, systemImage: MainTab.profile.symbolName) }
+                    .tabItem {
+                        Label {
+                            Text(MainTab.profile.title)
+                        } icon: {
+                            Image(systemName: MainTab.profile.symbolName)
+                                .symbolEffect(.bounce, value: router.selectedTab)
+                        }
+                    }
                     .tag(MainTab.profile)
             }
             .paladalaTabBarBehavior()
