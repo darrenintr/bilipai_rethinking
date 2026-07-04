@@ -407,4 +407,39 @@ final class PaladalaRepository: ObservableObject {
     func userVideos(mid: Int64, page: Int = 1) async throws -> (videos: [BiliVideo], hasMore: Bool) {
         try await apiClient.userVideos(mid: mid, page: page)
     }
+
+    /// Follow / unfollow a UP. `act` matches Bilibili's
+    /// `/x/relation/modify` parameter: `1` for follow,
+    /// `2` for unfollow, `3` for "悄悄关注". Returns the
+    /// upstream `code` so the ViewModel can react to
+    /// failure (-101, 22001, etc) with localised copy.
+    @discardableResult
+    func modifyRelation(target mid: Int64, act: Int) async throws -> Int {
+        try await apiClient.modifyRelation(target: mid, act: act)
+    }
+
+    /// Check whether the signed-in user follows `mid`. The
+    /// `selfMid` parameter exists because Bilibili's `/x/relation`
+    /// endpoint requires the signed-in user's own mid; signed-
+    /// out callers always see `.notRelated` so the follow
+    /// button shows "关注" instead of an inconsistent
+    /// "已关注" state.
+    func userRelation(target mid: Int64, selfMid: Int64) async throws -> BiliRelation {
+        try await apiClient.userRelation(target: mid, selfMid: selfMid)
+    }
+
+    /// Fetch a UP's own dynamic posts. Reuses the
+    /// `DynamicFeedPage` shape so the UP profile's "动态"
+    /// tab can render with the same card chrome as the
+    /// follow feed.
+    func userDynamic(hostMid: Int64, offset: String = "") async throws -> DynamicFeedPage {
+        try await apiClient.userDynamic(hostMid: hostMid, offset: offset)
+    }
+
+    /// Fetch a UP's public favorite folders.
+    /// Returns an empty array when `upMid == 0` so signed-out
+    /// callers don't trip the upstream -101 guard.
+    func userFavoriteFolders(upMid: Int64) async throws -> [FavoriteFolderSummary] {
+        try await apiClient.userFavoriteFolders(upMid: upMid)
+    }
 }

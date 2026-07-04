@@ -136,6 +136,31 @@ struct BiliUserCard: Codable, Hashable {
     }
 }
 
+/// Relation between the signed-in user and another UP. Mirrors
+/// Bilibili's `/x/relation` `attribute` field — `1` is followed,
+/// `2` is the special "悄悄关注" (silent follow) state, `6` is
+/// blocked. Anything else (including the unsigned-in case, where
+/// the endpoint refuses to answer) collapses to `.notRelated`
+/// so the ViewModel can decide whether to show a "Follow" CTA
+/// or skip the button entirely.
+enum BiliRelation: Int, Codable, Hashable {
+    case notRelated = 0
+    case followed = 1
+    case silentFollow = 2
+    case blocked = 6
+
+    init(attribute: Int) {
+        self = BiliRelation(rawValue: attribute) ?? .notRelated
+    }
+
+    /// `true` when the user is already following this UP in any
+    /// capacity. The follow button shows the inverse action
+    /// ("已关注" / "取消关注") and a different icon based on this.
+    var isFollowing: Bool {
+        self == .followed || self == .silentFollow
+    }
+}
+
 /// Bilibili's official "AI 视频总结" payload returned by
 /// `/x/web-interface/view/conclusion/get`. The summary text is
 /// Markdown-formatted prose from B站's NLP pipeline; the

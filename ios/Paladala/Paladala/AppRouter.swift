@@ -69,6 +69,13 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
 enum ProfileRoute: Hashable {
     case history
     case favorites(mid: Int64)
+    /// Open a *specific* favorite folder (used by the UP
+    /// profile's "收藏" tab, which lists public folders
+    /// belonging to a third-party UP and jumps straight
+    /// into the folder's videos). Distinct from
+    /// `.favorites(mid:)` which lists the *signed-in user's*
+    /// own folder collection.
+    case favoriteFolder(FavoriteFolderSummary)
     case watchLater
     /// Offline downloads list. Pushed when the user taps
     /// the "离线缓存" quick action on the profile screen.

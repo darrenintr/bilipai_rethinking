@@ -1,5 +1,27 @@
 import SwiftUI
 
+/// Active sub-tab on the UP profile. The picker at the top of
+/// the scroll body drives which section renders below. Stored
+/// in `@AppStorage` so the user's last choice survives a
+/// relaunch — most users default to `.posts` but power users
+/// who drop into the "动态" / "收藏" tabs regularly get the
+/// tab they were on last.
+enum UPProfileTab: String, CaseIterable, Identifiable, Codable {
+    case posts
+    case dynamics
+    case favorites
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .posts: "投稿"
+        case .dynamics: "动态"
+        case .favorites: "收藏"
+        }
+    }
+}
+
 /// View model for `UPProfileView`. Drives the three independent
 /// loads (card, stats, videos page 1) with `async let` so the
 /// header, stats row, and video list all populate in parallel.
@@ -7,6 +29,10 @@ import SwiftUI
 /// `HistoryListViewModel` / `FavoriteFolderVideosViewModel` so
 /// the future "merge into the existing account-list" refactor
 /// is a copy-paste away.
+///
+/// v0.5.0 adds: relation status (follow button), sub-tab
+/// dispatch (posts / dynamics / favorites), and per-tab
+/// pagination of dynamic posts.
 @MainActor
 final class UPProfileViewModel: ObservableObject {
     @Published var card: BiliUserCard?
@@ -19,14 +45,39 @@ final class UPProfileViewModel: ObservableObject {
     @Published var hasMore = true
     @Published var errorMessage: String?
 
+    // MARK: - v0.5.0 additions
+
+    /// Relation between the signed-in user and `mid`. Defaults
+    /// to `.notRelated`; refreshed alongside the other loads.
+    /// The follow button reads this directly so the icon and
+    /// label can flip without an extra round-trip.
+    @Published var relation: BiliRelation = .notRelated
+    /// `true` while a follow / unfollow request is in flight —
+    /// disables the follow button so a double-tap doesn't fire
+    /// two `act=1`/`act=2` POSTs in quick succession.
+    @Published var isModifyingRelation = false
+    /// One-shot toast for follow success / failure. `nil`
+    /// clears the toast.
+    @Published var relationToast: String?
+
+    /// Dynamic posts for the `.dynamics` tab. Loaded lazily —
+    /// empty until the user first switches to the tab.
+    @Published var dynamicItems: [DynamicPost] = []
+    @Published var isLoadingDynamics = false
+    @Published var dynamicHasMore = true
+    /// UP's public favorite folders. Loaded lazily too.
+    @Published var favoriteFolders: [FavoriteFolderSummary] = []
+    @Published var isLoadingFavorites = false
+
     private var nextPage = 1
+    private var dynamicNextOffset: String = ""
     private let mid: Int64
 
     init(mid: Int64) {
         self.mid = mid
     }
 
-    func load(repository: PaladalaRepository) async {
+    func load(repository: PaladalaRepository, selfMid: Int64 = 0) async {
         guard mid > 0 else {
             errorMessage = "无效的 UP ID"
             return
@@ -34,16 +85,19 @@ final class UPProfileViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         nextPage = 1
-        // Fire the three independent reads in parallel. The
+        // Fire the four independent reads in parallel. The
         // card fetch is the slowest (WBI-signed); the stats
-        // fan-out is fast; the videos page is medium. We
-        // `try?` the card so a 403/-101 on a banned or
-        // shadow-banned user still renders the video list.
+        // fan-out is fast; the videos page is medium; the
+        // relation check requires auth and short-circuits to
+        // `.notRelated` for signed-out callers.
         async let cardResult = try? await repository.userCardInfo(mid: mid)
         async let statsResult = try? await repository.userStats(mid: mid)
         async let videosResult = (try? await repository.userVideos(mid: mid, page: 1)) ?? (videos: [], hasMore: false)
+        async let relationResult = (selfMid > 0)
+            ? (try? await repository.userRelation(target: mid, selfMid: selfMid)) ?? .notRelated
+            : BiliRelation.notRelated
 
-        let (loadedCard, loadedStats, loadedVideos) = await (cardResult, statsResult, videosResult)
+        let (loadedCard, loadedStats, loadedVideos, loadedRelation) = await (cardResult, statsResult, videosResult, relationResult)
         card = loadedCard
         if let loadedStats {
             followingCount = loadedStats.following
@@ -53,6 +107,7 @@ final class UPProfileViewModel: ObservableObject {
         videos = loadedVideos.videos
         hasMore = loadedVideos.hasMore
         nextPage = 2
+        relation = loadedRelation
         isLoading = false
     }
 
@@ -73,22 +128,94 @@ final class UPProfileViewModel: ObservableObject {
             errorMessage = "加载更多失败"
         }
     }
+
+    /// Lazy load of dynamic posts for the `.dynamics` tab.
+    /// Runs the first page on first call, then pages on
+    /// subsequent calls via `dynamicNextOffset`. `repository`
+    /// is the same dependency the view model already uses —
+    /// threaded through rather than pulled from a singleton
+    /// so the test surface stays hermetic.
+    func ensureDynamicsLoaded(repository: PaladalaRepository) async {
+        // Skip if we already have items, are currently
+        // loading, or have reached the end of the feed.
+        // An empty list with `dynamicHasMore == true` is
+        // the legitimate "load me now" trigger.
+        guard dynamicItems.isEmpty, !isLoadingDynamics, dynamicHasMore else { return }
+        await loadDynamics(repository: repository)
+    }
+
+    func loadDynamics(repository: PaladalaRepository) async {
+        guard !isLoadingDynamics, dynamicHasMore, mid > 0 else { return }
+        isLoadingDynamics = true
+        defer { isLoadingDynamics = false }
+        do {
+            let page = try await repository.userDynamic(hostMid: mid, offset: dynamicNextOffset)
+            // Dedupe by id so a server-side re-order does not
+            // produce duplicates across paginated loads.
+            let seen = Set(dynamicItems.map(\.id))
+            dynamicItems.append(contentsOf: page.items.filter { !seen.contains($0.id) })
+            dynamicHasMore = page.hasMore
+            dynamicNextOffset = page.nextOffset
+        } catch {
+            errorMessage = "加载动态失败"
+        }
+    }
+
+    /// Lazy load of the UP's public favorite folders. The
+    /// endpoint returns the full list in a single call — no
+    /// pagination needed.
+    func ensureFavoritesLoaded(repository: PaladalaRepository) async {
+        guard !isLoadingFavorites, favoriteFolders.isEmpty, mid > 0 else { return }
+        isLoadingFavorites = true
+        defer { isLoadingFavorites = false }
+        do {
+            favoriteFolders = try await repository.userFavoriteFolders(upMid: mid)
+        } catch {
+            errorMessage = "加载收藏失败"
+        }
+    }
+
+    /// Toggle the follow / unfollow relation. `act = 1` to
+    /// follow, `act = 2` to unfollow — Bilibili's exact codes.
+    /// On success the local `relation` flips to the optimistic
+    /// new value; on failure the toast surfaces the upstream
+    /// error message.
+    func toggleFollow(repository: PaladalaRepository) async {
+        guard !isModifyingRelation, mid > 0 else { return }
+        isModifyingRelation = true
+        defer { isModifyingRelation = false }
+        let newAct = relation.isFollowing ? 2 : 1
+        // Optimistic UI flip — the round-trip is fast on Wi-Fi
+        // but the user expects the icon to change immediately.
+        let optimistic = relation.isFollowing ? BiliRelation.notRelated : BiliRelation.followed
+        let previous = relation
+        relation = optimistic
+        do {
+            _ = try await repository.modifyRelation(target: mid, act: newAct)
+            relationToast = optimistic.isFollowing ? "已关注" : "已取消关注"
+        } catch {
+            relation = previous
+            relationToast = "操作失败，请重试"
+        }
+    }
 }
 
 /// Public profile screen for a UP (content creator). Pushed onto
 /// the navigation stack by `AppRouter.openUP(mid:)` when the
 /// user taps the owner name in `VideoDetailView`'s nav bar.
-/// Three sections, top to bottom: header, stats, published
-/// videos. Tapping a row in the videos list pushes another
-/// `VideoDetailView` for that video via the existing
-/// `BiliVideo` navigation destination registered in
-/// `RootView.swift`.
+/// Three sub-tabs (投稿 / 动态 / 收藏) drive the section under
+/// the header. Tapping a row in any section pushes another
+/// destination — `VideoDetailView` for posts / attached videos,
+/// `FavoriteFolderVideosView` for favorite folders.
 struct UPProfileView: View {
     let mid: Int64
     let repository: PaladalaRepository
 
     @StateObject private var model: UPProfileViewModel
+    @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+    @AppStorage("paladala.upProfileTab") private var storedTab: UPProfileTab = .posts
 
     init(mid: Int64, repository: PaladalaRepository) {
         self.mid = mid
@@ -96,19 +223,109 @@ struct UPProfileView: View {
         _model = StateObject(wrappedValue: UPProfileViewModel(mid: mid))
     }
 
+    /// The currently-selected sub-tab. We resolve through the
+    /// `binding(...)` helper so the segmented picker and the
+    /// scroll body agree on which section renders.
+    private var selectedTab: UPProfileTab { storedTab }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 statsRow
-                videosSection
+                tabPicker
+                Group {
+                    switch selectedTab {
+                    case .posts: postsSection
+                    case .dynamics: dynamicsSection
+                    case .favorites: favoritesSection
+                    }
+                }
+                // `.id(...)` on the section group is what
+                // makes the `withAnimation` on tab-switch
+                // actually trigger a fade / slide transition.
+                // Without it the switch is instantaneous and
+                // SwiftUI doesn't see a state change worth
+                // animating.
+                .id(selectedTab)
+                .transition(
+                    .asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .opacity
+                    )
+                )
             }
             .padding(16)
         }
         .navigationTitle(model.card?.name ?? "UP 主")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
         .task {
-            await model.load(repository: repository)
+            // `selfMid` is forwarded so the follow button can
+            // know whether the signed-in user is already
+            // following the UP. Signed-out callers see
+            // `.notRelated` and a "关注" CTA that bounces to
+            // the login sheet on tap.
+            await model.load(
+                repository: repository,
+                selfMid: authStore.activeAccount?.mid ?? 0
+            )
+        }
+        // Lazy-load the dynamics / favorites sections as the
+        // user opens each tab. The `task(id:)` modifier
+        // restarts the task whenever `selectedTab` flips,
+        // which is exactly the trigger we want — switching
+        // away cancels the in-flight load via structured
+        // concurrency.
+        .task(id: selectedTab) {
+            switch selectedTab {
+            case .posts:
+                break
+            case .dynamics:
+                await model.ensureDynamicsLoaded(repository: repository)
+            case .favorites:
+                await model.ensureFavoritesLoaded(repository: repository)
+            }
+        }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            // Share menu. Three actions wrapped in a single
+            // `.menu` so the toolbar stays at one item
+            // regardless of locale. ShareLink produces the
+            // standard iOS share sheet, the other two buttons
+            // mutate UIPasteboard / UIApplication directly.
+            Menu {
+                if let card = model.card {
+                    ShareLink(
+                        item: URL(string: "https://space.bilibili.com/\(card.mid)")!,
+                        subject: Text(card.name)
+                    ) {
+                        Label("分享", systemImage: "square.and.arrow.up")
+                    }
+                }
+                Button {
+                    UIPasteboard.general.string = "\(mid)"
+                    Haptics.success()
+                } label: {
+                    Label("复制 UID", systemImage: "doc.on.doc")
+                }
+                Button {
+                    if let url = URL(string: "https://space.bilibili.com/\(mid)") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Label("浏览器打开", systemImage: "safari")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.body.weight(.medium))
+            }
+            .accessibilityLabel("UP 主页更多操作")
         }
     }
 
@@ -117,41 +334,44 @@ struct UPProfileView: View {
     @ViewBuilder
     private var header: some View {
         if let card = model.card {
-            HStack(alignment: .top, spacing: 14) {
-                avatar(for: card)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text(card.name)
-                            .font(.title2.weight(.bold))
-                        if card.vipType > 0 {
-                            Image(systemName: "crown.fill")
-                                .foregroundStyle(PaladalaTheme.biliPink)
-                                .accessibilityLabel("大会员")
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 14) {
+                    avatar(for: card)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text(card.name)
+                                .font(.title2.weight(.bold))
+                            if card.vipType > 0 {
+                                Image(systemName: "crown.fill")
+                                    .foregroundStyle(PaladalaTheme.biliPink)
+                                    .accessibilityLabel("大会员")
+                            }
+                        }
+                        Text("UID: \(card.mid)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        if card.level > 0 {
+                            // Render the level as a small capsule so
+                            // it's easy to scan. Bilibili's level is
+                            // 0-6; we map it to LV1..LV6 verbatim.
+                            Text("LV\(card.level)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(PaladalaTheme.biliPink, in: Capsule())
                         }
                     }
-                    Text("UID: \(card.mid)")
+                    Spacer()
+                    followButton
+                }
+                if !card.sign.isEmpty {
+                    Text(card.sign)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    if card.level > 0 {
-                        // Render the level as a small capsule so
-                        // it's easy to scan. Bilibili's level is
-                        // 0-6; we map it to LV1..LV6 verbatim.
-                        Text("LV\(card.level)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(PaladalaTheme.biliPink, in: Capsule())
-                    }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
                 }
-                Spacer()
-            }
-            if !card.sign.isEmpty {
-                Text(card.sign)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 4)
             }
         } else if model.isLoading {
             HStack(spacing: 14) {
@@ -168,7 +388,7 @@ struct UPProfileView: View {
                 }
                 Spacer()
             }
-            .redacted(reason: .placeholder)
+            .paladalaShimmer()
         } else if let error = model.errorMessage {
             // The card fetch failed but the videos might still
             // load. Show a small inline banner rather than
@@ -176,6 +396,26 @@ struct UPProfileView: View {
             Text(error)
                 .font(.subheadline)
                 .foregroundStyle(PaladalaTheme.biliPink)
+        }
+        // Toast for follow success / failure. Renders as a
+        // small floating label below the header; clears
+        // itself after 1.6s via a Task spawned by the model.
+        if let toast = model.relationToast {
+            Text(toast)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.78), in: Capsule())
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .task(id: toast) {
+                    try? await Task.sleep(nanoseconds: 1_600_000_000)
+                    if model.relationToast == toast {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            model.relationToast = nil
+                        }
+                    }
+                }
         }
     }
 
@@ -197,21 +437,107 @@ struct UPProfileView: View {
         }
     }
 
+    // MARK: - Follow button
+
+    @ViewBuilder
+    private var followButton: some View {
+        // Four states: signed-out (no relation, tap → login
+        // sheet), not-following (CTA "关注"), already-
+        // following ("已关注" with a checkmark), blocked
+        // ("已拉黑" disabled). Each gets a distinct visual
+        // so the user can tell at a glance which side of
+        // the relation they're on.
+        let isLoggedIn = authStore.activeAccount != nil
+        let isBlocked = model.relation == .blocked
+        let isFollowing = model.relation.isFollowing
+        let title: String = {
+            if isBlocked { return "已拉黑" }
+            if !isLoggedIn { return "关注" }
+            return isFollowing ? "已关注" : "关注"
+        }()
+        let symbol: String = isBlocked
+            ? "hand.raised.slash"
+            : (isFollowing ? "checkmark" : "plus")
+        Button {
+            Haptics.tap()
+            if !isLoggedIn {
+                router.openLogin()
+                return
+            }
+            // Blocked users can't toggle from the client —
+            // Bilibili's `/x/relation/modify` rejects with
+            // -102 when the target is on the user's block
+            // list. We refuse to even try.
+            guard !isBlocked else { return }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                model.relationToast = nil
+            }
+            Task { await model.toggleFollow(repository: repository) }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .font(.caption.weight(.bold))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .foregroundStyle(
+                isBlocked
+                    ? Color.secondary
+                    : (isFollowing ? PaladalaTheme.biliPink : .white)
+            )
+            .background {
+                if isBlocked {
+                    Capsule()
+                        .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                } else if isFollowing {
+                    Capsule()
+                        .stroke(PaladalaTheme.biliPink, lineWidth: 1)
+                } else {
+                    Capsule()
+                        .fill(PaladalaTheme.biliPink)
+                }
+            }
+        }
+        .buttonStyle(PaladalaPressBounceButtonStyle())
+        .disabled(model.isModifyingRelation || isBlocked)
+        .opacity(model.isModifyingRelation ? 0.55 : 1.0)
+        .animation(.easeInOut(duration: 0.18), value: model.relation)
+        .animation(.easeInOut(duration: 0.18), value: model.isModifyingRelation)
+    }
+
     // MARK: - Stats
 
+    /// Stat pills row. 粉丝 and 关注 stay inert — Bilibili's
+    /// public followers / followings endpoints require the
+    /// signed-in user's own cookie and return a different
+    /// shape (paginated list of `BiliLiveRoom`-style users).
+    /// Wiring those up is v0.6 work; for v0.5.0, only "动态"
+    /// is interactive (it switches to the `.dynamics` sub-tab).
     private var statsRow: some View {
         HStack(spacing: 16) {
-            statPill(label: "粉丝", value: model.followerCount)
-            statPill(label: "关注", value: model.followingCount)
-            statPill(label: "动态", value: model.dynamicCount)
+            statPill(label: "粉丝", value: model.followerCount, interactive: false)
+            statPill(label: "关注", value: model.followingCount, interactive: false)
+            statPill(
+                label: "动态",
+                value: model.dynamicCount,
+                interactive: true,
+                action: { switchTab(.dynamics) }
+            )
             Spacer()
         }
         .padding(14)
         .paladalaCardSurface(materialDesign)
     }
 
-    private func statPill(label: String, value: String) -> some View {
-        VStack(spacing: 2) {
+    private func statPill(
+        label: String,
+        value: String,
+        interactive: Bool,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        let content = VStack(spacing: 2) {
             Text(value)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -219,12 +545,51 @@ struct UPProfileView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+        // Tappable pills wrap in a Button so the user gets a
+        // built-in hit target + accessibility affordance;
+        // non-interactive pills render as plain VStack to
+        // avoid a phantom button frame.
+        return Group {
+            if interactive, let action {
+                Button {
+                    Haptics.selection()
+                    action()
+                } label: {
+                    content
+                }
+                .buttonStyle(PaladalaPressBounceButtonStyle())
+            } else {
+                content
+            }
+        }
     }
 
-    // MARK: - Videos
+    private func switchTab(_ tab: UPProfileTab) {
+        guard storedTab != tab else { return }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+            storedTab = tab
+        }
+    }
+
+    // MARK: - Tab picker
+
+    private var tabPicker: some View {
+        Picker("UP 主页分页", selection: Binding(
+            get: { storedTab },
+            set: { newValue in switchTab(newValue) }
+        )) {
+            ForEach(UPProfileTab.allCases) { tab in
+                Text(tab.title).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("UP 主页分页")
+    }
+
+    // MARK: - Posts section
 
     @ViewBuilder
-    private var videosSection: some View {
+    private var postsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("投稿")
@@ -252,7 +617,7 @@ struct UPProfileView: View {
                     NavigationLink(value: video) {
                         UPVideoListRow(video: video)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PaladalaPressBounceButtonStyle())
                     if index == model.videos.count - 1 && model.hasMore {
                         // Last-row onAppear trigger for pagination.
                         // Lives inside the `if index == count-1` so
@@ -298,7 +663,220 @@ struct UPProfileView: View {
                     .frame(width: 90, height: 10)
             }
         }
-        .redacted(reason: .placeholder)
+        .paladalaShimmer()
+    }
+
+    // MARK: - Dynamics section
+
+    @ViewBuilder
+    private var dynamicsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("动态")
+                    .font(.headline)
+                Spacer()
+                if model.isLoadingDynamics {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            if model.dynamicItems.isEmpty && model.isLoadingDynamics {
+                ForEach(0..<3, id: \.self) { _ in
+                    dynamicRowSkeleton
+                }
+            } else if model.dynamicItems.isEmpty {
+                ContentUnavailableView(
+                    "暂无动态",
+                    systemImage: "rectangle.stack.badge.minus",
+                    description: Text("该 UP 暂未发布动态，或动态加载失败。")
+                )
+                .frame(maxWidth: .infinity, minHeight: 150)
+            } else {
+                ForEach(Array(model.dynamicItems.enumerated()), id: \.element.id) { index, post in
+                    DynamicCardRow(post: post, repository: repository)
+                    if index == model.dynamicItems.count - 1 && model.dynamicHasMore {
+                        Color.clear
+                            .frame(height: 1)
+                            .onAppear {
+                                Task { await model.loadDynamics(repository: repository) }
+                            }
+                    }
+                    if post.id != model.dynamicItems.last?.id {
+                        Divider()
+                    }
+                }
+                if !model.dynamicHasMore && !model.dynamicItems.isEmpty {
+                    Text("— 没有更多了 —")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+            }
+        }
+        .padding(14)
+        .paladalaCardSurface(materialDesign)
+    }
+
+    private var dynamicRowSkeleton: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Circle()
+                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                .frame(width: 36, height: 36)
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                    .frame(width: 120, height: 12)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 12)
+            }
+        }
+        .paladalaShimmer()
+    }
+
+    // MARK: - Favorites section
+
+    @ViewBuilder
+    private var favoritesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("收藏")
+                    .font(.headline)
+                Spacer()
+                if model.isLoadingFavorites {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            if model.favoriteFolders.isEmpty && model.isLoadingFavorites {
+                ForEach(0..<3, id: \.self) { _ in
+                    folderSkeleton
+                }
+            } else if model.favoriteFolders.isEmpty {
+                ContentUnavailableView(
+                    "暂无公开收藏",
+                    systemImage: "folder.badge.questionmark",
+                    description: Text("该 UP 没有公开收藏夹。")
+                )
+                .frame(maxWidth: .infinity, minHeight: 150)
+            } else {
+                ForEach(model.favoriteFolders) { folder in
+                    NavigationLink(value: ProfileRoute.favoriteFolder(folder)) {
+                        folderRow(folder)
+                    }
+                    .buttonStyle(PaladalaPressBounceButtonStyle())
+                    if folder.id != model.favoriteFolders.last?.id {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .paladalaCardSurface(materialDesign)
+    }
+
+    @ViewBuilder
+    private func folderRow(_ folder: FavoriteFolderSummary) -> some View {
+        HStack(spacing: 12) {
+            ResilientImage(url: folder.coverURL)
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(folder.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text("\(folder.mediaCount) 个视频")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if !folder.ownerName.isEmpty {
+                    Text(folder.ownerName)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var folderSkeleton: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle)
+                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                .frame(width: 64, height: 64)
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                    .frame(width: 140, height: 14)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                    .frame(width: 80, height: 10)
+            }
+        }
+        .paladalaShimmer()
+    }
+}
+
+/// One dynamic card in the UP profile's "动态" sub-tab.
+/// Pulled out of the parent so the same chrome is reusable
+/// when v0.6 adds a "热门动态" tab on the follow feed.
+private struct DynamicCardRow: View {
+    let post: DynamicPost
+    let repository: PaladalaRepository
+    @EnvironmentObject private var router: AppRouter
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                avatar
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(post.author)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(post.timeLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            if !post.text.isEmpty {
+                Text(post.text)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let video = post.attachedVideo {
+                NavigationLink(value: video) {
+                    UPVideoListRow(video: video)
+                }
+                .buttonStyle(PaladalaPressBounceButtonStyle())
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let url = post.authorAvatarURL {
+            ResilientImage(url: url)
+                .frame(width: 36, height: 36)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(PaladalaTheme.biliPink.opacity(0.18))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: "person.fill")
+                        .font(.caption)
+                        .foregroundStyle(PaladalaTheme.biliPink)
+                )
+        }
     }
 }
 

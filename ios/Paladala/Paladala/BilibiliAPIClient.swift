@@ -1079,6 +1079,52 @@ final class BilibiliAPIClient {
         return card
     }
 
+    /// Look up whether the signed-in user is following `mid`. The
+    /// upstream endpoint `/x/relation` requires both `mid` (the
+    /// target) AND a `fid` (the signed-in user's own mid); when
+    /// either is missing the endpoint refuses with -101 and the
+    /// caller falls back to `.notRelated`. Anonymous / signed-out
+    /// callers always see `.notRelated` so the follow button
+    /// shows "关注" instead of "已关注" without a confusing
+    /// flicker.
+    func userRelation(target mid: Int64, selfMid: Int64) async throws -> BiliRelation {
+        guard mid > 0, selfMid > 0, selfMid != mid else { return .notRelated }
+        let payload: APIResponse<RelationAttributePayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/relation",
+            queryItems: [
+                URLQueryItem(name: "fid", value: "\(mid)"),
+                URLQueryItem(name: "mid", value: "\(selfMid)")
+            ]
+        )
+        try payload.requireOK()
+        return BiliRelation(attribute: payload.value?.attribute ?? 0)
+    }
+
+    /// Follow (`act=1`), unfollow (`act=2`), or silently follow
+    /// (`act=3`) `mid`. Requires the signed-in cookie's CSRF
+    /// token, which the underlying `post(...)` helper extracts
+    /// from the cookie jar. Returns the upstream `code` so the
+    /// ViewModel can surface a toast / haptics for the failure
+    /// case (most common: -101 "未登录", thrown as
+    /// `BilibiliAPIError.sessionExpired` by the post helper's
+    /// 401 mapping).
+    @discardableResult
+    func modifyRelation(target mid: Int64, act: Int) async throws -> Int {
+        guard mid > 0, (1...3).contains(act) else { throw BilibiliAPIError.invalidURL }
+        let payload: APIResponse<ModifyRelationPayload> = try await post(
+            baseURL: baseURL,
+            path: "/x/relation/modify",
+            parameters: [
+                "fid": "\(mid)",
+                "act": "\(act)",
+                "re_src": "32"
+            ]
+        )
+        try payload.requireOK()
+        return payload.code
+    }
+
     /// Page through a UP's published videos. Bilibili returns
     /// at most `ps` items per page; we use 20 (the same page
     /// size as the home feed) and signal `hasMore` when the
@@ -1106,6 +1152,58 @@ final class BilibiliAPIClient {
         // iterate if a UP deletes a video between page loads.
         let hasMore = videos.count >= 20
         return (videos, hasMore)
+    }
+
+    /// Fetch a UP's own dynamic posts (the same shape the follow
+    /// feed uses, but pinned to a single author). The endpoint
+    /// `/x/polymer/web-dynamic/v1/space/space_brief` accepts an
+    /// `offset` cursor — the upstream returns the next cursor in
+    /// `data.items[].id_str`, or `has_more = false` to signal end.
+    /// The decoder reuses `DynamicFeedDTO` so the model already
+    /// powers the follow tab.
+    func userDynamic(hostMid: Int64, offset: String = "") async throws -> DynamicFeedPage {
+        guard hostMid > 0 else {
+            return DynamicFeedPage(items: [], nextOffset: "", hasMore: false)
+        }
+        var items = [URLQueryItem(name: "host_mid", value: "\(hostMid)")]
+        if !offset.isEmpty {
+            items.append(URLQueryItem(name: "offset", value: offset))
+        }
+        let payload: APIResponse<DynamicFeedPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/polymer/web-dynamic/v1/space/space_brief",
+            queryItems: items
+        )
+        try payload.requireOK()
+        // Apply no followings filter — every post here is
+        // authored by `hostMid` already. `.post` is `Optional`
+        // because invisible / "您已设置不可见" cards decode to
+        // `nil`; we compactMap so the rendered list matches
+        // what the upstream intended to show.
+        let posts = payload.value?.items.compactMap(\.post) ?? []
+        return DynamicFeedPage(
+            items: posts,
+            nextOffset: payload.value?.items.last?.id_str ?? "",
+            hasMore: payload.value?.hasMore ?? false
+        )
+    }
+
+    /// Fetch a UP's *public* favorite folders. The endpoint
+    /// `/x/v3/fav/folder/created/list-all` only returns folders
+    /// the UP has marked `public`; private folders stay
+    /// invisible to other clients. `up_mid > 0` is required —
+    /// Bilibili rejects the call as -101 otherwise. Returns the
+    /// raw folder summaries so the ViewModel can render the
+    /// list directly (titles, cover thumbs, video counts).
+    func userFavoriteFolders(upMid: Int64) async throws -> [FavoriteFolderSummary] {
+        guard upMid > 0 else { return [] }
+        let payload: APIResponse<UserFavoriteFoldersPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/v3/fav/folder/created/list-all",
+            queryItems: [URLQueryItem(name: "up_mid", value: "\(upMid)")]
+        )
+        try payload.requireOK()
+        return payload.value?.folders.map(\.model) ?? []
     }
 
     func commentsPage(aid: Int, next: Int? = nil, pageSize: Int = 20, sort: CommentSort = .hot) async throws -> CommentPage {
@@ -2849,11 +2947,95 @@ private struct RelationStatPayload: Decodable {
     let follower: Int
 }
 
+/// Payload of `/x/relation`. The endpoint is documented to
+/// return `{ attribute: 1, mtime: ... }` for "followed" but in
+/// practice also returns `0` for "not related" without
+/// `mtime`. We decode both defensively.
+private struct RelationAttributePayload: Decodable {
+    let attribute: Int
+}
+
+/// Payload of `/x/relation/modify`. The endpoint returns
+/// `{ code: 0, message: "0", data: { ... } }` on success; on
+/// failure `code` is the bilibili error code (e.g. -101 for
+/// "未登录", 22001 for "关注失败，请重试") and `message` carries
+/// the i18n string. We only consume `code` here — the surface
+/// error message comes from the ViewModel's localisable copy.
+private struct ModifyRelationPayload: Decodable {
+    // No fields — the success body is mostly housekeeping.
+}
+
 private struct SpaceNavNumPayload: Decodable {
     let dynamicCount: Int
 
     enum CodingKeys: String, CodingKey {
         case dynamicCount = "dynamic_count"
+    }
+}
+
+/// Payload of `/x/v3/fav/folder/created/list-all`. Returns
+/// the public folders the UP has marked as `attr == 0`
+/// (public). Private folders are filtered out by the
+/// upstream. The `count` field on each folder is the live
+/// number of videos in it; the UI uses it for the row
+/// subtitle.
+private struct UserFavoriteFoldersPayload: Decodable {
+    let folders: [UserFavoriteFolderDTO]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        // The endpoint shape is `{ list: [...] }` rather than
+        // a bare array; some Bilibili variants omit the
+        // `count` wrapper and put the array at the top level.
+        // We try the wrapper first and fall back to the
+        // top-level decode so both shapes work.
+        if let wrapped = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("list")) {
+            folders = (try? wrapped.decode([UserFavoriteFolderDTO].self, forKey: DynamicKey("list"))) ?? []
+        } else {
+            folders = (try? container.decode([UserFavoriteFolderDTO].self, forKey: DynamicKey("list"))) ?? []
+        }
+    }
+}
+
+private struct UserFavoriteFolderDTO: Decodable {
+    let id: Int64
+    let title: String
+    let cover: String
+    let mediaCount: Int
+    let upperName: String
+
+    var model: FavoriteFolderSummary {
+        FavoriteFolderSummary(
+            id: id,
+            title: title,
+            coverURL: cover.httpsURL,
+            mediaCount: mediaCount,
+            ownerName: upperName
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case cover
+        case mediaCount = "media_count"
+        case upperName = "upper"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        id = container.decodeInt64(keys: ["id"]) ?? 0
+        title = container.decodeString(keys: ["title"]) ?? ""
+        cover = container.decodeString(keys: ["cover"]) ?? ""
+        mediaCount = container.decodeInt(keys: ["media_count", "cnt_info", "play"]) ?? 0
+        // `upper` is sometimes a flat `{ name, mid }` object,
+        // sometimes a bare string with just the name. Both
+        // shapes happen; decode defensively.
+        if let upperObj = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("upper")) {
+            upperName = upperObj.decodeString(keys: ["name"]) ?? ""
+        } else {
+            upperName = container.decodeString(keys: ["upper"]) ?? ""
+        }
     }
 }
 
