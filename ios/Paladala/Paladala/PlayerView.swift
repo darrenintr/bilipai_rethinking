@@ -2,13 +2,11 @@
 //  PlayerView.swift
 //  Paladala
 //
-//  AVKit-backed player surfaces.  The inline player uses a
-//  custom overlay (play/pause + ±10s skip) because AVKit's
-//  `AVPlayerViewController` transport is unreliable for the
-//  inline case — it disappears on some iOS contexts even
-//  with `showsPlaybackControls = true`.  The fullscreen player
-//  uses `AVPlayerViewController` directly so it gets the system
-//  Done button and PiP for free.
+//  AVKit-backed player surfaces.  The inline player hosts
+//  `AVPlayerViewController` directly so the system owns the
+//  playback chrome and tap-to-show / tap-to-hide behaviour.
+//  The fullscreen player uses the same AVKit controller so it
+//  gets the system Done button and PiP for free.
 //
 //  Both bind to the *same* `AVPlayer` on the shared
 //  `PlayerController`, so inline ↔ fullscreen ↔ inline keeps
@@ -21,21 +19,15 @@ import SwiftUI
 
 // MARK: - Inline surface
 
-/// Inline player with a custom transport overlay.
-///
-/// AVKit's `AVPlayerViewController` `showsPlaybackControls` is
-/// unreliable for the inline (non-fullscreen) case — the controls
-/// are rendered by the system and can be hidden by context.  We
-/// therefore use our own overlay: play/pause, ±10s skip, and a
-/// buffering indicator.  The double-tap layer (seek / like) sits
-/// above the transport and does not interfere with it.
+/// Inline player using the native `AVPlayerViewController`
+/// transport.  Full-frame SwiftUI gesture overlays must not sit
+/// above this view, because they prevent AVKit from receiving the
+/// single taps that reveal the system controls.
 struct PlayerView: View {
     let playback: BiliPlayback
     let video: BiliVideo
     let repository: PaladalaRepository
     @ObservedObject var controller: PlayerController
-    /// controls; we pick 3 s as the default.
-    private static let controlsAutoHideDelay: TimeInterval = 3
 
     var body: some View {
         ZStack {
@@ -67,12 +59,10 @@ struct PlayerView: View {
             // hide-on-inactivity internally, so we do not need a
             // SwiftUI tap gesture here.
 
-            // Custom overlays sit ABOVE the AVPlayerViewController
-            // surface but below its tap-handled chrome. The system
-            // chrome takes priority for taps because we mark the
-            // overlays `allowsHitTesting(false)` where possible;
-            // the double-tap overlay uses simultaneous gestures so
-            // it does not steal taps from the chrome.
+            // Keep transient status above the player, but avoid any
+            // full-frame transparent gesture layer here. The system
+            // controller's own recognisers need to receive taps in
+            // order to reveal and hide the playback controls.
             ZStack {
                 if controller.isBuffering && controller.playerError == nil {
                     loadingOverlay
@@ -84,12 +74,6 @@ struct PlayerView: View {
                     playbackErrorOverlay(error: error, controller: controller)
                         .transition(.opacity)
                 }
-
-                DoubleTapOverlay(
-                    video: video,
-                    repository: repository,
-                    controller: controller
-                )
             }
         }
     }
