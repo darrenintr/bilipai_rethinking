@@ -214,8 +214,10 @@ struct UPProfileView: View {
     @StateObject private var model: UPProfileViewModel
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var authStore: AuthStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @AppStorage("paladala.upProfileTab") private var storedTab: UPProfileTab = .posts
+    @State private var canAutoLoadMorePosts = true
 
     init(mid: Int64, repository: PaladalaRepository) {
         self.mid = mid
@@ -248,12 +250,7 @@ struct UPProfileView: View {
                 // SwiftUI doesn't see a state change worth
                 // animating.
                 .id(selectedTab)
-                .transition(
-                    .asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .opacity
-                    )
-                )
+                .transition(sectionTransition)
             }
             .padding(16)
         }
@@ -373,6 +370,8 @@ struct UPProfileView: View {
                         .padding(.top, 4)
                 }
             }
+            .padding(14)
+            .paladalaCardSurface(materialDesign)
         } else if model.isLoading {
             HStack(spacing: 14) {
                 Circle()
@@ -389,6 +388,8 @@ struct UPProfileView: View {
                 Spacer()
             }
             .paladalaShimmer()
+            .padding(14)
+            .paladalaCardSurface(materialDesign)
         } else if let error = model.errorMessage {
             // The card fetch failed but the videos might still
             // load. Show a small inline banner rather than
@@ -396,6 +397,8 @@ struct UPProfileView: View {
             Text(error)
                 .font(.subheadline)
                 .foregroundStyle(PaladalaTheme.biliPink)
+                .padding(14)
+                .paladalaCardSurface(materialDesign)
         }
         // Toast for follow success / failure. Renders as a
         // small floating label below the header; clears
@@ -509,23 +512,30 @@ struct UPProfileView: View {
 
     // MARK: - Stats
 
-    /// Stat pills row. 粉丝 and 关注 stay inert — Bilibili's
-    /// public followers / followings endpoints require the
-    /// signed-in user's own cookie and return a different
-    /// shape (paginated list of `BiliLiveRoom`-style users).
-    /// Wiring those up is v0.6 work; for v0.5.0, only "动态"
-    /// is interactive (it switches to the `.dynamics` sub-tab).
+    /// Stat pills row. 粉丝 and 关注 display public counts;
+    /// 动态 is interactive and switches to the `.dynamics`
+    /// sub-tab so the count and content live next to each other.
     private var statsRow: some View {
-        HStack(spacing: 16) {
-            statPill(label: "粉丝", value: model.followerCount, interactive: false)
-            statPill(label: "关注", value: model.followingCount, interactive: false)
+        HStack(spacing: 8) {
+            statPill(
+                label: "粉丝",
+                value: model.followerCount,
+                systemImage: "person.2",
+                interactive: false
+            )
+            statPill(
+                label: "关注",
+                value: model.followingCount,
+                systemImage: "person.crop.circle.badge.checkmark",
+                interactive: false
+            )
             statPill(
                 label: "动态",
                 value: model.dynamicCount,
+                systemImage: "rectangle.stack",
                 interactive: true,
                 action: { switchTab(.dynamics) }
             )
-            Spacer()
         }
         .padding(14)
         .paladalaCardSurface(materialDesign)
@@ -534,17 +544,36 @@ struct UPProfileView: View {
     private func statPill(
         label: String,
         value: String,
+        systemImage: String,
         interactive: Bool,
         action: (() -> Void)? = nil
     ) -> some View {
-        let content = VStack(spacing: 2) {
-            Text(value)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.primary)
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+        let content = HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(PaladalaTheme.biliPink)
+                .frame(width: 18, height: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.headline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+                    .contentTransition(.numericText())
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if interactive {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: PaladalaTheme.cornerStyle))
         // Tappable pills wrap in a Button so the user gets a
         // built-in hit target + accessibility affordance;
         // non-interactive pills render as plain VStack to
@@ -562,13 +591,27 @@ struct UPProfileView: View {
                 content
             }
         }
+        .accessibilityElement(children: .combine)
     }
 
     private func switchTab(_ tab: UPProfileTab) {
         guard storedTab != tab else { return }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+        let animation: Animation? = reduceMotion
+            ? .easeInOut(duration: 0.16)
+            : .spring(response: 0.32, dampingFraction: 0.85)
+        withAnimation(animation) {
             storedTab = tab
         }
+    }
+
+    private var sectionTransition: AnyTransition {
+        if reduceMotion {
+            return .opacity
+        }
+        return .asymmetric(
+            insertion: .move(edge: .bottom).combined(with: .opacity),
+            removal: .opacity
+        )
     }
 
     // MARK: - Tab picker
@@ -613,70 +656,63 @@ struct UPProfileView: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 150)
             } else {
-                ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
-                    NavigationLink(value: video) {
-                        UPVideoListRow(video: video)
-                    }
-                    .buttonStyle(PaladalaPressBounceButtonStyle())
-                    // Infinite-scroll trigger: only on the absolute
-                    // last row of the current page. Mirrors what
-                    // most social apps do (Weibo, Xiaohongshu) —
-                    // load only the first 20 on entry, fetch the
-                    // next 20 when the user has actually scrolled
-                    // to the bottom. `loadMore(repository:)` is
-                    // guarded against re-entry so the redundant
-                    // fires from a fast scroll never stack parallel
-                    // requests — only the first fire per page
-                    // actually hits the network.
-                    if model.hasMore, index == model.videos.count - 1 {
-                        Color.clear
-                            .frame(height: 1)
-                            .onAppear {
-                                Task { await model.loadMore(repository: repository) }
-                            }
-                    }
-                    if video.id != model.videos.last?.id {
-                        Divider()
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
+                        NavigationLink(value: video) {
+                            UPVideoListRow(video: video)
+                        }
+                        .buttonStyle(PaladalaPressBounceButtonStyle())
+                        if video.id != model.videos.last?.id {
+                            Divider()
+                                .padding(.leading, UPVideoListRow.thumbnailWidth + 12)
+                        }
                     }
                 }
-                if model.isLoadingMore {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("加载更多…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                } else if model.hasMore && !model.videos.isEmpty {
-                    // Manual fallback. The auto-trigger above
-                    // fires on the last row's `onAppear`, but on
-                    // a tall device with a short list the user
-                    // may not have actually reached the bottom
-                    // yet — surface a "加载更多" button so they
-                    // can pull more without scrolling further.
-                    Button {
-                        Haptics.selection()
-                        Task { await model.loadMore(repository: repository) }
-                    } label: {
-                        Label("加载更多视频", systemImage: "arrow.down.circle")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                } else if !model.hasMore && !model.videos.isEmpty {
-                    Text("— 没有更多了 —")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
+                postsLoadMoreFooter
             }
         }
         .padding(14)
         .paladalaCardSurface(materialDesign)
+    }
+
+    @ViewBuilder
+    private var postsLoadMoreFooter: some View {
+        if model.isLoadingMore {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("加载更多…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+        } else if model.hasMore && !model.videos.isEmpty {
+            Button {
+                Haptics.selection()
+                Task { await model.loadMore(repository: repository) }
+            } label: {
+                Label("加载更多视频", systemImage: "arrow.down.circle")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .onAppear {
+                guard canAutoLoadMorePosts else { return }
+                canAutoLoadMorePosts = false
+                Task { await model.loadMore(repository: repository) }
+            }
+            .onDisappear {
+                canAutoLoadMorePosts = true
+            }
+        } else if !model.hasMore && !model.videos.isEmpty {
+            Text("— 没有更多了 —")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        }
     }
 
     private var rowSkeleton: some View {
@@ -933,11 +969,14 @@ private struct DynamicCardRow: View {
 /// we already know the owner — every row here is by the same UP).
 private struct UPVideoListRow: View {
     let video: BiliVideo
+    static let thumbnailWidth: CGFloat = 112
+    private static let thumbnailHeight: CGFloat = 70
+    private static let rowHeight: CGFloat = 86
 
     var body: some View {
         HStack(spacing: 12) {
             CoverImage(url: video.coverURL)
-                .frame(width: 112, height: 70)
+                .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
                 .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
             VStack(alignment: .leading, spacing: 6) {
                 Text(video.title)
@@ -947,17 +986,20 @@ private struct UPVideoListRow: View {
                 HStack(spacing: 10) {
                     Label(video.viewCount.compactCount, systemImage: "play.fill")
                     Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
+                    Spacer(minLength: 0)
+                    if video.duration > 0 {
+                        Text(video.duration.mmss)
+                            .monospacedDigit()
+                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                if video.duration > 0 {
-                    Text(video.duration.mmss)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
+                .lineLimit(1)
             }
+            .frame(maxHeight: Self.thumbnailHeight, alignment: .top)
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, minHeight: Self.rowHeight, maxHeight: Self.rowHeight, alignment: .center)
+        .contentShape(Rectangle())
     }
 }

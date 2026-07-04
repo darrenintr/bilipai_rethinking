@@ -1187,7 +1187,13 @@ final class BilibiliAPIClient {
         guard hostMid > 0 else {
             return DynamicFeedPage(items: [], nextOffset: "", hasMore: false)
         }
-        var items = [URLQueryItem(name: "host_mid", value: "\(hostMid)")]
+        var items = [
+            URLQueryItem(name: "host_mid", value: "\(hostMid)"),
+            URLQueryItem(name: "features", value: "itemOpusStyle,listOnlyfans,opusBigCover,commentsNewVersion,onlyfansVote,onlyfansAssetsV2,decorationCard,forwardListHidden,ugcDelete"),
+            URLQueryItem(name: "timezone_offset", value: "-480"),
+            URLQueryItem(name: "platform", value: "web"),
+            URLQueryItem(name: "web_location", value: "333.999")
+        ]
         if !offset.isEmpty {
             items.append(URLQueryItem(name: "offset", value: offset))
         }
@@ -1216,7 +1222,9 @@ final class BilibiliAPIClient {
         // key name verbatim; the compiler catches it now.
         return DynamicFeedPage(
             items: posts,
-            nextOffset: payload.value?.items.last?.id ?? "",
+            nextOffset: (payload.value?.offset.isEmpty == false)
+                ? (payload.value?.offset ?? "")
+                : (payload.value?.items.last?.id ?? ""),
             hasMore: payload.value?.hasMore ?? false
         )
     }

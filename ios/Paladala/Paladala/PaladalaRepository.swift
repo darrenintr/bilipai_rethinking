@@ -377,15 +377,19 @@ final class PaladalaRepository: ObservableObject {
     /// Fetch following, follower, and dynamic counts for the given user.
     /// Returns a tuple of strings formatted for the profile stat pills.
     func userStats(mid: Int64) async throws -> (following: String, follower: String, dynamic: String) {
-        // Fetch in parallel
-        async let relation = apiClient.userRelationStat(mid: mid)
-        async let dynamic = apiClient.userDynamicCount(mid: mid)
+        // Fetch independently so one flaky public endpoint does
+        // not blank the whole stats row. In practice
+        // `/x/space/nav/num` is more brittle than relation
+        // stats, so preserving 粉丝 / 关注 is better than
+        // failing the combined tuple.
+        async let relationResult = try? await apiClient.userRelationStat(mid: mid)
+        async let dynamicResult = try? await apiClient.userDynamicCount(mid: mid)
 
-        let (rel, dyn) = try await (relation, dynamic)
+        let (relation, dynamic) = await (relationResult, dynamicResult)
         return (
-            following: rel.following.compactCount,
-            follower: rel.follower.compactCount,
-            dynamic: dyn.compactCount
+            following: relation?.following.compactCount ?? "--",
+            follower: relation?.follower.compactCount ?? "--",
+            dynamic: dynamic?.compactCount ?? "--"
         )
     }
 
