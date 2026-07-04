@@ -52,6 +52,16 @@ struct PlayerView: View {
     /// (iOS 15+) keeps the `addObserver` + `removeObserver`
     /// token dance out of the view body.
     @State private var pipObservationTask: Task<Void, Never>?
+    /// Transient controls visibility for the inline player.
+    /// `true` while the user is interacting (or just tapped the
+    /// player surface to wake the controls). Fades back to
+    /// `false` after `controlsAutoHideDelay` of inactivity —
+    /// matches the YouTube / Apple TV inline behaviour where a
+    /// single tap surfaces the chrome for ~3 s, then it hides.
+    @State private var areControlsVisible: Bool = true
+    /// Auto-hide delay. Apple's HIG suggests 2–4 s for video
+    /// controls; we pick 3 s as the default.
+    private static let controlsAutoHideDelay: TimeInterval = 3
 
     var body: some View {
         ZStack {
@@ -94,6 +104,24 @@ struct PlayerView: View {
                 pipObservationTask = nil
             }
 
+            // Tap-to-wake controls. Sits over the entire player
+            // surface. Tapping once surfaces the centre play /
+            // pause button + PiP entry button for ~3 s; tapping
+            // again hides them immediately. The gesture
+            // `simultaneously(with:)` chain lets the user still
+            // tap to start a single-tap interaction elsewhere
+            // without the surface swallowing it.
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        areControlsVisible.toggle()
+                    }
+                    if areControlsVisible {
+                        scheduleControlsAutoHide()
+                    }
+                }
+
             // Overlay sits ABOVE the AVPlayer surface but
             // below any future system chrome.  Custom
             // overlays (buffering, double-tap) keep their
@@ -116,13 +144,36 @@ struct PlayerView: View {
                     controller: controller
                 )
 
+                // Transient centre play / pause button. Only
+                // visible while the user has the controls
+                // surfaced (tap-to-wake). 50% black circle
+                // background so the icon reads on top of any
+                // frame content.
+                if areControlsVisible && controller.playerError == nil {
+                    Button {
+                        Haptics.tap()
+                        controller.togglePlayPause()
+                        scheduleControlsAutoHide()
+                    } label: {
+                        Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 38, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 64, height: 64)
+                            .background(.black.opacity(0.5), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
+                }
+
                 // PiP entry button.  Hidden until the system
                 // reports PiP is possible — otherwise the
                 // button looks broken when tapped.  Anchored
                 // to the bottom-trailing corner so it doesn't
                 // collide with the centred double-tap badges
                 // or the fullscreen button (top-leading).
-                if pipPossible && !controller.isPictureInPictureActive {
+                if areControlsVisible && pipPossible && !controller.isPictureInPictureActive {
                     Button {
                         Haptics.tap()
                         triggerPiP()
@@ -141,6 +192,24 @@ struct PlayerView: View {
             }
         }
     }
+
+    /// Re-arms the 3-second auto-hide. Called from any control
+    /// interaction so the chrome stays visible while the user is
+    /// actively tapping it (e.g. play → pause within the window).
+    /// Stored as a task so a fresh tap cancels the previous
+    /// hide, keeping the chrome up.
+    private func scheduleControlsAutoHide() {
+        controlsHideTask?.cancel()
+        controlsHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(Self.controlsAutoHideDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                areControlsVisible = false
+            }
+        }
+    }
+
+    @State private var controlsHideTask: Task<Void, Never>?
 
     /// Push PiP start through the holder so it lands on the
     /// inline `AVPictureInPictureController`.  If PiP isn't
@@ -241,6 +310,14 @@ struct PlayerView: View {
 extension Notification.Name {
     static let paladalaRequestOpenLogin = Notification.Name(
         "app.paladala.ios.requestOpenLogin"
+    )
+    /// Posted by `AVPlayerController` when the current item
+    /// reaches the end of its playable duration.
+    /// `VideoDetailView` subscribes to drive the YouTube-style
+    /// "next up" overlay + auto-play behaviour. Posted on the
+    /// main queue; subscribers do not need to hop threads.
+    static let paladalaVideoDidPlayToEnd = Notification.Name(
+        "app.paladala.ios.videoDidPlayToEnd"
     )
 }
 
