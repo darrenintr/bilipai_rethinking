@@ -204,7 +204,14 @@ struct LiveRoomCard: View {
                             Image(systemName: "circle.fill")
                                 .font(.system(size: 6))
                                 .foregroundStyle(.white)
-                                .symbolEffect(.pulse, options: .repeat(.continuous))
+                                // `.repeat(.continuous)` is iOS 18+
+                                // (deployment target is 17.5). On
+                                // iOS 17 the default `.symbolEffect
+                                // (.pulse)` plays once and stops;
+                                // the dot then sits static on a
+                                // live card. That's still better
+                                // than no badge at all.
+                                .symbolEffect(.pulse)
                                 .padding(.trailing, 3)
                                 .accessibilityHidden(true)
                         }
