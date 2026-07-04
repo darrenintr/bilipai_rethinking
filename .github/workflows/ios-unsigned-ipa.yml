@@ -147,94 +147,17 @@ jobs:
             | python3 -c "import json,sys; schemes=json.load(sys.stdin)['project']['schemes']; assert '$PROJECT_NAME' in schemes, f'Scheme $PROJECT_NAME not found in {schemes}'; print('Scheme $PROJECT_NAME present')"
 
       # ------------------------------------------------------------------
-      # The Paladala target ships GoogleService-Info.plist in Copy
-      # Bundle Resources (Firebase init at runtime, Crashlytics symbol
-      # upload at build time). The plist itself is gitignored so the
-      # API_KEY never enters git history. CI decodes the file from the
-      # FIREBASE_PLIST_BASE64 repo secret (set via the GitHub Actions
-      # settings page) at build time — see the project README for the
-      # rotation procedure.
-      #
-      # Local developers keep the real plist in
-      # ios/Paladala/Paladala/GoogleService-Info.plist; the [ -f $PLIST ]
-      # guard below keeps this step a no-op for them.
+      # No Firebase plist step: Firebase (Analytics + Crashlytics) was
+      # fully ripped out of the Paladala target in 2026-07-04 — the SPM
+      # dependency, Info.plist keys, build phase, run-script, and
+      # GoogleService-Info.plist resource are all gone.  The
+      # `FIREBASE_PLIST_BASE64` repo secret can be safely deleted from
+      # Settings → Secrets.
       # ------------------------------------------------------------------
-      - name: Decode Firebase plist from secret
-        env:
-          FIREBASE_PLIST_BASE64: ${{ secrets.FIREBASE_PLIST_BASE64 }}
-        run: |
-          set -euo pipefail
-          PLIST="$PROJECT_DIR/$PROJECT_NAME/GoogleService-Info.plist"
-          if [ -f "$PLIST" ]; then
-            echo "Found existing GoogleService-Info.plist at $PLIST; using it as-is."
-            exit 0
-          fi
-          echo "::notice::FIREBASE_PLIST_BASE64 length: ${#FIREBASE_PLIST_BASE64} bytes"
-          if [ -z "${FIREBASE_PLIST_BASE64:-}" ]; then
-            echo "::error::FIREBASE_PLIST_BASE64 secret value is empty after env injection."
-            echo "::error::The secret exists in repo Settings -> Secrets and variables -> Actions,"
-            echo "::error::but the workflow runner received an empty string. Common causes:"
-            echo "::error::* the value field was saved blank (paste never landed)"
-            echo "::error::* a stray newline split the value into two halves and GitHub only kept the empty half"
-            echo "::error::* the value was saved as plain text instead of base64"
-            echo "::error::Re-open Settings -> Secrets and variables -> Actions -> FIREBASE_PLIST_BASE64 -> Update, paste the base64 string, and save again."
-            exit 1
-          fi
-          echo "::notice::Decoding FIREBASE_PLIST_BASE64 -> $PLIST"
-          mkdir -p "$(dirname "$PLIST")"
-          # macOS BSD base64 reads both stdin AND --input files as (null)
-          # when the bytes come from a secret env var. Use Python — it
-          # handles arbitrary bytes from any source — and write to the
-          # expected plist path.
-          python3 - <<'PYEOF' "$PLIST"
-          import base64
-          import os
-          import string
-          import sys
-          plist_path = sys.argv[1]
-          secret = os.environ.get("FIREBASE_PLIST_BASE64", "")
-          if not secret:
-              sys.stderr.write("FIREBASE_PLIST_BASE64 env var is empty\n")
-              sys.exit(1)
-          # Filter to base64-safe ASCII characters only. Plain
-          # whitespace stripping leaves invisible Unicode alone
-          # (BOM U+FEFF, NBSP U+00A0, zero-width space U+200B, ...)
-          # which `base64.b64decode` rejects with "string argument
-          # should contain only ASCII characters". Keeping only the
-          # base64 alphabet handles all of those in one pass.
-          B64_CHARS = frozenset(string.ascii_letters + string.digits + "+/=")
-          clean = "".join(c for c in secret if c in B64_CHARS)
-          if not clean:
-              sys.stderr.write("FIREBASE_PLIST_BASE64 contained no base64 characters\n")
-              sys.exit(1)
-          stripped = len(secret) - len(clean)
-          if stripped:
-              print(f"::warning::Stripped {stripped} non-base64 characters from FIREBASE_PLIST_BASE64 (likely invisible Unicode from paste)")
-          try:
-              decoded = base64.b64decode(clean, validate=True)
-          except Exception as e:
-              sys.stderr.write(f"base64.b64decode failed: {e}\n")
-              sys.stderr.write(f"Cleaned secret length: {len(clean)} chars\n")
-              sys.stderr.write(f"First 80 chars of cleaned secret: {clean[:80]!r}\n")
-              sys.exit(1)
-          with open(plist_path, "wb") as f:
-              f.write(decoded)
-          print(f"Wrote {len(decoded)} bytes to {plist_path}")
-          PYEOF
-          /usr/bin/plutil -lint "$PLIST"
-          echo "Decoded $(wc -c < "$PLIST") bytes of plist content."
 
       - name: Build device app without signing
         run: |
           set -uo pipefail
-          # Crashlytics is still linked into the binary (Firebase init at
-          # runtime) but its Run Script phase ("Upload Crashlytics Symbols")
-          # is gated on CODE_SIGNING_ALLOWED — when we pass =NO here, the
-          # project script short-circuits and never invokes upload-symbols,
-          # so we don't need to plumb GOOGLE_APP_ID through Xcode's sandbox
-          # env (which doesn't export custom build settings to Run Scripts
-          # anyway). dSYM upload is meaningless for an unsigned artifact
-          # that will never be distributed, so skipping it is correct.
           LOGFILE="$RUNNER_TEMP/build_log.txt"
           xcodebuild \
             -project "$PROJECT_DIR/$PROJECT_NAME.xcodeproj" \
