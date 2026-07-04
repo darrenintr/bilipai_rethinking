@@ -618,21 +618,17 @@ struct UPProfileView: View {
                         UPVideoListRow(video: video)
                     }
                     .buttonStyle(PaladalaPressBounceButtonStyle())
-                    // Infinite-scroll trigger: fire `loadMore` when
-                    // the visible row is within the last 6 entries
-                    // rather than the absolute last row. Without
-                    // the lookahead the user has to scroll all the
-                    // way to the bottom before the next page starts
-                    // loading — on a 20-item page that's about a
-                    // full viewport away, which reads as "stalled"
-                    // and forces the user to wait for content. The
-                    // 6-row buffer means the next page is appended
-                    // *while* the user is still reading the tail
-                    // of the current page. `model.loadMore` is
-                    // guarded against re-entry (`guard !isLoading,
-                    // !isLoadingMore`) so the redundant fires from
-                    // a fast scroll don't stack parallel requests.
-                    if model.hasMore, index >= model.videos.count - 6 {
+                    // Infinite-scroll trigger: only on the absolute
+                    // last row of the current page. Mirrors what
+                    // most social apps do (Weibo, Xiaohongshu) —
+                    // load only the first 20 on entry, fetch the
+                    // next 20 when the user has actually scrolled
+                    // to the bottom. `loadMore(repository:)` is
+                    // guarded against re-entry so the redundant
+                    // fires from a fast scroll never stack parallel
+                    // requests — only the first fire per page
+                    // actually hits the network.
+                    if model.hasMore, index == model.videos.count - 1 {
                         Color.clear
                             .frame(height: 1)
                             .onAppear {
@@ -650,6 +646,24 @@ struct UPProfileView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                } else if model.hasMore && !model.videos.isEmpty {
+                    // Manual fallback. The auto-trigger above
+                    // fires on the last row's `onAppear`, but on
+                    // a tall device with a short list the user
+                    // may not have actually reached the bottom
+                    // yet — surface a "加载更多" button so they
+                    // can pull more without scrolling further.
+                    Button {
+                        Haptics.selection()
+                        Task { await model.loadMore(repository: repository) }
+                    } label: {
+                        Label("加载更多视频", systemImage: "arrow.down.circle")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                 } else if !model.hasMore && !model.videos.isEmpty {
