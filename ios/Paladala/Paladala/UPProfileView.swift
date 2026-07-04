@@ -618,11 +618,21 @@ struct UPProfileView: View {
                         UPVideoListRow(video: video)
                     }
                     .buttonStyle(PaladalaPressBounceButtonStyle())
-                    if index == model.videos.count - 1 && model.hasMore {
-                        // Last-row onAppear trigger for pagination.
-                        // Lives inside the `if index == count-1` so
-                        // the load fires once per page rather than
-                        // on every scroll tick.
+                    // Infinite-scroll trigger: fire `loadMore` when
+                    // the visible row is within the last 6 entries
+                    // rather than the absolute last row. Without
+                    // the lookahead the user has to scroll all the
+                    // way to the bottom before the next page starts
+                    // loading — on a 20-item page that's about a
+                    // full viewport away, which reads as "stalled"
+                    // and forces the user to wait for content. The
+                    // 6-row buffer means the next page is appended
+                    // *while* the user is still reading the tail
+                    // of the current page. `model.loadMore` is
+                    // guarded against re-entry (`guard !isLoading,
+                    // !isLoadingMore`) so the redundant fires from
+                    // a fast scroll don't stack parallel requests.
+                    if model.hasMore, index >= model.videos.count - 6 {
                         Color.clear
                             .frame(height: 1)
                             .onAppear {
@@ -633,7 +643,16 @@ struct UPProfileView: View {
                         Divider()
                     }
                 }
-                if !model.hasMore && !model.videos.isEmpty {
+                if model.isLoadingMore {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("加载更多…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                } else if !model.hasMore && !model.videos.isEmpty {
                     Text("— 没有更多了 —")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -693,7 +712,11 @@ struct UPProfileView: View {
             } else {
                 ForEach(Array(model.dynamicItems.enumerated()), id: \.element.id) { index, post in
                     DynamicCardRow(post: post, repository: repository)
-                    if index == model.dynamicItems.count - 1 && model.dynamicHasMore {
+                    // Same infinite-scroll lookahead as
+                    // `postsSection` — within the last 4 items
+                    // (dynamic posts are bigger than video
+                    // rows, so the buffer can be smaller).
+                    if model.dynamicHasMore, index >= model.dynamicItems.count - 4 {
                         Color.clear
                             .frame(height: 1)
                             .onAppear {
@@ -704,7 +727,16 @@ struct UPProfileView: View {
                         Divider()
                     }
                 }
-                if !model.dynamicHasMore && !model.dynamicItems.isEmpty {
+                if model.isLoadingDynamics {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("加载更多…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                } else if !model.dynamicHasMore && !model.dynamicItems.isEmpty {
                     Text("— 没有更多了 —")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
