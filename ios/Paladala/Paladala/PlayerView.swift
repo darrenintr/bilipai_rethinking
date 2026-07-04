@@ -34,98 +34,45 @@ struct PlayerView: View {
     let video: BiliVideo
     let repository: PaladalaRepository
     @ObservedObject var controller: PlayerController
-    /// Whether the inline PiP button is wired and visible.
-    /// Driven by the parent's `InlinePiPController.isPiPPossible`
-    /// flag — we toggle this via a `NotificationCenter`
-    /// subscription because the flag flips on the main thread
-    /// without going through a SwiftUI-observable property.
-    @State private var pipPossible: Bool = false
-    /// Holds a strong reference to the inline PiP controller
-    /// so its `AVPictureInPictureController` survives SwiftUI
-    /// re-renders.  See `InlineAVPlayerView.swift` for why a
-    /// strong ref is required.
-    @StateObject private var pipHolder = InlinePiPHolder()
-    /// Long-running task that drains
-    /// `.paladalaPiPPossibleChanged` notifications and mirrors
-    /// the system flag into `pipPossible`.  Stored so we can
-    /// cancel it on disappear; using the AsyncSequence API
-    /// (iOS 15+) keeps the `addObserver` + `removeObserver`
-    /// token dance out of the view body.
-    @State private var pipObservationTask: Task<Void, Never>?
-    /// Transient controls visibility for the inline player.
-    /// `true` while the user is interacting (or just tapped the
-    /// player surface to wake the controls). Fades back to
-    /// `false` after `controlsAutoHideDelay` of inactivity —
-    /// matches the YouTube / Apple TV inline behaviour where a
-    /// single tap surfaces the chrome for ~3 s, then it hides.
-    @State private var areControlsVisible: Bool = true
-    /// Auto-hide delay. Apple's HIG suggests 2–4 s for video
     /// controls; we pick 3 s as the default.
     private static let controlsAutoHideDelay: TimeInterval = 3
 
     var body: some View {
         ZStack {
-            // Inline AVPlayerLayer surface.  We use a custom
-            // UIViewRepresentable (instead of SwiftUI's
-            // `VideoPlayer`) so we can attach an
-            // `AVPictureInPictureController` to the layer —
-            // `VideoPlayer` hides the layer behind an
-            // `AVPlayerViewController` and won't let us wire
-            // PiP.  The holder retains the PiP controller so
-            // the system doesn't tear down the session on
-            // re-render.
-            InlineAVPlayerRepresentable(
-                player: controller.player,
-                onPiPRequested: { triggerPiP() },
-                holder: pipHolder
+            // Inline AVPlayerViewController surface. Switched from the
+            // custom UIView + AVPlayerLayer wrapper to the
+            // native AVKit view controller so the user gets the
+            // built-in playback chrome:
+            //   - Single tap anywhere on the player surfaces
+            //     the system play / pause + scrubber + AirPlay
+            //     for ~3 s, then auto-hides.
+            //   - Second tap (or a tap on the chrome itself)
+            //     hides it immediately.
+            //   - Built-in Picture-in-Picture button appears in
+            //     the chrome when the system reports PiP is
+            //     possible (same notification we already
+            //     observe). We do not need to draw our own PiP
+            //     button any more.
+            //
+            // The representable is iOS 16+ (we gate it via
+            // `#available` because `requiresLinearPlayback`
+            // was added in 16 and we want a clean fallback for
+            // any future iOS 17 deployment target drop).
+            NativeInlinePlayerRepresentable(
+                player: controller.player
             )
-            .onAppear {
-                pipHolder.refreshPiPPossible()
-                pipPossible = pipHolder.isPiPPossible
-                // Drain `.paladalaPiPPossibleChanged` for the
-                // lifetime of the view.  The AsyncSequence
-                // delivers on the posting thread, so we hop
-                // back to the MainActor explicitly to read
-                // the holder's main-actor-isolated state.
-                // Cancelled in `onDisappear`.
-                let holder = pipHolder
-                pipObservationTask = Task { @MainActor in
-                    for await _ in NotificationCenter.default.notifications(
-                        named: .paladalaPiPPossibleChanged
-                    ) {
-                        guard !Task.isCancelled else { return }
-                        holder.refreshPiPPossible()
-                        pipPossible = holder.isPiPPossible
-                    }
-                }
-            }
-            .onDisappear {
-                pipObservationTask?.cancel()
-                pipObservationTask = nil
-            }
 
-            // Tap-to-wake controls. Sits over the entire player
-            // surface. Tapping once surfaces the centre play /
-            // pause button + PiP entry button for ~3 s; tapping
-            // again hides them immediately. The gesture
-            // `simultaneously(with:)` chain lets the user still
-            // tap to start a single-tap interaction elsewhere
-            // without the surface swallowing it.
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.22)) {
-                        areControlsVisible.toggle()
-                    }
-                    if areControlsVisible {
-                        scheduleControlsAutoHide()
-                    }
-                }
+            // Tap-to-wake controls. The native `AVPlayerViewController`
+            // already handles tap-to-show / tap-to-hide / auto-
+            // hide-on-inactivity internally, so we do not need a
+            // SwiftUI tap gesture here.
 
-            // Overlay sits ABOVE the AVPlayer surface but
-            // below any future system chrome.  Custom
-            // overlays (buffering, double-tap) keep their
-            // previous behaviour.
+            // Custom overlays sit ABOVE the AVPlayerViewController
+            // surface but below its tap-handled chrome. The system
+            // chrome takes priority for taps because we mark the
+            // overlays `allowsHitTesting(false)` where possible;
+            // the double-tap overlay uses simultaneous gestures so
+            // it does not steal taps from the chrome.
             ZStack {
                 if controller.isBuffering && controller.playerError == nil {
                     loadingOverlay
@@ -143,91 +90,8 @@ struct PlayerView: View {
                     repository: repository,
                     controller: controller
                 )
-
-                // Transient centre play / pause button. Only
-                // visible while the user has the controls
-                // surfaced (tap-to-wake). 50% black circle
-                // background so the icon reads on top of any
-                // frame content.
-                if areControlsVisible && controller.playerError == nil {
-                    Button {
-                        Haptics.tap()
-                        // `PlayerController.toggle()` is the
-                        // canonical flip — also wired to
-                        // `MPRemoteCommandCenter.togglePlayPause`
-                        // for the lock-screen / Control Center
-                        // path. Naming it `toggle()` rather than
-                        // `togglePlayPause()` keeps the call site
-                        // short and dodges an
-                        // `@ObservedObject` dynamic-member
-                        // ambiguity when the suffix collides
-                        // with a Foundation selector name.
-                        controller.toggle()
-                        scheduleControlsAutoHide()
-                    } label: {
-                        Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 38, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 64, height: 64)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
-                }
-
-                // PiP entry button.  Hidden until the system
-                // reports PiP is possible — otherwise the
-                // button looks broken when tapped.  Anchored
-                // to the bottom-trailing corner so it doesn't
-                // collide with the centred double-tap badges
-                // or the fullscreen button (top-leading).
-                if areControlsVisible && pipPossible && !controller.isPictureInPictureActive {
-                    Button {
-                        Haptics.tap()
-                        triggerPiP()
-                    } label: {
-                        Image(systemName: "pip.enter")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(8)
-                            .background(.black.opacity(0.55), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(10)
-                    .accessibilityLabel("Enter Picture in Picture")
-                }
             }
         }
-    }
-
-    /// Re-arms the 3-second auto-hide. Called from any control
-    /// interaction so the chrome stays visible while the user is
-    /// actively tapping it (e.g. play → pause within the window).
-    /// Stored as a task so a fresh tap cancels the previous
-    /// hide, keeping the chrome up.
-    private func scheduleControlsAutoHide() {
-        controlsHideTask?.cancel()
-        controlsHideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(Self.controlsAutoHideDelay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                areControlsVisible = false
-            }
-        }
-    }
-
-    @State private var controlsHideTask: Task<Void, Never>?
-
-    /// Push PiP start through the holder so it lands on the
-    /// inline `AVPictureInPictureController`.  If PiP isn't
-    /// possible yet (e.g. audio session is being configured),
-    /// the holder logs and we silently no-op — the user can
-    /// tap again once the system flips the flag.
-    private func triggerPiP() {
-        pipHolder.startPiP()
     }
 
     /// Spinner + KB/s readout shown during stalls.
@@ -966,5 +830,65 @@ private struct GestureHint: View {
                 .foregroundStyle(.white.opacity(0.78))
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Native inline AVPlayerViewController wrapper
+
+/// SwiftUI bridge that hosts an `AVPlayerViewController` for
+/// the inline player surface. Replaces the previous
+/// UIView + `AVPlayerLayer` wrapper (and the hand-rolled
+/// `AVPictureInPictureController`) so the user gets the
+/// system's native playback chrome:
+///   - Single tap anywhere on the player surfaces the
+///     play / pause + scrubber + AirPlay + PiP overlay for
+///     ~3 s, then auto-hides.
+///   - Second tap (or a tap on the chrome) hides it
+///     immediately.
+///   - Built-in Picture-in-Picture button appears in the
+///     chrome when the system reports PiP is possible.
+///
+/// We deliberately keep the fullscreen path on its own
+/// `AVPlayerSurfaceRepresentable` (also wrapping
+/// `AVPlayerViewController`) — that one adds a custom title
+/// pill + share button in a safe-area inset, which we do not
+/// want in the inline layout.
+struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let vc = AVPlayerViewController()
+        vc.player = player
+        vc.showsPlaybackControls = true
+        // Native controls disappear after the system default
+        // (~3 s) — Apple's HIG-recommended timing. We do not
+        // need to manage this ourselves.
+        vc.videoGravity = .resizeAspect
+        // Inline PiP — the system surfaces a PiP button in
+        // the chrome when PiP is possible. Beats the previous
+        // hand-rolled `AVPictureInPictureController` path,
+        // which duplicated much of this logic.
+        vc.allowsPictureInPicturePlayback = true
+        if #available(iOS 14.2, *) {
+            vc.canStartPictureInPictureAutomaticallyFromInline = true
+        }
+        // Match the fullscreen surface's tolerance for VFR /
+        // non-keyframe-aligned Bilibili encodes.
+        if #available(iOS 16, *) {
+            vc.requiresLinearPlayback = false
+        }
+        // Hide the "Done" button — the inline surface is not
+        // a modal, so the user dismisses by scrolling away.
+        // AVPlayerViewController only shows Done when
+        // `presentsFullScreen` has been entered, so this is
+        // mostly a safety net.
+        vc.showsFullScreenToggle = true
+        return vc
+    }
+
+    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
+        if vc.player !== player {
+            vc.player = player
+        }
     }
 }
