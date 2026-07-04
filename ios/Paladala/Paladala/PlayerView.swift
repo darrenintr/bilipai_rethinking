@@ -877,12 +877,6 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
         if #available(iOS 16, *) {
             vc.requiresLinearPlayback = false
         }
-        // Hide the "Done" button — the inline surface is not
-        // a modal, so the user dismisses by scrolling away.
-        // AVPlayerViewController only shows Done when
-        // `presentsFullScreen` has been entered, so this is
-        // mostly a safety net.
-        vc.showsFullScreenToggle = true
         return vc
     }
 
