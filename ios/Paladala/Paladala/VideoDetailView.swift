@@ -715,6 +715,13 @@ struct VideoDetailView: View {
                     Text("\(max(model.comments.count, model.commentsTotalCount))")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
+                        // The count flips from "—" (loading) to a
+                        // real number on first paint. The
+                        // spring-in transition makes the badge
+                        // feel "discovered" rather than
+                        // appearing flat.
+                        .transition(.scale.combined(with: .opacity))
+                        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: model.comments.count)
                 }
                 commentSortPicker
             }

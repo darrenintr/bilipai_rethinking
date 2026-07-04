@@ -191,6 +191,23 @@ struct LiveRoomCard: View {
                         .padding(.vertical, 4)
                         .background(Color(uiColor: .systemRed), in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle))
                         .padding(8)
+                        // Apple's recommended "live" affordance —
+                        // the SF Symbol pulses on a continuous loop
+                        // so the user can spot a live card at a
+                        // glance during a fast scroll. We apply the
+                        // effect to a hidden SF Symbol inside the
+                        // same container because `.symbolEffect(.pulse)`
+                        // on `Text` itself is a no-op; the visible
+                        // "LIVE" label keeps its typography, the
+                        // pulse animates the dot to the right.
+                        .overlay(alignment: .trailing) {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 6))
+                                .foregroundStyle(.white)
+                                .symbolEffect(.pulse, options: .repeat(.continuous))
+                                .padding(.trailing, 3)
+                                .accessibilityHidden(true)
+                        }
                 }
                 Text(room.title)
                     .font(.subheadline.weight(.semibold))
@@ -470,6 +487,7 @@ private struct VideoContextMenuModifier: ViewModifier {
     let isHistoryRow: Bool
 
     @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var router: AppRouter
 
     /// Build the bv / av URL on demand.  `URL(string:)` is a
     /// cheap constructor (string interpolation + Unicode
@@ -487,6 +505,21 @@ private struct VideoContextMenuModifier: ViewModifier {
         let url = videoURL
         let isLoggedIn = authStore.isLoggedIn
         content.contextMenu {
+            // "查看 UP 主主页" appears whenever the row carries
+            // a non-zero `ownerMid`. Search results now
+            // populate `ownerMid` correctly (Bilibili's web
+            // search endpoint exposes flat `mid` + `author`,
+            // not `owner.mid` — see `VideoDTO.init(from:)`),
+            // so this entry is reachable from every row.
+            if video.ownerMid > 0 {
+                Button {
+                    Haptics.selection()
+                    router.openUP(mid: video.ownerMid)
+                } label: {
+                    Label("查看 UP 主主页", systemImage: "person.crop.circle")
+                }
+                Divider()
+            }
             if isLoggedIn {
                 if !isWatchLaterRow {
                     Button {

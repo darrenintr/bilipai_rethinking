@@ -1172,7 +1172,13 @@ final class BilibiliAPIClient {
         let payload: APIResponse<DynamicFeedPayload> = try await get(
             baseURL: baseURL,
             path: "/x/polymer/web-dynamic/v1/space/space_brief",
-            queryItems: items
+            queryItems: items,
+            // The dynamic endpoints are WBI-signed; without
+            // `signWithWBI: true` the upstream silently returns
+            // an empty `items[]` (and `code = 0` so the
+            // `requireOK()` check passes) — the UP's dynamic
+            // tab would always render the empty-state.
+            signWithWBI: true
         )
         try payload.requireOK()
         // Apply no followings filter — every post here is
@@ -1205,7 +1211,13 @@ final class BilibiliAPIClient {
         let payload: APIResponse<UserFavoriteFoldersPayload> = try await get(
             baseURL: baseURL,
             path: "/x/v3/fav/folder/created/list-all",
-            queryItems: [URLQueryItem(name: "up_mid", value: "\(upMid)")]
+            queryItems: [URLQueryItem(name: "up_mid", value: "\(upMid)")],
+            // Same WBI requirement as `userDynamic`. The
+            // endpoint exists for both anonymous and signed-in
+            // callers but only the WBI-signed branch returns
+            // public folders; the unsigned branch returns
+            // an empty `list`.
+            signWithWBI: true
         )
         try payload.requireOK()
         return payload.value?.folders.map(\.model) ?? []
@@ -1901,8 +1913,21 @@ private struct VideoDTO: Decodable {
 
         let owner = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("owner"))
         let args = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("args"))
-        ownerName = owner?.decodeString(keys: ["name"]) ?? args?.decodeString(keys: ["up_name"]) ?? "Unknown"
-        ownerMid = owner?.decodeInt64(keys: ["mid"]) ?? 0
+        // Bilibili returns `owner.mid` + `owner.name` on the home
+        // recommend feed but **flat** `mid` + `author` on the
+        // web-search endpoint (`/x/web-interface/wbi/search/type`)
+        // and on some app-feed payloads. Try both shapes so
+        // search-result rows surface the UP correctly — without
+        // this the row showed "Unknown" and `ownerMid == 0`,
+        // which hid the UP entry card on `VideoDetailView`.
+        ownerName = owner?.decodeString(keys: ["name"])
+            ?? args?.decodeString(keys: ["up_name"])
+            ?? container.decodeString(keys: ["author", "name"])
+            ?? "Unknown"
+        ownerMid = owner?.decodeInt64(keys: ["mid"])
+            ?? args?.decodeInt64(keys: ["up_mid"])
+            ?? container.decodeInt64(keys: ["mid"])
+            ?? 0
 
         let stat = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("stat"))
         viewCount = stat?.decodeInt(keys: ["view", "view_count"]) ?? container.decodeInt(keys: ["play"]) ?? 0
