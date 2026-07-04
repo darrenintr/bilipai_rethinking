@@ -61,6 +61,20 @@ struct VideoDetailView: View {
     /// take 20%, giving a more immersive video-watching experience.
     /// Toggled by the "immersive" button in the nav bar.
     @State private var isImmersiveMode = false
+    /// YouTube-style next-up overlay state. Shown briefly
+    /// when the current item reaches its end (we listen for
+    /// `.paladalaVideoDidPlayToEnd`). The overlay either
+    /// auto-plays the next related video (when the user has
+    /// enabled `paladala.autoPlayNext`) or stays on screen
+    /// as a manual countdown the user can dismiss.
+    @State private var isShowingNextUp: Bool = false
+    @State private var isCountingDownToNext: Bool = false
+    @State private var nextUpCountdown: Int = 5
+    @State private var nextUpCountdownTask: Task<Void, Never>?
+    /// Default countdown duration. YouTube uses 5 s; matches
+    /// the HIG-recommended transition window for video
+    /// chrome.
+    private static let nextUpCountdownDuration: Int = 5
 
     init(video: BiliVideo, repository: PaladalaRepository, heroNamespace: Namespace.ID? = nil, localRecord: DownloadRecord? = nil) {
         self.video = video
@@ -94,6 +108,19 @@ struct VideoDetailView: View {
                     .frame(height: playerHeight)
                     .frame(width: isImmersiveMode ? geo.size.width * 0.9 : nil, alignment: .center)
                     .clipped()
+                    // YouTube-style "next up" overlay sits over
+                    // the player surface only — never over the
+                    // comments. The overlay is empty by default
+                    // and renders only while `isShowingNextUp` is
+                    // true. Tap targets on the overlay
+                    // ("立即播放" / "取消") take priority; the
+                    // surface's tap-to-wake gestures below the
+                    // overlay do not fire.
+                    .overlay {
+                        if isShowingNextUp {
+                            nextUpOverlay
+                        }
+                    }
 
                 // Prominent UP entry point. Lives between the
                 // player surface and the comments scroll so it
@@ -279,6 +306,25 @@ struct VideoDetailView: View {
         // transition falls back to the standard
         // cross-fade.
         .modifier(HeroDestinationModifier(videoID: video.id, namespace: heroNamespace))
+        // YouTube-style "next up" + auto-play. Listens for
+        // the `.paladalaVideoDidPlayToEnd` notification that
+        // `AVPlayerController` posts when the current item
+        // reaches its end. Branches on the user's auto-play
+        // preference:
+        //   - `autoPlayNext` on  → countdown overlay
+        //     (5 s) then auto-advance via `advanceToNextUp()`.
+        //   - `autoPlayNext` off → still surface the overlay
+        //     but no countdown; the user has to tap "立即播放"
+        //     or "取消" to dismiss.
+        .onReceive(NotificationCenter.default.publisher(for: .paladalaVideoDidPlayToEnd)) { _ in
+            handleVideoDidEnd()
+        }
+        // Reset the auto-play cursor on first appear so a
+        // fresh VideoDetailView always starts from the top
+        // of the recommendation queue.
+        .task {
+            model.resetNextUpCursor()
+        }
     }
 
     /// Inner `ScrollView` containing the title, controls, and
@@ -352,6 +398,17 @@ struct VideoDetailView: View {
                 }
                 controlPanel
                 commentPreview
+                if !model.relatedVideos.isEmpty {
+                    relatedVideosSection
+                        // Force a fresh transition when the rail
+                        // first populates — the parent VStack
+                        // doesn't re-key on `model.relatedVideos`
+                        // (we use `.id(...)` on the section group
+                        // for the tab-switch animation in
+                        // UPProfileView but here the same
+                        // behaviour is implicit).
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
             }
             .padding(16)
         }
@@ -843,6 +900,160 @@ struct VideoDetailView: View {
             .disabled(newCommentText.isEmpty || isSubmittingComment)
         }
     }
+
+    /// YouTube-style "推荐" rail. Horizontal scroll of
+    /// `model.relatedVideos` cards; tapping one pushes a new
+    /// `VideoDetailView` for that bvid (the parent
+    /// `NavigationStack` already handles the push via
+    /// `BiliVideo` as the navigation value).
+    private var relatedVideosSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("相关推荐")
+                    .font(.headline)
+                Spacer()
+                if UserDefaults.standard.bool(forKey: "paladala.autoPlayNext") {
+                    Label("自动播放下一集", systemImage: "play.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            PaladalaTheme.biliPink.opacity(0.12),
+                            in: Capsule()
+                        )
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 12) {
+                    ForEach(Array(model.relatedVideos.enumerated()), id: \.element.id) { index, video in
+                        NavigationLink(value: video) {
+                            RelatedVideoCard(video: video, isNextUp: model.nextUpIndex == index)
+                                .frame(width: 200)
+                        }
+                        .buttonStyle(PaladalaPressBounceButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+        .padding(14)
+        .paladalaCardSurface(materialDesign)
+    }
+
+    /// YouTube-style "next up" overlay shown briefly when the
+    /// current video reaches its end and the user has the
+    /// auto-play queue populated. Shows the next-up cover +
+    /// title with a 5-second countdown; tapping the overlay
+    /// jumps to it immediately. Auto-dismisses when the
+    /// countdown hits zero — the parent view then either
+    /// navigates to the next-up (when `autoPlayNext` is on)
+    /// or hides the overlay.
+    @ViewBuilder
+    private var nextUpOverlay: some View {
+        if let next = model.nextUpIndex,
+           next < model.relatedVideos.count,
+           isShowingNextUp {
+            let video = model.relatedVideos[next]
+            VStack(spacing: 12) {
+                Text("下一个视频")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                CoverImage(url: video.coverURL)
+                    .frame(width: 200, height: 120)
+                    .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+                Text(video.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+                HStack(spacing: 12) {
+                    Button {
+                        Haptics.tap()
+                        advanceToNextUp()
+                    } label: {
+                        Label("立即播放", systemImage: "play.fill")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.white)
+                    .foregroundStyle(.black)
+                    Button {
+                        Haptics.tap()
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            isShowingNextUp = false
+                        }
+                    } label: {
+                        Text("取消")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                }
+                if isCountingDownToNext {
+                    Text("\(nextUpCountdown) 秒后自动播放")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .transition(.opacity)
+                }
+            }
+            .padding(20)
+            .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity.combined(with: .scale(scale: 0.92)))
+        }
+    }
+
+    /// Helper invoked from both the "立即播放" button and the
+    /// countdown-timer expiry. Pops the next-up entry off the
+    /// queue, navigates to it, and resets the cursor.
+    private func advanceToNextUp() {
+        guard let video = model.consumeNextUp() else { return }
+        nextUpCountdownTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.22)) {
+            isShowingNextUp = false
+            isCountingDownToNext = false
+        }
+        router.openVideo(video)
+    }
+
+    /// End-of-stream handler. Subscribed to
+    /// `.paladalaVideoDidPlayToEnd`. Branches on the user's
+    /// `paladala.autoPlayNext` preference:
+    ///   - off: surface the overlay with no countdown; user
+    ///     must tap "立即播放" or "取消".
+    ///   - on: start a 5 s countdown that auto-advances.
+    ///
+    /// Skipped entirely when the recommendation queue is
+    /// empty (Bilibili returned no related videos) so the
+    /// user doesn't see an overlay with no actionable
+    /// content.
+    private func handleVideoDidEnd() {
+        guard let next = model.nextUpIndex, next < model.relatedVideos.count else {
+            return
+        }
+        nextUpCountdownTask?.cancel()
+        nextUpCountdown = Self.nextUpCountdownDuration
+        withAnimation(.easeInOut(duration: 0.22)) {
+            isShowingNextUp = true
+            isCountingDownToNext = UserDefaults.standard.bool(forKey: "paladala.autoPlayNext")
+        }
+        guard isCountingDownToNext else { return }
+        nextUpCountdownTask = Task { @MainActor in
+            while nextUpCountdown > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                nextUpCountdown -= 1
+            }
+            advanceToNextUp()
+        }
+    }
 }
 
 private struct CommentRow: View {
@@ -1049,5 +1260,62 @@ private struct VideoDetailToolbarGlassModifier: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// One card in the "相关推荐" rail. Mirrors the
+/// `VideoCard` chrome but in a horizontal-card aspect —
+/// 16:9 cover + two-line title + meta line. When
+/// `isNextUp` is true the card gets a pink "下一个" pill
+/// so the user can see which video is queued for
+/// auto-play without expanding the overlay.
+private struct RelatedVideoCard: View {
+    let video: BiliVideo
+    let isNextUp: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .topLeading) {
+                CoverImage(url: video.coverURL)
+                    .aspectRatio(16 / 10, contentMode: .fill)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+                if video.duration > 0 {
+                    Text(video.duration.mmss)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle))
+                        .padding(6)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                }
+                if isNextUp {
+                    Text("下一个")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(PaladalaTheme.biliPink, in: Capsule())
+                        .padding(6)
+                }
+            }
+            Text(video.title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            HStack(spacing: 6) {
+                Text(video.ownerName)
+                    .lineLimit(1)
+                Text("·")
+                Label(video.viewCount.compactCount, systemImage: "play.fill")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        .padding(8)
+        .paladalaCardSurface(.liquidGlass)
     }
 }

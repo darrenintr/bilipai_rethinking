@@ -408,6 +408,16 @@ final class PaladalaRepository: ObservableObject {
         try await apiClient.userVideos(mid: mid, page: page)
     }
 
+    /// Related videos for `bvid`. Powers the "next up" rail at
+    /// the bottom of `VideoDetailView` and the auto-play-next
+    /// queue in `VideoDetailViewModel`. Returns an empty array
+    /// on empty `bvid` or any upstream error — the rail degrades
+    /// to "no recommendations" rather than throwing into the
+    /// view body.
+    func relatedVideos(bvid: String) async throws -> [BiliVideo] {
+        try await apiClient.relatedVideos(bvid: bvid)
+    }
+
     /// Follow / unfollow a UP. `act` matches Bilibili's
     /// `/x/relation/modify` parameter: `1` for follow,
     /// `2` for unfollow, `3` for "悄悄关注". Returns the

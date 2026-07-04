@@ -1154,6 +1154,28 @@ final class BilibiliAPIClient {
         return (videos, hasMore)
     }
 
+    /// Fetch the videos Bilibili recommends for `bvid`. The
+    /// upstream endpoint `/x/web-interface/archive/related` powers
+    /// the "相关推荐" rail at the bottom of every Bilibili video
+    /// page on the web. Returns up to ~40 items; we don't
+    /// paginate — the rail is short and the upstream doesn't
+    /// expose a cursor.
+    ///
+    /// `bvid.isEmpty` callers short-circuit to an empty list so
+    /// the recommendation surface degrades gracefully on aid-only
+    /// `BiliVideo` rows (e.g. URL-scheme intents that didn't
+    /// resolve a bvid).
+    func relatedVideos(bvid: String) async throws -> [BiliVideo] {
+        guard !bvid.isEmpty else { return [] }
+        let payload: APIResponse<VideoListPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/archive/related",
+            queryItems: [URLQueryItem(name: "bvid", value: bvid)]
+        )
+        try payload.requireOK()
+        return payload.value?.videos.map(\.model) ?? []
+    }
+
     /// Fetch a UP's own dynamic posts (the same shape the follow
     /// feed uses, but pinned to a single author). The endpoint
     /// `/x/polymer/web-dynamic/v1/space/space_brief` accepts an

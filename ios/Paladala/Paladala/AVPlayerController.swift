@@ -480,6 +480,19 @@ final class PlayerController: ObservableObject {
                     "duration_seconds": totalSeconds
                 ])
                 Analytics.breadcrumb("PLAY", "video_complete")
+                // Hand off to the YouTube-style "next up" auto-
+                // play path. `VideoDetailView` subscribes to
+                // `.paladalaVideoDidPlayToEnd` and either auto-
+                // plays the next related video (when
+                // `paladala.autoPlayNext` is on) or surfaces a
+                // "下一个视频" countdown overlay. Posted on the
+                // main queue (the observer above specifies
+                // `queue: .main`) so the subscriber does not
+                // need to hop threads.
+                NotificationCenter.default.post(
+                    name: .paladalaVideoDidPlayToEnd,
+                    object: self?.player.currentItem
+                )
             }
         }
         errorObserver = NotificationCenter.default.addObserver(

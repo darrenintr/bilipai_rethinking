@@ -316,6 +316,18 @@ final class VideoDetailViewModel: ObservableObject {
     @Published var commentsErrorMessage: String?
     @Published var commentsHasMore = false
     @Published var commentsTotalCount = 0
+    /// YouTube-style "next up" rail. Populated once per
+    /// `bvid` from `/x/web-interface/archive/related`. Empty
+    /// when the upstream returns nothing or the request
+    /// fails — the view hides the rail in that case rather
+    /// than surfacing an error.
+    @Published var relatedVideos: [BiliVideo] = []
+    /// The index in `relatedVideos` of the video the auto-play
+    /// queue is currently advancing toward. `nil` when auto-
+    /// play is off or the queue is empty. Increments as each
+    /// next-up finishes; `consumeNextUp()` returns the entry
+    /// and bumps the index.
+    @Published var nextUpIndex: Int? = nil
     /// Current comment-list sort. Default `.hot` to match the previous
     /// behaviour (no `mode` parameter, the upstream default). The view
     /// writes through to this and to `@AppStorage` when the user
@@ -718,6 +730,14 @@ final class VideoDetailViewModel: ObservableObject {
             // does not render.
             await loadAISummary(repository: repository)
 
+            // YouTube-style "next up" rail. Power the
+            // auto-play-next queue + the related-videos row at
+            // the bottom of the page. Runs after the playback
+            // block so the playerr can already start streaming
+            // while the rail fetches. Failures are silent —
+            // empty rail hides the section entirely.
+            await loadRelatedVideos(repository: repository)
+
             // Start of playback: report progress=0 to mark it in the history list.
             // The periodic 30s heartbeat is handled by WatchSession in the View layer.
             Task {
@@ -813,6 +833,61 @@ final class VideoDetailViewModel: ObservableObject {
             comments = []
         }
         commentsLoading = false
+    }
+
+    /// YouTube-style "next up" rail. Populates
+    /// `relatedVideos` with up to ~40 entries from
+    /// `/x/web-interface/archive/related`. Empty array on
+    /// failure — the view hides the rail entirely in that
+    /// case rather than surfacing an error.
+    ///
+    /// Re-fetched every time the user navigates to a fresh
+    /// `bvid` (the VM is recreated per push), so we don't
+    /// cache across videos.
+    func loadRelatedVideos(repository: PaladalaRepository) async {
+        guard !detail.bvid.isEmpty else { return }
+        do {
+            let related = try await repository.relatedVideos(bvid: detail.bvid)
+            // Drop the current video if Bilibili included it in
+            // the recommendation (it happens — the upstream
+            // sometimes returns the same bvid as row 0).
+            relatedVideos = related.filter { $0.bvid != detail.bvid }
+        } catch {
+            // Silent — the view hides the rail when the array
+            // is empty. Logging every recommendation failure
+            // would spam the diagnostic log during normal
+            // flaky-network sessions.
+        }
+    }
+
+    /// Returns the next "next up" video and bumps the index.
+    /// Returns `nil` when the auto-play queue is empty (the
+    /// caller should fall through to the player-ended UI
+    /// state). Called from `VideoDetailView` when the player
+    /// reports it has reached the end AND the user has
+    /// enabled `autoPlayNext` in `ProfileSettingsView`.
+    func consumeNextUp() -> BiliVideo? {
+        guard let next = nextUpIndex,
+              next < relatedVideos.count else {
+            nextUpIndex = nil
+            return nil
+        }
+        let video = relatedVideos[next]
+        // Advance; nil out when we exhaust the queue so the
+        // next ended-event starts the manual-pick UI.
+        if next + 1 < relatedVideos.count {
+            nextUpIndex = next + 1
+        } else {
+            nextUpIndex = nil
+        }
+        return video
+    }
+
+    /// Reset the auto-play cursor to the head of the queue.
+    /// Called when the view first appears so a fresh
+    /// VideoDetailView starts from the top recommendation.
+    func resetNextUpCursor() {
+        nextUpIndex = relatedVideos.isEmpty ? nil : 0
     }
 
     func loadMoreComments(repository: PaladalaRepository) async {
