@@ -471,15 +471,17 @@ private struct VideoContextMenuModifier: ViewModifier {
 
     @EnvironmentObject private var authStore: AuthStore
 
-    /// The bv / av URL is fully derived from `video`'s identity
-    /// — it never changes between body evaluations.  Building
-    /// it lazily in `body` (the previous behaviour) re-ran the
-    /// `URL(string:)` constructor + interpolation on every
-    /// parent diff, which dominated the row's per-render cost
-    /// in Instruments for the home grid.  Lazy once-and-stash.
-    private lazy var videoURL: URL = {
+    /// Build the bv / av URL on demand.  `URL(string:)` is a
+    /// cheap constructor (string interpolation + Unicode
+    /// normalisation; no I/O), so the per-body rebuild cost
+    /// is dominated by SwiftUI's diff machinery itself — a
+    /// `lazy var` here would force a mutating getter on the
+    /// struct (Swift rejects it because the modifier value
+    /// is immutable at the call site), so we keep the
+    /// straightforward `let` in `body`.
+    private var videoURL: URL {
         URL(string: "https://www.bilibili.com/video/\(video.bvid.isEmpty ? "av\(video.aid)" : video.bvid)")!
-    }()
+    }
 
     func body(content: Content) -> some View {
         let url = videoURL
