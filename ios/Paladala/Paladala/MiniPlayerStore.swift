@@ -120,9 +120,27 @@ final class MiniPlayerStore: ObservableObject {
     /// fullscreen grace window) to surface the mini-player. The
     /// controller keeps running; only the inline surface goes
     /// away.
+    ///
+    /// If the user has disabled `miniPlayerOnExit` in
+    /// `ProfileSettingsView` we tear the controller down
+    /// instead — the user explicitly opted out, so leaving the
+    /// video screen should fully stop playback, not leave a
+    /// floating window behind.
     func detachInline() {
         guard controller != nil else { return }
         guard !isShowingMiniPlayer else { return }
+        if UserDefaults.standard.bool(forKey: "paladala.miniPlayerOnExit") == false {
+            // Default is "on" — `@AppStorage` writes `true` on
+            // first toggle but leaves the key absent otherwise.
+            // Treat the absent state as "on" so existing users
+            // don't suddenly lose the mini-player after the
+            // upgrade. `bool(forKey:)` returns `false` for an
+            // absent key, which is exactly the behaviour we
+            // want.
+            diagLog(.playback, "MiniPlayerStore.detachInline: miniPlayerOnExit=false → teardown")
+            teardownController()
+            return
+        }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             isShowingMiniPlayer = true
         }

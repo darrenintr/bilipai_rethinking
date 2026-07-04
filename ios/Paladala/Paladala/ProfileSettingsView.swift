@@ -29,6 +29,14 @@ struct ProfileSettingsView: View {
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @AppStorage("paladala.danmakuEnabled") private var danmakuEnabled = true
     @AppStorage("paladala.backgroundAudio") private var backgroundAudio = false
+    /// When `true` (default), navigating away from a playing
+    /// video shrinks the player into the floating mini-player
+    /// overlay; the user can re-tap to expand. When `false`,
+    /// the controller tears down immediately so the audio
+    /// stops and no floating window is left behind. Read by
+    /// `MiniPlayerStore.detachInline()`.
+    @AppStorage("paladala.miniPlayerOnExit") private var miniPlayerOnExit: Bool = true
+    @AppStorage("paladala.autoPlayNext") private var autoPlayNext: Bool = false
     @AppStorage("paladala.todayWatch") private var todayWatch = true
     /// iCloud sync toggle stub. Defaults to `false` because the
     /// CloudKit / `NSUbiquitousKeyValueStore` plumbing does not
@@ -118,6 +126,18 @@ struct ProfileSettingsView: View {
                             value: newValue
                         )
                     }
+                // YouTube-style "autoplay next recommended video"
+                // when the current one ends. Disabled by default
+                // because the recommendation surface needs the
+                // home feed context; users who enable it get the
+                // next-up card surfaced in the player overlay's
+                // last-30s phase.
+                Toggle("自动播放下一集", isOn: $autoPlayNext)
+                // Keep the floating mini-player when the user
+                // navigates away from a playing video. Default
+                // on. Disabling tears the controller down on
+                // `VideoDetailView.onDisappear` instead.
+                Toggle("离开后保留小窗播放", isOn: $miniPlayerOnExit)
             }
 
             Section {
