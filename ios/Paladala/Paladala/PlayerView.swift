@@ -152,7 +152,17 @@ struct PlayerView: View {
                 if areControlsVisible && controller.playerError == nil {
                     Button {
                         Haptics.tap()
-                        controller.togglePlayPause()
+                        // `PlayerController.toggle()` is the
+                        // canonical flip — also wired to
+                        // `MPRemoteCommandCenter.togglePlayPause`
+                        // for the lock-screen / Control Center
+                        // path. Naming it `toggle()` rather than
+                        // `togglePlayPause()` keeps the call site
+                        // short and dodges an
+                        // `@ObservedObject` dynamic-member
+                        // ambiguity when the suffix collides
+                        // with a Foundation selector name.
+                        controller.toggle()
                         scheduleControlsAutoHide()
                     } label: {
                         Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
