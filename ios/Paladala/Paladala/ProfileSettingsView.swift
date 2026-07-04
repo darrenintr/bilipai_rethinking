@@ -43,9 +43,10 @@ struct ProfileSettingsView: View {
     /// so the diagnostic export stays readable in normal use.
     @AppStorage("paladala.dumpPlayURL") private var dumpPlayURL = false
     // Backing key shared with `Analytics` (`Analytics.optInKey`).
-    // Default-on so Firebase Console immediately sees installs;
+    // Default-on so the in-app diagnostic log captures installs;
     // user can flip off in 我的 → 系统与诊断 to silence all
-    // telemetry without uninstalling. Survives app restarts.
+    // `Analytics.log(...)` calls without uninstalling.  Survives
+    // app restarts.
     @AppStorage("analytics.optIn") private var analyticsOptIn: Bool = true
 
     @EnvironmentObject private var router: AppRouter
@@ -212,17 +213,15 @@ struct ProfileSettingsView: View {
                 // Analytics opt-out.  When on, `Analytics.log`,
                 // `Analytics.recordError`, and
                 // `Analytics.breadcrumb` all become no-ops
-                // (guarded in `Analytics.swift`).  Crash
-                // reports from `FirebaseCrashlytics` are also
-                // suppressed because `recordError` is the only
-                // non-fatal path the app uses; native Swift
-                // `fatalError`s still ship to Crashlytics
-                // regardless because they bypass our facade.
+                // (guarded in `Analytics.swift`).  When off,
+                // the calls route to the in-app `DiagnosticLogger`
+                // via `bpLog` so the user can still inspect them
+                // through `LogViewerView`.
                 Toggle(isOn: $analyticsOptIn) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("分享使用统计")
                             .font(.subheadline)
-                        Text("发送崩溃报告与匿名使用事件到 Firebase,帮助改进 App")
+                        Text("在应用内诊断日志中记录使用统计,帮助改进 App")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

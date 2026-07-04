@@ -21,6 +21,14 @@ struct RootView: View {
     /// video they try to play after the screen has been
     /// locked for more than a few seconds.
     @State private var lastBackgroundAt: Date?
+    /// One-shot gate for the OnboardingView presentation.
+    /// Flipped to `true` from `onAppear` so the
+    /// `fullScreenCover` binding only evaluates after the
+    /// first frame has rendered.  Previously the binding
+    /// was `!didOnboard` evaluated on every body call —
+    /// that pushed the OnboardingView onto the screen
+    /// before any other init could claim the first frame.
+    @State private var hasPresentedFirstFrame: Bool = false
     /// The threshold above which a background → foreground
     /// transition is treated as "long" and triggers a proxy
     /// teardown.  Picked at 5 s: shorter than that and we
@@ -55,6 +63,14 @@ struct RootView: View {
             // cold-start time.
             LaunchMetrics.shared.mark(.firstRootViewAppeared)
             router.consumePendingIntentRoute()
+            // Flip the OnboardingView gate so the fullScreenCover
+            // can present after this frame.  Deferred from
+            // initial body eval so a fresh launch that hasn't
+            // onboarded yet doesn't pay the OnboardingView
+            // construction cost on the cold-start critical path.
+            if !hasPresentedFirstFrame {
+                hasPresentedFirstFrame = true
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -107,7 +123,7 @@ struct RootView: View {
         }
         .modifier(LiquidGlassTabBarModifier(materialDesign: materialDesign))
         .fullScreenCover(isPresented: Binding(
-            get: { !didOnboard },
+            get: { hasPresentedFirstFrame && !didOnboard },
             set: { newValue in
                 if newValue == false { didOnboard = true }
             }

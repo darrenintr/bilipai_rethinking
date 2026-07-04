@@ -95,6 +95,27 @@ final class BilibiliAPIClient {
         self.decoder = JSONDecoder()
     }
 
+    /// Boot-time pre-fetch of the WBI signing keys.  Builds
+    /// its own short-lived URLSession with the same defaults
+    /// as `init(session:)` (so headers, timeouts, and
+    /// connectivity wait all match) and forwards to the
+    /// private `WbiSigner.prewarm(using:)`.  Safe to call
+    /// from `PaladalaApp.init()` without an existing
+    /// client instance.
+    static func prewarmWbiKeys() async {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 60
+        config.waitsForConnectivity = true
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.httpAdditionalHeaders = [
+            "User-Agent": DeviceInfo.shared.userAgent,
+            "Referer": "https://www.bilibili.com"
+        ]
+        let session = URLSession(configuration: config)
+        await WbiSigner.prewarm(using: session)
+    }
+
     /// Report playback progress to Bilibili's history endpoint so the
     /// watch shows up under the user's "历史记录" list and feeds the
     /// "继续播放" recommendation algorithm. Without this call the
@@ -1429,6 +1450,42 @@ private actor WbiSigner {
     private let navURL = URL(string: "https://api.bilibili.com/x/web-interface/nav")!
     private var cachedKeys: CachedKeys?
 
+    /// Pre-fetched keys shared across all signer instances.
+    /// Populated by `WbiSigner.prewarm(using:)` from
+    /// `PaladalaApp.init()` so the first signed request
+    /// doesn't pay the `/x/web-interface/nav` round-trip.
+    /// Bypassed once the per-instance TTL cache is warm —
+    /// the instance cache is the source of truth for
+    /// staleness; the static cache is only the boot
+    /// speed-up.
+    private static var prewarmedKeys: CachedKeys?
+
+    /// Best-effort boot-time fetch.  No-ops if the keys are
+    /// already populated or the network call fails — the
+    /// regular `loadKeys()` path will pick up the slack.
+    static func prewarm(using session: URLSession) async {
+        guard prewarmedKeys == nil else { return }
+        do {
+            var request = URLRequest(url: URL(string: "https://api.bilibili.com/x/web-interface/nav")!)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+            request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await session.data(for: request)
+            let payload = try JSONDecoder().decode(WbiNavResponse.self, from: data)
+            let imgURL = payload.data.wbiImg.imgURL
+            let subURL = payload.data.wbiImg.subURL
+            prewarmedKeys = CachedKeys(
+                imgKey: imgURL.deletingPathExtension().lastPathComponent,
+                subKey: subURL.deletingPathExtension().lastPathComponent,
+                fetchedAt: Date()
+            )
+            bpLog("WbiSigner prewarm: keys cached")
+        } catch {
+            // Non-fatal. First signed request will retry.
+            bpLog("WbiSigner prewarm failed: \(error.localizedDescription)")
+        }
+    }
+
     func sign(queryItems: [URLQueryItem], using session: URLSession) async throws -> [URLQueryItem] {
         let keys = try await loadKeys(using: session)
         let mixinKey = buildMixinKey(imgKey: keys.imgKey, subKey: keys.subKey)
@@ -1454,6 +1511,15 @@ private actor WbiSigner {
     private func loadKeys(using session: URLSession) async throws -> CachedKeys {
         if let cachedKeys, Date().timeIntervalSince(cachedKeys.fetchedAt) < keyTTL {
             return cachedKeys
+        }
+        // Lift the boot pre-warm into the per-instance cache
+        // before going to the network.  Static cache is only
+        // consulted when the instance cache is empty or
+        // expired — TTL still applies.
+        if let prewarmed = Self.prewarmedKeys,
+           Date().timeIntervalSince(prewarmed.fetchedAt) < keyTTL {
+            cachedKeys = prewarmed
+            return prewarmed
         }
 
         var request = URLRequest(url: navURL)

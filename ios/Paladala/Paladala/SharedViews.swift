@@ -266,8 +266,15 @@ struct ResilientImage: View {
     }
 
     private func load() async {
-        image = nil
-        attempts = 0
+        // We deliberately do NOT reset `image` here.  The
+        // `.task(id: url)` modifier re-fires on every view
+        // appearance — including `LazyVStack` recycles that
+        // hand us back the same URL identity.  Resetting the
+        // `@State` causes a visible placeholder flash on
+        // fast scroll even when the pipeline's actor cache
+        // would have served the image instantly.  Leave the
+        // previous render in place; the in-flight task will
+        // overwrite it if a fresher copy arrives.
 
         guard let url else {
             return
@@ -296,8 +303,8 @@ private actor CoverImagePipeline {
     private let session: URLSession
 
     private init() {
-        memoryCache.countLimit = 180
-        memoryCache.totalCostLimit = 96 * 1_024 * 1_024
+        memoryCache.countLimit = 360
+        memoryCache.totalCostLimit = 192 * 1_024 * 1_024
 
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = URLCache(
@@ -305,7 +312,13 @@ private actor CoverImagePipeline {
             diskCapacity: 256 * 1_024 * 1_024
         )
         configuration.requestCachePolicy = .returnCacheDataElseLoad
-        configuration.httpMaximumConnectionsPerHost = 6
+        // Bumped from 6 to 12 — the feed lists fan out across
+        // many distinct `i0/i1/...` Bilibili cover hosts, and
+        // a single host rarely appears in more than 4–5 cells
+        // at once.  The old limit stalled covers during fast
+        // scroll on the Music grid where ~30 cells mount in a
+        // single runloop tick.
+        configuration.httpMaximumConnectionsPerHost = 12
         session = URLSession(configuration: configuration)
     }
 
@@ -458,8 +471,18 @@ private struct VideoContextMenuModifier: ViewModifier {
 
     @EnvironmentObject private var authStore: AuthStore
 
+    /// The bv / av URL is fully derived from `video`'s identity
+    /// — it never changes between body evaluations.  Building
+    /// it lazily in `body` (the previous behaviour) re-ran the
+    /// `URL(string:)` constructor + interpolation on every
+    /// parent diff, which dominated the row's per-render cost
+    /// in Instruments for the home grid.  Lazy once-and-stash.
+    private lazy var videoURL: URL = {
+        URL(string: "https://www.bilibili.com/video/\(video.bvid.isEmpty ? "av\(video.aid)" : video.bvid)")!
+    }()
+
     func body(content: Content) -> some View {
-        let url = URL(string: "https://www.bilibili.com/video/\(video.bvid.isEmpty ? "av\(video.aid)" : video.bvid)")!
+        let url = videoURL
         let isLoggedIn = authStore.isLoggedIn
         content.contextMenu {
             if isLoggedIn {

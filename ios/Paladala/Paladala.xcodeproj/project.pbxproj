@@ -24,7 +24,6 @@
 		10000000000000000000010F /* PaladalaAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020F /* PaladalaAppIntents.swift */; };
 		100000000000000000000110 /* PlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000211 /* PlayerView.swift */; };
 		100000000000000000000111 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000212 /* Assets.xcassets */; };
-		600000000000000000000A04 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000A03 /* GoogleService-Info.plist */; };
 		100000000000000000000112 /* DesignModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000213 /* DesignModifier.swift */; };
 		100000000000000000000113 /* BundledFeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000214 /* BundledFeedService.swift */; };
 		100000000000000000000114 /* StoredAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000215 /* StoredAccount.swift */; };
@@ -64,9 +63,6 @@
 		500000000000000000000558 /* DeepDiagnosticReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000559 /* DeepDiagnosticReportView.swift */; };
 		50000000000000000000055A /* InlineAVPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50000000000000000000055B /* InlineAVPlayerView.swift */; };
 		50000000000000000000055D /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50000000000000000000055C /* Analytics.swift */; };
-		600000000000000000000801 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 600000000000000000000701 /* FirebaseCore */; };
-		600000000000000000000802 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 600000000000000000000702 /* FirebaseAnalytics */; };
-		600000000000000000000803 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 600000000000000000000703 /* FirebaseCrashlytics */; };
 		600000000000000000000804 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000901 /* PrivacyInfo.xcprivacy */; };
 		600000000000000000000805 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000902 /* PrivacyInfo.xcprivacy */; };
 		10000000000000000000012D /* LaunchMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022D /* LaunchMetrics.swift */; };
@@ -93,7 +89,6 @@
 		100000000000000000000210 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		100000000000000000000211 /* PlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerView.swift; sourceTree = "<group>"; };
 		100000000000000000000212 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		600000000000000000000A03 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = GoogleService-Info.plist; sourceTree = "<group>"; };
 		100000000000000000000213 /* DesignModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignModifier.swift; sourceTree = "<group>"; };
 		100000000000000000000214 /* BundledFeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledFeedService.swift; sourceTree = "<group>"; };
 		100000000000000000000215 /* StoredAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredAccount.swift; sourceTree = "<group>"; };
@@ -146,9 +141,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				600000000000000000000801 /* FirebaseCore in Frameworks */,
-				600000000000000000000802 /* FirebaseAnalytics in Frameworks */,
-				600000000000000000000803 /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -214,7 +206,6 @@
 				100000000000000000000469 /* LiveActivityCoordinator.swift */,
 				10000000000000000000046B /* Paladala.entitlements */,
 				600000000000000000000901 /* PrivacyInfo.xcprivacy */,
-				600000000000000000000A03 /* GoogleService-Info.plist */,
 				100000000000000000000463 /* Shared */,
 				100000000000000000000404 /* Auth */,
 				100000000000000000000405 /* Login */,
@@ -307,7 +298,6 @@
 			buildPhases = (
 				100000000000000000000701 /* Sources */,
 				100000000000000000000301 /* Frameworks */,
-				600000000000000000000A01 /* Upload Crashlytics Symbols */,
 				100000000000000000000801 /* Resources */,
 				10000000000000000000047F /* Embed PlugIns */,
 			);
@@ -318,9 +308,6 @@
 			);
 			name = Paladala;
 			packageProductDependencies = (
-				600000000000000000000701 /* FirebaseCore */,
-				600000000000000000000702 /* FirebaseAnalytics */,
-				600000000000000000000703 /* FirebaseCrashlytics */,
 			);
 			productName = Paladala;
 			productReference = 100000000000000000000001 /* Paladala.app */;
@@ -354,21 +341,6 @@
 
 
 /* Begin XCSwiftPackageProductDependency section */
-		600000000000000000000701 /* FirebaseCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 600000000000000000000601 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseCore;
-		};
-		600000000000000000000702 /* FirebaseAnalytics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 600000000000000000000601 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalytics;
-		};
-		600000000000000000000703 /* FirebaseCrashlytics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 600000000000000000000601 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseCrashlytics;
-		};
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXTargetDependency section */
@@ -405,7 +377,6 @@
 			);
 			mainGroup = 100000000000000000000401;
 			packageReferences = (
-				600000000000000000000601 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			productRefGroup = 100000000000000000000403 /* Products */;
 			projectDirPath = "";
@@ -424,7 +395,6 @@
 			files = (
 				100000000000000000000111 /* Assets.xcassets in Resources */,
 				600000000000000000000804 /* PrivacyInfo.xcprivacy in Resources */,
-				600000000000000000000A04 /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -440,25 +410,6 @@
 
 
 /* Begin PBXShellScriptBuildPhase section */
-		600000000000000000000A01 /* Upload Crashlytics Symbols */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Upload Crashlytics Symbols";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "GOOGLE_SERVICE_INFO_PLIST=\"${SRCROOT}/Paladala/GoogleService-Info.plist\"\n# Crashlytics' upload-symbols synchronously validates GOOGLE_APP_ID against\n# the build environment (the env var is set on the xcodebuild command line\n# but Xcode does not export custom build settings to the Run Script\n# sandbox, see sandbox-exec -D flags) and the dSYM upload step itself is\n# meaningless without a signed/distributable artifact. Skip the whole\n# upload phase on unsigned CI builds (CODE_SIGNING_ALLOWED=NO) so\n# xcodebuild never invokes Crashlytics' run script in that mode.\nif [ \"${CODE_SIGNING_ALLOWED:-}\" = \"NO\" ]; then\n  echo \"Skipping Crashlytics symbol upload: CODE_SIGNING_ALLOWED=NO (unsigned CI build).\"\n  exit 0\nfi\nif [ -f \"$GOOGLE_SERVICE_INFO_PLIST\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nelse\n  echo \"Skipping Crashlytics symbol upload: GoogleService-Info.plist not found at $GOOGLE_SERVICE_INFO_PLIST (unsigned CI build).\"\nfi\n";
-		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -690,7 +641,7 @@
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = "";
 				EMBEDDED_CONTENT_CONTAINS_SWIFT = YES;
-				ENABLE_PREVIEWS = YES;
+				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Paladala/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
@@ -803,13 +754,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		600000000000000000000601 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 11.0.0;
-			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 

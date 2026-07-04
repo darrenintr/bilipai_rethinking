@@ -97,11 +97,18 @@ private struct LivePlayerView: View {
     let room: BiliLiveRoom
     let repository: PaladalaRepository
 
+    @EnvironmentObject private var router: AppRouter
     @State private var playback: BiliLivePlayback?
     @State private var errorMessage: String?
     /// Created lazily once `playback` is loaded, because the
     /// controller's init needs the active stream URL.
     @State private var controller: PlayerController?
+    /// Re-render trigger.  Bumped every time `controller`
+    /// publishes (via `.onReceive(controller?.objectWillChange)`
+    /// in `body`).  We can't use `@ObservedObject` directly
+    /// because the controller is constructed lazily after the
+    /// view mounts.
+    @State private var controllerVersion: Int = 0
 
     var body: some View {
         ZStack {
@@ -112,6 +119,7 @@ private struct LivePlayerView: View {
                     .aspectRatio(16 / 9, contentMode: .fit)
                 metadataPanel
             }
+            playerErrorOverlay
         }
         .navigationTitle(room.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -135,6 +143,14 @@ private struct LivePlayerView: View {
             if #available(iOS 16.1, *) {
                 LiveActivityCoordinator.shared.end()
             }
+        }
+        // Mirror the controller's `playerError` publication into
+        // a `@State` token so the body re-evaluates and the
+        // overlay re-renders. The view doesn't observe the
+        // controller directly (see `controllerVersion` rationale
+        // above).
+        .onChange(of: controller?.playerError) { _, _ in
+            controllerVersion &+= 1
         }
     }
 
@@ -164,6 +180,46 @@ private struct LivePlayerView: View {
         }
     }
 
+    /// Recovery surface shown when `PlayerController` flags a
+    /// playback error (live CDN 403, item decode failure, 10s
+    /// stall, etc.).  Branched on the `RecoveryAction` so a
+    /// 403 lands on the login sheet instead of retrying the
+    /// same dead request.
+    @ViewBuilder
+    private var playerErrorOverlay: some View {
+        if let error = controller?.playerError {
+            ContentUnavailableView {
+                Label(error.title, systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error.message)
+            } actions: {
+                Button {
+                    Haptics.tap()
+                    switch error.recoveryAction {
+                    case .signInAgain:
+                        router.openLogin()
+                    case .retryPlayback, .retrySeek:
+                        controller?.retryPlayback()
+                    }
+                } label: {
+                    Label(error.recoveryAction.buttonLabel,
+                          systemImage: "arrow.clockwise")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+        }
+    }
+
+    /// Build the controller lazily on first appearance, then
+    /// mirror its `objectWillChange` into a `@State` token so
+    /// the body re-evaluates when `playerError` (a `@Published`
+    /// property on the controller) flips.  The token pattern
+    /// is the standard workaround for late-arriving
+    /// `ObservableObject`s — `LivePlayerView` is constructed
+    /// before the controller, so we can't use `@ObservedObject`.
     private var metadataPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(room.title)

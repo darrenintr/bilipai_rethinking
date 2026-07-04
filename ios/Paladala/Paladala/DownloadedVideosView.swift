@@ -165,6 +165,18 @@ struct DownloadedVideosView: View {
 private struct DownloadedVideoRow: View {
     let record: DownloadRecord
 
+    /// Cached `Date.FormatStyle` for the row's
+    /// "downloaded at" timestamp.  The chained
+    /// `year()/month()/day()/hour()/minute()` formatters
+    /// build a fresh `Date.FormatStyle` spec on every call —
+    /// previously paid per cell per scroll frame.
+    fileprivate static let downloadedAtFormat: Date.FormatStyle = Date.FormatStyle.dateTime
+        .year()
+        .month()
+        .day()
+        .hour()
+        .minute()
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             ResilientImage(url: record.coverURL)
@@ -185,14 +197,7 @@ private struct DownloadedVideoRow: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                Text(record.downloadedAt.formatted(
-                    .dateTime
-                        .year()
-                        .month()
-                        .day()
-                        .hour()
-                        .minute()
-                ))
+                Text(record.downloadedAt.formatted(DownloadedVideoRow.downloadedAtFormat))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             }
@@ -221,9 +226,19 @@ private extension Int64 {
     /// matches what the user sees in iOS's own storage
     /// settings.
     var compactFileSize: String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB, .useKB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: self)
+        Self.fileSizeFormatter.string(fromByteCount: self)
     }
+
+    /// One formatter per process.  `ByteCountFormatter` is
+    /// expensive to allocate (CFNumberFormatter + locale
+    /// resolution) and the row body fires it on every
+    /// visible cell during scroll — without caching the
+    /// downloads list takes a measurable hit in the
+    /// Instruments → Time Profiler trace.
+    private static let fileSizeFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.allowedUnits = [.useMB, .useGB, .useKB]
+        f.countStyle = .file
+        return f
+    }()
 }

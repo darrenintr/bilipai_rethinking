@@ -99,10 +99,15 @@ struct PlayerView: View {
             // overlays (buffering, double-tap) keep their
             // previous behaviour.
             ZStack {
-                if controller.isBuffering {
+                if controller.isBuffering && controller.playerError == nil {
                     loadingOverlay
                         .transition(.opacity)
                         .allowsHitTesting(false)
+                }
+
+                if let error = controller.playerError {
+                    playbackErrorOverlay(error: error, controller: controller)
+                        .transition(.opacity)
                 }
 
                 DoubleTapOverlay(
@@ -179,9 +184,79 @@ struct PlayerView: View {
         }
         return String(format: "%.0f B/s", bytesPerSecond)
     }
+
+    /// Recovery surface shown above the AVPlayer layer when
+    /// `PlayerController.playerError` is non-nil.  Branched on
+    /// the `RecoveryAction` so a live 403 lands on the login
+    /// sheet (via `AppRouter.openLogin()`) instead of retrying
+    /// the same dead request.
+    @ViewBuilder
+    private func playbackErrorOverlay(
+        error: PlayerPlaybackError,
+        controller: PlayerController
+    ) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title)
+                .foregroundStyle(.yellow)
+            Text(error.title)
+                .font(.headline)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+            Text(error.message)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.center)
+            Button {
+                Haptics.tap()
+                switch error.recoveryAction {
+                case .signInAgain:
+                    AppRouter.postOpenLoginRequest()
+                case .retryPlayback, .retrySeek:
+                    controller.retryPlayback()
+                }
+            } label: {
+                Label(error.recoveryAction.buttonLabel,
+                      systemImage: "arrow.clockwise")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.white)
+            .foregroundStyle(.black)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.75))
+    }
 }
 
-// MARK: - Fullscreen surface
+// MARK: - Login-routing helper
+
+/// Notification posted by `PlayerView` (which does not own an
+/// `AppRouter` EnvironmentObject) when a recovery button
+/// needs to open the login sheet.  `PaladalaApp.body` listens
+/// for this and forwards to its captured router.
+extension Notification.Name {
+    static let paladalaRequestOpenLogin = Notification.Name(
+        "app.paladala.ios.requestOpenLogin"
+    )
+}
+
+extension AppRouter {
+    /// Fire the cross-process login request.  Used by view
+    /// layers that can't easily thread the AppRouter down
+    /// from the environment (e.g. `PlayerView` inside
+    /// `VideoDetailView` which holds the controller as an
+    /// `@ObservedObject`).
+    static func postOpenLoginRequest() {
+        NotificationCenter.default.post(
+            name: .paladalaRequestOpenLogin,
+            object: nil
+        )
+    }
+}
 
 /// Fullscreen overlay player.  We present this inside
 /// `.fullScreenCover` from `VideoDetailView` and let AVKit drive
@@ -199,6 +274,8 @@ struct PlayerView: View {
 /// view only binds the existing `AVPlayer` into an
 /// `AVPlayerViewController`, so the playhead and play / pause
 /// state stay continuous across inline ↔ fullscreen.
+// MARK: - Fullscreen surface
+
 struct FullscreenPlayerView: View {
     let video: BiliVideo
     let playback: BiliPlayback

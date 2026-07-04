@@ -15,8 +15,20 @@ struct PaladalaApp: App {
 
     init() {
         LaunchMetrics.shared.mark(.appInitStart)
-        PlayerAudioSession.activate()
+        // Audio session activation moved out of `init()` —
+        // it now happens lazily inside `PlayerController.init`
+        // (gated by a one-shot flag), so a cold start that
+        // never opens a video never touches the audio HAL.
         let client = BilibiliAPIClient()
+        // Pre-warm WbiSigner keys off the launch critical
+        // path.  The first signed API request (typically the
+        // home feed) used to pay a synchronous round-trip to
+        // `/x/web-interface/nav`; with this fire-and-forget
+        // task the keys are usually cached by the time the
+        // feed view kicks off its network load.
+        Task.detached(priority: .userInitiated) {
+            await BilibiliAPIClient.prewarmWbiKeys()
+        }
         let repo = PaladalaRepository(apiClient: client)
         // Do NOT clear `cookieProvider` here — the wired closure is
         // installed in `body.onAppear` below. Clearing it in `init`
@@ -37,18 +49,6 @@ struct PaladalaApp: App {
                 Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
                 as? String ?? "?"
         ])
-        // Mirror the cold-start anchor into Firebase Analytics so
-        // the console can compute session / retention funnels
-        // against it. Honours the `analytics.optIn` toggle.
-        Analytics.log("app_launch", [
-            "marketingVersion":
-                Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
-                as? String ?? "?",
-            "build":
-                Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
-                as? String ?? "?"
-        ])
-        Analytics.breadcrumb("APP", "app.launch")
         DeviceInfo.shared.startIfNeeded()
         LaunchMetrics.shared.mark(.appInitComplete)
         // If the user opted in via the `PALADALA_COLD_START_DUMP=1`
@@ -81,13 +81,14 @@ struct PaladalaApp: App {
 
                     // Defensive re-hydration: in case the first render
                     // happened before `@StateObject` had a chance to
-                    // run `AuthStore.refresh()` (e.g. when the SwiftUI
-                    // view is mounted in the same runloop tick as the
-                    // App init), re-read the persisted account list
-                    // from the Keychain here. This is a single, cheap
-                    // read and guarantees `activeAccount` is populated
-                    // before the cookieProvider closure captures it.
-                    authStore.refresh()
+                    // run `AuthStore.bootstrap()` (e.g. when the
+                    // SwiftUI view is mounted in the same runloop
+                    // tick as the App init), re-read the persisted
+                    // account list from the Keychain here. This is
+                    // a single, cheap read and guarantees
+                    // `activeAccount` is populated before the
+                    // cookieProvider closure captures it.
+                    authStore.bootstrap()
 
                     repository.apiClient.cookieProvider = { [weak authStore] in
                         authStore?.activeAccount?.cookieHeader
@@ -130,6 +131,18 @@ struct PaladalaApp: App {
                         repository.invalidateFollowingsCache()
                     }
                 }
+                // Forward cross-view login requests (posted by
+                // `PlayerView` when a live 403 surfaces the
+                // "重新登录" recovery button) to the AppRouter.
+                // Posting through NotificationCenter is the only
+                // way to bubble an action out of an `AVPlayer`
+                // overlay that doesn't hold the AppRouter
+                // EnvironmentObject.
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .paladalaRequestOpenLogin
+                )) { _ in
+                    router.openLogin()
+                }
         }
     }
 }
@@ -138,17 +151,28 @@ struct PaladalaApp: App {
 
 final class Logger: ObservableObject {
     static let shared = Logger()
-    
+
     @Published private(set) var logs: [String] = []
     private let maxLogs = 1000
-    
+
     private init() {}
-    
+
+    /// `ISO8601DateFormatter` is expensive to instantiate
+    /// (CFDateFormatter + locale resolution under the hood)
+    /// and `Logger.log(...)` is on the launch hot path via
+    /// `bpLog`.  One per process — `DateFormatter` instances
+    /// are documented as thread-safe for `string(from:)`.
+    private static let timestampFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     func log(_ message: String, file: String = #file, line: Int = #line) {
         let fileName = (file as NSString).lastPathComponent
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let timestamp = Self.timestampFormatter.string(from: Date())
         let logEntry = "[\(timestamp)] [\(fileName):\(line)] \(message)"
-        
+
         DispatchQueue.main.async {
             if self.logs.isEmpty {
                 self.logs.append("[Paladala Session Start]")

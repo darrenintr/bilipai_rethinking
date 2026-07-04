@@ -85,7 +85,15 @@ enum PlayerPlaybackError: Equatable {
             }
             return "网络连接中断，请检查网络后重试。"
         case .proxyFailed(let code):
-            return "视频代理服务器返回错误（\(code)），请稍后重试。"
+            // Bilibili's live CDN returns 403 when the cookie
+            // is rejected, when the room is region-restricted,
+            // or when the upstream session has expired.  Spell
+            // that out for the user so the recovery action
+            // (re-login) makes sense.
+            if code == 403 {
+                return "视频源拒绝请求（HTTP 403）。可能是登录已过期或地区受限。"
+            }
+            return "视频代理服务器返回错误（HTTP \(code)），请稍后重试。"
         case .prolongedStall:
             return "加载时间过长，可能是网络问题。"
         }
@@ -93,10 +101,12 @@ enum PlayerPlaybackError: Equatable {
 
     var recoveryAction: RecoveryAction {
         switch self {
-        case .itemFailed:       return .retryPlayback
-        case .stoppedMidStream: return .retryPlayback
-        case .proxyFailed:      return .retryPlayback
-        case .prolongedStall:   return .retrySeek
+        case .itemFailed:                     return .retryPlayback
+        case .stoppedMidStream:               return .retryPlayback
+        case .proxyFailed(let code) where code == 403:
+            return .signInAgain
+        case .proxyFailed:                    return .retryPlayback
+        case .prolongedStall:                 return .retrySeek
         }
     }
 }
@@ -104,11 +114,17 @@ enum PlayerPlaybackError: Equatable {
 enum RecoveryAction {
     case retryPlayback   // full playback re-init (DASH re-fetch)
     case retrySeek       // seek to current time (buffer refetch)
+    /// Live CDN returned 403 — SESSDATA is invalid or the
+    /// room is region-restricted.  The surface should pop
+    /// `AppRouter.openLogin()` instead of re-issuing the
+    /// playback request.
+    case signInAgain
 
     var buttonLabel: String {
         switch self {
         case .retryPlayback: return "重新播放"
         case .retrySeek:     return "重新加载"
+        case .signInAgain:   return "重新登录"
         }
     }
 }
@@ -137,6 +153,13 @@ final class PlayerController: ObservableObject {
     let player: AVPlayer
     private let playerItem: AVPlayerItem
     private let asset: AVURLAsset
+    /// Original `BiliPlayback` for retry.  Kept so
+    /// `retryPlayback()` can re-stand the local proxy and
+    /// hand AVPlayer a fresh manifest without the caller
+    /// having to re-supply the DASH source.  Direct-asset
+    /// (live / legacy MP4) paths reuse `asset` directly and
+    /// don't read this.
+    private let originalPlayback: BiliPlayback
     /// `true` if this controller is fed by the local HLS proxy
     /// (the VOD DASH path).  When `false`, the asset is a direct
     /// `AVURLAsset` (live HLS or legacy MP4) and the proxy is
@@ -150,12 +173,39 @@ final class PlayerController: ObservableObject {
     private var statusObserver: NSObjectProtocol?
     private var errorObserver: NSObjectProtocol?
     private var errorLogObserver: NSObjectProtocol?
+    /// Prolonged-stall watchdog — see `init()` for the
+    /// rationale.  Held so `tearDown()` can cancel it before
+    /// the controller is dropped; otherwise a discarded
+    /// controller would still fire a `.prolongedStall` write
+    /// against the next one's state.
+    private var stallTimerTask: Task<Void, Never>?
     /// Token returned by `addPeriodicTimeObserver`.  We hold it
     /// to keep the observer alive and to remove it on
     /// `tearDown`.  `AVPlayer.currentTime` is a method, not a
     /// KVO-observable property, so the per-frame time updates
     /// come from a periodic time observer instead.
     private var timeObserver: Any?
+
+    /// One-shot guard for `AVAudioSession.setActive`.
+    /// Previously called from `PaladalaApp.init()` on every
+    /// cold start; deferred to the first `PlayerController`
+    /// construction so a launch that never plays audio
+    /// (e.g. user only browses the Downloads tab) skips the
+    /// audio HAL priming entirely.  Read+write are not
+    /// atomic in isolation, but `PlayerController` is
+    /// `@MainActor`-isolated so all callsites are.
+    private static var didActivateAudioSession = false
+
+    private static func activateAudioSessionOnce() {
+        guard !didActivateAudioSession else { return }
+        didActivateAudioSession = true
+        // `.playback` lets the audio play when the silent
+        // switch is on (the AliPlayer path did the same).
+        try? AVAudioSession.sharedInstance().setCategory(
+            .playback, mode: .moviePlayback, options: []
+        )
+        try? AVAudioSession.sharedInstance().setActive(true)
+    }
 
     // MARK: network speed tracking
 
@@ -191,6 +241,14 @@ final class PlayerController: ObservableObject {
             "isDASH": playback.isDASH,
             "referer": playback.referer.absoluteString
         ])
+
+        // Activate the shared audio session on the first
+        // controller that comes up.  Deferred from
+        // `PaladalaApp.init()` so a cold start that never
+        // opens a video never touches the audio HAL (saves
+        // 100–400 ms per the cold-start audit).  Re-entrant
+        // safe — `setActive` is idempotent.
+        Self.activateAudioSessionOnce()
 
         self.nowPlayingTitle = video?.title ?? "直播"
         self.nowPlayingArtist = video?.ownerName ?? "Paladala"
@@ -258,6 +316,7 @@ final class PlayerController: ObservableObject {
 
         self.asset = asset
         self.usesProxy = usesProxy
+        self.originalPlayback = playback
 
         let item = AVPlayerItem(asset: asset)
         
@@ -272,13 +331,10 @@ final class PlayerController: ObservableObject {
         self.playerItem = item
         self.player = AVPlayer(playerItem: item)
 
-        // Audio session: play in silent mode like the AliPlayer
-        // path did.  `.playback` lets the audio play when the
-        // silent switch is on.
-        try? AVAudioSession.sharedInstance().setCategory(
-            .playback, mode: .moviePlayback, options: []
-        )
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // Audio session activation lives in
+        // `activateAudioSessionOnce()` below — invoked at the
+        // top of `init()`.  Re-activating on every controller
+        // is unnecessary; the first one primes the HAL.
 
         // KVO on the player.  `currentTime` is a method (not a
         // KVO-observable property) so we use a periodic time
@@ -371,7 +427,10 @@ final class PlayerController: ObservableObject {
         // through `.unknown → .readyToPlay (or .failed)`.
         // Logging this catches the case where the proxy
         // returns a 206 with a malformed body that AVPlayer
-        // rejects at the parser level.
+        // rejects at the parser level. A `.failed` status
+        // also publishes to `playerError` so the overlay
+        // can offer the recovery button — without this, the
+        // user sees an indefinite buffering spinner.
         observers.insert(
             item.observe(\.status, options: [.new, .initial]) {
                 [weak self] _, change in
@@ -388,6 +447,16 @@ final class PlayerController: ObservableObject {
                     ])
                 }
                 diagLog(.playback, "AVPlayerItem status changed", details: details)
+                if let statusValue = change.newValue, statusValue == .failed {
+                    let detail = err.map { String(describing: $0) }
+                    Task { @MainActor in
+                        self?.playerError = .itemFailed(detail: detail)
+                        diagLog(.playback, "PlayerController.playerError assigned", details: [
+                            "case": "itemFailed",
+                            "detail": detail ?? ""
+                        ])
+                    }
+                }
             }
         )
 
@@ -432,6 +501,12 @@ final class PlayerController: ObservableObject {
             Task { @MainActor in
                 self?.isPlaying = false
                 self?.isBuffering = false
+                let detail = err.map { String(describing: $0) }
+                self?.playerError = .stoppedMidStream(detail: detail)
+                diagLog(.playback, "PlayerController.playerError assigned", details: [
+                    "case": "stoppedMidStream",
+                    "detail": detail ?? ""
+                ])
             }
         }
         // The "new error log entry" notification is what fires
@@ -454,7 +529,7 @@ final class PlayerController: ObservableObject {
         errorLogObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.newErrorLogEntryNotification,
             object: item, queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             let entries = item.errorLog()?.events ?? []
             let summary = entries.prefix(3).map { e -> String in
                 String(describing: e)
@@ -477,6 +552,23 @@ final class PlayerController: ObservableObject {
                     "domain": last.errorDomain,
                     "code": last.errorStatusCode
                 ])
+                // Map HTTP-class AVPlayer errors to the recovery
+                // surface so the user can act. The 4xx range
+                // covers 403 (CDN / cookie rejection), 404
+                // (segment missing), 410 (gone). We intentionally
+                // ignore 5xx here — those are usually transient
+                // and `retryPlayback` is the right recovery even
+                // without a numeric code path.
+                let code = last.errorStatusCode
+                if (400..<500).contains(code) {
+                    Task { @MainActor in
+                        self?.playerError = .proxyFailed(code: code)
+                        diagLog(.playback, "PlayerController.playerError assigned", details: [
+                            "case": "proxyFailed",
+                            "code": code
+                        ])
+                    }
+                }
             }
         }
 
@@ -486,6 +578,23 @@ final class PlayerController: ObservableObject {
         // `player.timeControlStatus` and `player.rate` from
         // a 2Hz timer.
         startPolling()
+
+        // Prolonged-stall watchdog. AVPlayer reports buffer
+        // state via `isPlaybackBufferEmpty` (line 312-321) but
+        // a brief hiccup is normal — only surface an error if
+        // the buffer has been empty for ≥ 10 s.  The task is
+        // cancelled in `tearDown()` so a player that's been
+        // paused and discarded doesn't fire a phantom error.
+        stallTimerTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled, let self else { return }
+            if self.isBuffering && self.playerError == nil {
+                self.playerError = .prolongedStall
+                diagLog(.playback, "PlayerController.playerError assigned", details: [
+                    "case": "prolongedStall"
+                ])
+            }
+        }
 
         if isPlaying {
             player.play()
@@ -646,10 +755,67 @@ final class PlayerController: ObservableObject {
         player.seek(to: time)
     }
 
+    // MARK: recovery
+
+    /// Clear `playerError` and re-issue the playback request
+    /// the recovery button is bound to.  Two paths:
+    ///
+    ///  - **VOD DASH** (`usesProxy == true`): re-stand the
+    ///    local proxy with the original `BiliPlayback` and
+    ///    point AVPlayer at the fresh `playlist.m3u8`.  The
+    ///    proxy's previous listener is torn down inside
+    ///    `serve(playback:)` (see `LocalHLSProxyServer`).
+    ///  - **Live / legacy MP4** (`usesProxy == false`):
+    ///    replace the current item with a fresh
+    ///    `AVPlayerItem(asset:)`.  We don't re-fetch the
+    ///    HLS manifest — Bilibili's CDN rotates the live
+    ///    manifest anyway, so the existing `asset` URLs are
+    ///    still valid; only the AVPlayer-level state needed
+    ///    a reset.
+    ///
+    /// No-op when `playerError == nil` so a stray tap on a
+    /// non-error state doesn't restart playback.
+    func retryPlayback() {
+        guard playerError != nil else { return }
+        diagLog(.playback, "PlayerController.retryPlayback", details: [
+            "usesProxy": usesProxy
+        ])
+        playerError = nil
+        isBuffering = false
+        isPlaying = true
+
+        if usesProxy {
+            do {
+                try LocalHLSProxyServer.shared.serve(playback: originalPlayback)
+                guard let baseURL = LocalHLSProxyServer.shared.waitForReady() else {
+                    diagLog(.playback, "retryPlayback: proxy failed to come up")
+                    playerError = .proxyFailed(code: -1)
+                    return
+                }
+                let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
+                let item = AVPlayerItem(url: playlistURL)
+                player.replaceCurrentItem(with: item)
+                player.play()
+            } catch {
+                diagLog(.playback, "retryPlayback: serve() threw", details: [
+                    "error": error.localizedDescription
+                ])
+                playerError = .itemFailed(detail: error.localizedDescription)
+                return
+            }
+        } else {
+            let item = AVPlayerItem(asset: asset)
+            player.replaceCurrentItem(with: item)
+            player.play()
+        }
+    }
+
     // MARK: teardown
 
     func tearDown() {
         stopPolling()
+        stallTimerTask?.cancel()
+        stallTimerTask = nil
         player.pause()
         if let token = timeObserver {
             player.removeTimeObserver(token)

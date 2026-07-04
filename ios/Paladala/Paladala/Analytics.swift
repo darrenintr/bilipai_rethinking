@@ -1,17 +1,18 @@
-// Firebase imports removed — Firebase is not in the Podfile.
-// All functions are stubbed to bpLog until Firebase is added.
-// To re-enable Firebase analytics, add back the imports and
-// restore the original function bodies.
+// Firebase has been fully removed from the project.  The
+// `Analytics` facade below is a thin `bpLog` wrapper that
+// preserves the call-site signature so any future analytics
+// backend can be slotted in without touching the call sites.
 import Foundation
 
 /// Thin facade mirroring the existing `bpLog` / `diagLog` style.
 ///
-/// Every analytics / crashlytics call in the app goes through this
-/// enum so we can later swap the backend (Firebase → Sentry →
-/// self-hosted) without touching call sites.
+/// Every analytics call in the app goes through this enum so a
+/// future backend (Sentry, self-hosted, etc.) can be slotted in
+/// without touching call sites.
 ///
-/// Stub implementation: all calls log locally via `bpLog` until
-/// Firebase is restored.
+/// No-op implementation: all calls log locally via `bpLog` when
+/// the `analytics.optIn` toggle is on.  When the toggle is off,
+/// they return immediately — this is the production default.
 enum Analytics {
     private static let optInKey = "analytics.optIn"
 

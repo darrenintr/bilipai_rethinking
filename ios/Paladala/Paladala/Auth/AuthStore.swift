@@ -16,8 +16,22 @@ final class AuthStore: ObservableObject {
 
     private let store: AccountSessionStore
 
+    /// `init` no longer reads the Keychain — that work
+    /// moved to `bootstrap()` so the cold-start path
+    /// (`PaladalaApp.init → AuthStore()`) doesn't block on
+    /// Keychain I/O on the main actor.  `bootstrap()` is
+    /// idempotent and safe to call from `PaladalaApp.body.
+    /// onAppear` (which already calls `authStore.refresh()`
+    /// as a defensive re-hydration guard).
     init(store: AccountSessionStore = AccountSessionStore()) {
         self.store = store
+    }
+
+    /// Read the persisted account list and active-mid from
+    /// the Keychain / `UserDefaults` fallback.  Equivalent
+    /// to the previous `init`'s synchronous Keychain read,
+    /// but called off the cold-start critical path.
+    func bootstrap() {
         refresh()
     }
 
