@@ -624,8 +624,8 @@ struct BiliDashSource: Hashable, Codable {
         /// Optional: some older B 站 responses omit the sidx
         /// range (a `SegmentBase` is published but lacks
         /// `index_range`). In that case the proxy falls back to
-        /// the equal-byte math — same broken model as before,
-        /// but at least it does not crash.
+        /// a single direct-MP4 segment instead of fabricating
+        /// equal-byte media segments.
         let indexRange: ByteRange?
         /// Absolute byte offset where the playable media data
         /// starts in the upstream Bili m4s file.  This is the

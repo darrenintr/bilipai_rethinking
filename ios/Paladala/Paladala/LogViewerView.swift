@@ -40,6 +40,7 @@ struct LogViewerView: View {
     /// settings view.
     @State private var shareURL: URL? = nil
     @State private var copyToast: String? = nil
+    @State private var showingClearConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,6 +59,12 @@ struct LogViewerView: View {
         )
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Button(role: .destructive) {
+                    showingClearConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .accessibilityLabel("清除日志")
                 Button {
                     copyToClipboard()
                 } label: {
@@ -83,6 +90,18 @@ struct LogViewerView: View {
                     .accessibilityLabel("分享报告")
                 }
             }
+        }
+        .confirmationDialog(
+            "清除以往日志？",
+            isPresented: $showingClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("清除日志", role: .destructive) {
+                clearLogs()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("会清空当前诊断日志、磁盘历史日志和 bpLog 缓冲。")
         }
         .overlay(alignment: .bottom) {
             if let copyToast {
@@ -217,6 +236,13 @@ struct LogViewerView: View {
         // on the next render. No sheet flip needed — the system
         // share sheet pops itself when the user taps the link.
         shareURL = url
+    }
+
+    private func clearLogs() {
+        DiagnosticLogger.shared.clearHistory()
+        Logger.shared.clear()
+        shareURL = nil
+        flashToast("日志已清除")
     }
 
     private func flashToast(_ message: String) {

@@ -205,6 +205,12 @@ final class Logger: ObservableObject {
         let allLogs = logs.joined(separator: "\n")
         UIPasteboard.general.string = allLogs
     }
+
+    func clear() {
+        DispatchQueue.main.async {
+            self.logs.removeAll()
+        }
+    }
 }
 
 func bpLog(_ message: String, file: String = #file, line: Int = #line) {

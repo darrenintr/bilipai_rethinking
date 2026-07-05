@@ -38,6 +38,9 @@ struct MediaFragment: Hashable {
     /// (keyframe). Keyframes are required for `EXT-X-I-FRAMES-ONLY`
     /// playlists and for clean seek targets.
     let startsWithSAP: Bool
+    /// First bytes fetched from the fragment start during
+    /// validation. Kept only for diagnostics.
+    let startPrefixHex: String?
 }
 
 /// Full segment index for one track (video or audio), decoded
@@ -65,6 +68,11 @@ struct TrackSegmentIndex: Hashable {
     /// SIDX `timescale` — denominator for the fragment
     /// durations. Not exposed in HLS but kept for diagnostics.
     let timescale: UInt32
+    /// Absolute byte offset of the first media fragment. For
+    /// SIDX this is `sidxEndOffset + 1 + first_offset`.
+    let firstMediaOffset: Int64
+    /// Absolute byte range of the upstream SIDX box.
+    let sidxRange: Range<Int64>?
     /// Sum of `fragments[i].duration`. Should be within ~50 ms
     /// of `BiliDashSource.Track.totalDuration` if the upstream
     /// sidx is well-formed; the discrepancy is the "tolerance"
@@ -264,6 +272,7 @@ func parseSIDX(_ bytes: Data) throws -> (
 /// work.
 func makeTrackSegmentIndex(
     initializationRange: Range<Int64>,
+    sidxRange: Range<Int64>?,
     sidx: (
         timescale: UInt32,
         earliestPresentationTime: Int64,
@@ -272,7 +281,8 @@ func makeTrackSegmentIndex(
     )
 ) -> TrackSegmentIndex {
     let timescale = Double(sidx.timescale)
-    var byteCursor = sidx.firstOffset
+    let firstMediaOffset = (sidxRange?.upperBound ?? 0) + sidx.firstOffset
+    var byteCursor = firstMediaOffset
     var timeCursor = Double(sidx.earliestPresentationTime) / timescale
     var fragments: [MediaFragment] = []
     fragments.reserveCapacity(sidx.fragments.count)
@@ -283,7 +293,8 @@ func makeTrackSegmentIndex(
             byteRange: byteRange,
             startTime: timeCursor,
             duration: duration,
-            startsWithSAP: f.startsWithSAP
+            startsWithSAP: f.startsWithSAP,
+            startPrefixHex: nil
         ))
         byteCursor += f.referencedSize
         timeCursor += duration
@@ -292,6 +303,8 @@ func makeTrackSegmentIndex(
         initializationRange: initializationRange,
         fragments: fragments,
         timescale: sidx.timescale,
+        firstMediaOffset: firstMediaOffset,
+        sidxRange: sidxRange,
         totalDuration: timeCursor
     )
 }

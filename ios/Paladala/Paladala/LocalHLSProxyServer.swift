@@ -193,9 +193,9 @@ final class LocalHLSProxyServer {
                 }
                 // Fetch + parse the upstream sidx so the
                 // playlist generator can emit real fragment
-                // URLs with the upstream's own byte ranges
-                // and durations.  Without this we'd fall back
-                // to the equal-byte playlist (VBR-unsafe).
+                // byte ranges and durations. Until this is
+                // parsed and validated, the media playlist stays
+                // on the single-segment direct-MP4 fallback.
                 fetchTrackSegmentIndex(for: track, referer: referer)
             }
             // Reset the failover cursor so each new playback
@@ -223,11 +223,8 @@ final class LocalHLSProxyServer {
         localContext = nil
         // Drop cached upstream probes too — after a long
         // background the cached byte sizes may belong to a
-        // CDN file that has since been re-ranged, and any
-        // pending waiters would otherwise be stranded on a
-        // semaphore the next playback will never signal.
+        // CDN file that has since been re-ranged.
         probedSizes.removeAll()
-        probeWaiters.removeAll()
         probeInFlight.removeAll()
         // Failover cursors also reset on stop — a new
         // playback should always start on its primary CDN.
@@ -367,9 +364,8 @@ final class LocalHLSProxyServer {
     /// Stat the on-disk m4s file for `track` and seed the
     /// probe cache with the byte count.  `track.baseURL` is
     /// the upstream CDN URL — we still key the cache by
-    /// that URL so the existing media-playlist code path
-    /// (`awaitMediaTotalProbe`) can find the size without
-    /// changes.
+    /// that URL so failover diagnostics use the same lookup
+    /// shape for local and remote playback.
     private func registerLocalFileSize(
         for track: BiliDashSource.Track,
         directory: URL,
@@ -419,26 +415,15 @@ final class LocalHLSProxyServer {
 
     // MARK: upstream media size probe
     //
-    // To emit a multi-segment HLS playlist with `EXT-X-BYTERANGE`,
-    // we need the upstream m4s total file size — that lets us
-    // compute how many byte-range segments the duration should
-    // be split into.  The size is discovered by issuing a
+    // To emit the single-segment direct-MP4 fallback, we may
+    // need the upstream m4s total file size for diagnostics and
+    // future failover decisions. The size is discovered by issuing a
     // `Range: bytes=0-0` GET to the upstream URL; B站's CDN
     // replies 206 with `Content-Range: bytes 0-0/TOTAL`.
     //
     // The probe fires on URLSession's own background queue and
-    // updates probe state directly under `lock`.  The listener
-    // queue (where `respondMediaPlaylist` waits) is *not* used
-    // for probe completion delivery — that avoids deadlocking
-    // the listener queue when we synchronously wait on a
-    // semaphore from inside `respondMediaPlaylist`.  All probe
-    // state is touched only under `lock`.
+    // updates probe state directly under `lock`.
     private var probedSizes: [URL: Int64] = [:]
-    /// Waiters for an in-flight probe.  Each entry is a
-    /// `(semaphore, callback)` pair; the callback is fired
-    /// exactly once when the probe completes or times out.
-    private var probeWaiters:
-        [URL: [(DispatchSemaphore, (Int64?) -> Void)]] = [:]
     private var probeInFlight: Set<URL> = []
     /// CDN failover cursor. Keyed by the track's primary URL,
     /// value is the index into the track's `backupURLs` array
@@ -454,15 +439,12 @@ final class LocalHLSProxyServer {
     /// `fetchTrackSegmentIndex(for:referer:completion:)` at
     /// `serve(playback:)` time; cleared by `stop()`.
     ///
-    /// Why this exists: the old code synthesised HLS playlists
-    /// from equal-byte chunks of the upstream m4s file, with
-    /// `#EXTINF:6.0` for every segment. MP4 is VBR — equal
-    /// bytes ≠ equal duration, and the byte boundaries may
-    /// land mid-NAL or mid-`mdat` box, producing structurally
-    /// invalid fMP4 chunks that AVPlayer drops with `-19602`.
-    /// The sidx carries the *real* `moof+mdat` fragment byte
-    /// ranges and durations, so we now build the playlist from
-    /// the upstream's own segmentation instead.
+    /// Why this exists: equal-byte HLS segments are invalid for
+    /// fragmented MP4. MP4 is VBR, and arbitrary byte boundaries
+    /// can land inside `mdat`. The sidx carries the real
+    /// `moof+mdat` fragment byte ranges and durations, so it is
+    /// the only source allowed to publish a multi-segment media
+    /// playlist.
     fileprivate var trackSegmentIndex: [URL: TrackSegmentIndex] = [:]
 
     /// Which segmentation strategy to use for a track in the
@@ -476,24 +458,16 @@ final class LocalHLSProxyServer {
         /// SIDX-driven fragments with real byte ranges and
         /// durations (the spec-conformant path).
         case sidx
-        /// Equal-byte chunks with `EXT-X-BYTERANGE` — the
-        /// legacy fallback.  VBR-unsafe but starts fast and
-        /// never switches mid-session.
-        case equalByte
+        /// Single-segment direct MP4 fallback. Coarse seeking,
+        /// but no forged segment boundaries are exposed to
+        /// AVPlayer.
+        case directMP4
     }
 
     /// Per-track segmentation mode for the current playback.
     /// Keyed by `track.baseURL`.  Populated on first playlist
     /// request; cleared by `stop()`.
     private var decidedModes: [URL: SegmentationMode] = [:]
-
-    /// Target segment duration for the multi-segment HLS
-    /// playlist.  6 s gives ~40 segments for a typical 4-min
-    /// VOD — enough granularity that AVPlayer can seek to the
-    /// requested scrubber position without the "snap back to
-    /// buffered range" behaviour.  Empirically: 6 s chunks
-    /// round-trip in <100 ms over loopback.
-    private static let targetSegmentDuration: Double = 6.0
 
     /// Kick off a `Range: bytes=0-0` GET to the upstream track
     /// URL.  Idempotent.  Safe to call from any thread; the
@@ -539,11 +513,8 @@ final class LocalHLSProxyServer {
     /// failover is instant.  Same wire format as
     /// `startMediaTotalProbe(for:referer:)` but keyed by the
     /// backup URL itself (not the parent track) — the
-    /// `probedSizes` cache is keyed by URL, so this entry
-    /// will satisfy any `awaitMediaTotalProbe(for: ...)`
-    /// call the failover cursor eventually makes for this
-    /// backup.  No-op if the probe is already cached or
-    /// in flight.
+    /// `probedSizes` cache is keyed by URL. No-op if the probe
+    /// is already cached or in flight.
     private func startMediaTotalProbe(
         forBackup backup: URL,
         referer: String
@@ -651,21 +622,16 @@ final class LocalHLSProxyServer {
         }
     }
 
-    /// Probe completion: cache the size, signal all waiters.
+    /// Probe completion: cache the size.
     /// Runs on URLSession's background queue; touches only
-    /// `probedSizes` / `probeWaiters` under `lock`.
+    /// `probedSizes` under `lock`.
     private func finishMediaTotalProbe(url: URL, total: Int64?) {
         lock.lock()
         probeInFlight.remove(url)
         if let total {
             probedSizes[url] = total
         }
-        let waiters = probeWaiters.removeValue(forKey: url) ?? []
         lock.unlock()
-        for (sem, callback) in waiters {
-            callback(total)
-            sem.signal()
-        }
         diagLog(.playback, "LocalHLSProxyServer probe media total",
                 details: [
                     "host": url.host ?? "",
@@ -674,120 +640,41 @@ final class LocalHLSProxyServer {
                 ])
     }
 
-    /// Block the caller until the probe for `url` completes,
-    /// or `timeoutSeconds` elapses.  Returns the cached size
-    /// if already known.  Falls back to `nil` if the probe
-    /// never completes (network error, timeout).
-    ///
-    /// Must be called on `queue` — blocks the listener queue
-    /// for the duration of one `bytes=0-0` round-trip (~100 ms
-    /// in practice).  This is safe because:
-    ///  - `respondMediaPlaylist` is the only caller
-    ///  - AVPlayer is blocked on this connection waiting for
-    ///    the playlist, so no other connection needs to be
-    ///    accepted while we wait
-    ///  - The actual probe completion runs on URLSession's
-    ///    queue, which is independent of `queue`, so the
-    ///    semaphore gets signalled even though `queue` is
-    ///    parked.
-    private func awaitMediaTotalProbe(
-        for url: URL,
-        timeoutSeconds: Double = 5.0
-    ) -> Int64? {
-        let sem: DispatchSemaphore
-        var resolved: Int64?
-        var didResolve = false
-        lock.lock()
-        if let cached = probedSizes[url] {
-            lock.unlock()
-            return cached
-        }
-        sem = DispatchSemaphore(value: 0)
-        var waiters = probeWaiters[url] ?? []
-        waiters.append((sem, { total in
-            // First writer wins: if the timeout already
-            // flipped `didResolve` to true (with nil), don't
-            // overwrite `resolved` with the real value.
-            if !didResolve {
-                didResolve = true
-                resolved = total
-            }
-        }))
-        probeWaiters[url] = waiters
-        lock.unlock()
-
-        // Self-timeout.  After `timeoutSeconds` we drop the
-        // waiter and signal the semaphore so the playlist
-        // builder falls back to single-segment.  The race with
-        // the probe completion is resolved by the `didResolve`
-        // flag — whichever fires first wins.
-        DispatchQueue.global(qos: .userInitiated)
-            .asyncAfter(deadline: .now() + timeoutSeconds) { [weak self] in
-                guard let self else { return }
-                self.lock.lock()
-                let remaining = self.probeWaiters[url]?
-                    .filter { $0.0 !== sem } ?? []
-                if remaining.isEmpty {
-                    self.probeWaiters.removeValue(forKey: url)
-                } else {
-                    self.probeWaiters[url] = remaining
-                }
-                self.lock.unlock()
-                if !didResolve {
-                    didResolve = true
-                    resolved = nil
-                }
-                sem.signal()
-            }
-
-        _ = sem.wait(timeout: .now() + timeoutSeconds + 0.5)
-        return resolved
-    }
-
     /// Clear probe state when the playback swaps.  The proxy
     /// is a process-wide singleton; if a previous playback
     /// probed sizes for its tracks, those sizes don't apply
     /// to the new playback and must be evicted.
     private func resetMediaTotalProbes() {
         lock.lock()
-        let dropped = probeWaiters
         probedSizes.removeAll()
-        probeWaiters.removeAll()
         probeInFlight.removeAll()
         lock.unlock()
-        for (_, waiters) in dropped {
-            for (sem, _) in waiters {
-                sem.signal()
-            }
-        }
     }
 
     // MARK: - SIDX fetch + cache
     //
     // The proxy parses the upstream `sidx` box at serve() time
     // and caches the resulting TrackSegmentIndex per primary
-    // upstream URL.  The playlist generator then emits one
-    // segment URL per sidx reference (instead of equal-byte
-    // chunks) and the segment handler serves the *exact*
-    // moof+mdat byte range the sidx points at.
+    // upstream URL. The playlist generator then emits one
+    // `EXT-X-BYTERANGE` per validated sidx reference against
+    // the real `/media` resource.
 
     /// Fetch the upstream sidx for `track`, parse it, and store
     /// the resulting `TrackSegmentIndex` in `trackSegmentIndex`.
     ///
-    /// Best-effort.  When the upstream omits the sidx range
-    /// (older B 站 responses, region-locked videos, transcoded
-    /// HEVC where only the ftyp+moov is exposed) the cache
-    /// stays empty for this track and `respondMediaPlaylist`
-    /// falls back to the single-segment playlist.  The single-
-    /// segment fallback is byte-range-correct (just coarse) so
-    /// playback still works.
+    /// Best-effort.  When the upstream omits the sidx range,
+    /// parsing fails, or any referenced segment does not start
+    /// at a valid fMP4 boundary, the cache stays empty for this
+    /// track and `respondMediaPlaylist` falls back to the
+    /// single-segment direct-MP4 playlist. We deliberately do
+    /// not publish equal-byte media playlists.
     private func fetchTrackSegmentIndex(
         for track: BiliDashSource.Track,
         referer: String
     ) {
         guard let indexRange = track.indexRange else {
             diagLog(.playback,
-                    "no sidx range for track — falling back to single-segment",
+                    "no sidx range for track — using direct MP4 fallback",
                     details: [
                         "host": track.baseURL.host ?? "",
                         "hasInit": track.initializationRange.length > 0
@@ -828,28 +715,49 @@ final class LocalHLSProxyServer {
             do {
                 let parsed = try parseSIDX(body)
                 let initRange = track.initializationRange.offset ..< (track.initializationRange.offset + track.initializationRange.length)
+                let sidxRange = indexRange.offset ..< (indexRange.offset + indexRange.length)
                 let index = makeTrackSegmentIndex(
                     initializationRange: initRange,
+                    sidxRange: sidxRange,
                     sidx: parsed
                 )
+                let validated = try self.validatedSegmentIndex(
+                    index,
+                    upstream: key,
+                    referer: referer,
+                    mediaStartOffset: track.mediaStartOffset
+                )
                 self.lock.lock()
-                self.trackSegmentIndex[key] = index
+                self.trackSegmentIndex[key] = validated
                 self.lock.unlock()
                 diagLog(.playback, "sidx parsed",
                         details: [
                             "host": key.host ?? "",
-                            "fragments": index.fragments.count,
+                            "segmentationMode": "sidx",
+                            "fragments": validated.fragments.count,
+                            "firstMediaOffset": validated.firstMediaOffset,
+                            "referencedSize":
+                                validated.fragments.first.map {
+                                    $0.byteRange.upperBound - $0.byteRange.lowerBound
+                                } ?? 0,
+                            "first16BytesAtSegmentStart":
+                                validated.fragments.first?.startPrefixHex ?? "",
+                            "mapRange": "\(validated.initializationRange.lowerBound)"
+                                + "-\(validated.initializationRange.upperBound - 1)",
+                            "sidxRange": "\(sidxRange.lowerBound)"
+                                + "-\(sidxRange.upperBound - 1)",
                             "totalDuration": String(
-                                format: "%.3f", index.totalDuration
+                                format: "%.3f", validated.totalDuration
                             ),
                             "maxFragment": String(
-                                format: "%.3f", index.maxFragmentDuration
+                                format: "%.3f", validated.maxFragmentDuration
                             )
                         ])
             } catch {
                 diagLog(.playback, "sidx parse failed",
                         details: [
                             "host": key.host ?? "",
+                            "segmentationMode": "directMP4",
                             "error": "\(error)"
                         ])
             }
@@ -875,6 +783,200 @@ final class LocalHLSProxyServer {
     ) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return trackSegmentIndex[track.baseURL] != nil
+    }
+
+    private enum SegmentBoundaryValidationError: Error, CustomStringConvertible {
+        case fetchFailed(index: Int, offset: Int64)
+        case invalidStart(index: Int, offset: Int64, first16Bytes: String)
+
+        var description: String {
+            switch self {
+            case .fetchFailed(let index, let offset):
+                return "failed to fetch segment \(index) prefix at \(offset)"
+            case .invalidStart(let index, let offset, let first16Bytes):
+                return "segment \(index) starts at invalid MP4 box offset \(offset): \(first16Bytes)"
+            }
+        }
+    }
+
+    private func validatedSegmentIndex(
+        _ index: TrackSegmentIndex,
+        upstream: URL,
+        referer: String,
+        mediaStartOffset: Int64
+    ) throws -> TrackSegmentIndex {
+        var fragments: [MediaFragment] = []
+        fragments.reserveCapacity(index.fragments.count)
+        for (i, fragment) in index.fragments.enumerated() {
+            let fragmentByteCount = fragment.byteRange.upperBound
+                - fragment.byteRange.lowerBound
+            guard fragment.byteRange.lowerBound >= mediaStartOffset else {
+                throw SegmentBoundaryValidationError.invalidStart(
+                    index: i,
+                    offset: fragment.byteRange.lowerBound,
+                    first16Bytes: "before mediaStartOffset \(mediaStartOffset)"
+                )
+            }
+            let prefixLength = min(Int64(4096), fragmentByteCount)
+            guard prefixLength > 0,
+                  let prefix = fetchRangeBytes(
+                    url: upstream,
+                    range: fragment.byteRange.lowerBound ..< (fragment.byteRange.lowerBound + prefixLength),
+                    referer: referer,
+                    timeoutSeconds: 10
+                  ) else {
+                throw SegmentBoundaryValidationError.fetchFailed(
+                    index: i,
+                    offset: fragment.byteRange.lowerBound
+                )
+            }
+            let first16 = Self.hexPrefix(prefix, count: 16)
+            guard Self.isValidFragmentStart(prefix) else {
+                diagLog(.playback,
+                        "LocalHLSProxyServer segment boundary rejected",
+                        details: [
+                            "segmentationMode": "sidx",
+                            "host": upstream.host ?? "",
+                            "segmentIndex": i,
+                            "firstMediaOffset": index.firstMediaOffset,
+                            "referencedSize": fragmentByteCount,
+                            "first16BytesAtSegmentStart": first16,
+                            "mapRange": "\(index.initializationRange.lowerBound)"
+                                + "-\(index.initializationRange.upperBound - 1)",
+                            "sidxRange": index.sidxRange.map {
+                                "\($0.lowerBound)-\($0.upperBound - 1)"
+                            } ?? "",
+                        ])
+                throw SegmentBoundaryValidationError.invalidStart(
+                    index: i,
+                    offset: fragment.byteRange.lowerBound,
+                    first16Bytes: first16
+                )
+            }
+            if Self.requestMetadataLogEnabled {
+                diagLog(.playback,
+                        "LocalHLSProxyServer segment boundary validated",
+                        details: [
+                            "segmentationMode": "sidx",
+                            "host": upstream.host ?? "",
+                            "segmentIndex": i,
+                            "firstMediaOffset": index.firstMediaOffset,
+                            "referencedSize": fragmentByteCount,
+                            "first16BytesAtSegmentStart": first16,
+                            "mapRange": "\(index.initializationRange.lowerBound)"
+                                + "-\(index.initializationRange.upperBound - 1)",
+                            "sidxRange": index.sidxRange.map {
+                                "\($0.lowerBound)-\($0.upperBound - 1)"
+                            } ?? "",
+                        ])
+            }
+            fragments.append(MediaFragment(
+                byteRange: fragment.byteRange,
+                startTime: fragment.startTime,
+                duration: fragment.duration,
+                startsWithSAP: fragment.startsWithSAP,
+                startPrefixHex: first16
+            ))
+        }
+        return TrackSegmentIndex(
+            initializationRange: index.initializationRange,
+            fragments: fragments,
+            timescale: index.timescale,
+            firstMediaOffset: index.firstMediaOffset,
+            sidxRange: index.sidxRange,
+            totalDuration: index.totalDuration
+        )
+    }
+
+    private func fetchRangeBytes(
+        url: URL,
+        range: Range<Int64>,
+        referer: String,
+        timeoutSeconds: Double
+    ) -> Data? {
+        var request = URLRequest(url: url)
+        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+            + "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            + "Version/18.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue(
+            "bytes=\(range.lowerBound)-\(range.upperBound - 1)",
+            forHTTPHeaderField: "Range"
+        )
+        request.httpMethod = "GET"
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Data?
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            defer { semaphore.signal() }
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode),
+                  let data,
+                  !data.isEmpty else {
+                return
+            }
+            result = data
+        }
+        task.resume()
+        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            task.cancel()
+            return nil
+        }
+        return result
+    }
+
+    private static func isValidFragmentStart(_ data: Data) -> Bool {
+        guard let first = mp4BoxHeader(in: data, at: 0) else {
+            return false
+        }
+        switch first.type {
+        case "styp", "moof":
+            return true
+        case "emsg":
+            guard first.size > 0,
+                  first.size < data.count,
+                  let next = mp4BoxHeader(in: data, at: first.size) else {
+                return false
+            }
+            return next.type == "moof"
+        default:
+            return false
+        }
+    }
+
+    private static func mp4BoxHeader(
+        in data: Data,
+        at offset: Int
+    ) -> (size: Int, type: String)? {
+        guard offset >= 0, offset + 8 <= data.count else { return nil }
+        let size32 = UInt32(data[offset]) << 24
+            | UInt32(data[offset + 1]) << 16
+            | UInt32(data[offset + 2]) << 8
+            | UInt32(data[offset + 3])
+        let type = String(
+            bytes: data[(offset + 4)..<(offset + 8)],
+            encoding: .ascii
+        ) ?? ""
+        if size32 == 1 {
+            guard offset + 16 <= data.count else { return nil }
+            var size64: UInt64 = 0
+            for i in 0..<8 {
+                size64 = (size64 << 8) | UInt64(data[offset + 8 + i])
+            }
+            guard size64 <= UInt64(Int.max) else { return nil }
+            return (Int(size64), type)
+        }
+        guard size32 >= 8 else { return nil }
+        return (Int(size32), type)
+    }
+
+    private static func hexPrefix(_ data: Data, count: Int) -> String {
+        data.prefix(count)
+            .map { String(format: "%02x", $0) }
+            .joined(separator: " ")
     }
 
     private init() {}
@@ -1198,13 +1300,14 @@ final class LocalHLSProxyServer {
             ]
         )
 
-        // Path for the single-segment fallback.  When the sidx
+        // Path for both SIDX byte-range playlists and the
+        // single-segment fallback.  When the sidx
         // is missing or hasn't been parsed yet we emit a
         // single-EXTINF playlist that points at this URL; the
         // segment handler streams the entire playable region
         // back as 200 OK and AVPlayer treats it as one big
-        // segment.  This is the equal-byte model (broken for
-        // VBR) but it's strictly better than serving nothing.
+        // segment. This is direct MP4 fallback: coarse, but it
+        // does not publish forged fragment boundaries.
         let mediaURL = localURL(
             path: "media",
             queryItems: [
@@ -1216,20 +1319,14 @@ final class LocalHLSProxyServer {
             ]
         )
 
-        // Path prefix for the per-fragment URLs we emit when we
-        // have a parsed SIDX.  Each segment is its own URL;
-        // the segment handler fetches the upstream byte range
-        // the SIDX points at and returns 200 OK with the
-        // moof+mdat bytes.  This is what makes the playlist
-        // spec-conformant — every `EXTINF` carries the *real*
-        // fragment duration and every `URI` serves the *real*
-        // fragment bytes, so AVPlayer's timeline never drifts.
+        // Track label used only for diagnostics.
         let trackLabel = (kind == .video) ? "video" : "audio"
 
         // Resolve the segmentation mode once per session.
-        // On first call: SIDX if already cached, else equal-byte.
-        // The decision is locked in for the entire playback —
-        // AVPlayer never sees a mid-stream playlist switch.
+        // On first call: SIDX if already cached and validated,
+        // otherwise direct MP4. The decision is locked in for the
+        // entire playback — AVPlayer never sees a mid-stream
+        // playlist switch.
         switch resolveSegmentationMode(for: track) {
         case .sidx:
             guard let index = cachedSegmentIndex(for: track) else {
@@ -1249,19 +1346,18 @@ final class LocalHLSProxyServer {
                 "#EXT-X-MEDIA-SEQUENCE:0",
                 "#EXT-X-MAP:URI=\"\(initURL)\"",
             ]
-            for (i, frag) in index.fragments.enumerated() {
-                let segmentURL = localURL(
-                    path: "segment",
-                    queryItems: [
-                        URLQueryItem(name: "u", value: encoded),
-                        URLQueryItem(name: "k", value: trackLabel),
-                        URLQueryItem(name: "n", value: "\(i)"),
-                    ]
-                )
+            for frag in index.fragments {
+                let relativeStart = frag.byteRange.lowerBound
+                    - track.mediaStartOffset
+                let referencedSize = frag.byteRange.upperBound
+                    - frag.byteRange.lowerBound
                 lines.append(
                     "#EXTINF:\(String(format: "%.3f", frag.duration)),"
                 )
-                lines.append(segmentURL)
+                lines.append(
+                    "#EXT-X-BYTERANGE:\(referencedSize)@\(relativeStart)"
+                )
+                lines.append(mediaURL)
             }
             lines.append("#EXT-X-ENDLIST")
             lines.append("")
@@ -1270,8 +1366,21 @@ final class LocalHLSProxyServer {
                         "LocalHLSProxyServer SIDX-driven playlist",
                         details: [
                             "conn": connID,
+                            "segmentationMode": "sidx",
                             "kind": trackLabel,
                             "fragments": index.fragments.count,
+                            "firstMediaOffset": index.firstMediaOffset,
+                            "referencedSize":
+                                index.fragments.first.map {
+                                    $0.byteRange.upperBound - $0.byteRange.lowerBound
+                                } ?? 0,
+                            "first16BytesAtSegmentStart":
+                                index.fragments.first?.startPrefixHex ?? "",
+                            "mapRange": "\(index.initializationRange.lowerBound)"
+                                + "-\(index.initializationRange.upperBound - 1)",
+                            "sidxRange": index.sidxRange.map {
+                                "\($0.lowerBound)-\($0.upperBound - 1)"
+                            } ?? "",
                             "targetDuration": targetDuration,
                             "totalDuration": String(
                                 format: "%.3f", index.totalDuration
@@ -1281,47 +1390,21 @@ final class LocalHLSProxyServer {
             respondText(connection: connection, connID: connID,
                         body: lines.joined(separator: "\n"))
 
-        case .equalByte:
-            // Equal-byte fallback: wait for the 0-byte probe
-            // (~100 ms round-trip) then emit a multi-segment
-            // playlist with EXT-X-BYTERANGE.  This is VBR-unsafe
-            // but fast and stable — no SIDX dependency.
-            let probedTotal = awaitMediaTotalProbe(
-                for: track.baseURL, timeoutSeconds: 5.0
-            )
-            if let probedTotal, probedTotal > track.mediaStartOffset,
-               let lines = Self.buildMultiSegmentPlaylist(
-                   mediaTotalBytes: probedTotal,
-                   mediaStartOffset: track.mediaStartOffset,
-                   totalDuration: total,
-                   segmentURL: mediaURL,
-                   initURL: initURL
-               ) {
-                if Self.requestMetadataLogEnabled {
-                    diagLog(.playback,
-                            "LocalHLSProxyServer equal-byte playlist",
-                            details: [
-                                "conn": connID,
-                                "kind": trackLabel,
-                                "mediaTotalBytes": probedTotal,
-                                "mediaStartOffset": track.mediaStartOffset,
-                                "duration": total,
-                                "segmentCount": lines.filter {
-                                    $0.hasPrefix("#EXTINF:")
-                                }.count
-                            ])
-                }
-                respondText(connection: connection, connID: connID,
-                            body: lines.joined(separator: "\n"))
-                return
-            }
-
-            // Last resort: single-segment playlist.
+        case .directMP4:
             diagLog(.playback,
-                    "LocalHLSProxyServer single-segment playlist fallback",
+                    "LocalHLSProxyServer direct MP4 playlist fallback",
                     details: [
                         "conn": connID,
+                        "segmentationMode": "directMP4",
                         "kind": trackLabel,
+                        "firstMediaOffset": track.mediaStartOffset,
+                        "referencedSize": 0,
+                        "first16BytesAtSegmentStart": "",
+                        "mapRange": "\(track.initializationRange.offset)"
+                            + "-\(track.initializationRange.endOffset)",
+                        "sidxRange": track.indexRange.map {
+                            "\($0.offset)-\($0.endOffset)"
+                        } ?? "",
                         "mediaStartOffset": track.mediaStartOffset,
                         "duration": total
                     ])
@@ -1344,23 +1427,22 @@ final class LocalHLSProxyServer {
 
     /// Decide the segmentation mode for `track` on the first
     /// playlist request, then lock it in for the session.
-    /// SIDX is used only when already cached; otherwise the
-    /// equal-byte fallback is chosen, giving fast startup at
-    /// the cost of VBR inaccuracy.  The SIDX fetch continues
-    /// in the background and will be ready for the next session.
+    /// SIDX is used only when already cached and validated;
+    /// otherwise direct MP4 is chosen. We never synthesize
+    /// equal-byte segments.
     private func resolveSegmentationMode(for track: BiliDashSource.Track) -> SegmentationMode {
         lock.lock(); defer { lock.unlock() }
         if let mode = decidedModes[track.baseURL] {
             return mode
         }
         let mode: SegmentationMode =
-            trackSegmentIndex[track.baseURL] != nil ? .sidx : .equalByte
+            trackSegmentIndex[track.baseURL] != nil ? .sidx : .directMP4
         decidedModes[track.baseURL] = mode
         diagLog(.playback,
                 "LocalHLSProxyServer segmentation mode",
                 details: [
                     "host": track.baseURL.host ?? "",
-                    "mode": mode == .sidx ? "sidx" : "equalByte"
+                    "segmentationMode": mode == .sidx ? "sidx" : "directMP4"
                 ])
         return mode
     }
@@ -2076,69 +2158,6 @@ fileprivate func proxySegmentRange(
         case 503: return "Service Unavailable"
         default:  return "OK"
         }
-    }
-
-    /// Build a multi-segment HLS playlist with `EXT-X-BYTERANGE`.
-    /// Returns `nil` if the inputs don't yield at least one
-    /// segment (caller falls back to single-segment).
-    ///
-    /// `mediaTotalBytes` is the upstream total file size, and
-    /// `mediaStartOffset` is the first byte of the playable
-    /// media section (typically right after the init segment).
-    /// We divide the playable range evenly in time, with the
-    /// last segment absorbing any remainder.
-    ///
-    /// This is the equal-byte fallback — VBR-unsafe but fast
-    /// to generate and stable for the entire session.
-    fileprivate static func buildMultiSegmentPlaylist(
-        mediaTotalBytes: Int64,
-        mediaStartOffset: Int64,
-        totalDuration: Double,
-        segmentURL: String,
-        initURL: String
-    ) -> [String]? {
-        guard mediaTotalBytes > mediaStartOffset,
-              totalDuration > 0 else {
-            return nil
-        }
-        let mediaBytes = mediaTotalBytes - mediaStartOffset
-        let segmentCount = max(
-            1,
-            Int((totalDuration / targetSegmentDuration).rounded(.up))
-        )
-        let bytesPerSegment = max(
-            1,
-            Int64((Double(mediaBytes) / Double(segmentCount)).rounded())
-        )
-        let baseSegmentDuration = totalDuration / Double(segmentCount)
-        let targetDurationSeconds = max(
-            1,
-            Int(baseSegmentDuration.rounded(.up))
-        )
-        var lines: [String] = [
-            "#EXTM3U",
-            "#EXT-X-VERSION:6",
-            "#EXT-X-PLAYLIST-TYPE:VOD",
-            "#EXT-X-TARGETDURATION:\(targetDurationSeconds)",
-            "#EXT-X-MEDIA-SEQUENCE:0",
-            "#EXT-X-MAP:URI=\"\(initURL)\"",
-        ]
-        for i in 0..<segmentCount {
-            let relStart = Int64(i) * bytesPerSegment
-            guard relStart < mediaBytes else { break }
-            let isLast = (i == segmentCount - 1)
-            let relEnd = isLast
-                ? mediaBytes - 1
-                : min(relStart + bytesPerSegment, mediaBytes) - 1
-            let duration = isLast
-                ? totalDuration - baseSegmentDuration * Double(segmentCount - 1)
-                : baseSegmentDuration
-            lines.append("#EXTINF:\(String(format: "%.3f", duration)),")
-            lines.append("#EXT-X-BYTERANGE:\(relEnd - relStart + 1)@\(relStart)")
-            lines.append(segmentURL)
-        }
-        lines.append("#EXT-X-ENDLIST")
-        return lines
     }
 
     // MARK: utilities

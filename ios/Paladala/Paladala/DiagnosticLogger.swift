@@ -327,6 +327,16 @@ final class DiagnosticLogger: ObservableObject {
         }
     }
 
+    @MainActor
+    func clearHistory() {
+        lock.lock()
+        events.removeAll()
+        lock.unlock()
+        diskQueue.async { [path = Self.logFilePath] in
+            try? FileManager.default.removeItem(atPath: path)
+        }
+    }
+
     // MARK: - disk persistence
 
     private func appendToDisk(event: Event) {
