@@ -46,7 +46,7 @@ import UIKit
 /// Plain value type — no MainActor, no UIKit dependencies — so
 /// it can be declared at file scope under Swift 5.0 without
 /// triggering concurrency checks.
-enum PlayerPlaybackError: Equatable {
+enum PlayerPlaybackError: Equatable, Error {
     /// AVPlayer gave up on the item (codec rejection,
     /// unsupported container, etc.).  `detail` is the
     /// `AVPlayerItemErrorLogEntry.errorComment` text when available.
@@ -188,7 +188,7 @@ final class PlayerController: ObservableObject {
     /// deallocate the player (it lives as long as the controller
     /// does).
     let player: AVPlayer
-    private let playerItem: AVPlayerItem
+    private var playerItem: AVPlayerItem
     /// Backing media for the player item.  Typed as the broad
     /// `AVAsset` so the composition path (an
     /// `AVMutableComposition` of two local mp4 tracks) and the

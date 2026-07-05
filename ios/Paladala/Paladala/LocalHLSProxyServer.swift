@@ -203,41 +203,54 @@ final class LocalHLSProxyServer {
     /// prep + manifest publish into a single awaitable.
     func waitForListener(timeout: TimeInterval = 2.0) async throws -> UInt16 {
         // Fast path: already listening.
-        if let url = safeBaseURL, let p = UInt16(url.port ?? 0) {
+        if let url = safeBaseURL,
+           let port = url.port,
+           let p = UInt16(exactly: port) {
             return p
         }
         let deadline = Date().addingTimeInterval(timeout)
-        return try await withCheckedThrowingContinuation { continuation in
-            // Register a one-shot listener observer via a Task
-            // that polls `state` on the proxy's serial queue
-            // every 20 ms (cheap — it's a NSLock + dict read).
-            // Using a Task instead of an `NWListener` state
-            // observer directly because the listener is created
-            // lazily by `ensureListener()`; we can't attach to
-            // it from here.
-            let waiter = Task<Void, Never> { [weak self] in
-                while !Task.isCancelled {
-                    guard let self else {
-                        continuation.resume(throwing: CancellationError())
-                        return
+        // Holder lets `onCancel` reach the waiter Task created
+        // inside the continuation closure.  `CheckedThrowingContinuation`
+        // has no `onTermination` callback (only the non-throwing
+        // variant does), so `withTaskCancellationHandler` is the
+        // canonical Swift 6 replacement.
+        let holder = WaiterHolder()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<UInt16, Error>) in
+                holder.task = Task<Void, Never> { [weak self] in
+                    while !Task.isCancelled {
+                        guard let self else {
+                            cont.resume(throwing: CancellationError())
+                            return
+                        }
+                        if let url = self.safeBaseURL,
+                           let port = url.port,
+                           let p = UInt16(exactly: port) {
+                            cont.resume(returning: p)
+                            return
+                        }
+                        if Date() >= deadline {
+                            cont.resume(throwing: PlaybackPreparationError.listenerFailed(
+                                "listener did not become ready within \(timeout)s"
+                            ))
+                            return
+                        }
+                        try? await Task.sleep(nanoseconds: 20_000_000)
                     }
-                    if let url = self.safeBaseURL, let p = UInt16(url.port ?? 0) {
-                        continuation.resume(returning: p)
-                        return
-                    }
-                    if Date() >= deadline {
-                        continuation.resume(throwing: PlaybackPreparationError.listenerFailed(
-                            "listener did not become ready within \(timeout)s"
-                        ))
-                        return
-                    }
-                    try? await Task.sleep(nanoseconds: 20_000_000)
                 }
             }
-            continuation.onTermination = { _ in
-                waiter.cancel()
-            }
+        } onCancel: {
+            holder.task?.cancel()
         }
+    }
+
+    /// Holder for the waiter `Task` so `withTaskCancellationHandler`'s
+    /// `onCancel` closure can reach it across the continuation
+    /// boundary.  `@unchecked Sendable` because `Task<Void, Never>?`
+    /// is `Sendable` but the holder's mutation happens-before the
+    /// `onCancel` fires via the cancellation handler's barrier.
+    private final class WaiterHolder: @unchecked Sendable {
+        var task: Task<Void, Never>?
     }
 
     /// Total bytes streamed from the B站 CDN to AVPlayer.
