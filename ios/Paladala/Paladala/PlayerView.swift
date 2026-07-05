@@ -965,33 +965,38 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
         let vc = AVPlayerViewController()
         vc.player = player
         vc.showsPlaybackControls = true
-        // Native controls disappear after the system default
-        // (~3 s) — Apple's HIG-recommended timing. We do not
-        // need to manage this ourselves.
         vc.videoGravity = .resizeAspect
-        // Inline PiP — the system surfaces a PiP button in
-        // the chrome when PiP is possible. Beats the previous
-        // hand-rolled `AVPictureInPictureController` path,
-        // which duplicated much of this logic.
         vc.allowsPictureInPicturePlayback = true
         if #available(iOS 14.2, *) {
             vc.canStartPictureInPictureAutomaticallyFromInline = true
         }
-        // Match the fullscreen surface's tolerance for VFR /
-        // non-keyframe-aligned Bilibili encodes.
         if #available(iOS 16, *) {
             vc.requiresLinearPlayback = false
         }
         vc.delegate = context.coordinator
 
-        // Embed the long-press gesture overlay inside the
-        // contentOverlayView so it does not interfere with
-        // AVKit's own tap-to-show / tap-to-hide recognisers.
+        // Long-press gesture recogniser for 2x speed.
+        // Uses `delaysTouchesBegan=false` and
+        // `cancelsTouchesInView=false` so single taps still
+        // reach AVKit's own tap-to-show / tap-to-hide
+        // recognisers without delay.
+        let longPress = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleLongPress(_:))
+        )
+        longPress.minimumPressDuration = 0.4
+        longPress.delaysTouchesBegan = false
+        longPress.cancelsTouchesInView = false
+        vc.contentOverlayView?.addGestureRecognizer(longPress)
+
+        // Host the speed badge (just the visual, no gesture)
+        // so it renders above the video layer.
         if let overlayView = vc.contentOverlayView {
-            let overlay = InlineLongPressOverlay(controller: controller)
-            let hostingController = UIHostingController(rootView: overlay)
+            let badge = InlineSpeedBadge(controller: controller)
+            let hostingController = UIHostingController(rootView: badge)
             hostingController.view.backgroundColor = .clear
-            context.coordinator.inlineGestureHost = hostingController
+            hostingController.view.isUserInteractionEnabled = false
+            context.coordinator.badgeHost = hostingController
 
             let view = hostingController.view!
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -1013,7 +1018,7 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             vc.player = player
         }
         context.coordinator.playerController = controller
-        context.coordinator.inlineGestureHost?.rootView = InlineLongPressOverlay(controller: controller)
+        context.coordinator.badgeHost?.rootView = InlineSpeedBadge(controller: controller)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1022,10 +1027,24 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
         var playerController: PlayerController
-        fileprivate var inlineGestureHost: UIHostingController<InlineLongPressOverlay>?
+        fileprivate var badgeHost: UIHostingController<InlineSpeedBadge>?
 
         init(controller: PlayerController) {
             self.playerController = controller
+        }
+
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                playerController.setRate(2.0)
+                playerController.isLongPressingSpeed = true
+                Haptics.medium()
+            case .ended, .cancelled:
+                playerController.setRate(1.0)
+                playerController.isLongPressingSpeed = false
+            default:
+                break
+            }
         }
 
         @MainActor
@@ -1050,65 +1069,36 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
     }
 }
 
-/// Transparent gesture overlay hosted inside the inline
-/// AVPlayerViewController's contentOverlayView.  Long-press
-/// plays at 2x speed; releasing returns to 1x.
-fileprivate struct InlineLongPressOverlay: View {
+/// Speed badge rendered above the video layer, driven by
+/// `controller.isLongPressingSpeed`. No gesture recogniser
+/// here — the gesture is a UIKit `UILongPressGestureRecognizer`
+/// on the contentOverlayView.
+fileprivate struct InlineSpeedBadge: View {
     @ObservedObject var controller: PlayerController
 
-    @GestureState private var isLongPressing = false
-    @State private var showingSpeedBadge = false
-
     var body: some View {
-        ZStack {
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    LongPressGesture(minimumDuration: 0.4)
-                        .sequenced(before: DragGesture(minimumDistance: 0))
-                        .updating($isLongPressing) { value, state, _ in
-                            switch value {
-                            case .second(true, let drag):
-                                state = drag != nil
-                            default:
-                                state = false
-                            }
-                        }
-                )
-                .onChange(of: isLongPressing) { _, isPressing in
-                    if isPressing {
-                        controller.setRate(2.0)
-                        showingSpeedBadge = true
-                        Haptics.medium()
-                    } else {
-                        controller.setRate(1.0)
-                        showingSpeedBadge = false
-                    }
-                }
-
-            VStack {
-                if showingSpeedBadge {
-                    HStack {
-                        Spacer()
-                        Text("2.0x 快进中")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                .black.opacity(0.6),
-                                in: RoundedRectangle(
-                                    cornerRadius: PaladalaTheme.cornerRadius,
-                                    style: PaladalaTheme.cornerStyle
-                                )
+        VStack {
+            if controller.isLongPressingSpeed {
+                HStack {
+                    Spacer()
+                    Text("2.0x 快进中")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            .black.opacity(0.6),
+                            in: RoundedRectangle(
+                                cornerRadius: PaladalaTheme.cornerRadius,
+                                style: PaladalaTheme.cornerStyle
                             )
-                            .padding(.top, 40)
-                    }
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                        )
+                        .padding(.top, 40)
                 }
-                Spacer()
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showingSpeedBadge)
+            Spacer()
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: controller.isLongPressingSpeed)
     }
 }
