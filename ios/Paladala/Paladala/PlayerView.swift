@@ -1053,7 +1053,7 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
 /// Transparent gesture overlay hosted inside the inline
 /// AVPlayerViewController's contentOverlayView.  Long-press
 /// plays at 2x speed; releasing returns to 1x.
-private struct InlineLongPressOverlay: View {
+fileprivate struct InlineLongPressOverlay: View {
     @ObservedObject var controller: PlayerController
 
     @GestureState private var isLongPressing = false
