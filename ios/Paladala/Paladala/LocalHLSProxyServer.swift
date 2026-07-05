@@ -189,8 +189,39 @@ final class LocalHLSProxyServer {
         }
         stop()
 
+        // Recreate the prep URLSession if `stop()` invalidated
+        // it.  Cheap — the session is `ephemeral` so the next
+        // outbound request just opens a fresh socket.
+        if prepSession == nil {
+            prepSession = Self.makePrepSession()
+        }
+
         if playback.localContext == nil {
-            try prepareRemotePlayback(playback)
+            // Fire-and-forget SIDX preparation.  Returns
+            // immediately so the caller (typically
+            // `PlayerController.init` on `@MainActor`) does not
+            // block on upstream byte-range fetches.  AVPlayer
+            // will receive 503 on `video.m3u8` / `audio.m3u8`
+            // until prep completes; AVPlayer retries those on
+            // its own schedule.
+            preparationTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.prepareRemotePlayback(playback)
+                } catch is CancellationError {
+                    diagLog(.playback,
+                            "LocalHLSProxyServer preparation cancelled",
+                            details: [
+                                "bvid": playback.dash.map {
+                                    String(describing: $0)
+                                } ?? ""
+                            ])
+                } catch {
+                    diagLog(.playback,
+                            "LocalHLSProxyServer preparation failed",
+                            details: ["error": "\(error)"])
+                }
+            }
         }
 
         lock.lock()
@@ -259,6 +290,16 @@ final class LocalHLSProxyServer {
     /// `serve(playback:)` again will start a fresh listener
     /// (with a new OS-assigned port).
     func stop() {
+        // Cancel any in-flight SIDX preparation *before* we
+        // clear the dictionaries it writes to.  The task is
+        // cooperative — it checks `Task.isCancelled` between
+        // steps — and the URLSession invalidate below drops
+        // any in-flight `URLSessionDataTask`s even if the
+        // cooperative cancellation has not landed yet.
+        preparationTask?.cancel()
+        preparationTask = nil
+        prepSession?.invalidateAndCancel()
+        prepSession = nil
         listener?.cancel()
         listener = nil
         lock.lock()
@@ -279,6 +320,10 @@ final class LocalHLSProxyServer {
         // Clear session-mode decisions so the next playback
         // re-evaluates SIDX availability from scratch.
         decidedModes.removeAll()
+        // Bumping is implicit via `serve(playback:)` →
+        // `prepareRemotePlayback`, but reset here too so a
+        // fresh proxy instance starts with a clean slate.
+        currentPrepGeneration = 0
         inFlightRanges.removeAll()
         for (_, stream) in activeStreams {
             stream.cancel()
@@ -442,6 +487,28 @@ final class LocalHLSProxyServer {
     private var listener: NWListener?
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
+    /// Long-lived `URLSession` used by the SIDX-preparation code
+    /// path.  Replaces the per-call ephemeral `URLSession` that
+    /// the original sync implementation created inside
+    /// `fetchExactRange` — one session per playback keeps the
+    /// TCP/TLS handshake cost down and gives `stop()` a single
+    /// target to `invalidateAndCancel()` when a new playback
+    /// supersedes an in-flight preparation.  Recreated lazily on
+    /// next `serve(playback:)` if `stop()` invalidated it.
+    private var prepSession: URLSession?
+    /// `Task` running the current SIDX preparation.  Held so
+    /// `stop()` can cancel an in-flight prep the next time the
+    /// user opens a video (or `recreateForResume()` is called
+    /// after returning from background).
+    private var preparationTask: Task<Void, Error>?
+    /// Generation counter bumped at the start of every
+    /// `prepareRemotePlayback`.  Snapshotted alongside
+    /// `decidedModes` so a `/video.m3u8` request that captured
+    /// the previous playback's mode decision does not leak
+    /// through after the proxy re-serves with a new playback.
+    /// Reset to `0` in `stop()` so a stopped-then-restarted
+    /// proxy starts fresh.
+    fileprivate var currentPrepGeneration: UInt64 = 0
     /// When the active playback is a downloaded video, this
     /// points at the on-disk directory holding its init/media
     /// m4s files.  Set by `serveLocal(playback:)`; the
@@ -708,7 +775,7 @@ final class LocalHLSProxyServer {
         let elapsedMs: Int
     }
 
-    private func prepareRemotePlayback(_ playback: BiliPlayback) throws {
+    private func prepareRemotePlayback(_ playback: BiliPlayback) async throws {
         guard let dash = playback.dash else {
             throw PlaybackPreparationError.noDash
         }
@@ -717,26 +784,127 @@ final class LocalHLSProxyServer {
         trackSegmentIndex.removeAll()
         decidedModes.removeAll()
         failoverIndex.removeAll()
+        // Bump the prep generation under `lock` so a
+        // concurrent `/video.m3u8` request that captures the
+        // mode decision now sees a different generation than
+        // any earlier prep, and will refuse to serve a stale
+        // SIDX playlist once this prep completes.
+        currentPrepGeneration &+= 1
+        let myGeneration = currentPrepGeneration
         lock.unlock()
 
         let referer = playback.referer.absoluteString
-        diagLog(.playback, "Playback preparation started")
+        diagLog(.playback, "Playback preparation started", details: [
+            "generation": myGeneration,
+            "hasAudio": dash.audio != nil
+        ])
 
-        let videoIndex = try prepareTrackSegmentIndex(
-            dash.video,
-            kind: "video",
-            referer: referer
-        )
-        var audioIndex: TrackSegmentIndex?
-        if let audio = dash.audio {
-            audioIndex = try prepareTrackSegmentIndex(
-                audio,
-                kind: "audio",
-                referer: referer
-            )
+        // Per-track hard deadline.  An upstream that hangs on
+        // its first byte-range fetch (the failure mode the
+        // build-180 deadlock exposed) cannot exceed this even
+        // though we no longer block the main thread — the
+        // outer `withThrowingTaskGroup` race below will throw
+        // and cancel the in-flight `URLSessionDataTask`.
+        let perTrackDeadlineSeconds: Double = 10
+
+        // Parallel video + audio prep.  Each track is wrapped
+        // in its own `withThrowingTaskGroup` so a hung audio
+        // fetch does not extend the video deadline (or vice
+        // versa).  The two tracks run concurrently, so the
+        // overall prep wall-clock is bounded by the slower
+        // track — never the sum.
+        let videoIndex: TrackSegmentIndex
+        let audioIndex: TrackSegmentIndex?
+
+        do {
+            videoIndex = try await withThrowingTaskGroup(
+                of: TrackSegmentIndex.self
+            ) { group in
+                group.addTask {
+                    try await self.prepareTrackSegmentIndex(
+                        dash.video,
+                        kind: "video",
+                        referer: referer
+                    )
+                }
+                group.addTask {
+                    try await Task.sleep(
+                        nanoseconds: UInt64(
+                            perTrackDeadlineSeconds * 1_000_000_000
+                        )
+                    )
+                    throw PlaybackPreparationError.segmentValidationFailed(
+                        host: dash.video.baseURL.host ?? "",
+                        reason: "video prep deadline"
+                    )
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next() else {
+                    throw PlaybackPreparationError.segmentValidationFailed(
+                        host: dash.video.baseURL.host ?? "",
+                        reason: "video prep produced no result"
+                    )
+                }
+                return first
+            }
+
+            if let audio = dash.audio {
+                audioIndex = try await withThrowingTaskGroup(
+                    of: TrackSegmentIndex.self
+                ) { group in
+                    group.addTask {
+                        try await self.prepareTrackSegmentIndex(
+                            audio,
+                            kind: "audio",
+                            referer: referer
+                        )
+                    }
+                    group.addTask {
+                        try await Task.sleep(
+                            nanoseconds: UInt64(
+                                perTrackDeadlineSeconds * 1_000_000_000
+                            )
+                        )
+                        throw PlaybackPreparationError.segmentValidationFailed(
+                            host: audio.baseURL.host ?? "",
+                            reason: "audio prep deadline"
+                        )
+                    }
+                    defer { group.cancelAll() }
+                    guard let first = try await group.next() else {
+                        throw PlaybackPreparationError.segmentValidationFailed(
+                            host: audio.baseURL.host ?? "",
+                            reason: "audio prep produced no result"
+                        )
+                    }
+                    return first
+                }
+            } else {
+                audioIndex = nil
+            }
+        } catch {
+            diagLog(.playback, "Playback preparation failed", details: [
+                "generation": myGeneration,
+                "error": "\(error)"
+            ])
+            throw error
         }
 
+        // Write the parsed indices under `lock` so a
+        // concurrent `/video.m3u8` request sees a consistent
+        // view of `trackSegmentIndex` + `currentPrepGeneration`.
         lock.lock()
+        // Guard against a `stop()` having reset the
+        // generation while we were awaiting — if so, our
+        // results are stale and must be discarded.
+        guard myGeneration == currentPrepGeneration else {
+            lock.unlock()
+            diagLog(.playback, "Playback preparation stale", details: [
+                "generation": myGeneration,
+                "currentGeneration": currentPrepGeneration
+            ])
+            throw CancellationError()
+        }
         trackSegmentIndex[dash.video.baseURL] = videoIndex
         if let audio = dash.audio, let audioIndex {
             trackSegmentIndex[audio.baseURL] = audioIndex
@@ -744,6 +912,7 @@ final class LocalHLSProxyServer {
         lock.unlock()
 
         diagLog(.playback, "Playback preparation completed", details: [
+            "generation": myGeneration,
             "videoReferences": videoIndex.fragments.count,
             "audioReferences": audioIndex?.fragments.count ?? 0
         ])
@@ -753,12 +922,13 @@ final class LocalHLSProxyServer {
         _ track: BiliDashSource.Track,
         kind: String,
         referer: String
-    ) throws -> TrackSegmentIndex {
+    ) async throws -> TrackSegmentIndex {
         var failures: [String] = []
         let candidates = [track.baseURL] + track.backupURLs
         for (idx, candidate) in candidates.enumerated() {
+            try Task.checkCancellation()
             do {
-                let index = try prepareTrackSegmentIndex(
+                let index = try await prepareTrackSegmentIndex(
                     track,
                     kind: kind,
                     referer: referer,
@@ -768,6 +938,8 @@ final class LocalHLSProxyServer {
                 failoverIndex[track.baseURL] = idx
                 lock.unlock()
                 return index
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 failures.append("\(candidate.host ?? ""): \(error)")
             }
@@ -783,18 +955,44 @@ final class LocalHLSProxyServer {
         kind: String,
         referer: String,
         sourceURL: URL
-    ) throws -> TrackSegmentIndex {
+    ) async throws -> TrackSegmentIndex {
+        try Task.checkCancellation()
+        let prepStarted = Date()
+        if Self.preparationLogEnabled {
+            diagLog(.playback, "\(kind) prepare started", details: [
+                "kind": kind,
+                "host": sourceURL.host ?? "",
+                "backupCount": track.backupURLs.count
+            ])
+        }
+        defer {
+            if Self.preparationLogEnabled {
+                diagLog(.playback, "\(kind) prepare ended", details: [
+                    "kind": kind,
+                    "host": sourceURL.host ?? "",
+                    "elapsedMs": Int(Date().timeIntervalSince(prepStarted) * 1000)
+                ])
+            }
+        }
         guard let indexRange = track.indexRange else {
             throw PlaybackPreparationError.missingSIDXRange(
                 host: sourceURL.host ?? ""
             )
         }
 
-        let fileSize = try fetchFileSize(
-            url: sourceURL,
-            referer: referer,
-            kind: kind
-        )
+        let fileSize: UInt64
+        do {
+            fileSize = try await fetchFileSize(
+                url: sourceURL,
+                referer: referer,
+                kind: kind
+            )
+        } catch {
+            throw PlaybackPreparationError.sidxFetchFailed(
+                host: sourceURL.host ?? "",
+                reason: "\(error)"
+            )
+        }
         let sidxRange = indexRange.offset ..< (indexRange.offset + indexRange.length)
         let initRange = playlistInitializationRange(for: track)
         let prefixLength: Int64 = 64 * 1024
@@ -806,7 +1004,7 @@ final class LocalHLSProxyServer {
 
         let combined: RangeFetchOutcome
         do {
-            combined = try fetchExactRange(
+            combined = try await fetchExactRange(
                 url: sourceURL,
                 range: combinedRange,
                 referer: referer,
@@ -841,7 +1039,7 @@ final class LocalHLSProxyServer {
         )
         let validated: TrackSegmentIndex
         do {
-            validated = try validatedSegmentIndex(
+            validated = try await validatedSegmentIndex(
                 index,
                 upstream: sourceURL,
                 referer: referer,
@@ -875,8 +1073,8 @@ final class LocalHLSProxyServer {
         url: URL,
         referer: String,
         kind: String
-    ) throws -> UInt64 {
-        let outcome = try fetchExactRange(
+    ) async throws -> UInt64 {
+        let outcome = try await fetchExactRange(
             url: url,
             range: 0..<1,
             referer: referer,
@@ -895,7 +1093,7 @@ final class LocalHLSProxyServer {
         range: Range<Int64>,
         referer: String,
         purpose: String
-    ) throws -> RangeFetchOutcome {
+    ) async throws -> RangeFetchOutcome {
         precondition(!range.isEmpty)
         let startTime = Date()
         let end = range.upperBound - 1
@@ -911,28 +1109,26 @@ final class LocalHLSProxyServer {
             forHTTPHeaderField: "User-Agent"
         )
         request.setValue("*/*", forHTTPHeaderField: "Accept")
+        // Per-request cap; the session's `timeoutIntervalForRequest`
+        // is the ceiling when this is unset.
+        request.timeoutInterval = 10
 
-        let semaphore = DispatchSemaphore(value: 0)
-        var dataResult: Data?
-        var responseResult: URLResponse?
-        var errorResult: Error?
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 8
-        configuration.timeoutIntervalForResource = 15
-        configuration.httpMaximumConnectionsPerHost = 8
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let session = URLSession(configuration: configuration)
-        let task = session.dataTask(with: request) { data, response, error in
-            dataResult = data
-            responseResult = response
-            errorResult = error
-            semaphore.signal()
+        // Async fetch on the long-lived prep session.  No
+        // `DispatchSemaphore` — this is the whole point of the
+        // deadlock fix: the awaiting task suspends instead of
+        // blocking the calling thread.
+        try Task.checkCancellation()
+        guard let prepSession else {
+            // `stop()` ran while this request was in-flight.
+            // Surface as a hard timeout so the per-track
+            // deadline race above can pick it up cleanly.
+            throw RangeFetchError.timedOut
         }
-        task.resume()
-        let wait = semaphore.wait(timeout: .now() + 16)
-        if wait == .timedOut {
-            task.cancel()
-            session.invalidateAndCancel()
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await prepSession.data(for: request)
+        } catch is CancellationError {
             logRangeFetchFailure(
                 purpose: purpose,
                 url: url,
@@ -940,19 +1136,32 @@ final class LocalHLSProxyServer {
                 status: nil,
                 contentRange: nil,
                 contentLength: nil,
-                dataCount: dataResult?.count,
+                dataCount: nil,
                 elapsedMs: elapsedMilliseconds(since: startTime),
                 error: RangeFetchError.timedOut
             )
             throw RangeFetchError.timedOut
+        } catch {
+            let wrapped = RangeFetchError.requestFailed(
+                "\(type(of: error)) \(error.localizedDescription)"
+            )
+            logRangeFetchFailure(
+                purpose: purpose,
+                url: url,
+                requestedRange: requestedRange,
+                status: nil,
+                contentRange: nil,
+                contentLength: nil,
+                dataCount: nil,
+                elapsedMs: elapsedMilliseconds(since: startTime),
+                error: wrapped
+            )
+            throw wrapped
         }
-        session.finishTasksAndInvalidate()
+        try Task.checkCancellation()
 
         let elapsed = elapsedMilliseconds(since: startTime)
-        if let errorResult {
-            let error = RangeFetchError.requestFailed(
-                "\(type(of: errorResult)) \(errorResult.localizedDescription)"
-            )
+        guard let http = response as? HTTPURLResponse else {
             logRangeFetchFailure(
                 purpose: purpose,
                 url: url,
@@ -960,21 +1169,7 @@ final class LocalHLSProxyServer {
                 status: nil,
                 contentRange: nil,
                 contentLength: nil,
-                dataCount: dataResult?.count,
-                elapsedMs: elapsed,
-                error: error
-            )
-            throw error
-        }
-        guard let http = responseResult as? HTTPURLResponse else {
-            logRangeFetchFailure(
-                purpose: purpose,
-                url: url,
-                requestedRange: requestedRange,
-                status: nil,
-                contentRange: nil,
-                contentLength: nil,
-                dataCount: dataResult?.count,
+                dataCount: data.count,
                 elapsedMs: elapsed,
                 error: RangeFetchError.invalidResponse
             )
@@ -992,7 +1187,7 @@ final class LocalHLSProxyServer {
                 status: http.statusCode,
                 contentRange: contentRange,
                 contentLength: contentLength,
-                dataCount: dataResult?.count,
+                dataCount: data.count,
                 elapsedMs: elapsed,
                 error: error
             )
@@ -1008,7 +1203,7 @@ final class LocalHLSProxyServer {
                 status: http.statusCode,
                 contentRange: nil,
                 contentLength: contentLength,
-                dataCount: dataResult?.count,
+                dataCount: data.count,
                 elapsedMs: elapsed,
                 error: error
             )
@@ -1026,13 +1221,12 @@ final class LocalHLSProxyServer {
                 status: http.statusCode,
                 contentRange: contentRange,
                 contentLength: contentLength,
-                dataCount: dataResult?.count,
+                dataCount: data.count,
                 elapsedMs: elapsed,
                 error: error
             )
             throw error
         }
-        let data = dataResult ?? Data()
         guard data.count == expectedLength else {
             let error = RangeFetchError.mismatchedLength(
                 expected: expectedLength,
@@ -1145,10 +1339,11 @@ final class LocalHLSProxyServer {
         fileSize: Int64,
         combinedRange: Range<Int64>,
         combinedData: Data
-    ) throws -> TrackSegmentIndex {
+    ) async throws -> TrackSegmentIndex {
         var fragments: [MediaFragment] = []
         fragments.reserveCapacity(index.fragments.count)
         for (i, fragment) in index.fragments.enumerated() {
+            try Task.checkCancellation()
             let fragmentByteCount = fragment.byteRange.upperBound
                 - fragment.byteRange.lowerBound
             guard fragment.byteRange.upperBound <= fileSize else {
@@ -1181,7 +1376,7 @@ final class LocalHLSProxyServer {
                 let end = start + Int(prefixLength)
                 prefix = combinedData.subdata(in: start..<end)
             } else {
-                let outcome = try fetchExactRange(
+                let outcome = try await fetchExactRange(
                     url: upstream,
                     range: prefixRange,
                     referer: referer,
@@ -1303,7 +1498,21 @@ final class LocalHLSProxyServer {
             .joined(separator: " ")
     }
 
-    private init() {}
+    private init() {
+        prepSession = Self.makePrepSession()
+    }
+
+    /// Build the long-lived prep `URLSession`.  Pulled out of
+    /// `init` so `stop()` → `serve(playback:)` can rebuild it
+    /// after a previous playback was cancelled.
+    private static func makePrepSession() -> URLSession {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 10
+        cfg.timeoutIntervalForResource = 12
+        cfg.httpMaximumConnectionsPerHost = 8
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: cfg)
+    }
 
     // MARK: diagnostic helpers
 
@@ -1327,6 +1536,14 @@ final class LocalHLSProxyServer {
     /// reason as `wireDumpEnabled`; flip on locally when
     /// debugging segment-level issues.
     fileprivate static let requestMetadataLogEnabled = false
+
+    /// Toggle for the per-track SIDX-preparation log lines —
+    /// `video prepare started`, `video prepare ended`,
+    /// `Playback preparation started`, `Playback preparation
+    /// completed`.  Runs once per playback so the per-call
+    /// cost is negligible; default on so the diagnostic stream
+    /// always shows which track prepped slowly or hung.
+    fileprivate static let preparationLogEnabled = true
 
     /// Render the first 500 bytes of `data` as UTF-8 so the
     /// diagnostic log shows the actual HTTP framing we put on
@@ -1639,12 +1856,40 @@ final class LocalHLSProxyServer {
         // otherwise fail the playlist request. The decision is
         // locked in for the entire playback — AVPlayer never sees
         // a mid-stream playlist switch.
-        switch resolveSegmentationMode(for: track) {
+        let (mode, capturedGeneration) = resolveSegmentationMode(for: track)
+        // Generation check: if `serve(playback:)` ran since we
+        // captured the mode, the SIDX we are about to serve may
+        // belong to the previous playback.  Refuse — the client
+        // will retry, the next request will see the new
+        // generation, and the new SIDX (or 503 if the new prep
+        // has not finished yet) will be served.
+        let currentGeneration: UInt64 = {
+            lock.lock(); defer { lock.unlock() }
+            return currentPrepGeneration
+        }()
+        guard currentGeneration == capturedGeneration else {
+            diagLog(.playback,
+                    "LocalHLSProxyServer stale generation rejecting playlist",
+                    details: [
+                        "conn": connID,
+                        "kind": trackLabel,
+                        "captured": capturedGeneration,
+                        "current": currentGeneration
+                    ])
+            respondError(connection: connection, status: 503,
+                         reason: "stale prep generation",
+                         extraHeaders: ["Retry-After": "0"],
+                         connID: connID)
+            return
+        }
+        switch mode {
         case .sidx:
             guard let index = cachedSegmentIndex(for: track) else {
                 // Race with stop() — unlikely but defensive.
                 respondError(connection: connection, status: 503,
-                             reason: "sidx vanished", connID: connID)
+                             reason: "sidx vanished",
+                             extraHeaders: ["Retry-After": "0"],
+                             connID: connID)
                 return
             }
             let targetDuration = max(1, Int(
@@ -1713,8 +1958,13 @@ final class LocalHLSProxyServer {
                             "\($0.offset)-\($0.endOffset)"
                         } ?? ""
                     ])
+            // Explicit `Retry-After: 0` so AVPlayer retries
+            // the playlist request on its next scheduler
+            // tick rather than any intermediary applying a
+            // default backoff.
             respondError(connection: connection, status: 503,
                          reason: "segment index unavailable",
+                         extraHeaders: ["Retry-After": "0"],
                          connID: connID)
         }
     }
@@ -1724,10 +1974,20 @@ final class LocalHLSProxyServer {
     /// SIDX is used only when already cached and validated;
     /// otherwise the request fails. We never synthesize equal-
     /// byte or direct-MP4 segments for remote playback.
-    private func resolveSegmentationMode(for track: BiliDashSource.Track) -> SegmentationMode {
+    ///
+    /// Returns the mode *together with* the prep generation
+    /// that was current at the time of the decision.  The
+    /// caller (`respondMediaPlaylist`) verifies the generation
+    /// still matches `currentPrepGeneration` under `lock`
+    /// before serving — if a fresh `serve(playback:)` has
+    /// bumped the generation, the captured decision is stale
+    /// and we must treat it as not-ready (503).
+    private func resolveSegmentationMode(for track: BiliDashSource.Track)
+        -> (SegmentationMode, UInt64)
+    {
         lock.lock(); defer { lock.unlock() }
         if let mode = decidedModes[track.baseURL] {
-            return mode
+            return (mode, currentPrepGeneration)
         }
         let mode: SegmentationMode =
             trackSegmentIndex[track.baseURL] != nil ? .sidx : .unavailable
@@ -1736,9 +1996,10 @@ final class LocalHLSProxyServer {
                 "LocalHLSProxyServer segmentation mode",
                 details: [
                     "host": track.baseURL.host ?? "",
-                    "segmentationMode": mode == .sidx ? "sidx" : "unavailable"
+                    "segmentationMode": mode == .sidx ? "sidx" : "unavailable",
+                    "generation": currentPrepGeneration
                 ])
-        return mode
+        return (mode, currentPrepGeneration)
     }
 
     // MARK: segment proxy
@@ -1833,7 +2094,9 @@ fileprivate func proxySegmentRange(
                     "fallback": fallbackURL
                 ])
         respondError(connection: connection, status: 503,
-                     reason: "sidx not ready", connID: connID)
+                     reason: "sidx not ready",
+                     extraHeaders: ["Retry-After": "0"],
+                     connID: connID)
         return
     }
 
@@ -2312,6 +2575,7 @@ fileprivate func proxySegmentRange(
         connection: NWConnection,
         status: Int,
         reason: String,
+        extraHeaders: [String: String] = [:],
         connID: String
     ) {
         Analytics.recordError(
@@ -2327,6 +2591,7 @@ fileprivate func proxySegmentRange(
             status: status,
             contentType: "application/json",
             body: Data(body.utf8),
+            extraHeaders: extraHeaders,
             connID: connID,
             label: "DOWNSTREAM ERROR RESPONSE"
         )

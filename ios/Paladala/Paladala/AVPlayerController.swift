@@ -378,7 +378,16 @@ final class PlayerController: ObservableObject {
             // serves the manifests + segment bytes.  This is
             // also the fallback path for downloads that
             // pre-date the merge step (no `mergedVideo` yet).
+            //
+            // `serve(playback:)` is fire-and-forget — it kicks
+            // off SIDX preparation as a background `Task` and
+            // returns immediately.  `waitForReady()` then
+            // blocks only for the `NWListener` to bind to a
+            // port (sub-second).  AVPlayer will retry its
+            // `video.m3u8` / `audio.m3u8` requests (with
+            // `Retry-After: 0`) until prep completes.
             do {
+                let serveStart = Date()
                 try LocalHLSProxyServer.shared.serve(playback: playback)
                 if let baseURL = LocalHLSProxyServer.shared.waitForReady() {
                     let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
@@ -386,7 +395,12 @@ final class PlayerController: ObservableObject {
                     usesProxy = true
                     diagLog(.playback,
                             "AVPlayerController bound to local HLS proxy",
-                            details: ["url": playlistURL.absoluteString])
+                            details: [
+                                "url": playlistURL.absoluteString,
+                                "serveElapsedMs": Int(
+                                    Date().timeIntervalSince(serveStart) * 1000
+                                )
+                            ])
                 } else {
                     diagLog(.playback, "LocalHLSProxyServer did not become ready")
                     asset = AVMutableComposition()
@@ -947,6 +961,7 @@ final class PlayerController: ObservableObject {
 
         if usesProxy {
             do {
+                let serveStart = Date()
                 try LocalHLSProxyServer.shared.serve(playback: originalPlayback)
                 guard let baseURL = LocalHLSProxyServer.shared.waitForReady() else {
                     diagLog(.playback, "retryPlayback: proxy failed to come up")
@@ -957,6 +972,11 @@ final class PlayerController: ObservableObject {
                 let item = AVPlayerItem(url: playlistURL)
                 player.replaceCurrentItem(with: item)
                 player.play()
+                diagLog(.playback, "retryPlayback: serve() returned", details: [
+                    "elapsedMs": Int(
+                        Date().timeIntervalSince(serveStart) * 1000
+                    )
+                ])
             } catch {
                 diagLog(.playback, "retryPlayback: serve() threw", details: [
                     "error": "\(error)"
