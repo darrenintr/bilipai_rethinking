@@ -27,6 +27,7 @@ final class BilibiliAPIClient {
     private let baseURL = URL(string: "https://api.bilibili.com")!
     private let appBaseURL = URL(string: "https://app.bilibili.com")!
     private let liveBaseURL = URL(string: "https://api.live.bilibili.com")!
+    private let accountBaseURL = URL(string: "https://account.bilibili.com")!
     private let session: URLSession
     private let decoder: JSONDecoder
     private let wbiSigner = WbiSigner()
@@ -208,6 +209,43 @@ final class BilibiliAPIClient {
             parameters: [
                 "aid": "\(aid)",
                 "like": "\(action)",
+                "platform": "ios",
+                "mobi_app": "iphone"
+            ]
+        )
+        try payload.requireOK()
+    }
+
+    /// Fetch the signed-in user's 硬币 (coin) balance. Hits the
+    /// account service's `/site/getCoin`, which returns the balance
+    /// under `data.money`. Requires a SESSDATA cookie; anonymously
+    /// the upstream answers code -101 which `requireOK()` surfaces
+    /// as a typed error the caller collapses to "please sign in".
+    func coinBalance() async throws -> Double {
+        let payload: APIResponse<CoinWalletPayload> = try await get(
+            baseURL: accountBaseURL,
+            path: "/site/getCoin",
+            queryItems: []
+        )
+        try payload.requireOK()
+        return payload.value?.money ?? 0
+    }
+
+    /// Give (投币) `multiply` coins to a video. `multiply` is 1 or 2
+    /// (Bilibili caps a single video at 2 coins per user). When
+    /// `alsoLike` is true the same call also likes the video, matching
+    /// the official client's "投币并点赞". CSRF is auto-extracted by
+    /// `post`. On failure the upstream message (e.g. 硬币余额不足,
+    /// 超过投币上限) is thrown via `BilibiliAPIError.api` so the caller
+    /// can show exactly why the coin was rejected.
+    func addCoins(aid: Int, multiply: Int = 1, alsoLike: Bool = false) async throws {
+        let payload: APIResponse<EmptyPayload> = try await post(
+            baseURL: baseURL,
+            path: "/x/web-interface/coin/add",
+            parameters: [
+                "aid": "\(aid)",
+                "multiply": "\(max(1, min(2, multiply)))",
+                "select_like": alsoLike ? "1" : "0",
                 "platform": "ios",
                 "mobi_app": "iphone"
             ]
@@ -1842,6 +1880,11 @@ enum BilibiliAPIError: Error {
 }
 
 struct EmptyPayload: Codable {}
+
+/// `data.money` from `/site/getCoin` — the signed-in user's coin balance.
+private struct CoinWalletPayload: Decodable {
+    let money: Double
+}
 
 struct APIResponse<T: Decodable>: Decodable {
     let code: Int?

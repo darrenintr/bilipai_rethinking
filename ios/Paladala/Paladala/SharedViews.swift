@@ -609,6 +609,36 @@ private struct VideoContextMenuModifier: ViewModifier {
                         Label("从稍后再看中移除", systemImage: "clock.badge.xmark")
                     }
                 }
+                Menu {
+                    Button {
+                        Haptics.tap()
+                        Task {
+                            do {
+                                try await repository.giveCoins(to: video, multiply: 1)
+                                Haptics.success()
+                            } catch {
+                                Haptics.error()
+                            }
+                        }
+                    } label: {
+                        Label("投 1 枚硬币", systemImage: "bitcoinsign.circle")
+                    }
+                    Button {
+                        Haptics.tap()
+                        Task {
+                            do {
+                                try await repository.giveCoins(to: video, multiply: 2)
+                                Haptics.success()
+                            } catch {
+                                Haptics.error()
+                            }
+                        }
+                    } label: {
+                        Label("投 2 枚硬币", systemImage: "bitcoinsign.circle.fill")
+                    }
+                } label: {
+                    Label("投币支持 UP 主", systemImage: "bitcoinsign.circle")
+                }
             }
             Button {
                 Haptics.tap()

@@ -5,6 +5,7 @@ final class ProfileViewModel: ObservableObject {
     @Published var followingCount: String = "--"
     @Published var followerCount: String = "--"
     @Published var dynamicCount: String = "--"
+    @Published var coinBalance: String = "--"
     @Published var isLoading = false
 
     func loadStats(mid: Int64, repository: PaladalaRepository) async {
@@ -18,6 +19,20 @@ final class ProfileViewModel: ObservableObject {
             dynamicCount = stats.dynamic
         } catch {
             bpLog("Failed to load profile stats: \(error)")
+        }
+    }
+
+    /// Load the signed-in user's 硬币 balance for the header chip.
+    /// Independent of `loadStats` so a coin-endpoint hiccup never
+    /// blanks the follow/fan counts (and vice-versa).
+    func loadCoinBalance(repository: PaladalaRepository) async {
+        do {
+            let coins = try await repository.coinBalance()
+            // Bilibili returns the balance as a float; it is always a
+            // whole number in practice, so render without decimals.
+            coinBalance = String(Int(coins.rounded()))
+        } catch {
+            bpLog("Failed to load coin balance: \(error)")
         }
     }
 }
@@ -286,6 +301,7 @@ struct ProfileSettingsView: View {
         .task(id: authStore.activeAccount?.mid) {
             if let mid = authStore.activeAccount?.mid {
                 await profileModel.loadStats(mid: mid, repository: repository)
+                await profileModel.loadCoinBalance(repository: repository)
             }
         }
     }
@@ -355,6 +371,11 @@ struct ProfileSettingsView: View {
                     ProfileStat(label: "动态", value: profileModel.dynamicCount)
                 }
                 .padding(.top, 2)
+                Label(profileModel.coinBalance, systemImage: "bitcoinsign.circle.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(PaladalaTheme.biliPink)
+                    .padding(.top, 1)
+                    .accessibilityLabel("硬币余额 \(profileModel.coinBalance)")
             }
             Spacer()
             Menu {

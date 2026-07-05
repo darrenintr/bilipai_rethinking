@@ -386,6 +386,19 @@ final class PaladalaRepository: ObservableObject {
         try await apiClient.likeVideo(aid: aid, action: action)
     }
 
+    /// The signed-in user's 硬币 (coin) balance.
+    func coinBalance() async throws -> Double {
+        try await apiClient.coinBalance()
+    }
+
+    /// Give (投币) `multiply` coins to a video. Resolves the `aid`
+    /// from the feed-entry `bvid` when needed, mirroring the other
+    /// action wrappers. Throws the upstream reason on rejection.
+    func giveCoins(to video: BiliVideo, multiply: Int = 1, alsoLike: Bool = false) async throws {
+        let aid = video.aid > 0 ? video.aid : try await apiClient.videoDetail(bvid: video.bvid).aid
+        try await apiClient.addCoins(aid: aid, multiply: multiply, alsoLike: alsoLike)
+    }
+
     /// Fetch Bilibili's official AI 视频总结 for a video.
     ///
     /// Returns `nil` when:
