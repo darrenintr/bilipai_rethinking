@@ -449,11 +449,32 @@ struct BiliPlayback: Hashable {
 /// (`BiliDashSource` tracks, byte ranges, etc.) already lives
 /// on `BiliPlayback.dash`.  The only thing the proxy needs to
 /// know is *where on disk* to read the bytes from.
+///
+/// `mergedVideo` / `mergedAudio` carry the canonical single-file
+/// path the new merge step writes at download-complete time.
+/// When present, `AVPlayerController` short-circuits the proxy
+/// entirely and plays the merged mp4 via
+/// `AVMutableComposition` — eliminating the upstream-offset
+/// byte-range math the previous layout depended on (and that
+/// silently broke on every offset shift, see the recent
+/// `Fix downloaded video local ranges` commit).  `nil` for
+/// either field means the merged file is missing (legacy
+/// download before the merge step landed, or Caches purge) —
+/// callers should fall back to the proxy path with the 4-file
+/// layout under `directory`.
 struct LocalPlaybackContext: Hashable {
     /// `Caches/Paladala/Downloads/ready/{bvid}/`.  The init and
     /// media m4s files for the video and audio tracks live
     /// directly under this directory.
     let directory: URL
+    /// `directory/video.mp4` — the post-merge single-file video
+    /// track.  `nil` when the merge step has not yet run for
+    /// this download.
+    let mergedVideo: URL?
+    /// `directory/audio.mp4` — the post-merge single-file audio
+    /// track.  `nil` when the download is video-only or the
+    /// merge step has not yet run.
+    let mergedAudio: URL?
 }
 
 /// One row in `DownloadStore.records`.  Persisted as part of

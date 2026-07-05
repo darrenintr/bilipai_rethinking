@@ -396,12 +396,28 @@ final class VideoDetailViewModel: ObservableObject {
             let directory = DownloadStore.shared.readyDirectory(
                 for: record.bvid
             )
+            // Look up the merged mp4 files the download
+            // manager writes at completion time.  When both
+            // are present we hand them to the player so it
+            // can take the direct-file branch and skip the
+            // local HLS proxy entirely.  When only the
+            // legacy 4-file layout is on disk (an old
+            // download made before the merge step landed),
+            // both URLs come back nil and the proxy path
+            // stays in effect.
+            let merged = DownloadStore.shared.mergedFileURLs(
+                for: record.bvid
+            )
             self.playback = BiliPlayback(
                 dash: record.dash,
                 fallbackURL: nil,
                 referer: record.referer,
                 resumeTime: 0,
-                localContext: LocalPlaybackContext(directory: directory)
+                localContext: LocalPlaybackContext(
+                    directory: directory,
+                    mergedVideo: merged.video,
+                    mergedAudio: merged.audio
+                )
             )
         } else if let record = localRecord {
             diagLog(.playback,
@@ -657,12 +673,22 @@ final class VideoDetailViewModel: ObservableObject {
         if let record = DownloadStore.shared.record(for: detail.bvid) {
             if Self.localPlaybackReady(for: record) {
                 let directory = DownloadStore.shared.readyDirectory(for: record.bvid)
+                // Same merged-file lookup as the `init` path
+                // — when the merge has run, the player can
+                // skip the proxy entirely.
+                let merged = DownloadStore.shared.mergedFileURLs(
+                    for: record.bvid
+                )
                 self.playback = BiliPlayback(
                     dash: record.dash,
                     fallbackURL: nil,
                     referer: record.referer,
                     resumeTime: 0,
-                    localContext: LocalPlaybackContext(directory: directory)
+                    localContext: LocalPlaybackContext(
+                        directory: directory,
+                        mergedVideo: merged.video,
+                        mergedAudio: merged.audio
+                    )
                 )
                 diagLog(.playback,
                         "VideoDetailViewModel.load used local fallback",

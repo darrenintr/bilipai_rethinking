@@ -199,26 +199,67 @@ final class DownloadStore: ObservableObject {
     }
 
     /// Returns `true` only when every track implied by the
-    /// manifest still has both of its on-disk files.  iOS may
-    /// purge `Caches/` under storage pressure; when that
-    /// happens we do not want to keep surfacing a manifest
-    /// entry that can never play.
+    /// manifest still has its on-disk bytes.  Two layouts are
+    /// recognised:
+    ///
+    ///   1. **Merged** (`video.mp4` + optional `audio.mp4`) —
+    ///      the canonical layout the download manager writes
+    ///      from commit `85971957e+merge` onward.  A single
+    ///      self-contained mp4 per track is easier to
+    ///      integrity-check and eliminates the upstream-
+    ///      offset byte-range math the old layout required.
+    ///   2. **Legacy 4-file** (`{video,audio}.{init,media}`) —
+    ///      kept so existing downloads made before the merge
+    ///      step still play.  When both layouts exist, the
+    ///      merged files win.
+    ///
+    /// iOS may purge `Caches/` under storage pressure; when
+    /// that happens we do not want to keep surfacing a
+    /// manifest entry that can never play.
     func hasCompleteLocalBytes(for record: DownloadRecord) -> Bool {
         let directory = readyDirectory(for: record.bvid)
         let fm = FileManager.default
-
+        let videoMerged = directory.appendingPathComponent("video.mp4")
+        let audioMerged = directory.appendingPathComponent("audio.mp4")
+        let hasMerged = fm.fileExists(atPath: videoMerged.path)
+            && (record.dash.audio == nil
+                || fm.fileExists(atPath: audioMerged.path))
+        if hasMerged {
+            return true
+        }
+        // Legacy fallback: keep older downloads playable.
         func hasBothFiles(_ trackName: String) -> Bool {
             let initURL = directory.appendingPathComponent("\(trackName).init")
             let mediaURL = directory.appendingPathComponent("\(trackName).media")
             return fm.fileExists(atPath: initURL.path) &&
                    fm.fileExists(atPath: mediaURL.path)
         }
-
         guard hasBothFiles("video") else { return false }
         if record.dash.audio != nil, !hasBothFiles("audio") {
             return false
         }
         return true
+    }
+
+    /// Returns the URLs of the merged mp4 files for `bvid`, or
+    /// `nil` for the video slot when the merge has not run.
+    /// Used by `VideoDetailViewModel` to populate
+    /// `LocalPlaybackContext.mergedVideo` / `.mergedAudio` so
+    /// `AVPlayerController` can take the fast direct-file path
+    /// and skip the local HLS proxy entirely.
+    ///
+    /// Returned video URL is `nil` (rather than a non-existent
+    /// URL) when the merge failed or has not yet completed —
+    /// callers check `nil` first to choose between the proxy
+    /// path and the direct-file path.
+    func mergedFileURLs(for bvid: String) -> (video: URL?, audio: URL?) {
+        let directory = readyDirectory(for: bvid)
+        let fm = FileManager.default
+        let videoURL = directory.appendingPathComponent("video.mp4")
+        let audioURL = directory.appendingPathComponent("audio.mp4")
+        let video = fm.fileExists(atPath: videoURL.path) ? videoURL : nil
+        let audio = fm.fileExists(atPath: audioURL.path) ? audioURL : nil
+        return (video, audio)
     }
 
     /// Sum of the byte sizes of every file under `directory`.

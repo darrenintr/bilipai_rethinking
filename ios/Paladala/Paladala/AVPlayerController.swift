@@ -152,7 +152,16 @@ final class PlayerController: ObservableObject {
     /// does).
     let player: AVPlayer
     private let playerItem: AVPlayerItem
-    private let asset: AVURLAsset
+    /// Backing media for the player item.  Typed as the broad
+    /// `AVAsset` so the composition path (an
+    /// `AVMutableComposition` of two local mp4 tracks) and the
+    /// upstream paths (`AVURLAsset` for live HLS, legacy MP4,
+    /// or proxy m3u8) can both stash their asset here without
+    /// casts.  The reference is retained for symmetry with the
+    /// previous `let asset` shape and so future error-recovery
+    /// hooks (e.g. reloading the asset on a stale-manifest
+    /// diagnostic) have somewhere to reach the live object.
+    private let asset: AVAsset
     /// Original `BiliPlayback` for retry.  Kept so
     /// `retryPlayback()` can re-stand the local proxy and
     /// hand AVPlayer a fresh manifest without the caller
@@ -162,8 +171,9 @@ final class PlayerController: ObservableObject {
     private let originalPlayback: BiliPlayback
     /// `true` if this controller is fed by the local HLS proxy
     /// (the VOD DASH path).  When `false`, the asset is a direct
-    /// `AVURLAsset` (live HLS or legacy MP4) and the proxy is
-    /// not involved.
+    /// `AVURLAsset` (live HLS or legacy MP4) or an
+    /// `AVMutableComposition` of merged local mp4 tracks; the
+    /// proxy is not involved.
     private let usesProxy: Bool
 
     // MARK: observers / timer
@@ -239,7 +249,8 @@ final class PlayerController: ObservableObject {
     init(playback: BiliPlayback, video: BiliVideo? = nil) {
         diagLog(.playback, "Initialising AVPlayerController", details: [
             "isDASH": playback.isDASH,
-            "referer": playback.referer.absoluteString
+            "referer": playback.referer.absoluteString,
+            "hasMergedLocal": playback.localContext?.mergedVideo != nil
         ])
 
         // Activate the shared audio session on the first
@@ -255,14 +266,98 @@ final class PlayerController: ObservableObject {
         self.nowPlayingCoverURL = video?.coverURL
 
         let referer = playback.referer.absoluteString
-        let asset: AVURLAsset
+        var asset: AVAsset
         let usesProxy: Bool
 
-        if playback.dash != nil {
+        // Fast path: a downloaded video with the merged
+        // mp4 files on disk.  We play both tracks through
+        // an `AVMutableComposition` and skip the local HLS
+        // proxy entirely.  This eliminates the upstream-
+        // offset byte-range math that broke every time
+        // B 站 shifted `track.initializationRange.offset` /
+        // `track.mediaStartOffset`, and removes the
+        // proxy as a single point of failure for offline
+        // playback.  The composition reuses the same
+        // underlying media data the proxy would have read,
+        // so there is no extra disk cost.
+        if let merged = playback.localContext?.mergedVideo,
+           FileManager.default.fileExists(atPath: merged.path) {
+            let videoURL = merged
+            let audioURL = playback.localContext?.mergedAudio
+            // Build the composition synchronously — the
+            // assets are on local disk so track discovery
+            // does not need the network.  If audio is
+            // missing or unreadable we fall back to
+            // video-only (the user still sees the picture
+            // and gets a clear diagnostic line rather than
+            // a black screen).
+            let videoAsset = AVURLAsset(url: videoURL)
+            var insertDuration: CMTime = .positiveInfinity
+            if let videoTrack = videoAsset.tracks(withMediaType: .video).first {
+                insertDuration = videoTrack.timeRange.duration
+            }
+            let composition = AVMutableComposition()
+            if let compVideoTrack = composition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ), let sourceVideoTrack = videoAsset
+                .tracks(withMediaType: .video).first {
+                do {
+                    try compVideoTrack.insertTimeRange(
+                        CMTimeRange(start: .zero, duration: insertDuration),
+                        of: sourceVideoTrack,
+                        at: .zero
+                    )
+                } catch {
+                    diagLog(.playback,
+                            "merge video insert failed",
+                            details: ["error": error.localizedDescription])
+                }
+            }
+            var audioAttached = false
+            if let audioURL,
+               FileManager.default.fileExists(atPath: audioURL.path) {
+                let audioAsset = AVURLAsset(url: audioURL)
+                if let compAudioTrack = composition.addMutableTrack(
+                    withMediaType: .audio,
+                    preferredTrackID: kCMPersistentTrackID_Invalid
+                ), let sourceAudioTrack = audioAsset
+                    .tracks(withMediaType: .audio).first {
+                    let audioDuration = sourceAudioTrack.timeRange.duration
+                    let slice = CMTimeRange(
+                        start: .zero,
+                        duration: min(audioDuration, insertDuration)
+                    )
+                    do {
+                        try compAudioTrack.insertTimeRange(
+                            slice, of: sourceAudioTrack, at: .zero
+                        )
+                        audioAttached = true
+                    } catch {
+                        diagLog(.playback,
+                                "merge audio insert failed",
+                                details: ["error": error.localizedDescription])
+                    }
+                }
+            }
+            asset = composition
+            usesProxy = false
+            diagLog(.playback,
+                    "AVPlayerController bound to merged local mp4",
+                    details: [
+                        "video": videoURL.lastPathComponent,
+                        "audio": audioURL?.lastPathComponent ?? "none",
+                        "audioAttached": audioAttached,
+                        "durationSec":
+                            CMTimeGetSeconds(insertDuration)
+                    ])
+        } else if playback.dash != nil {
             // VOD DASH path: stand up the local HLS proxy and
             // point AVPlayer at the synthesised master playlist.
             // The proxy holds the dash source / referer and
-            // serves the manifests + segment bytes.
+            // serves the manifests + segment bytes.  This is
+            // also the fallback path for downloads that
+            // pre-date the merge step (no `mergedVideo` yet).
             do {
                 try LocalHLSProxyServer.shared.serve(playback: playback)
             } catch {
