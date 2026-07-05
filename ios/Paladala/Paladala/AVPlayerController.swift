@@ -485,10 +485,7 @@ final class PlayerController: ObservableObject {
                     // new keys after the first write) and gives
                     // Control Center a moving scrubber.
                     self.updateNowPlaying()
-                    // Check SponsorBlock segments for auto-skip.
-                    if SponsorBlockManager.shared.isEnabled {
-                        _ = SponsorBlockManager.shared.checkCurrentTime(seconds, player: self.player)
-                    }
+                    SponsorBlockManager.shared.checkCurrentTime(seconds, player: self.player)
                 }
             }
         }

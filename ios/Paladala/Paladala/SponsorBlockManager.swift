@@ -2,26 +2,31 @@ import CryptoKit
 import Foundation
 import AVFoundation
 
+extension Notification.Name {
+    static let paladalaSponsorSegmentSkipped = Notification.Name("app.paladala.ios.sponsorSegmentSkipped")
+}
+
 @MainActor
 final class SponsorBlockManager: ObservableObject {
     static let shared = SponsorBlockManager()
 
     @Published var config: SponsorConfig {
-        didSet {
-            saveConfig()
-        }
+        didSet { saveConfig() }
     }
 
     @Published private(set) var segments: [SponsorSegment] = []
-    @Published private(set) var skippedSegments: Set<String> = []
     @Published private(set) var isLoading = false
-    @Published private(set) var activeSkippedSegment: SponsorSegment?
+    @Published private(set) var lastSkippedSegment: SponsorSegment?
 
     private let defaults = UserDefaults.standard
     private let configKey = "paladala.sponsorBlockConfig"
 
     private var fetchTask: Task<Void, Never>?
     private(set) var lastVideoID: String?
+
+    private var sortedSegments: [SponsorSegment] = []
+    private var segmentIndex = 0
+    private var _cachedUserID: String?
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: "paladala.sponsorBlockConfig"),
@@ -32,8 +37,6 @@ final class SponsorBlockManager: ObservableObject {
         }
     }
 
-    // MARK: - Persistence
-
     private func saveConfig() {
         if let data = try? JSONEncoder().encode(config) {
             defaults.set(data, forKey: configKey)
@@ -42,20 +45,20 @@ final class SponsorBlockManager: ObservableObject {
 
     // MARK: - Public API
 
-    var isEnabled: Bool {
-        config.isEnabled
-    }
+    var isEnabled: Bool { config.isEnabled }
+    var autoSkip: Bool { config.autoSkip }
 
-    var autoSkip: Bool {
-        config.autoSkip
-    }
-
-    /// Fetch segments for a video (bvid).
     func loadSegments(for videoID: String, cid: String? = nil) {
-        guard config.isEnabled, !config.categories.isEmpty else { return }
+        guard config.isEnabled, !config.categories.isEmpty else {
+            segments = []
+            sortedSegments = []
+            segmentIndex = 0
+            return
+        }
 
         fetchTask?.cancel()
         lastVideoID = videoID
+        segmentIndex = 0
 
         fetchTask = Task { [weak self] in
             guard let self else { return }
@@ -69,14 +72,13 @@ final class SponsorBlockManager: ObservableObject {
                 )
                 guard !Task.isCancelled else { return }
 
-                let filtered = result.filter { segment in
-                    (segment.votes ?? 0) >= config.minVotes
-                }
+                let filtered = result.filter { ($0.votes ?? 0) >= config.minVotes }
                 self.segments = filtered
+                self.sortedSegments = filtered.sorted { $0.startTime < $1.startTime }
+                self.segmentIndex = 0
 
                 diagLog(.playback, "SponsorBlock: loaded \(filtered.count) segments", details: [
-                    "videoID": videoID,
-                    "total": result.count
+                    "videoID": videoID, "total": result.count
                 ])
             } catch {
                 guard !Task.isCancelled else { return }
@@ -87,63 +89,65 @@ final class SponsorBlockManager: ObservableObject {
         }
     }
 
-    /// Check if current time is within a segment and auto-skip if needed.
-    /// Returns the segment being skipped, or nil.
-    func checkCurrentTime(_ time: Double, player: AVPlayer) -> SponsorSegment? {
-        guard config.isEnabled, config.autoSkip else { return nil }
+    /// Optimized check: only scans from the current index forward.
+    func checkCurrentTime(_ time: Double, player: AVPlayer) -> Bool {
+        guard config.isEnabled, config.autoSkip, !sortedSegments.isEmpty else { return false }
 
-        for segment in segments {
-            guard !skippedSegments.contains(segment.uuid) else { continue }
-            guard segment.contains(time: time) else { continue }
-
-            skippedSegments.insert(segment.uuid)
-            activeSkippedSegment = segment
-
-            let target = CMTime(seconds: segment.endTime, preferredTimescale: 600)
-            player.seek(to: target)
-
-            diagLog(.playback, "SponsorBlock: skipped segment", details: [
-                "uuid": segment.uuid,
-                "category": segment.category,
-                "start": segment.startTime,
-                "end": segment.endTime
-            ])
-
-            Task { [uuid = segment.uuid] in
-                try? await SponsorBlockService.shared.recordView(uuid: uuid)
+        while segmentIndex < sortedSegments.count {
+            let segment = sortedSegments[segmentIndex]
+            if segment.endTime < time {
+                segmentIndex += 1
+                continue
             }
+            if segment.contains(time: time) {
+                segmentIndex += 1
+                lastSkippedSegment = segment
 
-            return segment
+                let target = CMTime(seconds: segment.endTime, preferredTimescale: 600)
+                player.seek(to: target)
+
+                diagLog(.playback, "SponsorBlock: skipped segment", details: [
+                    "uuid": segment.uuid, "category": segment.category,
+                    "start": segment.startTime, "end": segment.endTime
+                ])
+
+                NotificationCenter.default.post(
+                    name: .paladalaSponsorSegmentSkipped,
+                    object: segment,
+                    userInfo: ["category": segment.category]
+                )
+
+                Task { [uuid = segment.uuid] in
+                    try? await SponsorBlockService.shared.recordView(uuid: uuid)
+                }
+                return true
+            }
+            break
         }
-
-        return nil
+        return false
     }
 
-    /// Submit a new segment.
     func submitSegment(videoID: String, cid: String?, category: String, startTime: Double, endTime: Double, videoDuration: Double) async throws {
-        let userID = storedUserID
         try await SponsorBlockService.shared.submitSegment(
-            videoID: videoID,
-            cid: cid,
-            category: category,
-            startTime: startTime,
-            endTime: endTime,
-            userID: userID,
-            videoDuration: videoDuration
+            videoID: videoID, cid: cid, category: category,
+            startTime: startTime, endTime: endTime,
+            userID: storedUserID, videoDuration: videoDuration
         )
     }
 
-    /// Vote on a segment.
     func vote(uuid: String, type: Int) async throws {
-        let userID = storedUserID
-        try await SponsorBlockService.shared.vote(uuid: uuid, userID: userID, type: type)
+        try await SponsorBlockService.shared.vote(uuid: uuid, userID: storedUserID, type: type)
     }
 
-    /// Clear skipped segments for a new video.
+    func clearLastSkipped() {
+        lastSkippedSegment = nil
+    }
+
     func reset(for videoID: String) {
         segments = []
-        skippedSegments = []
-        activeSkippedSegment = nil
+        sortedSegments = []
+        segmentIndex = 0
+        lastSkippedSegment = nil
         lastVideoID = videoID
     }
 
@@ -151,36 +155,30 @@ final class SponsorBlockManager: ObservableObject {
 
     var storedUserID: String {
         get {
+            if let cached = _cachedUserID { return cached }
             if let id = defaults.string(forKey: "paladala.sponsorUserID"), id.count >= 30 {
+                _cachedUserID = id
                 return id
             }
             let newID = UUID().uuidString + UUID().uuidString
             defaults.set(newID, forKey: "paladala.sponsorUserID")
+            _cachedUserID = newID
             return newID
         }
         set {
+            _cachedUserID = newValue
             defaults.set(newValue, forKey: "paladala.sponsorUserID")
         }
     }
 
-    var publicUserID: String {
-        let privateID = storedUserID
-        guard let data = privateID.data(using: .utf8) else { return storedUserID }
-        var hash = Data(SHA256.hash(data: data))
-        for _ in 0..<4999 {
-            hash = Data(SHA256.hash(data: hash))
+    var totalTimeSaved: TimeInterval {
+        segments.reduce(0.0) { sum, seg in
+            guard seg.endTime < .infinity else { return sum }
+            return sum + seg.duration
         }
-        return hash.map { String(format: "%02hhx", $0) }.joined()
     }
 
-    var totalTimeSaved: TimeInterval {
-        skippedSegments.reduce(0.0) { sum, uuid in
-            if let segment = segments.first(where: { $0.uuid == uuid }) {
-                return sum + segment.duration
-            }
-            return sum
-        }
+    var skippedCount: Int {
+        segments.count { $0.endTime < .infinity }
     }
 }
-
-

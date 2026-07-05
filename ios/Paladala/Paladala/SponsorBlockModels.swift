@@ -59,7 +59,7 @@ struct SponsorSkipSegmentsResponse: Codable {
     let segments: [SponsorSegment]
 }
 
-struct SponsorConfig: Codable {
+struct SponsorConfig: Codable, Equatable {
     var serverURL: String
     var categories: [SponsorCategory]
     var minVotes: Int

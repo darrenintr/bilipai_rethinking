@@ -85,6 +85,8 @@ struct PlayerView: View {
                     playbackErrorOverlay(error: error, controller: controller)
                         .transition(.opacity)
                 }
+
+                SponsorSkipToast()
             }
         }
     }
@@ -167,6 +169,46 @@ struct PlayerView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.75))
+    }
+}
+
+// MARK: - SponsorBlock skip toast
+
+private struct SponsorSkipToast: View {
+    @State private var segment: SponsorSegment?
+    @State private var show = false
+
+    var body: some View {
+        Group {
+            if show, let segment {
+                HStack(spacing: 8) {
+                    Image(systemName: "forward.fill")
+                        .font(.caption)
+                    Text("已跳过 \(SponsorCategory(rawValue: segment.category)?.displayName ?? segment.category)")
+                        .font(.caption.weight(.medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    .black.opacity(0.65),
+                    in: Capsule()
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 8)
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: show)
+        .onReceive(NotificationCenter.default.publisher(for: .paladalaSponsorSegmentSkipped)) { note in
+            guard let seg = note.object as? SponsorSegment else { return }
+            segment = seg
+            show = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                show = false
+            }
+        }
     }
 }
 
@@ -510,6 +552,8 @@ private struct FullscreenPlayerOverlay: View {
                 Spacer()
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showingSpeedBadge)
+
+            SponsorSkipToast()
 
             if controller.isBuffering {
                 VStack(spacing: 10) {

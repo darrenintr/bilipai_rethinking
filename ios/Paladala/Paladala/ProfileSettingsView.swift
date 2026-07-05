@@ -188,21 +188,13 @@ struct ProfileSettingsView: View {
                 NavigationLink {
                     SponsorBlockSettingsView()
                 } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("拦截恰饭")
-                                .font(.subheadline)
-                            Text("SponsorBlock · 社区标注广告跳过")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if SponsorBlockManager.shared.isEnabled {
-                            Text("已开启")
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-                    }
+                    PluginRow(
+                        title: "拦截恰饭",
+                        subtitle: SponsorBlockManager.shared.isEnabled
+                            ? "SponsorBlock · 社区标注 · 已开启"
+                            : "SponsorBlock · 社区标注广告跳过",
+                        symbol: "shield.lefthalf.filled"
+                    )
                 }
             }
 
