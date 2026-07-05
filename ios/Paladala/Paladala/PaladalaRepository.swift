@@ -164,15 +164,41 @@ final class PaladalaRepository: ObservableObject {
         // We need a real `cid` to query the player endpoint. The
         // feed entries usually carry one; if not, fall back to a
         // single detail fetch.
+        var resolvedVideo = video
+        var cid = video.cid
+        if cid <= 0 {
+            resolvedVideo = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
+            cid = resolvedVideo.cid
+        }
+        guard cid > 0 else { return nil }
+        guard let info = try await apiClient.videoLyricInfo(
+            bvid: resolvedVideo.bvid,
+            aid: resolvedVideo.aid,
+            cid: cid
+        ) else { return nil }
+        let text = try await apiClient.videoLyricText(info: info)
+        return BiliLyricParser.parse(text: text, language: info.lanDoc.isEmpty ? info.lan : info.lanDoc)
+    }
+
+    /// Fetch timed subtitles for the normal video player. This uses
+    /// Bilibili's `/x/player/v2` subtitle metadata plus the returned
+    /// `subtitle_url` JSON/LRC body, sharing the parser already used by
+    /// the Music view.
+    func videoSubtitles(for video: BiliVideo) async throws -> BiliLyricTrack? {
+        try await videoLyrics(for: video)
+    }
+
+    /// Fetch historical danmaku for the video's `cid`. Failures are handled
+    /// by the caller as non-fatal timed-text absence; playback should not
+    /// fail just because comments cannot be loaded.
+    func videoDanmaku(for video: BiliVideo) async throws -> [BiliDanmakuItem] {
         var cid = video.cid
         if cid <= 0 {
             let detail = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
             cid = detail.cid
         }
-        guard cid > 0 else { return nil }
-        guard let info = try await apiClient.videoLyricInfo(cid: cid) else { return nil }
-        let text = try await apiClient.videoLyricText(info: info)
-        return BiliLyricParser.parse(text: text, language: info.lanDoc.isEmpty ? info.lan : info.lanDoc)
+        guard cid > 0 else { return [] }
+        return try await apiClient.danmaku(cid: cid)
     }
 
     /// Resolve the playable stream URLs for a live room. The result

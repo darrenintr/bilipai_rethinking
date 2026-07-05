@@ -287,7 +287,14 @@ struct VideoDetailView: View {
         }
         .fullScreenCover(isPresented: $isFullscreenPresented) {
             if let playback = model.playback, let controller = playerController {
-                FullscreenPlayerView(video: model.detail, playback: playback, repository: repository, controller: controller)
+                FullscreenPlayerView(
+                    video: model.detail,
+                    playback: playback,
+                    repository: repository,
+                    subtitleTrack: model.subtitleTrack,
+                    danmakuItems: model.danmakuEnabled ? model.danmakuItems : [],
+                    controller: controller
+                )
             }
         }
         .onChange(of: isFullscreenPresented) { _, newValue in
@@ -448,7 +455,14 @@ struct VideoDetailView: View {
                 // to briefly detach the player during the transition,
                 // leading to connection resets and black screens.
                 // The `.fullScreenCover` naturally hides it anyway.
-                PlayerView(playback: playback, video: model.detail, repository: repository, controller: controller)
+                PlayerView(
+                    playback: playback,
+                    video: model.detail,
+                    repository: repository,
+                    subtitleTrack: model.subtitleTrack,
+                    danmakuItems: model.danmakuEnabled ? model.danmakuItems : [],
+                    controller: controller
+                )
                     .onAppear { model.isPlaying = true }
                     .onDisappear { model.isPlaying = false }
 
@@ -543,12 +557,8 @@ struct VideoDetailView: View {
 
     private var controlPanel: some View {
         HStack {
-            // TODO: real danmaku engine. The toggle stays in the UI as a
-            // hint at the future feature but does nothing until then.
-            Toggle(L10n.video.danmakuComingSoon, isOn: $model.danmakuEnabled)
+            Toggle(L10n.video.danmaku, isOn: $model.danmakuEnabled)
                 .toggleStyle(.button)
-                .disabled(true)
-                .opacity(0.5)
             // Quality picker. Maps the four Bilibili accept-quality
             // ladder entries (80 / 64 / 32 / 16) onto the user-facing
             // 1080P / 720P / 480P / 360P labels. Picking a new value

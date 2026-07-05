@@ -360,6 +360,13 @@ final class VideoDetailViewModel: ObservableObject {
     /// failures.
     @Published var aiSummary: BiliAISummary?
     @Published var aiSummaryLoading = false
+    /// Timed subtitle track for the active video, loaded from
+    /// `/x/player/v2` when the upstream publishes one.
+    @Published var subtitleTrack: BiliLyricTrack?
+    /// Historical danmaku loaded from `comment.bilibili.com/{cid}.xml`.
+    /// Kept sorted by time so the overlay can cheaply scan the small window
+    /// around the current playhead.
+    @Published var danmakuItems: [BiliDanmakuItem] = []
     /// User-controlled expand/collapse state. Defaults to
     /// collapsed so the section does not steal vertical space
     /// from the comments on first open.
@@ -749,6 +756,7 @@ final class VideoDetailViewModel: ObservableObject {
                         "isDASH": self.playback?.isDASH ?? false,
                         "hasFallback": self.playback?.fallbackURL != nil
                     ])
+            await loadTimedText(repository: repository)
             // Playback funnel success — emit only when we
             // actually have a usable `BiliPlayback`. The `qn`
             // param lets the console slice by quality tier
@@ -871,6 +879,53 @@ final class VideoDetailViewModel: ObservableObject {
             comments = []
         }
         commentsLoading = false
+    }
+
+    /// Load timed text after the detail endpoint has populated the final
+    /// `cid`. Both subtitle and danmaku failures are non-fatal: the player
+    /// should keep streaming even when Bilibili has no subtitle track, the
+    /// danmaku endpoint rate-limits, or XML parsing returns no entries.
+    private func loadTimedText(repository: PaladalaRepository) async {
+        subtitleTrack = nil
+        danmakuItems = []
+        async let subtitlesResult = loadSubtitleTrack(repository: repository)
+        async let danmakuResult = loadDanmakuItems(repository: repository)
+
+        switch await subtitlesResult {
+        case .success(let track):
+            subtitleTrack = track?.isEmpty == false ? track : nil
+        case .failure(let error):
+            bpLog("Subtitle fetch failed: \(error)")
+            subtitleTrack = nil
+        }
+
+        switch await danmakuResult {
+        case .success(let items):
+            danmakuItems = items
+        case .failure(let error):
+            bpLog("Danmaku fetch failed: \(error)")
+            danmakuItems = []
+        }
+    }
+
+    private func loadSubtitleTrack(
+        repository: PaladalaRepository
+    ) async -> Result<BiliLyricTrack?, Error> {
+        do {
+            return .success(try await repository.videoSubtitles(for: detail))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func loadDanmakuItems(
+        repository: PaladalaRepository
+    ) async -> Result<[BiliDanmakuItem], Error> {
+        do {
+            return .success(try await repository.videoDanmaku(for: detail))
+        } catch {
+            return .failure(error)
+        }
     }
 
     /// YouTube-style "next up" rail. Populates

@@ -1,4 +1,5 @@
 import CryptoKit
+import Compression
 import Foundation
 
 // MARK: - App API signing credentials
@@ -415,7 +416,7 @@ final class BilibiliAPIClient {
     }
 
     /// Fetch the AI-generated / human-submitted subtitle / lyric
-    /// track for a video. Hits the public `/x/player/v2` endpoint
+    /// track for a video. Hits the public `/x/player/wbi/v2` endpoint
     /// and walks the `subtitle.subtitles[]` list for the best
     /// Chinese match (zh-CN / zh-Hans). Returns `nil` when the
     /// video has no lyric track at all.
@@ -423,14 +424,22 @@ final class BilibiliAPIClient {
     /// The shape of `subtitle_url` is `//aisubtitle.hdslb.com/...`
     /// — a protocol-relative JSON document that the caller
     /// (`videoLyricText(url:)`) fetches and parses.
-    func videoLyricInfo(cid: Int) async throws -> BiliLyricInfo? {
+    func videoLyricInfo(bvid: String = "", aid: Int = 0, cid: Int) async throws -> BiliLyricInfo? {
         guard cid > 0 else { return nil }
+        var queryItems = [
+            URLQueryItem(name: "cid", value: "\(cid)")
+        ]
+        if !bvid.isEmpty {
+            queryItems.append(URLQueryItem(name: "bvid", value: bvid))
+        }
+        if aid > 0 {
+            queryItems.append(URLQueryItem(name: "aid", value: "\(aid)"))
+        }
         let payload: APIResponse<LyricInfoPayload> = try await get(
             baseURL: baseURL,
-            path: "/x/player/v2",
-            queryItems: [
-                URLQueryItem(name: "cid", value: "\(cid)")
-            ]
+            path: "/x/player/wbi/v2",
+            queryItems: queryItems,
+            signWithWBI: true
         )
         try payload.requireOK()
         guard let subtitles = payload.value?.subtitle?.subtitles else {
@@ -472,6 +481,33 @@ final class BilibiliAPIClient {
             throw BilibiliAPIError.missingData
         }
         return text
+    }
+
+    /// Fetch real video danmaku from Bilibili's XML endpoint.
+    ///
+    /// The endpoint is intentionally separate from `baseURL`: Bilibili
+    /// serves historical danmaku from `comment.bilibili.com/{cid}.xml`.
+    /// It normally advertises `Content-Encoding: deflate`; URLSession often
+    /// handles that transparently, and the parser also has a zlib fallback
+    /// for responses that arrive as compressed bytes.
+    func danmaku(cid: Int) async throws -> [BiliDanmakuItem] {
+        guard cid > 0 else { return [] }
+        guard let url = URL(string: "https://comment.bilibili.com/\(cid).xml") else {
+            throw BilibiliAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("deflate", forHTTPHeaderField: "Accept-Encoding")
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            bpLog("Danmaku fetch failed with HTTP \(status): \(url.absoluteString)")
+            throw BilibiliAPIError.http
+        }
+        return BiliDanmakuXMLParser.parse(data: data.biliDanmakuInflatedIfNeeded())
     }
 
     func searchVideos(keyword: String, page: Int = 1) async throws -> [BiliVideo] {
@@ -3610,4 +3646,122 @@ private struct LyricTrackDTO: Decodable {
 
 private struct LyricAuthorDTO: Decodable {
     let name: String?
+}
+
+// MARK: - Danmaku XML parser
+
+private final class BiliDanmakuXMLParser: NSObject, XMLParserDelegate {
+    private var items: [BiliDanmakuItem] = []
+    private var currentAttributes: String?
+    private var currentText = ""
+    private var ordinal = 0
+
+    static func parse(data: Data) -> [BiliDanmakuItem] {
+        let delegate = BiliDanmakuXMLParser()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        guard parser.parse() else {
+            bpLog("Danmaku XML parse failed: \(parser.parserError?.localizedDescription ?? "unknown error")")
+            return []
+        }
+        return delegate.items.sorted { $0.time < $1.time }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        guard elementName == "d" else { return }
+        currentAttributes = attributeDict["p"]
+        currentText = ""
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        guard currentAttributes != nil else { return }
+        currentText += string
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        guard elementName == "d", let attributes = currentAttributes else { return }
+        defer {
+            currentAttributes = nil
+            currentText = ""
+        }
+
+        let fields = attributes.split(separator: ",", omittingEmptySubsequences: false)
+        guard fields.count >= 4,
+              let time = Double(fields[0]),
+              let mode = Int(fields[1]),
+              let fontSize = Int(fields[2]),
+              let color = Int(fields[3]) else {
+            return
+        }
+        let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        items.append(BiliDanmakuItem(
+            id: ordinal,
+            time: time,
+            mode: mode,
+            fontSize: fontSize,
+            color: color,
+            text: text
+        ))
+        ordinal += 1
+    }
+}
+
+private extension Data {
+    func biliDanmakuInflatedIfNeeded() -> Data {
+        if looksLikeXML { return self }
+
+        var capacity = Swift.max(count * 8, 64 * 1024)
+        for _ in 0..<4 {
+            var output = Data(count: capacity)
+            let decodedCount = output.withUnsafeMutableBytes { outputBuffer in
+                withUnsafeBytes { inputBuffer in
+                    guard let outputBase = outputBuffer.bindMemory(to: UInt8.self).baseAddress,
+                          let inputBase = inputBuffer.bindMemory(to: UInt8.self).baseAddress else {
+                        return 0
+                    }
+                    return compression_decode_buffer(
+                        outputBase,
+                        capacity,
+                        inputBase,
+                        count,
+                        nil,
+                        COMPRESSION_ZLIB
+                    )
+                }
+            }
+            if decodedCount > 0 {
+                output.removeSubrange(decodedCount..<output.count)
+                return output
+            }
+            capacity *= 2
+        }
+
+        return self
+    }
+
+    private var looksLikeXML: Bool {
+        guard let first = firstNonWhitespaceByte else { return false }
+        return first == 60
+    }
+
+    private var firstNonWhitespaceByte: UInt8? {
+        first { byte in
+            byte != 32 &&
+            byte != 10 &&
+            byte != 13 &&
+            byte != 9
+        }
+    }
 }

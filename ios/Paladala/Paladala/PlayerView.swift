@@ -27,6 +27,8 @@ struct PlayerView: View {
     let playback: BiliPlayback
     let video: BiliVideo
     let repository: PaladalaRepository
+    let subtitleTrack: BiliLyricTrack?
+    let danmakuItems: [BiliDanmakuItem]
     @ObservedObject var controller: PlayerController
 
     var body: some View {
@@ -64,6 +66,13 @@ struct PlayerView: View {
             // controller's own recognisers need to receive taps in
             // order to reveal and hide the playback controls.
             ZStack {
+                PlayerTimedTextOverlay(
+                    currentTime: controller.currentTime,
+                    subtitleTrack: subtitleTrack,
+                    danmakuItems: danmakuItems
+                )
+                .allowsHitTesting(false)
+
                 if controller.isBuffering && controller.playerError == nil {
                     loadingOverlay
                         .transition(.opacity)
@@ -215,6 +224,8 @@ struct FullscreenPlayerView: View {
     let video: BiliVideo
     let playback: BiliPlayback
     let repository: PaladalaRepository
+    let subtitleTrack: BiliLyricTrack?
+    let danmakuItems: [BiliDanmakuItem]
     @ObservedObject var controller: PlayerController
 
     @Environment(\.dismiss) private var dismiss
@@ -227,6 +238,8 @@ struct FullscreenPlayerView: View {
                 video: video,
                 playback: playback,
                 repository: repository,
+                subtitleTrack: subtitleTrack,
+                danmakuItems: danmakuItems,
                 controller: controller
             ) {
                 // Tapping outside the controls dismisses the
@@ -305,6 +318,8 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
     let video: BiliVideo
     let playback: BiliPlayback
     let repository: PaladalaRepository
+    let subtitleTrack: BiliLyricTrack?
+    let danmakuItems: [BiliDanmakuItem]
     let controller: PlayerController
     let onDismiss: () -> Void
 
@@ -322,6 +337,8 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
             let overlay = FullscreenPlayerOverlay(
                 video: video,
                 repository: repository,
+                subtitleTrack: subtitleTrack,
+                danmakuItems: danmakuItems,
                 controller: controller
             )
             let hostingController = UIHostingController(rootView: overlay)
@@ -361,6 +378,8 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
         context.coordinator.overlayHostingController?.rootView = FullscreenPlayerOverlay(
             video: video,
             repository: repository,
+            subtitleTrack: subtitleTrack,
+            danmakuItems: danmakuItems,
             controller: controller
         )
     }
@@ -414,6 +433,8 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
 private struct FullscreenPlayerOverlay: View {
     let video: BiliVideo
     let repository: PaladalaRepository
+    let subtitleTrack: BiliLyricTrack?
+    let danmakuItems: [BiliDanmakuItem]
     @ObservedObject var controller: PlayerController
 
     @GestureState private var isLongPressing = false
@@ -421,6 +442,13 @@ private struct FullscreenPlayerOverlay: View {
 
     var body: some View {
         ZStack {
+            PlayerTimedTextOverlay(
+                currentTime: controller.currentTime,
+                subtitleTrack: subtitleTrack,
+                danmakuItems: danmakuItems
+            )
+            .allowsHitTesting(false)
+
             // Invisible gesture layer
             Color.clear
                 .contentShape(Rectangle())
@@ -513,6 +541,69 @@ private struct FullscreenPlayerOverlay: View {
             return String(format: "%.0f KB/s", bytesPerSecond / 1_000)
         }
         return String(format: "%.0f B/s", bytesPerSecond)
+    }
+}
+
+// MARK: - Timed text overlay
+
+private struct PlayerTimedTextOverlay: View {
+    let currentTime: Double
+    let subtitleTrack: BiliLyricTrack?
+    let danmakuItems: [BiliDanmakuItem]
+
+    private var activeSubtitle: String? {
+        guard let track = subtitleTrack, !track.lines.isEmpty else { return nil }
+        let index = track.index(at: currentTime)
+        guard track.lines.indices.contains(index) else { return nil }
+        let line = track.lines[index]
+        guard line.startTime <= currentTime + 0.25 else { return nil }
+        return line.text
+    }
+
+    private var activeDanmaku: [BiliDanmakuItem] {
+        guard !danmakuItems.isEmpty, currentTime.isFinite else { return [] }
+        let lower = max(0, currentTime - 4.5)
+        return Array(danmakuItems
+            .filter { $0.time >= lower && $0.time <= currentTime }
+            .suffix(3))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(activeDanmaku) { item in
+                    Text(item.text)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.black.opacity(0.36), in: Capsule())
+                        .shadow(color: .black.opacity(0.75), radius: 2, x: 0, y: 1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+
+            Spacer(minLength: 0)
+
+            if let activeSubtitle {
+                Text(activeSubtitle)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.black.opacity(0.42), in: Capsule())
+                    .shadow(color: .black.opacity(0.85), radius: 2, x: 0, y: 1)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 34)
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: activeSubtitle)
+        .animation(.easeOut(duration: 0.16), value: activeDanmaku)
     }
 }
 

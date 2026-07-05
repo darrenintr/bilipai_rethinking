@@ -961,6 +961,20 @@ struct BiliLyricLine: Hashable, Codable, Identifiable {
     var id: Int { ordinal }
 }
 
+// MARK: - Video Danmaku
+
+/// One timed danmaku entry from `https://comment.bilibili.com/{cid}.xml`.
+/// The first field in `p` is the start time in seconds; the second is
+/// Bilibili's display mode (`1` scrolling, `4` bottom, `5` top, etc.).
+struct BiliDanmakuItem: Hashable, Codable, Identifiable {
+    let id: Int
+    let time: Double
+    let mode: Int
+    let fontSize: Int
+    let color: Int
+    let text: String
+}
+
 // MARK: - Music navigation routes
 
 /// Navigation routes for the Music tab. Pushed onto the router's
