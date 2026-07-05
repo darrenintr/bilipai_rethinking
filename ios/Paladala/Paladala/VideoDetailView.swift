@@ -268,9 +268,11 @@ struct VideoDetailView: View {
             // get re-bound mid-cover-dismissal.
             let now = Date()
             let isInsideFullscreenDismissGrace = now.timeIntervalSince(lastFullscreenDismissedAt) < 3
-            guard !isFullscreenPresented, now >= fullscreenTransitionUntil, !isInsideFullscreenDismissGrace else {
+            let isNativeFullscreen = playerController?.isNativeFullscreenActive ?? false
+            guard !isFullscreenPresented, !isNativeFullscreen, now >= fullscreenTransitionUntil, !isInsideFullscreenDismissGrace else {
                 diagLog(.fullscreen, "onDisappear suppressed during fullscreen transition", details: [
                     "isPresented": isFullscreenPresented,
+                    "nativeFullscreen": isNativeFullscreen,
                     "until": fullscreenTransitionUntil.timeIntervalSince1970,
                     "lastDismissedAt": lastFullscreenDismissedAt.timeIntervalSince1970,
                     "insideDismissGrace": isInsideFullscreenDismissGrace

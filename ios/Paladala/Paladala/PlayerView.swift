@@ -53,7 +53,8 @@ struct PlayerView: View {
             // was added in 16 and we want a clean fallback for
             // any future iOS 17 deployment target drop).
             NativeInlinePlayerRepresentable(
-                player: controller.player
+                player: controller.player,
+                controller: controller
             )
 
             // Tap-to-wake controls. The native `AVPlayerViewController`
@@ -958,6 +959,7 @@ private struct GestureHint: View {
 /// want in the inline layout.
 struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
     let player: AVPlayer
+    let controller: PlayerController
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
@@ -980,12 +982,133 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
         if #available(iOS 16, *) {
             vc.requiresLinearPlayback = false
         }
+        vc.delegate = context.coordinator
+
+        // Embed the long-press gesture overlay inside the
+        // contentOverlayView so it does not interfere with
+        // AVKit's own tap-to-show / tap-to-hide recognisers.
+        if let overlayView = vc.contentOverlayView {
+            let overlay = InlineLongPressOverlay(controller: controller)
+            let hostingController = UIHostingController(rootView: overlay)
+            hostingController.view.backgroundColor = .clear
+            context.coordinator.inlineGestureHost = hostingController
+
+            let view = hostingController.view!
+            view.translatesAutoresizingMaskIntoConstraints = false
+            overlayView.addSubview(view)
+
+            NSLayoutConstraint.activate([
+                view.centerXAnchor.constraint(equalTo: overlayView.centerXAnchor),
+                view.centerYAnchor.constraint(equalTo: overlayView.centerYAnchor),
+                view.widthAnchor.constraint(equalTo: overlayView.widthAnchor),
+                view.heightAnchor.constraint(equalTo: overlayView.heightAnchor)
+            ])
+        }
+
         return vc
     }
 
     func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
         if vc.player !== player {
             vc.player = player
+        }
+        context.coordinator.playerController = controller
+        context.coordinator.inlineGestureHost?.rootView = InlineLongPressOverlay(controller: controller)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(controller: controller)
+    }
+
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        var playerController: PlayerController
+        var inlineGestureHost: UIHostingController<InlineLongPressOverlay>?
+
+        init(controller: PlayerController) {
+            self.playerController = controller
+        }
+
+        @MainActor
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            willBeginFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
+        ) {
+            playerController.isNativeFullscreenActive = true
+        }
+
+        @MainActor
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
+        ) {
+            coordinator.animate(alongsideTransition: nil) { [weak self] context in
+                if !context.isCancelled {
+                    self?.playerController.isNativeFullscreenActive = false
+                }
+            }
+        }
+    }
+}
+
+/// Transparent gesture overlay hosted inside the inline
+/// AVPlayerViewController's contentOverlayView.  Long-press
+/// plays at 2x speed; releasing returns to 1x.
+private struct InlineLongPressOverlay: View {
+    @ObservedObject var controller: PlayerController
+
+    @GestureState private var isLongPressing = false
+    @State private var showingSpeedBadge = false
+
+    var body: some View {
+        ZStack {
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    LongPressGesture(minimumDuration: 0.4)
+                        .sequenced(before: DragGesture(minimumDistance: 0))
+                        .updating($isLongPressing) { value, state, _ in
+                            switch value {
+                            case .second(true, let drag):
+                                state = drag != nil
+                            default:
+                                state = false
+                            }
+                        }
+                )
+                .onChange(of: isLongPressing) { _, isPressing in
+                    if isPressing {
+                        controller.setRate(2.0)
+                        showingSpeedBadge = true
+                        Haptics.medium()
+                    } else {
+                        controller.setRate(1.0)
+                        showingSpeedBadge = false
+                    }
+                }
+
+            VStack {
+                if showingSpeedBadge {
+                    HStack {
+                        Spacer()
+                        Text("2.0x 快进中")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                .black.opacity(0.6),
+                                in: RoundedRectangle(
+                                    cornerRadius: PaladalaTheme.cornerRadius,
+                                    style: PaladalaTheme.cornerStyle
+                                )
+                            )
+                            .padding(.top, 40)
+                    }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+                Spacer()
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showingSpeedBadge)
         }
     }
 }
