@@ -69,7 +69,8 @@ struct PlayerView: View {
                 PlayerTimedTextOverlay(
                     currentTime: controller.currentTime,
                     subtitleTrack: subtitleTrack,
-                    danmakuItems: danmakuItems
+                    danmakuItems: danmakuItems,
+                    mode: .inline
                 )
                 .allowsHitTesting(false)
 
@@ -445,7 +446,8 @@ private struct FullscreenPlayerOverlay: View {
             PlayerTimedTextOverlay(
                 currentTime: controller.currentTime,
                 subtitleTrack: subtitleTrack,
-                danmakuItems: danmakuItems
+                danmakuItems: danmakuItems,
+                mode: .fullscreen
             )
             .allowsHitTesting(false)
 
@@ -547,9 +549,15 @@ private struct FullscreenPlayerOverlay: View {
 // MARK: - Timed text overlay
 
 private struct PlayerTimedTextOverlay: View {
+    enum Mode: Equatable {
+        case inline
+        case fullscreen
+    }
+
     let currentTime: Double
     let subtitleTrack: BiliLyricTrack?
     let danmakuItems: [BiliDanmakuItem]
+    let mode: Mode
 
     private var activeSubtitle: String? {
         guard let track = subtitleTrack, !track.lines.isEmpty else { return nil }
@@ -569,41 +577,61 @@ private struct PlayerTimedTextOverlay: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(activeDanmaku) { item in
-                    Text(item.text)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(.black.opacity(0.36), in: Capsule())
-                        .shadow(color: .black.opacity(0.75), radius: 2, x: 0, y: 1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.top, 14)
+        ZStack {
+            VStack(spacing: 0) {
+                danmakuStack
+                    .id(mode)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: mode == .fullscreen ? .center : .leading
+                    )
+                    .padding(.horizontal, mode == .fullscreen ? 88 : 14)
+                    .padding(.top, mode == .fullscreen ? 78 : 14)
+                    .transition(.move(edge: .top).combined(with: .opacity))
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
 
             if let activeSubtitle {
-                Text(activeSubtitle)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(.black.opacity(0.42), in: Capsule())
-                    .shadow(color: .black.opacity(0.85), radius: 2, x: 0, y: 1)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 34)
+                VStack {
+                    Spacer(minLength: 0)
+                    subtitleText(activeSubtitle)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 34)
+                }
             }
         }
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: mode)
         .animation(.easeOut(duration: 0.16), value: activeSubtitle)
         .animation(.easeOut(duration: 0.16), value: activeDanmaku)
+    }
+
+    private var danmakuStack: some View {
+        VStack(alignment: mode == .fullscreen ? .center : .leading, spacing: 6) {
+            ForEach(activeDanmaku) { item in
+                Text(item.text)
+                    .font((mode == .fullscreen ? Font.subheadline : Font.caption).weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .multilineTextAlignment(mode == .fullscreen ? .center : .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.36), in: Capsule())
+                    .shadow(color: .black.opacity(0.75), radius: 2, x: 0, y: 1)
+            }
+        }
+    }
+
+    private func subtitleText(_ text: String) -> some View {
+        Text(text)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.42), in: Capsule())
+            .shadow(color: .black.opacity(0.85), radius: 2, x: 0, y: 1)
     }
 }
 

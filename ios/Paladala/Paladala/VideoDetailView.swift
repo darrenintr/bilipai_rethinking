@@ -466,8 +466,6 @@ struct VideoDetailView: View {
                     .onAppear { model.isPlaying = true }
                     .onDisappear { model.isPlaying = false }
 
-                fullscreenButton
-                    .padding(10)
             } else {
                 CoverImage(url: model.detail.coverURL)
                     .overlay {
@@ -488,12 +486,10 @@ struct VideoDetailView: View {
                         }
                     }
             }
-            // The earlier "Danmaku preview layer" overlay used to live here
-            // and crowd the top-leading corner where the fullscreen button
-            // sits. There is no real danmaku engine yet (the project README
-            // is explicit: "full danmaku rendering are not ported yet"), so
-            // we drop the placeholder entirely. The Danmaku toggle in the
-            // control panel below stays as a "coming soon" hint.
+            // The inline surface no longer draws custom fullscreen chrome;
+            // AVKit's native controls already provide that button. Timed
+            // text now lives inside PlayerView so it follows inline and
+            // fullscreen playback surfaces consistently.
         }
         // No aspectRatio here — the parent `body`'s GeometryReader
         // gives the surface a fixed `height` from the
@@ -505,23 +501,6 @@ struct VideoDetailView: View {
         // (play/pause, skip) sit in the centre of the view and
         // are not clipped by the rounded rectangle.
         .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
-    }
-
-    private var fullscreenButton: some View {
-        Button {
-            Haptics.tap()
-            withAnimation(.easeInOut(duration: 0.3)) {
-                isFullscreenPresented = true
-            }
-        } label: {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(9)
-                .background(.black.opacity(0.5), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Enter fullscreen")
     }
 
     private var titleBlock: some View {
