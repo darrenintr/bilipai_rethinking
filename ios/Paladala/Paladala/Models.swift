@@ -597,6 +597,20 @@ struct BiliDashSource: Hashable, Codable {
         /// through `#EXT-X-MAP`; without it AVPlayer stalls while
         /// parsing the media playlist.
         let initializationRange: ByteRange
+        /// Byte range of the DASH segment index (`sidx`) box.
+        /// The proxy fetches this via Range request at serve
+        /// time, parses the real `moof+mdat` fragments, and uses
+        /// those as the source of truth for the generated HLS
+        /// playlist. Required for spec-conformant fMP4 HLS — see
+        /// `MP4Fragment.swift` for the parser and the rationale
+        /// for why equal-byte splitting was wrong.
+        ///
+        /// Optional: some older B 站 responses omit the sidx
+        /// range (a `SegmentBase` is published but lacks
+        /// `index_range`). In that case the proxy falls back to
+        /// the equal-byte math — same broken model as before,
+        /// but at least it does not crash.
+        let indexRange: ByteRange?
         /// Absolute byte offset where the playable media data
         /// starts in the upstream Bili m4s file.  This is the
         /// first byte **after** the init section, so the

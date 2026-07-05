@@ -2444,6 +2444,7 @@ private struct PlayURLPayload: Decodable {
                     bandwidth: v.bandwidth ?? 0,
                     mimeType: "video/mp4",
                     initializationRange: videoInit,
+                    indexRange: v.segmentBase?.indexByteRange,
                     mediaStartOffset:
                         v.segmentBase?.mediaStartOffset(after: videoInit)
                             ?? videoInit.endOffset + 1,
@@ -2461,6 +2462,7 @@ private struct PlayURLPayload: Decodable {
                         bandwidth: audio.bandwidth ?? 0,
                         mimeType: "audio/mp4",
                         initializationRange: audioInit,
+                        indexRange: audio.segmentBase?.indexByteRange,
                         mediaStartOffset:
                             audio.segmentBase?.mediaStartOffset(after: audioInit)
                                 ?? audioInit.endOffset + 1,
