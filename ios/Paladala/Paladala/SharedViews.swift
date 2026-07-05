@@ -100,7 +100,18 @@ struct VideoCard: View {
                 .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(10)
+            // Asymmetric padding: only horizontal + bottom.  The
+            // top of the cover image is flush with the card's
+            // top edge so the two share their top-left and
+            // top-right rounded corners.  Previously `.padding(10)`
+            // inset the cover by 10pt on every side, leaving a
+            // visible "frame" of card background around the
+            // cover — the cover's own rounded corners then
+            // nested inside the card's corners instead of
+            // aligning with them, which read as overlapping
+            // borders to the user.
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
             .paladalaCardSurface(materialDesign)
             .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
             .contentShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
