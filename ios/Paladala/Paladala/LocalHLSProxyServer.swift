@@ -1292,10 +1292,13 @@ final class LocalHLSProxyServer {
             return
         }
         let mediaLabel: String
+        let track: BiliDashSource.Track
         if source.video.baseURL == upstream {
             mediaLabel = "video"
-        } else if source.audio?.baseURL == upstream {
+            track = source.video
+        } else if let audio = source.audio, audio.baseURL == upstream {
             mediaLabel = "audio"
+            track = audio
         } else {
             respondError(connection: connection, status: 400,
                          reason: "unknown upstream", connID: connID)
@@ -1316,7 +1319,15 @@ final class LocalHLSProxyServer {
                 }
                 let url = context.directory
                     .appendingPathComponent("\(mediaLabel).init")
-                return (url, range.offset, range.endOffset)
+                let localStart = max(
+                    0,
+                    range.offset - track.initializationRange.offset
+                )
+                let localEnd = max(
+                    localStart,
+                    range.endOffset - track.initializationRange.offset
+                )
+                return (url, localStart, localEnd)
             case .mediaRange:
                 guard let startString = params["from"],
                       let start = Int64(startString) else {
@@ -1325,7 +1336,11 @@ final class LocalHLSProxyServer {
                 let endString = params["to"].flatMap { Int64($0) }
                 let url = context.directory
                     .appendingPathComponent("\(mediaLabel).media")
-                return (url, start, endString)
+                let localStart = max(0, start - track.mediaStartOffset)
+                let localEnd = endString.map {
+                    max(localStart, $0 - track.mediaStartOffset)
+                }
+                return (url, localStart, localEnd)
             case .passthrough:
                 return (context.directory, 0, nil)
             }
