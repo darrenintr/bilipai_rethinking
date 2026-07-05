@@ -59,21 +59,6 @@ struct SponsorSkipSegmentsResponse: Codable {
     let segments: [SponsorSegment]
 }
 
-struct SponsorSubmitRequest: Codable {
-    let videoID: String
-    let category: SponsorCategory.RawValue
-    let segments: [[Double]]
-}
-
-struct SponsorVoteRequest: Codable {
-    let UUID: String
-    let type: Int
-}
-
-struct SponsorViewedRequest: Codable {
-    let UUID: String
-}
-
 struct SponsorConfig: Codable {
     var serverURL: String
     var categories: [SponsorCategory]

@@ -1,4 +1,4 @@
-import CommonCrypto
+import CryptoKit
 import Foundation
 import AVFoundation
 
@@ -166,11 +166,11 @@ final class SponsorBlockManager: ObservableObject {
     var publicUserID: String {
         let privateID = storedUserID
         guard let data = privateID.data(using: .utf8) else { return storedUserID }
-        var hash = data.sha256
+        var hash = Data(SHA256.hash(data: data))
         for _ in 0..<4999 {
-            hash = hash.sha256
+            hash = Data(SHA256.hash(data: hash))
         }
-        return hash.hexEncodedString
+        return hash.map { String(format: "%02hhx", $0) }.joined()
     }
 
     var totalTimeSaved: TimeInterval {
@@ -183,16 +183,4 @@ final class SponsorBlockManager: ObservableObject {
     }
 }
 
-private extension Data {
-    var sha256: Data {
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        withUnsafeBytes { buf in
-            _ = CC_SHA256(buf.baseAddress, CC_LONG(count), &hash)
-        }
-        return Data(hash)
-    }
 
-    func hexEncodedString() -> String {
-        map { String(format: "%02hhx", $0) }.joined()
-    }
-}
