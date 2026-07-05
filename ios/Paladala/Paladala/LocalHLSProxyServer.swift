@@ -2973,6 +2973,14 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     // `finishWhenSendsDrain()` which cancels
                     // the connection once all queued send
                     // completions have left the sendGroup.
+                    let wasAlreadyBroken = self.downstreamBroken
+                    self.markDownstreamBroken(
+                        reason: "send error: \(error.localizedDescription)"
+                    )
+                    guard !wasAlreadyBroken else {
+                        self.sendGroup.leave()
+                        return
+                    }
                     diagLog(.network,
                             "LocalHLSProxyServer downstream send error",
                             details: [
@@ -2980,9 +2988,6 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                                 "mode": self.mode,
                                 "error": error.localizedDescription
                             ])
-                    self.markDownstreamBroken(
-                        reason: "send error: \(error.localizedDescription)"
-                    )
                 }
                 self.sendGroup.leave()
             }

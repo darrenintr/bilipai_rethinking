@@ -1862,6 +1862,7 @@ private struct VideoListPayload: Decodable {
     let list: [VideoDTO]?
     let result: [VideoDTO]?
     let archives: [VideoDTO]?
+    let bareList: [VideoDTO]?
 
     /// Tolerant decoder: walks the response looking for a known list
     /// key (`item` / `list` / `result` / `archives`) and decodes each
@@ -1869,11 +1870,31 @@ private struct VideoListPayload: Decodable {
     /// instead of failing the whole page — a strict `try decoder.decode`
     /// of `[VideoDTO]` would crash the entire feed on one bad row.
     init(from decoder: Decoder) throws {
+        if let videos = Self.decodeTolerantArray(from: decoder) {
+            self.item = nil
+            self.list = nil
+            self.result = nil
+            self.archives = nil
+            self.bareList = videos
+            return
+        }
         let container = try decoder.container(keyedBy: DynamicKey.self)
         self.item = Self.decodeTolerant(in: container, key: "item")
         self.list = Self.decodeTolerant(in: container, key: "list")
         self.result = Self.decodeTolerant(in: container, key: "result")
         self.archives = Self.decodeTolerant(in: container, key: "archives")
+        self.bareList = nil
+    }
+
+    private static func decodeTolerantArray(from decoder: Decoder) -> [VideoDTO]? {
+        let container = try? decoder.singleValueContainer()
+        if let strict = try? container?.decode([VideoDTO].self) {
+            return strict
+        }
+        if let lenient = try? container?.decode([FailableDecodable<VideoDTO>].self) {
+            return lenient.compactMap(\.value)
+        }
+        return nil
     }
 
     /// Decodes an array of `VideoDTO` by falling back to a per-item
@@ -1897,7 +1918,7 @@ private struct VideoListPayload: Decodable {
     }
 
     var videos: [VideoDTO] {
-        item ?? list ?? result ?? archives ?? []
+        item ?? list ?? result ?? archives ?? bareList ?? []
     }
 }
 

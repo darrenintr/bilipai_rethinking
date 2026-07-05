@@ -137,14 +137,14 @@ final class MiniPlayerStore: ObservableObject {
     func detachInline() {
         guard controller != nil else { return }
         guard !isShowingMiniPlayer else { return }
-        if UserDefaults.standard.bool(forKey: "paladala.miniPlayerOnExit") == false {
+        let defaults = UserDefaults.standard
+        let key = "paladala.miniPlayerOnExit"
+        let miniPlayerOnExit = defaults.object(forKey: key) as? Bool ?? true
+        if miniPlayerOnExit == false {
             // Default is "on" — `@AppStorage` writes `true` on
             // first toggle but leaves the key absent otherwise.
             // Treat the absent state as "on" so existing users
-            // don't suddenly lose the mini-player after the
-            // upgrade. `bool(forKey:)` returns `false` for an
-            // absent key, which is exactly the behaviour we
-            // want.
+            // don't suddenly lose the mini-player after the upgrade.
             diagLog(.playback, "MiniPlayerStore.detachInline: miniPlayerOnExit=false → teardown")
             teardownController()
             return
