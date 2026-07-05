@@ -251,6 +251,22 @@ enum L10n {
         /// hint is identical for both.
         static let seekHint = String(localized: "aiSummary.seekHint", defaultValue: "跳转到此位置")
     }
+
+    // MARK: - SponsorBlock 拦截恰饭
+
+    enum sponsorBlock {
+        static let title = String(localized: "sponsorBlock.title", defaultValue: "拦截恰饭")
+        static let enable = String(localized: "sponsorBlock.enable", defaultValue: "启用拦截恰饭")
+        static let autoSkip = String(localized: "sponsorBlock.autoSkip", defaultValue: "自动跳过")
+        static let minVotes = String(localized: "sponsorBlock.minVotes", defaultValue: "最低投票数")
+        static let categories = String(localized: "sponsorBlock.categories", defaultValue: "拦截类别")
+        static let report = String(localized: "sponsorBlock.report", defaultValue: "上报恰饭片段")
+        static let viewSegments = String(localized: "sponsorBlock.viewSegments", defaultValue: "查看已加载的片段")
+        static let timeSaved = String(localized: "sponsorBlock.timeSaved", defaultValue: "已节省时间")
+        static let submit = String(localized: "sponsorBlock.submit", defaultValue: "提交")
+        static let submitSuccess = String(localized: "sponsorBlock.submitSuccess", defaultValue: "提交成功！感谢您的贡献。")
+        static let enabled = String(localized: "sponsorBlock.enabled", defaultValue: "已开启")
+    }
 }
 
 // MARK: - Bundle resolution helper

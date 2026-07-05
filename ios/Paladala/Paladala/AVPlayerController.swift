@@ -485,6 +485,10 @@ final class PlayerController: ObservableObject {
                     // new keys after the first write) and gives
                     // Control Center a moving scrubber.
                     self.updateNowPlaying()
+                    // Check SponsorBlock segments for auto-skip.
+                    if SponsorBlockManager.shared.isEnabled {
+                        _ = SponsorBlockManager.shared.checkCurrentTime(seconds, player: self.player)
+                    }
                 }
             }
         }
@@ -734,6 +738,13 @@ final class PlayerController: ObservableObject {
                     "case": "prolongedStall"
                 ])
             }
+        }
+
+        // Load SponsorBlock segments for this video.
+        let sbBvid = video?.id
+        if let sbBvid {
+            SponsorBlockManager.shared.reset(for: sbBvid)
+            SponsorBlockManager.shared.loadSegments(for: sbBvid)
         }
 
         if isPlaying {

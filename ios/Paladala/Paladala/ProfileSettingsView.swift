@@ -184,6 +184,26 @@ struct ProfileSettingsView: View {
 
             Section("插件中心") {
                 Toggle("今日看什么", isOn: $todayWatch)
+
+                NavigationLink {
+                    SponsorBlockSettingsView()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("拦截恰饭")
+                                .font(.subheadline)
+                            Text("SponsorBlock · 社区标注广告跳过")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if SponsorBlockManager.shared.isEnabled {
+                            Text("已开启")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                    }
+                }
             }
 
             Section("系统与诊断") {
