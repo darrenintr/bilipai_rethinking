@@ -153,6 +153,14 @@ final class PaladalaRepository: ObservableObject {
         try await apiClient.musicVideos(page: page)
     }
 
+    func searchUsers(keyword: String, page: Int = 1) async throws -> [BiliUserSearchResult] {
+        try await apiClient.searchUsers(keyword: keyword, page: page)
+    }
+
+    func shortVideoFeed(freshIndex: Int = 0) async throws -> [BiliVideo] {
+        try await apiClient.shortVideoFeed(freshIndex: freshIndex)
+    }
+
     /// Fetch the lyric track for `video`. Returns `nil` when:
     ///   * the video has no subtitle track (most VOD uploads);
     ///   * the upstream returns no Chinese-language lyric;

@@ -14,6 +14,7 @@ struct HomeView: View {
     @EnvironmentObject private var authStore: AuthStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var model = HomeViewModel()
+    @State private var isShortVideoFeedPresented = false
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     init(repository: PaladalaRepository, heroNamespace: Namespace.ID? = nil) {
@@ -56,7 +57,7 @@ struct HomeView: View {
                 .searchable(
                     text: $model.searchQuery,
                     placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "搜索 Bilibili 视频"
+                    prompt: "搜索 Bilibili 视频和 UP 主"
                 )
                 .onSubmit(of: .search) {
                     model.category = .search
@@ -77,6 +78,12 @@ struct HomeView: View {
                             Label("离线缓存", systemImage: "arrow.down.circle")
                         }
                         .badge(DownloadStore.shared.records.count)
+                        Button {
+                            Haptics.tap()
+                            isShortVideoFeedPresented = true
+                        } label: {
+                            Label("短视频", systemImage: "rectangle.portrait.on.rectangle.portrait")
+                        }
                         Button {
                             Haptics.tap()
                             Task { await model.load(repository: repository, accountMid: accountMid) }
@@ -126,6 +133,9 @@ struct HomeView: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .homeShowBundledFallback)) { _ in
                     model.showBundledFallback(repository: repository)
+                }
+                .fullScreenCover(isPresented: $isShortVideoFeedPresented) {
+                    ShortVideoFeedView(repository: repository)
                 }
         }
     }
@@ -191,7 +201,7 @@ struct HomeView: View {
                     .padding(.horizontal, 8)
                 } else if model.category == .follow {
                     DynamicFeedList(model: model, repository: repository)
-                } else if model.videos.isEmpty {
+                } else if model.videos.isEmpty && !(model.category == .search && !model.searchUsers.isEmpty) {
                     HomeEmptyState(
                         category: model.category,
                         searchQuery: model.searchQuery,
@@ -204,6 +214,10 @@ struct HomeView: View {
                     if model.category == .recommend {
                         TodayWatchCard(videos: Array(model.videos.prefix(4)))
                             .padding(.bottom, 4)
+                    }
+                    if model.category == .search && !model.searchUsers.isEmpty {
+                        SearchUserResultsStrip(users: model.searchUsers)
+                            .padding(.bottom, 2)
                     }
                     LazyVGrid(columns: columns, spacing: 18) {
                         ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
@@ -404,6 +418,197 @@ private struct HomeOfflineBanner: View {
         }
         .padding(12)
         .paladalaCardSurface(materialDesign)
+    }
+}
+
+private struct SearchUserResultsStrip: View {
+    let users: [BiliUserSearchResult]
+    @EnvironmentObject private var router: AppRouter
+    @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("相关 UP 主", systemImage: "person.2")
+                .font(.subheadline.weight(.semibold))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(users) { user in
+                        Button {
+                            Haptics.selection()
+                            router.openUP(mid: user.mid)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    CoverImage(url: user.faceURL)
+                                        .frame(width: 42, height: 42)
+                                        .clipShape(Circle())
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(user.name)
+                                            .font(.subheadline.weight(.semibold))
+                                            .lineLimit(1)
+                                        Text("\(user.fans.compactCount) 粉丝 · \(user.videos.compactCount) 视频")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                if !user.sign.isEmpty {
+                                    Text(user.sign)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            .frame(width: 210, alignment: .leading)
+                            .padding(12)
+                            .paladalaCardSurface(materialDesign)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+@MainActor
+private final class ShortVideoFeedViewModel: ObservableObject {
+    @Published var videos: [BiliVideo] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+
+    private var freshIndex = 0
+
+    func load(repository: PaladalaRepository, replacing: Bool = true) async {
+        guard !isLoading else { return }
+        isLoading = true
+        errorMessage = nil
+        do {
+            let next = try await repository.shortVideoFeed(freshIndex: freshIndex)
+            freshIndex += 1
+            if replacing {
+                videos = next
+            } else {
+                let existing = Set(videos.map(\.id))
+                videos.append(contentsOf: next.filter { !existing.contains($0.id) })
+            }
+        } catch {
+            errorMessage = "短视频加载失败：\(error.localizedDescription)"
+        }
+        isLoading = false
+    }
+}
+
+private struct ShortVideoFeedView: View {
+    let repository: PaladalaRepository
+
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var router: AppRouter
+    @StateObject private var model = ShortVideoFeedViewModel()
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
+                            ShortVideoPage(video: video, size: geo.size) {
+                                dismiss()
+                                router.openVideo(video)
+                            }
+                            .onAppear {
+                                if index >= max(0, model.videos.count - 3) {
+                                    Task { await model.load(repository: repository, replacing: false) }
+                                }
+                            }
+                        }
+                        if model.isLoading && model.videos.isEmpty {
+                            ProgressView()
+                                .tint(.white)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.paging)
+                .ignoresSafeArea()
+            }
+
+            if let error = model.errorMessage, model.videos.isEmpty {
+                ErrorBanner(message: error)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+
+            Button {
+                Haptics.tap()
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(12)
+                    .background(.black.opacity(0.45), in: Circle())
+            }
+            .padding(.top, 18)
+            .padding(.trailing, 16)
+        }
+        .task {
+            if model.videos.isEmpty {
+                await model.load(repository: repository)
+            }
+        }
+    }
+}
+
+private struct ShortVideoPage: View {
+    let video: BiliVideo
+    let size: CGSize
+    let open: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            CoverImage(url: video.coverURL)
+                .frame(width: size.width, height: size.height)
+                .clipped()
+                .overlay {
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.3), .black.opacity(0.86)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(video.title)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(3)
+                Text(video.ownerName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .lineLimit(1)
+                HStack(spacing: 10) {
+                    Label("播放", systemImage: "play.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(PaladalaTheme.biliPink, in: Capsule())
+                    Text(video.duration.mmss)
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.82))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 44)
+        }
+        .frame(width: size.width, height: size.height)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: open)
     }
 }
 

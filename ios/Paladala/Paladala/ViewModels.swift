@@ -7,6 +7,7 @@ final class HomeViewModel: ObservableObject {
     @Published var popularSubCategory: PopularSubCategory = .comprehensive
     @Published var searchQuery = ""
     @Published var videos: [BiliVideo] = []
+    @Published var searchUsers: [BiliUserSearchResult] = []
     @Published var liveRooms: [BiliLiveRoom] = []
     /// Dynamic feed rendered on the 关注 tab. Lives in parallel to
     /// `videos` / `liveRooms` because the upstream envelope is a
@@ -47,6 +48,7 @@ final class HomeViewModel: ObservableObject {
         let requestID = beginNewRequestGeneration()
         page = 1
         videos = [] // Clear immediately for visual feedback
+        searchUsers = []
         liveRooms = []
         // Reset dynamic-feed state on every fresh load so switching
         // tabs or tapping the home indicator doesn't leave a stale
@@ -171,6 +173,11 @@ final class HomeViewModel: ObservableObject {
                 hasMore = false
                 isShowingBundledFallback = false
             } else {
+                if category == .search && replacing {
+                    searchUsers = (try? await repository.searchUsers(keyword: searchQuery)) ?? []
+                } else if category != .search {
+                    searchUsers = []
+                }
                 let next = try await repository.feed(
                     category: category,
                     searchQuery: searchQuery,

@@ -274,14 +274,7 @@ final class BilibiliAPIClient {
             queryItems.append(URLQueryItem(name: "mid", value: personalMid))
         }
         
-        // Manual App sign: md5(sorted_query + appSec)
-        let sorted = queryItems.sorted { $0.name < $1.name }
-        let query = sorted.compactMap { item -> String? in
-            guard let value = item.value else { return nil }
-            return "\(item.name)=\(value)"
-        }.joined(separator: "&")
-        let sign = md5(query + appSec)
-        queryItems.append(URLQueryItem(name: "sign", value: sign))
+        queryItems.append(URLQueryItem(name: "sign", value: appSign(queryItems)))
         
         let payload: APIResponse<AppFeedPayload> = try await get(
             baseURL: appBaseURL,
@@ -306,6 +299,15 @@ final class BilibiliAPIClient {
         diagLog(.recommendation, "App Recommended API success", details: ["itemCount": items.count, "videoCount": videos.count])
         bpLog("Received \(items.count) items, \(videos.count) mapped to videos")
         return videos
+    }
+
+    private func appSign(_ queryItems: [URLQueryItem]) -> String {
+        let sorted = queryItems.sorted { $0.name < $1.name }
+        let query = sorted.compactMap { item -> String? in
+            guard let value = item.value else { return nil }
+            return "\(item.name)=\(value)"
+        }.joined(separator: "&")
+        return md5(query + appSec)
     }
 
     private func generateMobileBuvid() -> String {
@@ -527,6 +529,53 @@ final class BilibiliAPIClient {
         )
         try payload.requireOK()
         return payload.value?.videos.map(\.model) ?? []
+    }
+
+    func searchUsers(keyword: String, page: Int = 1) async throws -> [BiliUserSearchResult] {
+        guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        let payload: APIResponse<UserSearchPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/web-interface/wbi/search/type",
+            queryItems: [
+                URLQueryItem(name: "search_type", value: "bili_user"),
+                URLQueryItem(name: "keyword", value: keyword),
+                URLQueryItem(name: "page", value: "\(page)"),
+                URLQueryItem(name: "page_size", value: "10"),
+                URLQueryItem(name: "platform", value: "pc"),
+                URLQueryItem(name: "web_location", value: "1430654")
+            ],
+            signWithWBI: true
+        )
+        try payload.requireOK()
+        return (payload.value?.users ?? []).map(\.model).filter { $0.mid > 0 }
+    }
+
+    func shortVideoFeed(freshIndex: Int = 0) async throws -> [BiliVideo] {
+        let idx = Int(Date().timeIntervalSince1970) + freshIndex
+        var queryItems = [
+            URLQueryItem(name: "mobi_app", value: "iphone"),
+            URLQueryItem(name: "platform", value: "ios"),
+            URLQueryItem(name: "idx", value: "\(idx)"),
+            URLQueryItem(name: "pull", value: "1"),
+            URLQueryItem(name: "column", value: "1"),
+            URLQueryItem(name: "device", value: "phone"),
+            URLQueryItem(name: "flush", value: "4"),
+            URLQueryItem(name: "fnval", value: "4048"),
+            URLQueryItem(name: "qn", value: "64"),
+            URLQueryItem(name: "fourk", value: "1"),
+            URLQueryItem(name: "feed_style", value: "story"),
+            URLQueryItem(name: "appkey", value: appKey),
+            URLQueryItem(name: "ts", value: "\(Int(Date().timeIntervalSince1970))")
+        ]
+        queryItems.append(URLQueryItem(name: "sign", value: appSign(queryItems)))
+
+        let payload: APIResponse<AppFeedPayload> = try await get(
+            baseURL: appBaseURL,
+            path: "/x/v2/feed/index",
+            queryItems: queryItems
+        )
+        try payload.requireOK()
+        return (payload.value?.items ?? []).compactMap(\.model)
     }
 
     func videoDetail(bvid: String, aid: Int = 0) async throws -> BiliVideo {
@@ -2038,6 +2087,45 @@ private struct UserCardInfoPayload: Decodable {
             sign: sign,
             level: level,
             vipType: vipType
+        )
+    }
+}
+
+private struct UserSearchPayload: Decodable {
+    let users: [UserSearchDTO]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        users = (try? container.decode([UserSearchDTO].self, forKey: DynamicKey("result"))) ?? []
+    }
+}
+
+private struct UserSearchDTO: Decodable {
+    let mid: Int64
+    let name: String
+    let faceURL: URL?
+    let sign: String
+    let fans: Int
+    let videos: Int
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        mid = container.decodeInt64(keys: ["mid"]) ?? 0
+        name = (container.decodeString(keys: ["uname", "name"]) ?? "Unknown").strippingHTML
+        faceURL = container.decodeString(keys: ["upic", "face"])?.httpsURL
+        sign = container.decodeString(keys: ["usign", "sign"])?.strippingHTML ?? ""
+        fans = container.decodeInt(keys: ["fans"]) ?? 0
+        videos = container.decodeInt(keys: ["videos", "video_count"]) ?? 0
+    }
+
+    var model: BiliUserSearchResult {
+        BiliUserSearchResult(
+            mid: mid,
+            name: name,
+            faceURL: faceURL,
+            sign: sign,
+            fans: fans,
+            videos: videos
         )
     }
 }

@@ -136,6 +136,22 @@ struct BiliUserCard: Codable, Hashable {
     }
 }
 
+/// Compact UP search result returned by Bilibili's
+/// `/x/web-interface/wbi/search/type?search_type=bili_user`.
+/// It is intentionally smaller than `BiliUserCard`: search rows need
+/// avatar, name, follower count, and video count, while the full profile
+/// screen still fetches the richer card once the user opens it.
+struct BiliUserSearchResult: Identifiable, Hashable, Codable {
+    var id: Int64 { mid }
+
+    let mid: Int64
+    let name: String
+    let faceURL: URL?
+    let sign: String
+    let fans: Int
+    let videos: Int
+}
+
 /// Relation between the signed-in user and another UP. Mirrors
 /// Bilibili's `/x/relation` `attribute` field — `1` is followed,
 /// `2` is the special "悄悄关注" (silent follow) state, `6` is
