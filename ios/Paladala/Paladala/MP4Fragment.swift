@@ -104,21 +104,110 @@ struct TrackSegmentIndex: Hashable {
 /// Errors thrown by `parseSIDX`.
 enum SIDXError: Error, CustomStringConvertible {
     case truncated
-    case wrongBox(String)
+    case unexpectedBox(String)
     case unsupportedVersion(UInt8)
     case referenceCountMismatch
+    case invalidBoxSize(UInt64)
 
     var description: String {
         switch self {
         case .truncated:
             return "SIDX bytes truncated"
-        case .wrongBox(let actual):
+        case .unexpectedBox(let actual):
             return "expected sidx box, found \(actual)"
         case .unsupportedVersion(let v):
             return "unsupported SIDX version \(v)"
         case .referenceCountMismatch:
             return "SIDX reference count vs byte length mismatch"
+        case .invalidBoxSize(let size):
+            return "invalid SIDX box size \(size)"
         }
+    }
+}
+
+struct SIDXReference: Hashable {
+    let referenceType: UInt32
+    let referencedSize: UInt32
+    let subsegmentDuration: UInt32
+    let startsWithSAP: Bool
+    let sapType: UInt8
+    let sapDeltaTime: UInt32
+}
+
+struct SIDX: Hashable {
+    let absoluteOffset: UInt64
+    let boxSize: UInt64
+    let headerSize: UInt64
+    let version: UInt8
+    let referenceID: UInt32
+    let timescale: UInt32
+    let earliestPresentationTime: UInt64
+    let firstOffset: UInt64
+    let references: [SIDXReference]
+
+    var sidxEndOffset: UInt64 {
+        absoluteOffset + boxSize
+    }
+
+    var firstMediaOffset: UInt64 {
+        sidxEndOffset + firstOffset
+    }
+}
+
+private struct ByteCursor {
+    private let data: Data
+    private var offset = 0
+
+    init(_ data: Data) {
+        self.data = data
+    }
+
+    mutating func readUInt8() throws -> UInt8 {
+        guard offset + 1 <= data.count else { throw SIDXError.truncated }
+        defer { offset += 1 }
+        return data[offset]
+    }
+
+    mutating func readUInt16BE() throws -> UInt16 {
+        guard offset + 2 <= data.count else { throw SIDXError.truncated }
+        let value = UInt16(data[offset]) << 8
+            | UInt16(data[offset + 1])
+        offset += 2
+        return value
+    }
+
+    mutating func readUInt32BE() throws -> UInt32 {
+        guard offset + 4 <= data.count else { throw SIDXError.truncated }
+        let value = UInt32(data[offset]) << 24
+            | UInt32(data[offset + 1]) << 16
+            | UInt32(data[offset + 2]) << 8
+            | UInt32(data[offset + 3])
+        offset += 4
+        return value
+    }
+
+    mutating func readUInt64BE() throws -> UInt64 {
+        guard offset + 8 <= data.count else { throw SIDXError.truncated }
+        var value: UInt64 = 0
+        for i in 0..<8 {
+            value = (value << 8) | UInt64(data[offset + i])
+        }
+        offset += 8
+        return value
+    }
+
+    mutating func readFourCC() throws -> String {
+        let bytes = try readBytes(count: 4)
+        return String(bytes: bytes, encoding: .ascii) ?? ""
+    }
+
+    mutating func readBytes(count: Int) throws -> Data {
+        guard count >= 0, offset + count <= data.count else {
+            throw SIDXError.truncated
+        }
+        let range = offset..<(offset + count)
+        offset += count
+        return data.subdata(in: range)
     }
 }
 
@@ -142,9 +231,7 @@ enum SIDXError: Error, CustomStringConvertible {
 ///   reference_count (u16)                      2 bytes
 ///   for each reference:
 ///     reference_type (1 bit) + referenced_size (31 bits)   4 bytes
-///     subsegment_duration:
-///       v0         (u32)                      4 bytes
-///       v1         (u64)                      8 bytes
+///     subsegment_duration (u32)                           4 bytes
 ///     starts_with_SAP (1 bit) + SAP_type (3 bits)
 ///                       + SAP_delta_time (28 bits)         4 bytes
 /// ```
@@ -154,109 +241,86 @@ enum SIDXError: Error, CustomStringConvertible {
 /// 1000 or 44100). Version-0 is included for completeness even
 /// though it is rare in the wild.
 ///
-/// The parser is defensive: every read bounds-checks against the
-/// input length and throws `.truncated` if the data is shorter
-/// than the header claims. We never trust the upstream box size
-/// to actually match the byte count B 站 sends — B 站 occasionally
-/// writes a slightly larger `size` field than the actual bytes,
-/// so we cap our reads at `min(boxEnd, data.endIndex)`.
-func parseSIDX(_ bytes: Data) throws -> (
-    timescale: UInt32,
-    earliestPresentationTime: Int64,
-    firstOffset: Int64,
-    fragments: [(referencedSize: Int64, subsegmentDuration: Int64, startsWithSAP: Bool)]
-) {
-    var cursor = 0
+/// `data` must start at the first byte of the SIDX box header
+/// (`size`), not after the header. `absoluteOffset` is the
+/// SIDX box's absolute byte offset in the upstream resource.
+func parseSIDX(_ data: Data, absoluteOffset: UInt64) throws -> SIDX {
+    var cursor = ByteCursor(data)
 
-    func readU32() throws -> UInt32 {
-        guard cursor + 4 <= bytes.count else { throw SIDXError.truncated }
-        let v = UInt32(bytes[cursor]) << 24
-              | UInt32(bytes[cursor+1]) << 16
-              | UInt32(bytes[cursor+2]) << 8
-              | UInt32(bytes[cursor+3])
-        cursor += 4
-        return v
-    }
-    func readU16() throws -> UInt16 {
-        guard cursor + 2 <= bytes.count else { throw SIDXError.truncated }
-        let v = UInt16(bytes[cursor]) << 8 | UInt16(bytes[cursor+1])
-        cursor += 2
-        return v
-    }
-    func readU64() throws -> UInt64 {
-        guard cursor + 8 <= bytes.count else { throw SIDXError.truncated }
-        var v: UInt64 = 0
-        for i in 0..<8 {
-            v = (v << 8) | UInt64(bytes[cursor + i])
-        }
-        cursor += 8
-        return v
+    let size32 = try cursor.readUInt32BE()
+    let type = try cursor.readFourCC()
+    guard type == "sidx" else {
+        throw SIDXError.unexpectedBox(type)
     }
 
-    // Box header: size + type. `size` may be the special value 1
-    // (extends to EOF) which we don't try to handle — the playurl
-    // response always carries an explicit byte count.
-    let boxSize = try readU32()
-    guard boxSize >= 16 else { throw SIDXError.truncated }
-    let boxType = String(bytes: bytes[8..<12], encoding: .ascii) ?? ""
-    guard boxType == "sidx" else { throw SIDXError.wrongBox(boxType) }
+    let headerSize: UInt64
+    let boxSize: UInt64
+    if size32 == 1 {
+        boxSize = try cursor.readUInt64BE()
+        headerSize = 16
+    } else {
+        boxSize = UInt64(size32)
+        headerSize = 8
+    }
+    guard boxSize >= headerSize + 24 else {
+        throw SIDXError.invalidBoxSize(boxSize)
+    }
+    guard UInt64(data.count) >= boxSize else {
+        throw SIDXError.truncated
+    }
 
-    // FullBox header: version + flags.
-    guard cursor + 4 <= bytes.count else { throw SIDXError.truncated }
-    let version = bytes[cursor]
-    cursor += 4  // skip version + 3 flag bytes
+    let version = try cursor.readUInt8()
+    _ = try cursor.readBytes(count: 3)
+    let referenceID = try cursor.readUInt32BE()
+    let timescale = try cursor.readUInt32BE()
 
-    // `reference_ID` is deprecated and B 站 writes 0; we ignore it.
-    _ = try readU32()
-
-    let timescale = try readU32()
-    let isV1 = (version == 1)
-    guard version == 0 || version == 1 else {
+    let earliestPresentationTime: UInt64
+    let firstOffset: UInt64
+    switch version {
+    case 0:
+        earliestPresentationTime = UInt64(try cursor.readUInt32BE())
+        firstOffset = UInt64(try cursor.readUInt32BE())
+    case 1:
+        earliestPresentationTime = try cursor.readUInt64BE()
+        firstOffset = try cursor.readUInt64BE()
+    default:
         throw SIDXError.unsupportedVersion(version)
     }
-    let earliestPresentationTime: Int64 = isV1
-        ? Int64(try readU64())
-        : Int64(try readU32())
-    let firstOffset: Int64 = isV1
-        ? Int64(try readU64())
-        : Int64(try readU32())
 
-    _ = try readU16()  // reserved
+    _ = try cursor.readUInt16BE()
+    let referenceCount = Int(try cursor.readUInt16BE())
 
-    // `reference_count` is the number of subsegments in the
-    // file. We use it as an upper bound on what we expect to
-    // read; the actual parse stops at `bytes.endIndex`.
-    let referenceCount = Int(try readU16())
-
-    var fragments: [(referencedSize: Int64, subsegmentDuration: Int64, startsWithSAP: Bool)] = []
-    fragments.reserveCapacity(referenceCount)
-
-    // Each reference is 12 bytes for v0, 16 bytes for v1.
-    let perRefBytes = isV1 ? 16 : 12
-    while cursor + perRefBytes <= bytes.count,
-          fragments.count < referenceCount {
-        let typeAndSize = try readU32()
-        let referenceType = (typeAndSize >> 31) & 0x1
-        let referencedSize = Int64(typeAndSize & 0x7FFF_FFFF)
-        _ = referenceType  // B 站 always writes 0 (=media); kept for completeness
-
-        let subsegmentDuration: Int64 = isV1
-            ? Int64(try readU64())
-            : Int64(try readU32())
-
-        let sapInfo = try readU32()
-        let startsWithSAP = ((sapInfo >> 31) & 0x1) == 1
-        _ = (sapInfo >> 28) & 0x7    // SAP_type
-        _ = sapInfo & 0x0FFF_FFFF      // SAP_delta_time
-
-        fragments.append((referencedSize, subsegmentDuration, startsWithSAP))
+    var references: [SIDXReference] = []
+    references.reserveCapacity(referenceCount)
+    for _ in 0..<referenceCount {
+        let rawSize = try cursor.readUInt32BE()
+        let referenceType = rawSize >> 31
+        let referencedSize = rawSize & 0x7FFF_FFFF
+        let subsegmentDuration = try cursor.readUInt32BE()
+        let sap = try cursor.readUInt32BE()
+        let startsWithSAP = ((sap >> 31) & 1) == 1
+        let sapType = UInt8((sap >> 28) & 0x7)
+        let sapDeltaTime = sap & 0x0FFF_FFFF
+        references.append(SIDXReference(
+            referenceType: referenceType,
+            referencedSize: referencedSize,
+            subsegmentDuration: subsegmentDuration,
+            startsWithSAP: startsWithSAP,
+            sapType: sapType,
+            sapDeltaTime: sapDeltaTime
+        ))
     }
 
-    return (
+    return SIDX(
+        absoluteOffset: absoluteOffset,
+        boxSize: boxSize,
+        headerSize: headerSize,
+        version: version,
+        referenceID: referenceID,
         timescale: timescale,
         earliestPresentationTime: earliestPresentationTime,
         firstOffset: firstOffset,
-        fragments: fragments
+        references: references
     )
 }
 
@@ -273,30 +337,26 @@ func parseSIDX(_ bytes: Data) throws -> (
 func makeTrackSegmentIndex(
     initializationRange: Range<Int64>,
     sidxRange: Range<Int64>?,
-    sidx: (
-        timescale: UInt32,
-        earliestPresentationTime: Int64,
-        firstOffset: Int64,
-        fragments: [(referencedSize: Int64, subsegmentDuration: Int64, startsWithSAP: Bool)]
-    )
+    sidx: SIDX
 ) -> TrackSegmentIndex {
     let timescale = Double(sidx.timescale)
-    let firstMediaOffset = (sidxRange?.upperBound ?? 0) + sidx.firstOffset
+    let firstMediaOffset = Int64(sidx.firstMediaOffset)
     var byteCursor = firstMediaOffset
     var timeCursor = Double(sidx.earliestPresentationTime) / timescale
     var fragments: [MediaFragment] = []
-    fragments.reserveCapacity(sidx.fragments.count)
-    for f in sidx.fragments {
-        let byteRange = byteCursor..<(byteCursor + f.referencedSize)
-        let duration = Double(f.subsegmentDuration) / timescale
+    fragments.reserveCapacity(sidx.references.count)
+    for reference in sidx.references {
+        let referencedSize = Int64(reference.referencedSize)
+        let byteRange = byteCursor..<(byteCursor + referencedSize)
+        let duration = Double(reference.subsegmentDuration) / timescale
         fragments.append(MediaFragment(
             byteRange: byteRange,
             startTime: timeCursor,
             duration: duration,
-            startsWithSAP: f.startsWithSAP,
+            startsWithSAP: reference.startsWithSAP,
             startPrefixHex: nil
         ))
-        byteCursor += f.referencedSize
+        byteCursor += referencedSize
         timeCursor += duration
     }
     return TrackSegmentIndex(

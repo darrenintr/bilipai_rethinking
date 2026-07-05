@@ -713,9 +713,12 @@ final class LocalHLSProxyServer {
                 return
             }
             do {
-                let parsed = try parseSIDX(body)
-                let initRange = track.initializationRange.offset ..< (track.initializationRange.offset + track.initializationRange.length)
                 let sidxRange = indexRange.offset ..< (indexRange.offset + indexRange.length)
+                let parsed = try parseSIDX(
+                    body,
+                    absoluteOffset: UInt64(indexRange.offset)
+                )
+                let initRange = self.playlistInitializationRange(for: track)
                 let index = makeTrackSegmentIndex(
                     initializationRange: initRange,
                     sidxRange: sidxRange,
@@ -783,6 +786,20 @@ final class LocalHLSProxyServer {
     ) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return trackSegmentIndex[track.baseURL] != nil
+    }
+
+    private func playlistInitializationRange(
+        for track: BiliDashSource.Track
+    ) -> Range<Int64> {
+        let initStart = track.initializationRange.offset
+        let initEndExclusive = track.initializationRange.offset
+            + track.initializationRange.length
+        if let indexRange = track.indexRange,
+           indexRange.offset > initStart,
+           indexRange.offset < initEndExclusive {
+            return initStart..<indexRange.offset
+        }
+        return initStart..<initEndExclusive
     }
 
     private enum SegmentBoundaryValidationError: Error, CustomStringConvertible {
@@ -1288,14 +1305,15 @@ final class LocalHLSProxyServer {
         // byte ranges, so AVPlayer sees normal HLS resources while
         // Bili's CDN receives the Range requests it expects.
         let encoded = base64urlEncode(activeUpstream(for: track).absoluteString)
+        let initRange = playlistInitializationRange(for: track)
         let initURL = localURL(
             path: "init",
             queryItems: [
                 URLQueryItem(name: "u", value: encoded),
                 URLQueryItem(
                     name: "range",
-                    value: "\(track.initializationRange.offset)"
-                        + "-\(track.initializationRange.endOffset)"
+                    value: "\(initRange.lowerBound)"
+                        + "-\(initRange.upperBound - 1)"
                 )
             ]
         )
@@ -1316,6 +1334,13 @@ final class LocalHLSProxyServer {
                     name: "from",
                     value: "\(track.mediaStartOffset)"
                 )
+            ]
+        )
+        let fullMediaURL = localURL(
+            path: "media",
+            queryItems: [
+                URLQueryItem(name: "u", value: encoded),
+                URLQueryItem(name: "from", value: "0")
             ]
         )
 
@@ -1347,17 +1372,15 @@ final class LocalHLSProxyServer {
                 "#EXT-X-MAP:URI=\"\(initURL)\"",
             ]
             for frag in index.fragments {
-                let relativeStart = frag.byteRange.lowerBound
-                    - track.mediaStartOffset
                 let referencedSize = frag.byteRange.upperBound
                     - frag.byteRange.lowerBound
                 lines.append(
                     "#EXTINF:\(String(format: "%.3f", frag.duration)),"
                 )
                 lines.append(
-                    "#EXT-X-BYTERANGE:\(referencedSize)@\(relativeStart)"
+                    "#EXT-X-BYTERANGE:\(referencedSize)@\(frag.byteRange.lowerBound)"
                 )
-                lines.append(mediaURL)
+                lines.append(fullMediaURL)
             }
             lines.append("#EXT-X-ENDLIST")
             lines.append("")
@@ -1400,8 +1423,8 @@ final class LocalHLSProxyServer {
                         "firstMediaOffset": track.mediaStartOffset,
                         "referencedSize": 0,
                         "first16BytesAtSegmentStart": "",
-                        "mapRange": "\(track.initializationRange.offset)"
-                            + "-\(track.initializationRange.endOffset)",
+                        "mapRange": "\(initRange.lowerBound)"
+                            + "-\(initRange.upperBound - 1)",
                         "sidxRange": track.indexRange.map {
                             "\($0.offset)-\($0.endOffset)"
                         } ?? "",
@@ -2549,6 +2572,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         // `task` is the URLSession upstream leg; cancelling
         // it stops further `didReceive data` callbacks.
         task?.cancel()
+        session?.invalidateAndCancel()
         diagLog(.network,
                 "LocalHLSProxyServer downstream closed",
                 details: [

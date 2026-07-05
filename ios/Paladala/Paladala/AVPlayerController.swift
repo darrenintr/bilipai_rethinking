@@ -561,13 +561,25 @@ final class PlayerController: ObservableObject {
         // user sees an indefinite buffering spinner.
         observers.insert(
             item.observe(\.status, options: [.new, .initial]) {
-                [weak self] _, change in
-                let status = change.newValue
-                    .map { String(describing: $0) } ?? "nil"
+                [weak self] _, _ in
+                let currentStatus = item.status
+                let status = Self.describe(itemStatus: currentStatus)
                 let err = self?.player.currentItem?.error
                 var details: [String: Any] = ["status": status]
                 if let err {
                     details["error"] = String(describing: err)
+                    if let events = item.errorLog()?.events, !events.isEmpty {
+                        details["errorLogEvents"] = events.suffix(5).map { event in
+                            [
+                                "statusCode": event.errorStatusCode,
+                                "domain": event.errorDomain,
+                                "comment": event.errorComment ?? "",
+                                "uri": event.uri ?? "",
+                                "server": event.serverAddress ?? "",
+                                "session": event.playbackSessionID ?? ""
+                            ] as [String: Any]
+                        }
+                    }
                     Analytics.recordError(err, context: "player_item_status_failed")
                     Analytics.log("player_item_status_failed", [
                         "status": status,
@@ -575,7 +587,7 @@ final class PlayerController: ObservableObject {
                     ])
                 }
                 diagLog(.playback, "AVPlayerItem status changed", details: details)
-                if let statusValue = change.newValue, statusValue == .failed {
+                if currentStatus == .failed {
                     let detail = err.map { String(describing: $0) }
                     Task { @MainActor in
                         self?.playerError = .itemFailed(detail: detail)
@@ -1168,6 +1180,19 @@ final class PlayerController: ObservableObject {
             networkSpeed = Double(delta) / dt
             lastBytes = bytes
             lastBytesAt = now
+        }
+    }
+
+    private static func describe(itemStatus status: AVPlayerItem.Status) -> String {
+        switch status {
+        case .unknown:
+            return "unknown"
+        case .readyToPlay:
+            return "readyToPlay"
+        case .failed:
+            return "failed"
+        @unknown default:
+            return "future(\(status.rawValue))"
         }
     }
 
