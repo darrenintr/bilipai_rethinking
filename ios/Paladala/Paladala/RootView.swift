@@ -154,11 +154,15 @@ struct RootView: View {
             // the tab bar's glass chrome). On iPad we offset further
             // so the overlay doesn't collide with the sidebar's
             // resize handle.
-            MiniPlayerOverlay()
-                .padding(.trailing, horizontalSizeClass == .regular ? 32 : 16)
-                .padding(.bottom, horizontalSizeClass == .regular ? 32 : 80)
-                .animation(.spring(response: 0.35, dampingFraction: 0.85),
-                           value: miniPlayerIsShowing)
+            HStack {
+                Spacer(minLength: 16)
+                MiniPlayerOverlay()
+                    .frame(maxWidth: horizontalSizeClass == .regular ? 360 : 340)
+            }
+            .padding(.trailing, horizontalSizeClass == .regular ? 32 : 16)
+            .padding(.bottom, horizontalSizeClass == .regular ? 32 : 80)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85),
+                       value: miniPlayerIsShowing)
         }
         .overlay {
             if isOpeningAnimationVisible {

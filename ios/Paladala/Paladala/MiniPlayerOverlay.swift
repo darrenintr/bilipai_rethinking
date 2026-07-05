@@ -13,6 +13,7 @@ import SwiftUI
 struct MiniPlayerOverlay: View {
     @EnvironmentObject private var store: MiniPlayerStore
     @EnvironmentObject private var router: AppRouter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     @State private var dragOffset: CGFloat = 0
@@ -32,7 +33,7 @@ struct MiniPlayerOverlay: View {
            store.isShowingMiniPlayer {
             HStack(spacing: 10) {
                 AVPlayerThumbnailView(player: controller.player)
-                    .frame(width: 110, height: 64)
+                    .frame(width: 104, height: 60)
                     .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle))
                     .overlay {
                         RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
@@ -40,27 +41,27 @@ struct MiniPlayerOverlay: View {
                     }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(video.title)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(video.ownerName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(video.title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text(video.ownerName)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .padding(.bottom, 2)
+
                     ZStack(alignment: .bottomLeading) {
                         progressBar
-                        scrubBubble
-                            .offset(y: -22)
-                            // Pin the bubble near the start while
-                            // scrubbing starts; full per-finger
-                            // tracking would require coupling it to
-                            // the same gesture x-position, which is
-                            // more code than this UX warrants.
                     }
                     .animation(.spring(response: 0.25, dampingFraction: 0.85),
                                value: isScrubbing)
                 }
+                .layoutPriority(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button {
@@ -102,8 +103,16 @@ struct MiniPlayerOverlay: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close mini-player")
             }
+            .overlay(alignment: .top) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.28))
+                    .frame(width: 34, height: 3)
+                    .offset(y: 4)
+                    .opacity(Double(dismissProgress))
+                    .accessibilityHidden(true)
+            }
             .padding(10)
-            .frame(width: 320, height: 84)
+            .frame(maxWidth: .infinity, minHeight: 84)
             .background {
                 if materialDesign == .liquidGlass {
                     Color.clear.paladalaCardSurface(.liquidGlass)
@@ -118,6 +127,8 @@ struct MiniPlayerOverlay: View {
                 }
             }
             .offset(y: max(0, dragOffset))
+            .scaleEffect(reduceMotion ? 1.0 : 1.0 - (dismissProgress * 0.035), anchor: .bottom)
+            .opacity(Double(1.0 - (dismissProgress * 0.18)))
             .gesture(
                 DragGesture()
                     .onChanged { dragOffset = $0.translation.height }
@@ -126,15 +137,23 @@ struct MiniPlayerOverlay: View {
                             Haptics.tap()
                             store.close()
                         }
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        withAnimation(miniPlayerSpring) {
                             dragOffset = 0
                         }
                     }
             )
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Mini player for \(video.title)")
         }
+    }
+
+    private var dismissProgress: CGFloat {
+        min(1, max(0, dragOffset / 80))
+    }
+
+    private var miniPlayerSpring: Animation? {
+        reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.4, dampingFraction: 0.85)
     }
 
     private var progressBar: some View {
@@ -168,6 +187,8 @@ struct MiniPlayerOverlay: View {
                         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
                         .offset(x: max(0, geo.size.width * scrubFraction) - 5)
                 }
+
+                scrubBubble(width: geo.size.width)
             }
             // Extend the hit area vertically without making the
             // bar visually thicker.  `contentShape` makes the
@@ -210,7 +231,7 @@ struct MiniPlayerOverlay: View {
     /// Floating time bubble shown above the scrub knob.  Appears
     /// only while `isScrubbing` is true.
     @ViewBuilder
-    private var scrubBubble: some View {
+    private func scrubBubble(width: CGFloat) -> some View {
         if isScrubbing {
             let total = store.duration > 0 ? store.duration : 1
             let seconds = Double(scrubFraction) * total
@@ -226,8 +247,17 @@ struct MiniPlayerOverlay: View {
                         style: .continuous
                     )
                 )
+                .fixedSize()
+                .offset(x: bubbleOffset(width: width), y: -22)
                 .transition(.opacity.combined(with: .scale(scale: 0.85)))
         }
+    }
+
+    private func bubbleOffset(width: CGFloat) -> CGFloat {
+        let bubbleWidth: CGFloat = 58
+        let halfBubble = bubbleWidth / 2
+        let playheadX = width * scrubFraction
+        return min(max(playheadX - halfBubble, 0), max(0, width - bubbleWidth))
     }
 
     /// Compact `m:ss` or `h:mm:ss` formatter for the scrub
