@@ -1036,12 +1036,16 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             switch gesture.state {
             case .began:
-                playerController.setRate(2.0)
-                playerController.isLongPressingSpeed = true
+                Task { @MainActor in
+                    playerController.setRate(2.0)
+                    playerController.isLongPressingSpeed = true
+                }
                 Haptics.medium()
             case .ended, .cancelled:
-                playerController.setRate(1.0)
-                playerController.isLongPressingSpeed = false
+                Task { @MainActor in
+                    playerController.setRate(1.0)
+                    playerController.isLongPressingSpeed = false
+                }
             default:
                 break
             }
