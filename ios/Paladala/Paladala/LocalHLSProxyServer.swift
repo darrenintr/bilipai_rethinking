@@ -178,6 +178,27 @@ final class LocalHLSProxyServer {
             if let audio = playback.dash?.audio {
                 startMediaTotalProbe(for: audio, referer: referer)
             }
+            // Prime the probe cache for every backup CDN host
+            // B站 published alongside the primary.  Without
+            // this, the first failover blocks on a second
+            // `Range: bytes=0-0` round-trip to the backup —
+            // visible to the user as ~5 s of "buffering…"
+            // before playback recovers from a primary-host
+            // outage.  Parallelising the probes at startup
+            // turns that into a one-segment hiccup.
+            for track in [playback.dash?.video, playback.dash?.audio]
+                .compactMap({ $0 }) {
+                for backup in track.backupURLs {
+                    startMediaTotalProbe(forBackup: backup, referer: referer)
+                }
+            }
+            // Reset the failover cursor so each new playback
+            // starts on its primary host.  The cursor is keyed
+            // by the primary URL — concurrent playbacks (mini-
+            // player + fullscreen view) get independent cursors.
+            lock.lock()
+            failoverIndex.removeAll()
+            lock.unlock()
         }
 
         try ensureListener()
@@ -202,6 +223,9 @@ final class LocalHLSProxyServer {
         probedSizes.removeAll()
         probeWaiters.removeAll()
         probeInFlight.removeAll()
+        // Failover cursors also reset on stop — a new
+        // playback should always start on its primary CDN.
+        failoverIndex.removeAll()
         inFlightRanges.removeAll()
         for (_, stream) in activeStreams {
             stream.cancel()
@@ -403,6 +427,14 @@ final class LocalHLSProxyServer {
     private var probeWaiters:
         [URL: [(DispatchSemaphore, (Int64?) -> Void)]] = [:]
     private var probeInFlight: Set<URL> = []
+    /// CDN failover cursor. Keyed by the track's primary URL,
+    /// value is the index into the track's `backupURLs` array
+    /// that should serve the next playlist (and segment
+    /// request). Index 0 means "use primary", 1 means "use
+    /// backupURLs[0]", etc. Reset to empty by `serve(playback:)`
+    /// at the start of every new playback so a fresh load
+    /// always prefers the primary. Touched only under `lock`.
+    private var failoverIndex: [URL: Int] = [:]
     /// Target segment duration for the multi-segment HLS
     /// playlist.  6 s gives ~40 segments for a typical 4-min
     /// VOD — enough granularity that AVPlayer can seek to the
@@ -449,6 +481,122 @@ final class LocalHLSProxyServer {
             }
             self.finishMediaTotalProbe(url: key, total: total)
         }.resume()
+    }
+
+    /// Warm the probe cache for a backup CDN host so the first
+    /// failover is instant.  Same wire format as
+    /// `startMediaTotalProbe(for:referer:)` but keyed by the
+    /// backup URL itself (not the parent track) — the
+    /// `probedSizes` cache is keyed by URL, so this entry
+    /// will satisfy any `awaitMediaTotalProbe(for: ...)`
+    /// call the failover cursor eventually makes for this
+    /// backup.  No-op if the probe is already cached or
+    /// in flight.
+    private func startMediaTotalProbe(
+        forBackup backup: URL,
+        referer: String
+    ) {
+        lock.lock()
+        if probedSizes[backup] != nil || probeInFlight.contains(backup) {
+            lock.unlock()
+            return
+        }
+        probeInFlight.insert(backup)
+        lock.unlock()
+
+        var req = URLRequest(url: backup)
+        req.setValue(referer, forHTTPHeaderField: "Referer")
+        req.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+            + "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            + "Version/18.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        req.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        req.httpMethod = "GET"
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, _ in
+            guard let self else { return }
+            let total: Int64? = (response as? HTTPURLResponse).flatMap { http in
+                let cr = http.value(forHTTPHeaderField: "Content-Range") ?? ""
+                let (_, _, parsedTotal) =
+                    LocalHLSProxyServer.parseContentRangeHeader(cr)
+                return parsedTotal > 0 ? parsedTotal : nil
+            }
+            self.finishMediaTotalProbe(url: backup, total: total)
+            diagLog(.playback, "LocalHLSProxyServer backup probe",
+                    details: [
+                        "host": backup.host ?? "",
+                        "totalBytes": total ?? -1,
+                        "success": total != nil
+                    ])
+        }.resume()
+    }
+
+    /// Pick the upstream URL that should serve this track right
+    /// now, honouring the failover cursor.  Returns the
+    /// primary when no failover has been triggered; advances
+    /// through `track.backupURLs` as the cursor moves.
+    ///
+    /// Called only from `respondMediaPlaylist(...)` — both
+    /// the playlist-embedded URL and the segment fetches use
+    /// the same picker, so a single cursor move flips every
+    /// subsequent request on the same connection.
+    private func activeUpstream(for track: BiliDashSource.Track) -> URL {
+        lock.lock()
+        defer { lock.unlock() }
+        let idx = failoverIndex[track.baseURL] ?? 0
+        let candidates = [track.baseURL] + track.backupURLs
+        guard idx >= 0, idx < candidates.count else {
+            return track.baseURL
+        }
+        return candidates[idx]
+    }
+
+    /// Advance the failover cursor for `primaryURL` to the
+    /// next backup.  Called when an upstream fetch returns
+    /// 5xx, the connection times out, or the byte-range
+    /// response is malformed.  Idempotent — calling past the
+    /// end of the backup list is a no-op (the playlist will
+    /// keep using the last-known host, and AVPlayer will
+    /// surface the underlying error to the user).
+    fileprivate func markUpstreamFailed(primaryURL: URL) {
+        lock.lock()
+        let current = failoverIndex[primaryURL] ?? 0
+        // We don't know the track's full backup list here
+        // (only the primary URL is keyed), so we cap at a
+        // reasonable ceiling.  Real caps come from the track
+        // DTO in `respondMediaPlaylist`; this helper is
+        // intentionally conservative so a stale cursor can't
+        // chase a phantom host forever.
+        let next = min(current + 1, 8)
+        failoverIndex[primaryURL] = next
+        lock.unlock()
+        diagLog(.playback, "LocalHLSProxyServer failover",
+                details: [
+                    "primary": primaryURL.host ?? "",
+                    "newIndex": next
+                ])
+    }
+
+    /// Resolve which track this URL belongs to and bump its
+    /// failover cursor.  Used by `StreamingProxyTask` when a
+    /// 5xx comes back from an upstream — the task only knows
+    /// the URL it just tried, not the track DTO.  Lookup is
+    /// O(tracks × backups) per call (typically 2 tracks × ≤3
+    /// backups = 6 URL comparisons), so we keep the helper
+    /// synchronous.  Fires at most once per failed segment —
+    /// not hot enough to warrant a URL→primary hash.
+    fileprivate func markUpstreamFailed(url: URL) {
+        guard let dash = currentPlayback?.dash else { return }
+        for track in [dash.video, dash.audio].compactMap({ $0 }) {
+            let candidates = [track.baseURL] + track.backupURLs
+            if candidates.contains(url) {
+                // Failover is keyed by the *primary* URL —
+                // that's how `activeUpstream(for:)` reads it.
+                markUpstreamFailed(primaryURL: track.baseURL)
+                return
+            }
+        }
     }
 
     /// Probe completion: cache the size, signal all waiters.
@@ -922,7 +1070,7 @@ final class LocalHLSProxyServer {
         // The init/media endpoints then apply absolute upstream
         // byte ranges, so AVPlayer sees normal HLS resources while
         // Bili's CDN receives the Range requests it expects.
-        let encoded = base64urlEncode(track.baseURL.absoluteString)
+        let encoded = base64urlEncode(activeUpstream(for: track).absoluteString)
         let initURL = localURL(
             path: "init",
             queryItems: [
@@ -2124,6 +2272,16 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         if (500...599).contains(http.statusCode) {
             cancelledForRetry = true
             completionHandler(.cancel)
+            // CDN failover: a 5xx from the upstream is the
+            // signal the host is degraded.  Move the cursor
+            // forward so the next playlist emission uses the
+            // backup.  The task captures `upstream` at
+            // construction time — that's the URL we just got
+            // the 5xx from, which is enough for the helper to
+            // resolve the parent track and bump the cursor.
+            // No-op if we're already at the end of the backup
+            // list for this track.
+            server?.markUpstreamFailed(url: upstream)
             if upstreamAttempt < Self.maxRetries {
                 // Still have retries left — wait for a
                 // fresh upstream attempt with the Range

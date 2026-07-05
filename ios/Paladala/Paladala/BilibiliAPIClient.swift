@@ -2439,6 +2439,7 @@ private struct PlayURLPayload: Decodable {
             return BiliDashSource(
                 video: .init(
                     baseURL: v.baseURL,
+                    backupURLs: v.backupURLs,
                     codecs: v.codecs,
                     bandwidth: v.bandwidth ?? 0,
                     mimeType: "video/mp4",
@@ -2455,6 +2456,7 @@ private struct PlayURLPayload: Decodable {
                     let audioInit = item.initRange
                     return BiliDashSource.Track(
                         baseURL: audio.baseURL,
+                        backupURLs: audio.backupURLs,
                         codecs: audio.codecs ?? "mp4a.40.2",
                         bandwidth: audio.bandwidth ?? 0,
                         mimeType: "audio/mp4",
@@ -2473,6 +2475,11 @@ private struct PlayURLPayload: Decodable {
 
     struct DashVideo: Decodable {
         let baseURL: URL
+        /// CDN failover URLs.  B站 returns 1–3 backups per
+        /// Representation (see `bilibili-API-collect` docs —
+        /// `backup_url` / `backupUrl`).  Order is upstream's
+        /// preference; the proxy walks them on failover.
+        let backupURLs: [URL]
         let codecs: String
         /// Bandwidth in bits/second.  Bili writes the integer
         /// `bandwidth` per Representation.
@@ -2497,6 +2504,15 @@ private struct PlayURLPayload: Decodable {
                 )
             }
             baseURL = url
+            // Both key casings per the bilibili-API-collect
+            // spec.  Each entry must be a parseable URL — we
+            // drop malformed ones rather than failing the
+            // whole decode so a single typo from upstream
+            // doesn't black-hole playback.
+            let rawBackups = container.decodeStringArray(keys: [
+                "backupUrl", "backup_url"
+            ]) ?? []
+            backupURLs = rawBackups.compactMap { URL(string: $0) }
             codecs = container.decodeString(keys: ["codecs"]) ?? ""
             bandwidth = container.decodeInt(keys: ["bandwidth"])
             width = container.decodeInt(keys: ["width"])
@@ -2511,6 +2527,7 @@ private struct PlayURLPayload: Decodable {
 
     struct DashMedia: Decodable {
         let baseURL: URL
+        let backupURLs: [URL]
         let codecs: String?
         let bandwidth: Int?
         let segmentBase: SegmentBase?
@@ -2527,6 +2544,10 @@ private struct PlayURLPayload: Decodable {
                 )
             }
             baseURL = url
+            let rawBackups = container.decodeStringArray(keys: [
+                "backupUrl", "backup_url"
+            ]) ?? []
+            backupURLs = rawBackups.compactMap { URL(string: $0) }
             codecs = container.decodeString(keys: ["codecs"])
             bandwidth = container.decodeInt(keys: ["bandwidth"])
             segmentBase =
@@ -3411,6 +3432,31 @@ private extension KeyedDecodingContainer where K == DynamicKey {
             }
             if let value = try? decode(Int.self, forKey: DynamicKey(key)) {
                 return "\(value)"
+            }
+        }
+        return nil
+    }
+
+    /// Decode an array of strings under any of `keys`.  Returns
+    /// `nil` when none of the keys are present, an empty array
+    /// when the key is present but the array is empty, and the
+    /// raw strings otherwise.  Each element is left as a `String`
+    /// — call sites that need `URL`s further filter via
+    /// `compactMap { URL(string: $0) }` so a single malformed
+    /// entry cannot poison the whole failover list.
+    ///
+    /// Used by the DASH decoders to read
+    /// `backup_url` / `backupUrl` (the per-track CDN failover
+    /// list B站 publishes alongside `base_url`).
+    func decodeStringArray(keys: [String]) -> [String]? {
+        for key in keys {
+            if let arr = try? decode([String].self, forKey: DynamicKey(key)) {
+                return arr
+            }
+            // Some B站 endpoints write the array as a single
+            // string (legacy single-backup case); normalise.
+            if let single = try? decode(String.self, forKey: DynamicKey(key)) {
+                return [single]
             }
         }
         return nil

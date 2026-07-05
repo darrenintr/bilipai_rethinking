@@ -239,6 +239,11 @@ final class PlayerController: ObservableObject {
     private let nowPlayingTitle: String
     private let nowPlayingArtist: String
     private let nowPlayingCoverURL: URL?
+    /// `bvid` of the currently-playing video.  Set in `init`
+    /// so the periodic time observer can persist play progress
+    /// to `PlayProgressStore` keyed by `bvid`.  `nil` for live
+    /// rooms (their streams have no resumable state).
+    let nowPlayingBvid: String?
     /// Cached artwork.  Built once when the coverURL resolves,
     /// then handed to `MPMediaItemArtwork` on every Now Playing
     /// refresh so we don't re-wrap a `UIImage` twice a second.
@@ -264,6 +269,7 @@ final class PlayerController: ObservableObject {
         self.nowPlayingTitle = video?.title ?? "直播"
         self.nowPlayingArtist = video?.ownerName ?? "Paladala"
         self.nowPlayingCoverURL = video?.coverURL
+        self.nowPlayingBvid = video?.id
 
         let referer = playback.referer.absoluteString
         var asset: AVAsset
@@ -458,12 +464,25 @@ final class PlayerController: ObservableObject {
                 // check without the Task allocation overhead of the
                 // KVO observers.
                 Task { @MainActor in
-                    self?.currentTime = seconds
+                    guard let self else { return }
+                    self.currentTime = seconds
+                    // Persist to disk so the user can resume after
+                    // a kill / crash / `Caches` purge.  The store
+                    // coalesces internally (won't rewrite the JSON
+                    // more than once every 5 s, or when the
+                    // playhead barely moves), so this 2 Hz loop
+                    // does not churn disk I/O.
+                    let duration = CMTimeGetSeconds(self.player.currentItem?.duration ?? .zero)
+                    PlayProgressStore.shared.update(
+                        bvid: self.nowPlayingBvid ?? "",
+                        currentTime: seconds,
+                        duration: duration
+                    )
                     // Keep the lock-screen playhead in sync.  Two
                     // updates per second is cheap (the dict has no
                     // new keys after the first write) and gives
                     // Control Center a moving scrubber.
-                    self?.updateNowPlaying()
+                    self.updateNowPlaying()
                 }
             }
         }

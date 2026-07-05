@@ -567,6 +567,21 @@ struct BiliDashSource: Hashable, Codable {
     /// can skip the full MPD Period/AdaptationSet tree.
     struct Track: Hashable, Codable {
         let baseURL: URL
+        /// CDN failover URLs B站 ships alongside `baseUrl` in
+        /// the playurl response (per
+        /// `bilibili-API-collect/docs/video/videostream_url.md`,
+        /// both `backup_url` and `backupUrl` keys surface). The
+        /// `LocalHLSProxyServer` cycles through these when the
+        /// primary host returns 5xx, times out, or stalls
+        /// mid-segment. Order is upstream's preference —
+        /// `backup_url[0]` is B站's own first-choice failover,
+        /// `[1]` is the secondary, etc.
+        ///
+        /// Empty in the rare cases B站 only publishes a single
+        /// host (mostly old or region-locked videos). The
+        /// proxy treats `backupURLs.isEmpty` as "no failover
+        /// available; surface the upstream error to the user".
+        let backupURLs: [URL]
         /// ISO BMFF `codecs` box string (e.g. `avc1.640028`,
         /// `mp4a.40.2`). Embedded into HLS via `CODECS`.
         let codecs: String
@@ -598,6 +613,15 @@ struct BiliDashSource: Hashable, Codable {
         /// leave these nil.
         let width: Int?
         let height: Int?
+
+        /// All host candidates for this track — primary first,
+        /// then backups in upstream's preferred order. Mirrors
+        /// `LocalHLSProxyServer`'s failover cursor so the
+        /// proxy and the player can reason about "where we
+        /// are" without touching `currentPlayback`.
+        var allHosts: [URL] {
+            [baseURL] + backupURLs
+        }
     }
 
     let video: Track

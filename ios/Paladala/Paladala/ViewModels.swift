@@ -729,6 +729,18 @@ final class VideoDetailViewModel: ObservableObject {
         do {
             detail = try await repository.detail(for: detail)
             self.playback = try await repository.playback(for: detail, qn: preferredQn)
+            // Seed `resumeTime` from the local progress store
+            // when present.  `repository.playback(...)` already
+            // set the value from `BiliVideo.resumeTime` (the
+            // server-side history hint), but the local store is
+            // more accurate — it tracks every 0.5 s playhead
+            // tick, while the server only sees the report
+            // heartbeats (up to 30 s stale).  We prefer the
+            // local value when it is newer.
+            if let saved = PlayProgressStore.shared.lastProgress(for: detail.bvid),
+               saved.currentTime > self.playback?.resumeTime ?? 0 {
+                self.playback?.resumeTime = saved.currentTime
+            }
             diagLog(.playback,
                     "VideoDetailViewModel.load succeeded",
                     details: [
