@@ -198,6 +198,21 @@ struct ProfileSettingsView: View {
                 }
             }
 
+            Section {
+                Button {
+                    withAnimation {
+                        UserDefaults.standard.set(false, forKey: "paladala.didOnboard")
+                    }
+                } label: {
+                    Label("重新查看引导", systemImage: "questionmark.circle")
+                }
+                .buttonStyle(.plain)
+            } header: {
+                Text("引导")
+            } footer: {
+                Text("重新展示首次使用的引导页，了解 Paladala 的各项功能。")
+            }
+
             Section("系统与诊断") {
                 // The previous implementation used a sheet with an
                 // `if let url = logExportURL` content closure

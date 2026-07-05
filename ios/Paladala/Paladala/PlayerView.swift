@@ -181,25 +181,34 @@ private struct SponsorSkipToast: View {
     var body: some View {
         Group {
             if show, let segment {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "forward.fill")
-                        .font(.caption)
-                    Text("已跳过 \(SponsorCategory(rawValue: segment.category)?.displayName ?? segment.category)")
+                        .font(.caption.weight(.bold))
+                        .symbolEffect(.bounce, value: show)
+                    Text("已跳过")
                         .font(.caption.weight(.medium))
+                    Text(SponsorCategory(rawValue: segment.category)?.displayName ?? segment.category)
+                        .font(.caption.weight(.bold))
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
                 .background(
-                    .black.opacity(0.65),
+                    PaladalaTheme.biliPink.opacity(0.85),
                     in: Capsule()
                 )
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .overlay(
+                    Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
+                .scaleEffect(show ? 1 : 0.5, anchor: .top)
+                .opacity(show ? 1 : 0)
+                .offset(y: show ? 0 : -20)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, 8)
+                .padding(.top, 6)
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: show)
+        .animation(.spring(response: 0.5, dampingFraction: 0.65, blendDuration: 0.2), value: show)
         .onReceive(NotificationCenter.default.publisher(for: .paladalaSponsorSegmentSkipped)) { note in
             guard let seg = note.object as? SponsorSegment else { return }
             segment = seg
