@@ -783,12 +783,13 @@ final class DownloadManager: NSObject, ObservableObject {
         // don't trample a real `video.mp4` if the dest
         // already exists.
         try? fm.removeItem(at: tmp)
-        guard let writer = FileHandle(forWritingTo: tmp) else {
-            throw NSError(domain: "Paladala.DownloadManager.merge",
-                          code: 1,
-                          userInfo: [NSLocalizedDescriptionKey:
-                                        "could not open writer: \(tmp.path)"])
-        }
+        // `FileHandle(forWritingTo:)` / `FileHandle(forReadingFrom:)`
+        // on iOS are `throws`-returning-non-Optional, not
+        // `Optional`-returning.  The thrown error already carries the
+        // underlying `NSError` (errno + path), so we just propagate
+        // it — no need for a manual `guard let … else { throw … }`
+        // bridge like on the macOS variant.
+        let writer = try FileHandle(forWritingTo: tmp)
         var total: Int64 = 0
         let chunk = 1 << 20  // 1 MiB
         var writeFailed: Error? = nil
@@ -798,12 +799,7 @@ final class DownloadManager: NSObject, ObservableObject {
             // (≤ ~100 KB on B 站) but we still stream rather
             // than load into a `Data` so the function is
             // symmetric for both inputs.
-            guard let initReader = FileHandle(forReadingFrom: initURL) else {
-                throw NSError(domain: "Paladala.DownloadManager.merge",
-                              code: 2,
-                              userInfo: [NSLocalizedDescriptionKey:
-                                            "could not open reader: \(initURL.path)"])
-            }
+            let initReader = try FileHandle(forReadingFrom: initURL)
             defer { try? initReader.close() }
             while true {
                 let data = initReader.readData(ofLength: chunk)
@@ -817,12 +813,7 @@ final class DownloadManager: NSObject, ObservableObject {
             // response already trimmed those bytes for us — the
             // first byte of `mediaURL` is the first byte of the
             // mdat payload.
-            guard let mediaReader = FileHandle(forReadingFrom: mediaURL) else {
-                throw NSError(domain: "Paladala.DownloadManager.merge",
-                              code: 3,
-                              userInfo: [NSLocalizedDescriptionKey:
-                                            "could not open reader: \(mediaURL.path)"])
-            }
+            let mediaReader = try FileHandle(forReadingFrom: mediaURL)
             defer { try? mediaReader.close() }
             while true {
                 let data = mediaReader.readData(ofLength: chunk)
