@@ -193,7 +193,20 @@ final class PaladalaRepository: ObservableObject {
     /// `subtitle_url` JSON/LRC body, sharing the parser already used by
     /// the Music view.
     func videoSubtitles(for video: BiliVideo) async throws -> BiliLyricTrack? {
-        try await videoLyrics(for: video)
+        var resolvedVideo = video
+        var cid = video.cid
+        if cid <= 0 {
+            resolvedVideo = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
+            cid = resolvedVideo.cid
+        }
+        guard cid > 0 else { return nil }
+        guard let info = try await apiClient.videoSubtitleInfo(
+            bvid: resolvedVideo.bvid,
+            aid: resolvedVideo.aid,
+            cid: cid
+        ) else { return nil }
+        let text = try await apiClient.videoSubtitleText(info: info)
+        return BiliLyricParser.parse(text: text, language: info.lanDoc.isEmpty ? info.lan : info.lanDoc)
     }
 
     /// Fetch historical danmaku for the video's `cid`. Failures are handled

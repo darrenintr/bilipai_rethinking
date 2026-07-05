@@ -341,6 +341,7 @@ final class VideoDetailViewModel: ObservableObject {
     /// toggles the segmented picker.
     @Published var commentSort: CommentSort = .hot
     @Published var danmakuEnabled = true
+    @Published var subtitleEnabled = true
     @Published var playbackSpeed: Float = 1
     /// User's preferred playback quality. Maps to Bilibili's
     /// `accept_quality` ladder: 80 = 1080P high quality, 64 =

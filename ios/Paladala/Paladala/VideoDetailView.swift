@@ -57,6 +57,10 @@ struct VideoDetailView: View {
     /// Material design preference — drives glass vs M3 surfaces
     /// on the control panel and comment card.
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+    /// User's preferred subtitle visibility. The timed-text track
+    /// still loads in the background so enabling subtitles during
+    /// playback is instant when the upstream publishes one.
+    @AppStorage("paladala.subtitleEnabled") private var storedSubtitleEnabled = true
     /// When true the player takes 80% of the screen and comments
     /// take 20%, giving a more immersive video-watching experience.
     /// Toggled by the "immersive" button in the nav bar.
@@ -225,6 +229,9 @@ struct VideoDetailView: View {
             if model.preferredQn != storedPreferredQn {
                 model.preferredQn = storedPreferredQn
             }
+            if model.subtitleEnabled != storedSubtitleEnabled {
+                model.subtitleEnabled = storedSubtitleEnabled
+            }
             await model.load(repository: repository)
         }
         // `initial: true` is REQUIRED for the offline (cached
@@ -293,7 +300,7 @@ struct VideoDetailView: View {
                     video: model.detail,
                     playback: playback,
                     repository: repository,
-                    subtitleTrack: model.subtitleTrack,
+                    subtitleTrack: model.subtitleEnabled ? model.subtitleTrack : nil,
                     danmakuItems: model.danmakuEnabled ? model.danmakuItems : [],
                     controller: controller
                 )
@@ -461,7 +468,7 @@ struct VideoDetailView: View {
                     playback: playback,
                     video: model.detail,
                     repository: repository,
-                    subtitleTrack: model.subtitleTrack,
+                    subtitleTrack: model.subtitleEnabled ? model.subtitleTrack : nil,
                     danmakuItems: model.danmakuEnabled ? model.danmakuItems : [],
                     controller: controller
                 )
@@ -538,6 +545,12 @@ struct VideoDetailView: View {
 
     private var controlPanel: some View {
         HStack {
+            Toggle(L10n.video.subtitles, isOn: $model.subtitleEnabled)
+                .toggleStyle(.button)
+                .disabled(model.subtitleTrack == nil)
+                .onChange(of: model.subtitleEnabled) { _, newValue in
+                    storedSubtitleEnabled = newValue
+                }
             Toggle(L10n.video.danmaku, isOn: $model.danmakuEnabled)
                 .toggleStyle(.button)
             // Quality picker. Maps the four Bilibili accept-quality

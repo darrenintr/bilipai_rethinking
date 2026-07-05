@@ -97,6 +97,7 @@ enum L10n {
         static let noComments = String(localized: "video.noComments", defaultValue: "暂无评论")
         static let noCommentsHint = String(localized: "video.noCommentsHint", defaultValue: "成为第一个评论的人")
         static let commentError = String(localized: "video.commentError", defaultValue: "评论加载失败")
+        static let subtitles = String(localized: "video.subtitles", defaultValue: "字幕")
         static let danmaku = String(localized: "video.danmaku", defaultValue: "弹幕")
         static let danmakuComingSoon = String(localized: "video.danmakuComingSoon", defaultValue: "弹幕 (即将推出)")
         static let noPlayableFormat = String(localized: "video.noPlayableFormat", defaultValue: "该视频的可用清晰度均不可播放（可能为地区限制或大会员专享）")

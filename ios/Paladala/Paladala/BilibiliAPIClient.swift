@@ -417,17 +417,16 @@ final class BilibiliAPIClient {
         return payload.value?.videos.compactMap(\.validModel) ?? []
     }
 
-    /// Fetch the AI-generated / human-submitted subtitle / lyric
-    /// track for a video. Hits the public `/x/player/wbi/v2` endpoint
-    /// and walks the `subtitle.subtitles[]` list for the best
-    /// Chinese match (zh-CN / zh-Hans). Returns `nil` when the
-    /// video has no lyric track at all.
+    /// Fetch all AI-generated / human-submitted subtitle tracks for a video.
+    /// Hits the public `/x/player/wbi/v2` endpoint and returns the
+    /// `subtitle.subtitles[]` metadata. The caller chooses the preferred
+    /// language and then fetches `subtitle_url`.
     ///
     /// The shape of `subtitle_url` is `//aisubtitle.hdslb.com/...`
     /// — a protocol-relative JSON document that the caller
-    /// (`videoLyricText(url:)`) fetches and parses.
-    func videoLyricInfo(bvid: String = "", aid: Int = 0, cid: Int) async throws -> BiliLyricInfo? {
-        guard cid > 0 else { return nil }
+    /// (`videoSubtitleText(info:)`) fetches and parses.
+    func videoSubtitleInfos(bvid: String = "", aid: Int = 0, cid: Int) async throws -> [BiliLyricInfo] {
+        guard cid > 0 else { return [] }
         var queryItems = [
             URLQueryItem(name: "cid", value: "\(cid)")
         ]
@@ -445,27 +444,42 @@ final class BilibiliAPIClient {
         )
         try payload.requireOK()
         guard let subtitles = payload.value?.subtitle?.subtitles else {
-            return nil
+            return []
         }
+        return subtitles.map(\.model).filter { !$0.subtitleURL.isEmpty }
+    }
+
+    /// Pick the best subtitle track for app playback. Prefer
+    /// Simplified Chinese, fall back to any Chinese variant, then the
+    /// first available language.
+    func videoSubtitleInfo(bvid: String = "", aid: Int = 0, cid: Int) async throws -> BiliLyricInfo? {
+        let subtitles = try await videoSubtitleInfos(bvid: bvid, aid: aid, cid: cid)
         // Prefer Simplified Chinese — the rest of the app surfaces
         // Simplified-Chinese copy as the default. Fall back to
         // any Chinese variant, then the first available track.
-        if let sc = subtitles.first(where: { $0.lan == "zh-CN" || $0.lan == "zh-Hans" }) {
-            return sc.model
+        if let sc = subtitles.first(where: { $0.lan == "zh-CN" || $0.lan == "zh-Hans" || $0.lan == "ai-zh" }) {
+            return sc
         }
         if let tc = subtitles.first(where: { $0.lan.hasPrefix("zh") }) {
-            return tc.model
+            return tc
         }
-        return subtitles.first?.model
+        return subtitles.first
     }
 
-    /// Fetch the raw lyric JSON for a `subtitle_url` returned by
-    /// `videoLyricInfo(cid:)`. B站 serves two distinct lyric
+    /// Backwards-compatible Music API wrapper. Music still names this
+    /// "lyric" because the view renders the same timed text as scrolling
+    /// lyrics.
+    func videoLyricInfo(bvid: String = "", aid: Int = 0, cid: Int) async throws -> BiliLyricInfo? {
+        try await videoSubtitleInfo(bvid: bvid, aid: aid, cid: cid)
+    }
+
+    /// Fetch the raw subtitle JSON for a `subtitle_url` returned by
+    /// `videoSubtitleInfo(cid:)`. B站 serves two distinct timed-text
     /// encodings on the same endpoint:
     ///   * `application/json` — `{ "body": [{from, to, content}, …] }`
     ///   * `text/plain`        — LRC text (`[mm:ss.xx]lyric`)
     /// We sniff the first non-whitespace byte to pick a parser.
-    func videoLyricText(info: BiliLyricInfo) async throws -> String {
+    func videoSubtitleText(info: BiliLyricInfo) async throws -> String {
         guard let url = info.absoluteURL else {
             throw BilibiliAPIError.invalidURL
         }
@@ -483,6 +497,11 @@ final class BilibiliAPIClient {
             throw BilibiliAPIError.missingData
         }
         return text
+    }
+
+    /// Backwards-compatible Music API wrapper.
+    func videoLyricText(info: BiliLyricInfo) async throws -> String {
+        try await videoSubtitleText(info: info)
     }
 
     /// Fetch real video danmaku from Bilibili's XML endpoint.
