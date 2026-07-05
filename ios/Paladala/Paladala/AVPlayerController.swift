@@ -131,6 +131,37 @@ enum RecoveryAction {
 
 @MainActor
 final class PlayerController: ObservableObject {
+    // MARK: playback state machine
+
+    /// **Build 182 state machine.**  Replaces the implicit
+    /// `playerError`-only state model with an explicit
+    /// lifecycle.  AVPlayer binding (`replaceCurrentItem`)
+    /// only happens in `.ready`; `retryPlayback()` only
+    /// runs from `.ready`; the loadTask can be cancelled
+    /// safely while in `.preparing`.
+    ///
+    /// `playerError` (the existing `@Published`) is still
+    /// the rich-error payload shown by the overlay — it's
+    /// set when `playbackState` becomes `.failed(...)` and
+    /// cleared when `playbackState` becomes `.preparing`.
+    enum PlaybackState: Equatable {
+        case idle
+        case preparing
+        case ready
+        case failed(PlayerPlaybackError)
+
+        static func == (lhs: PlaybackState, rhs: PlaybackState) -> Bool {
+            switch (lhs, rhs) {
+            case (.idle, .idle), (.preparing, .preparing), (.ready, .ready):
+                return true
+            case (.failed(let a), .failed(let b)):
+                return a == b
+            default:
+                return false
+            }
+        }
+    }
+
     // MARK: published state
 
     @Published private(set) var currentTime: Double = 0
@@ -141,6 +172,10 @@ final class PlayerController: ObservableObject {
     @Published var isNativeFullscreenActive: Bool = false
     @Published var isLongPressingSpeed: Bool = false
     @Published private(set) var playerError: PlayerPlaybackError?
+    /// **Build 182**: explicit playback lifecycle.  Use
+    /// this (not `playerError`) for state-machine guards
+    /// in `retryPlayback()` and similar.
+    @Published private(set) var playbackState: PlaybackState = .idle
     @Published private(set) var networkSpeed: Double = 0
 
     // MARK: underlying AVPlayer
@@ -191,6 +226,15 @@ final class PlayerController: ObservableObject {
     /// controller would still fire a `.prolongedStall` write
     /// against the next one's state.
     private var stallTimerTask: Task<Void, Never>?
+    /// **Build 182**: the orchestration task that drives
+    /// `LocalHLSProxyServer.serve(playback:) async throws ->
+    /// URL` → endpoint self-test → `replaceCurrentItem` →
+    /// `playbackState = .ready`.  Held so `retryPlayback()`
+    /// and video-switch can cancel an in-flight load before
+    /// the next one starts (otherwise an old loadTask
+    /// completing in the background would write `playbackState
+    /// = .ready` after a newer loadTask had already started).
+    private var loadTask: Task<Void, Never>?
     /// Token returned by `addPeriodicTimeObserver`.  We hold it
     /// to keep the observer alive and to remove it on
     /// `tearDown`.  `AVPlayer.currentTime` is a method, not a
@@ -372,49 +416,18 @@ final class PlayerController: ObservableObject {
                             CMTimeGetSeconds(insertDuration)
                     ])
         } else if playback.dash != nil {
-            // VOD DASH path: stand up the local HLS proxy and
-            // point AVPlayer at the synthesised master playlist.
-            // The proxy holds the dash source / referer and
-            // serves the manifests + segment bytes.  This is
-            // also the fallback path for downloads that
-            // pre-date the merge step (no `mergedVideo` yet).
-            //
-            // `serve(playback:)` is fire-and-forget — it kicks
-            // off SIDX preparation as a background `Task` and
-            // returns immediately.  `waitForReady()` then
-            // blocks only for the `NWListener` to bind to a
-            // port (sub-second).  AVPlayer will retry its
-            // `video.m3u8` / `audio.m3u8` requests (with
-            // `Retry-After: 0`) until prep completes.
-            do {
-                let serveStart = Date()
-                try LocalHLSProxyServer.shared.serve(playback: playback)
-                if let baseURL = LocalHLSProxyServer.shared.waitForReady() {
-                    let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
-                    asset = AVURLAsset(url: playlistURL)
-                    usesProxy = true
-                    diagLog(.playback,
-                            "AVPlayerController bound to local HLS proxy",
-                            details: [
-                                "url": playlistURL.absoluteString,
-                                "serveElapsedMs": Int(
-                                    Date().timeIntervalSince(serveStart) * 1000
-                                )
-                            ])
-                } else {
-                    diagLog(.playback, "LocalHLSProxyServer did not become ready")
-                    asset = AVMutableComposition()
-                    usesProxy = true
-                    initialPlayerError = .proxyFailed(code: -1)
-                }
-            } catch {
-                diagLog(.playback,
-                        "Failed to start LocalHLSProxyServer",
-                        details: ["error": "\(error)"])
-                asset = AVMutableComposition()
-                usesProxy = true
-                initialPlayerError = .proxyFailed(code: -1)
-            }
+            // VOD DASH path: stand up the local HLS proxy
+            // and point AVPlayer at the synthesised master
+            // playlist.  **Build 182**: replaces the old
+            // fire-and-forget `serve` + `waitForReady` +
+            // `AVURLAsset` path with the async `loadPlayback`
+            // orchestration below.  `init` only sets a
+            // placeholder `AVMutableComposition` and lets
+            // `loadPlayback` swap in the real `AVPlayerItem`
+            // once the proxy's manifest is ready (and only
+            // after a local 200 endpoint self-test).
+            asset = AVMutableComposition()
+            usesProxy = true
         } else if let fallback = playback.fallbackURL {
             // Direct URL path: live HLS or legacy MP4.  AVPlayer
             // can consume either directly, but B站's CDN still
@@ -448,15 +461,13 @@ final class PlayerController: ObservableObject {
         self.playerError = initialPlayerError
 
         let item = AVPlayerItem(asset: asset)
-        
-        // Optimization: Seek to the resume time *before* assigning the player
-        // to the view controller (or here, before assigning the item to the
-        // player). This is more efficient as the media only loads at the
-        // actual start time.
-        if playback.resumeTime > 0 {
-            item.seek(to: CMTime(seconds: playback.resumeTime, preferredTimescale: 600), completionHandler: nil)
-        }
-        
+
+        // Build 182: the seek-to-resume-time call moved
+        // into `startPlaybackSession(item:)`.  See the
+        // proxy-path branch below — the placeholder item
+        // used in the proxy path has no duration, so
+        // seeking on it is wasted; `startPlaybackSession`
+        // runs after the real item is bound.
         self.playerItem = item
         self.player = AVPlayer(playerItem: item)
 
@@ -505,240 +516,20 @@ final class PlayerController: ObservableObject {
             }
         }
 
-        // KVO on the item for buffer state.  AVPlayer exposes
-        // these as KVO-observable Bool properties on
-        // `AVPlayerItem`, not as `NSNotification`s.
-        observers.insert(
-            item.observe(
-                \.isPlaybackBufferEmpty,
-                options: [.new, .initial]
-            ) { [weak self] _, change in
-                let empty = change.newValue ?? false
-                Task { @MainActor in
-                    self?.isBuffering = empty
-                }
-            }
-        )
-        observers.insert(
-            item.observe(
-                \.isPlaybackLikelyToKeepUp,
-                options: [.new, .initial]
-            ) { [weak self] _, change in
-                let likely = change.newValue ?? false
-                Task { @MainActor in
-                    if likely { self?.isBuffering = false }
-                }
-            }
-        )
+        // **Build 182**: KVO observers are installed via
+        // `installObservers(on:)` so both `init` (placeholder
+        // item) and `loadPlayback` (real item) use the same
+        // observer wiring with the `[weak self, weak item] +
+        // currentItem === item` guard (item #10).
+        installObservers(on: item)
 
-        // Diagnostic KVO: every new buffered range fires
-        // this observer.  We log the consolidated range
-        // table so we can correlate "scrubber seek landed
-        // at 80%" with "buffer covers 80–82%" (or "buffer
-        // is empty, hence the stall").
-        observers.insert(
-            item.observe(\.loadedTimeRanges, options: [.new]) {
-                [weak self] _, _ in
-                Task { @MainActor in
-                    self?.logLoadedTimeRanges()
-                }
-            }
-        )
-
-        // Diagnostic KVO: AVPlayer's internal wait reason
-        // (iOS 16.4+).  Fires when AVPlayer is in
-        // `waitingToPlayAtSpecifiedRate`.  Values include
-        // `evaluatingBuffeRedSeek`, `noItemToPlay`,
-        // `toMinimizeStalls` — exactly what we need to
-        // distinguish "stalled because upstream is slow"
-        // from "stalled because the parser gave up on the
-        // response we sent".
-        if #available(iOS 16.4, *) {
-            observers.insert(
-                player.observe(\.reasonForWaitingToPlay, options: [.new]) {
-                    _, change in
-                    let reason = change.newValue
-                        .map { String(describing: $0) } ?? "nil"
-                    diagLog(.playback,
-                            "AVPlayer reasonForWaitingToPlay",
-                            details: ["reason": reason])
-                }
-            )
-        }
-
-        // Diagnostic KVO: `AVPlayerItem.status` transitions
-        // through `.unknown → .readyToPlay (or .failed)`.
-        // Logging this catches the case where the proxy
-        // returns a 206 with a malformed body that AVPlayer
-        // rejects at the parser level. A `.failed` status
-        // also publishes to `playerError` so the overlay
-        // can offer the recovery button — without this, the
-        // user sees an indefinite buffering spinner.
-        observers.insert(
-            item.observe(\.status, options: [.new, .initial]) {
-                [weak self] _, _ in
-                let currentStatus = item.status
-                let status = Self.describe(itemStatus: currentStatus)
-                let err = self?.player.currentItem?.error
-                var details: [String: Any] = ["status": status]
-                if let err {
-                    details["error"] = String(describing: err)
-                    if let events = item.errorLog()?.events, !events.isEmpty {
-                        details["errorLogEvents"] = events.suffix(5).map { event in
-                            [
-                                "statusCode": event.errorStatusCode,
-                                "domain": event.errorDomain,
-                                "comment": event.errorComment ?? "",
-                                "uri": event.uri ?? "",
-                                "server": event.serverAddress ?? "",
-                                "session": event.playbackSessionID ?? ""
-                            ] as [String: Any]
-                        }
-                    }
-                    Analytics.recordError(err, context: "player_item_status_failed")
-                    Analytics.log("player_item_status_failed", [
-                        "status": status,
-                        "error": String(describing: err)
-                    ])
-                }
-                diagLog(.playback, "AVPlayerItem status changed", details: details)
-                if currentStatus == .failed {
-                    let detail = err.map { String(describing: $0) }
-                    Task { @MainActor in
-                        self?.playerError = .itemFailed(detail: detail)
-                        diagLog(.playback, "PlayerController.playerError assigned", details: [
-                            "case": "itemFailed",
-                            "detail": detail ?? ""
-                        ])
-                    }
-                }
-            }
-        )
-
-        // End-of-stream notification.  This one is a real
-        // `NSNotification`, declared as a top-level
-        // `Notification.Name` constant.
-        statusObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.isPlaying = false
-                // End-of-stream = the user watched all the way
-                // through (or AVPlayer hit the end and stopped).
-                // This is the strongest "engaged" signal we have
-                // without a periodic heartbeat, and feeds the
-                // completion-rate denominator for the playback
-                // funnel.
-                let totalSeconds = self?.player.currentItem?.duration.seconds ?? 0
-                Analytics.log("video_complete", [
-                    "duration_seconds": totalSeconds
-                ])
-                Analytics.breadcrumb("PLAY", "video_complete")
-                // Hand off to the YouTube-style "next up" auto-
-                // play path. `VideoDetailView` subscribes to
-                // `.paladalaVideoDidPlayToEnd` and either auto-
-                // plays the next related video (when
-                // `paladala.autoPlayNext` is on) or surfaces a
-                // "下一个视频" countdown overlay. Posted on the
-                // main queue (the observer above specifies
-                // `queue: .main`) so the subscriber does not
-                // need to hop threads.
-                NotificationCenter.default.post(
-                    name: .paladalaVideoDidPlayToEnd,
-                    object: self?.player.currentItem
-                )
-            }
-        }
-        errorObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemFailedToPlayToEndTime,
-            object: item, queue: .main
-        ) { [weak self] note in
-            let err = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey]
-                as? Error
-            diagLog(.playback, "AVPlayerItem failed to play to end", details: [
-                "error": err.map { String(describing: $0) } ?? "unknown"
-            ])
-            if let err {
-                Analytics.recordError(err, context: "video_playback_end")
-                Analytics.log("video_playback_end_error", [
-                    "domain": (err as NSError).domain,
-                    "code": (err as NSError).code
-                ])
-            }
-            Task { @MainActor in
-                self?.isPlaying = false
-                self?.isBuffering = false
-                let detail = err.map { String(describing: $0) }
-                self?.playerError = .stoppedMidStream(detail: detail)
-                diagLog(.playback, "PlayerController.playerError assigned", details: [
-                    "case": "stoppedMidStream",
-                    "detail": detail ?? ""
-                ])
-            }
-        }
-        // The "new error log entry" notification is what fires
-        // when AVPlayer refuses to play a media format (codec
-        // rejection, container rejection, network error, etc).
-        // It is the difference between "video keeps buffering
-        // forever" and "AVPlayer said no, with a reason".  The
-        // error log keeps the *last* few entries, so we always
-        // include every one of them.
-        //
-        // We can't read AVPlayerItemErrorLogEvent's properties
-        // by name from Swift because the bridge is unstable
-        // across SDK versions (the properties exist in Obj-C
-        // as `errorStatusCode`, `errorDomain`, `errorComment`
-        // but Swift only exposes them with an explicit
-        // `value(forKey:)` lookup).  Falling back to
-        // `String(describing:)` is reliable and gives us
-        // enough info to diagnose the "not in correct format"
-        // error.
-        errorLogObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.newErrorLogEntryNotification,
-            object: item, queue: .main
-        ) { [weak self] _ in
-            let entries = item.errorLog()?.events ?? []
-            let summary = entries.prefix(3).map { e -> String in
-                String(describing: e)
-            }.joined(separator: " | ")
-            diagLog(.playback, "AVPlayerItem new error log entry", details: [
-                "count": entries.count,
-                "last3": summary
-            ])
-            if let last = entries.first {
-                Analytics.recordError(
-                    NSError(domain: "paladala.player", code: last.errorStatusCode, userInfo: [
-                        NSLocalizedDescriptionKey: last.errorComment ?? "AVPlayer error log entry",
-                        "errorDomain": last.errorDomain,
-                        "errorStatusCode": last.errorStatusCode
-                    ]),
-                    context: "player_errorLogEntry"
-                )
-                Analytics.log("player_error_log_entry", [
-                    "count": entries.count,
-                    "domain": last.errorDomain,
-                    "code": last.errorStatusCode
-                ])
-                // Map HTTP-class AVPlayer errors to the recovery
-                // surface so the user can act. The 4xx range
-                // covers 403 (CDN / cookie rejection), 404
-                // (segment missing), 410 (gone). We intentionally
-                // ignore 5xx here — those are usually transient
-                // and `retryPlayback` is the right recovery even
-                // without a numeric code path.
-                let code = last.errorStatusCode
-                if (400..<500).contains(code) {
-                    Task { @MainActor in
-                        self?.playerError = .proxyFailed(code: code)
-                        diagLog(.playback, "PlayerController.playerError assigned", details: [
-                            "case": "proxyFailed",
-                            "code": code
-                        ])
-                    }
-                }
-            }
-        }
+        // **Build 182**: NotificationCenter observers are
+        // installed via `installNotificationObservers(on:)`
+        // so both `init` (placeholder item) and `loadPlayback`
+        // (real item) re-attach them on the new item with
+        // the same `[weak self]` + `currentItem === item`
+        // guard pattern (item #10).
+        installNotificationObservers(on: item)
 
         // Periodically poll: AVPlayer does not push a
         // "rate changed" event for the `rate=0 → rate=1`
@@ -764,15 +555,23 @@ final class PlayerController: ObservableObject {
             }
         }
 
-        // Load SponsorBlock segments for this video.
-        let sbBvid = video?.id
-        if let sbBvid {
-            SponsorBlockManager.shared.reset(for: sbBvid)
-            SponsorBlockManager.shared.loadSegments(for: sbBvid)
-        }
-
-        if isPlaying {
-            player.play()
+        // **Build 182**: for the proxy path, do NOT call
+        // `startPlaybackSession(item:)` here — the proxy
+        // item doesn't exist yet (it will be constructed
+        // inside `loadPlayback(_:)` once the proxy's
+        // manifest is ready).  Instead, kick off the
+        // loadTask; it will call `startPlaybackSession`
+        // after binding the real item.
+        if !usesProxy {
+            startPlaybackSession(item: item)
+        } else {
+            // **Build 182 orchestration.**  Start the
+            // async loadTask.  `init` returns immediately;
+            // the task will await `serve(playback:) async`,
+            // run the endpoint self-test, swap in a fresh
+            // `AVPlayerItem`, and call
+            // `startPlaybackSession(item:)` itself.
+            loadPlayback(playback)
         }
 
         // Hook into the iOS system transport (lock screen, Control
@@ -830,6 +629,393 @@ final class PlayerController: ObservableObject {
             return nil
         }
         return image
+    }
+
+    // MARK: playback orchestration
+
+    /// Build 182: do the playback-side wiring (seek to
+    /// resume time, load SponsorBlock segments, call
+    /// `player.play()`) for `item`.  Pulled out of `init`
+    /// so the proxy-path `loadPlayback(_:)` can call it
+    /// after `replaceCurrentItem(with:)` — identical work,
+    /// different caller.
+    private func startPlaybackSession(item: AVPlayerItem) {
+        // Optimization: Seek to the resume time *before*
+        // calling `player.play()`.  This is more efficient
+        // as the media only loads at the actual start time.
+        if originalPlayback.resumeTime > 0 {
+            item.seek(
+                to: CMTime(
+                    seconds: originalPlayback.resumeTime,
+                    preferredTimescale: 600
+                ),
+                completionHandler: nil
+            )
+        }
+        if let sbBvid = nowPlayingBvid {
+            SponsorBlockManager.shared.reset(for: sbBvid)
+            SponsorBlockManager.shared.loadSegments(for: sbBvid)
+        }
+        if isPlaying {
+            player.play()
+        }
+    }
+
+    /// **Build 182 orchestration entry point.**  Drives the
+    /// full VOD-DASH proxy load sequence:
+    ///
+    /// 1. `LocalHLSProxyServer.shared.serve(playback:) async`
+    ///    waits for both listener bind AND SIDX manifest
+    ///    publish.
+    /// 2. Local 200 endpoint self-test on `/playlist.m3u8`,
+    ///    `/video.m3u8`, `/audio.m3u8` so a 503 from the
+    ///    playlist handler can never reach AVPlayer.
+    /// 3. `AVPlayerItem(url:)` + `replaceCurrentItem(with:)`.
+    /// 4. Re-install KVO observers on the new item with the
+    ///    `[weak self, weak item]` + `currentItem === item`
+    ///    guard (item #10 — old item's KVO can't poison the
+    ///    new state).
+    /// 5. `startPlaybackSession(item:)` for seek +
+    ///    SponsorBlock + play.
+    /// 6. `playbackState = .ready`.
+    ///
+    /// Cancellation: `loadTask?.cancel()` from `retryPlayback()`
+    /// or a future video-switch cancels mid-flight; the
+    /// `Task.checkCancellation()` calls in the chain throw
+    /// `CancellationError`, which is mapped to
+    /// `.playbackState = .idle` (preserving the previous
+    /// observable state if the task finished already).
+    func loadPlayback(_ playback: BiliPlayback) {
+        loadTask?.cancel()
+        playbackState = .preparing
+        playerError = nil
+        loadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runLoadPlayback(playback)
+        }
+    }
+
+    /// Internal async body of `loadPlayback(_:)`.  Split
+    /// out so the public method reads cleanly.
+    private func runLoadPlayback(_ playback: BiliPlayback) async {
+        do {
+            let url = try await LocalHLSProxyServer.shared.serve(playback: playback)
+            try Task.checkCancellation()
+            diagLog(.playback,
+                    "AVPlayerController manifest ready, self-testing endpoints",
+                    details: ["url": url.absoluteString])
+            try await validateLocalEndpoints(url: url)
+            try Task.checkCancellation()
+
+            let item = AVPlayerItem(url: url)
+            // Detach observers attached to the previous
+            // (placeholder) item, swap the item in, then
+            // re-attach observers on the new item.  Order
+            // matters: `replaceCurrentItem` must run before
+            // `installObservers` so the new observers' guard
+            // (`self.player.currentItem === item`) sees the
+            // new item as current.
+            observers.forEach { $0.invalidate() }
+            observers.removeAll()
+            if let token = statusObserver {
+                NotificationCenter.default.removeObserver(token)
+                statusObserver = nil
+            }
+            if let token = errorObserver {
+                NotificationCenter.default.removeObserver(token)
+                errorObserver = nil
+            }
+            if let token = errorLogObserver {
+                NotificationCenter.default.removeObserver(token)
+                errorLogObserver = nil
+            }
+            player.replaceCurrentItem(with: item)
+            self.playerItem = item
+            installObservers(on: item)
+            installNotificationObservers(on: item)
+            startPlaybackSession(item: item)
+
+            playbackState = .ready
+            diagLog(.playback,
+                    "AVPlayerController bound to local HLS proxy",
+                    details: [
+                        "url": url.absoluteString,
+                        "manifestReady": true
+                    ])
+        } catch is CancellationError {
+            if playbackState == .preparing {
+                playbackState = .idle
+            }
+            diagLog(.playback, "AVPlayerController loadPlayback cancelled",
+                    details: ["state": "\(playbackState)"])
+        } catch {
+            let pbError: PlayerPlaybackError
+            if let proxy = error as? PlayerPlaybackError {
+                pbError = proxy
+            } else {
+                pbError = .itemFailed(detail: "\(error)")
+            }
+            playerError = pbError
+            playbackState = .failed(pbError)
+            diagLog(.playback,
+                    "AVPlayerController loadPlayback failed",
+                    details: ["error": "\(error)"])
+        }
+    }
+
+    /// **Build 182**: extract KVO observer wiring into a
+    /// method so `loadPlayback(_:)` can call it on the
+    /// newly constructed item.  All observers capture
+    /// `[weak self, weak item]` and short-circuit when
+    /// `self.player.currentItem !== item` — prevents the
+    /// old item's KVO from poisoning the new state (item
+    /// #10).  Mirrors the original wiring 1:1 otherwise.
+    private func installObservers(on item: AVPlayerItem) {
+        observers.insert(
+            item.observe(\.isPlaybackBufferEmpty, options: [.new, .initial]) {
+                [weak self, weak item] _, change in
+                Task { @MainActor in
+                    guard let self, let item else { return }
+                    guard self.player.currentItem === item else { return }
+                    self.isBuffering = change.newValue ?? false
+                }
+            }
+        )
+        observers.insert(
+            item.observe(\.isPlaybackLikelyToKeepUp, options: [.new, .initial]) {
+                [weak self, weak item] _, change in
+                Task { @MainActor in
+                    guard let self, let item else { return }
+                    guard self.player.currentItem === item else { return }
+                    if change.newValue == true { self.isBuffering = false }
+                }
+            }
+        )
+        observers.insert(
+            item.observe(\.loadedTimeRanges, options: [.new]) {
+                [weak self, weak item] _, _ in
+                Task { @MainActor in
+                    guard let self, let item else { return }
+                    guard self.player.currentItem === item else { return }
+                    self.logLoadedTimeRanges()
+                }
+            }
+        )
+        if #available(iOS 16.4, *) {
+            observers.insert(
+                player.observe(\.reasonForWaitingToPlay, options: [.new]) {
+                    _, change in
+                    let reason = change.newValue
+                        .map { String(describing: $0) } ?? "nil"
+                    diagLog(.playback,
+                            "AVPlayer reasonForWaitingToPlay",
+                            details: ["reason": reason])
+                }
+            )
+        }
+        observers.insert(
+            item.observe(\.status, options: [.new, .initial]) {
+                [weak self, weak item] _, _ in
+                guard let item else { return }
+                let currentStatus = item.status
+                let status = Self.describe(itemStatus: currentStatus)
+                let err = item.error
+                Task { @MainActor in
+                    guard let self else { return }
+                    guard self.player.currentItem === item else { return }
+                    var details: [String: Any] = ["status": status]
+                    if let err {
+                        details["error"] = String(describing: err)
+                        if let events = item.errorLog()?.events, !events.isEmpty {
+                            details["errorLogEvents"] = events.suffix(5).map { event in
+                                [
+                                    "statusCode": event.errorStatusCode,
+                                    "domain": event.errorDomain,
+                                    "comment": event.errorComment ?? "",
+                                    "uri": event.uri ?? "",
+                                    "server": event.serverAddress ?? "",
+                                    "session": event.playbackSessionID ?? ""
+                                ] as [String: Any]
+                            }
+                        }
+                        Analytics.recordError(err, context: "player_item_status_failed")
+                        Analytics.log("player_item_status_failed", [
+                            "status": status,
+                            "error": String(describing: err)
+                        ])
+                    }
+                    diagLog(.playback, "AVPlayerItem status changed", details: details)
+                    if currentStatus == .failed {
+                        let detail = err.map { String(describing: $0) }
+                        self.playerError = .itemFailed(detail: detail)
+                        diagLog(.playback,
+                                "PlayerController.playerError assigned",
+                                details: [
+                                    "case": "itemFailed",
+                                    "detail": detail ?? ""
+                                ])
+                    }
+                }
+            }
+        )
+    }
+
+    /// **Build 182**: NotificationCenter observer wiring
+    /// extracted from `init` so `loadPlayback(_:)` can
+    /// re-attach them on the real item.  Each closure
+    /// captures `[weak self, weak item]` and short-circuits
+    /// when `self.player.currentItem !== item` — prevents
+    /// the old placeholder's notifications from poisoning
+    /// the new state (item #10).
+    private func installNotificationObservers(on item: AVPlayerItem) {
+        statusObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item, queue: .main
+        ) { [weak self, weak item] _ in
+            Task { @MainActor in
+                guard let self, let item else { return }
+                guard self.player.currentItem === item else { return }
+                self.isPlaying = false
+                let totalSeconds = self.player.currentItem?.duration.seconds ?? 0
+                Analytics.log("video_complete", [
+                    "duration_seconds": totalSeconds
+                ])
+                Analytics.breadcrumb("PLAY", "video_complete")
+                NotificationCenter.default.post(
+                    name: .paladalaVideoDidPlayToEnd,
+                    object: self.player.currentItem
+                )
+            }
+        }
+        errorObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: item, queue: .main
+        ) { [weak self, weak item] note in
+            let err = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey]
+                as? Error
+            diagLog(.playback, "AVPlayerItem failed to play to end", details: [
+                "error": err.map { String(describing: $0) } ?? "unknown"
+            ])
+            if let err {
+                Analytics.recordError(err, context: "video_playback_end")
+                Analytics.log("video_playback_end_error", [
+                    "domain": (err as NSError).domain,
+                    "code": (err as NSError).code
+                ])
+            }
+            Task { @MainActor in
+                guard let self, let item else { return }
+                guard self.player.currentItem === item else { return }
+                self.isPlaying = false
+                self.isBuffering = false
+                let detail = err.map { String(describing: $0) }
+                self.playerError = .stoppedMidStream(detail: detail)
+                diagLog(.playback, "PlayerController.playerError assigned", details: [
+                    "case": "stoppedMidStream",
+                    "detail": detail ?? ""
+                ])
+            }
+        }
+        errorLogObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.newErrorLogEntryNotification,
+            object: item, queue: .main
+        ) { [weak self, weak item] _ in
+            guard let item else { return }
+            let entries = item.errorLog()?.events ?? []
+            let summary = entries.prefix(3).map { e -> String in
+                String(describing: e)
+            }.joined(separator: " | ")
+            diagLog(.playback, "AVPlayerItem new error log entry", details: [
+                "count": entries.count,
+                "last3": summary
+            ])
+            if let last = entries.first {
+                Analytics.recordError(
+                    NSError(domain: "paladala.player", code: last.errorStatusCode, userInfo: [
+                        NSLocalizedDescriptionKey: last.errorComment ?? "AVPlayer error log entry",
+                        "errorDomain": last.errorDomain,
+                        "errorStatusCode": last.errorStatusCode
+                    ]),
+                    context: "player_errorLogEntry"
+                )
+                Analytics.log("player_error_log_entry", [
+                    "count": entries.count,
+                    "domain": last.errorDomain,
+                    "code": last.errorStatusCode
+                ])
+                let code = last.errorStatusCode
+                if (400..<500).contains(code) {
+                    Task { @MainActor in
+                        guard let self else { return }
+                        guard self.player.currentItem === item else { return }
+                        self.playerError = .proxyFailed(code: code)
+                        diagLog(.playback, "PlayerController.playerError assigned", details: [
+                            "case": "proxyFailed",
+                            "code": code
+                        ])
+                    }
+                }
+            }
+        }
+    }
+
+    /// **Build 182**: probe `/playlist.m3u8`, `/video.m3u8`,
+    /// `/audio.m3u8` against the local proxy and verify all
+    /// three return 200 within a 2-second budget.  Catches a
+    /// race between `publishAndStart` and the first AVPlayer
+    /// request — without this guard, AVPlayer could see a 503
+    /// from `respondMediaPlaylist` and permanently mark the
+    /// item as failed.
+    ///
+    /// Throws `PlayerPlaybackError.proxyFailed(code: -1)` on
+    /// any non-200 or transport failure; the caller
+    /// (`loadPlayback`) translates this to
+    /// `playbackState = .failed(...)`.
+    private func validateLocalEndpoints(url: URL) async throws {
+        let baseURL = url.deletingLastPathComponent()
+        let paths = ["/playlist.m3u8", "/video.m3u8", "/audio.m3u8"]
+        let deadline = Date().addingTimeInterval(2.0)
+        let session = URLSession.shared
+        for path in paths {
+            try Task.checkCancellation()
+            guard Date() < deadline else {
+                diagLog(.playback,
+                        "endpoint self-test timeout",
+                        details: ["path": path])
+                throw PlayerPlaybackError.proxyFailed(code: -1)
+            }
+            guard let probe = URL(
+                string: baseURL.absoluteString + path
+            ) else { continue }
+            var req = URLRequest(url: probe, timeoutInterval: 1.5)
+            req.httpMethod = "GET"
+            do {
+                let (_, resp) = try await session.data(for: req)
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+                guard code == 200 else {
+                    diagLog(.playback,
+                            "endpoint self-test non-200",
+                            details: [
+                                "path": path,
+                                "statusCode": code
+                            ])
+                    throw PlayerPlaybackError.proxyFailed(code: code)
+                }
+                diagLog(.playback,
+                        "endpoint self-test 200",
+                        details: ["path": path])
+            } catch let error as PlayerPlaybackError {
+                throw error
+            } catch {
+                diagLog(.playback,
+                        "endpoint self-test transport failed",
+                        details: [
+                            "path": path,
+                            "error": "\(error)"
+                        ])
+                throw PlayerPlaybackError.proxyFailed(code: -1)
+            }
+        }
     }
 
     // MARK: playback control
@@ -936,10 +1122,11 @@ final class PlayerController: ObservableObject {
     /// the recovery button is bound to.  Two paths:
     ///
     ///  - **VOD DASH** (`usesProxy == true`): re-stand the
-    ///    local proxy with the original `BiliPlayback` and
-    ///    point AVPlayer at the fresh `playlist.m3u8`.  The
-    ///    proxy's previous listener is torn down inside
-    ///    `serve(playback:)` (see `LocalHLSProxyServer`).
+    ///    local proxy with the original `BiliPlayback` via
+    ///    `loadPlayback(_:)`.  The previous loadTask is
+    ///    cancelled first so a slow old prep can't race a
+    ///    fast new one.  `playbackState` becomes `.preparing`
+    ///    immediately.
     ///  - **Live / legacy MP4** (`usesProxy == false`):
     ///    replace the current item with a fresh
     ///    `AVPlayerItem(asset:)`.  We don't re-fetch the
@@ -948,43 +1135,38 @@ final class PlayerController: ObservableObject {
     ///    still valid; only the AVPlayer-level state needed
     ///    a reset.
     ///
-    /// No-op when `playerError == nil` so a stray tap on a
-    /// non-error state doesn't restart playback.
+    /// **Build 182 guard**: only runs from
+    /// `playbackState == .ready`.  Critically, never runs
+    /// while `playbackState == .preparing` — that was the
+    /// Build 181 bug where the AVPlayerItem's transient 503
+    /// triggered a retry that wiped the freshly-completed
+    /// preparation.
     func retryPlayback() {
-        guard playerError != nil else { return }
+        // Build 182: only retry from `.ready`.  During
+        // `.preparing` the loadTask is the source of truth
+        // and a retry would race it; during `.idle` or
+        // `.failed` the recovery button shouldn't trigger
+        // a duplicate load.
+        guard case .ready = playbackState else {
+            diagLog(.playback, "PlayerController.retryPlayback ignored",
+                    details: ["state": "\(playbackState)"])
+            return
+        }
         diagLog(.playback, "PlayerController.retryPlayback", details: [
             "usesProxy": usesProxy
         ])
-        playerError = nil
-        isBuffering = false
-        isPlaying = true
 
         if usesProxy {
-            do {
-                let serveStart = Date()
-                try LocalHLSProxyServer.shared.serve(playback: originalPlayback)
-                guard let baseURL = LocalHLSProxyServer.shared.waitForReady() else {
-                    diagLog(.playback, "retryPlayback: proxy failed to come up")
-                    playerError = .proxyFailed(code: -1)
-                    return
-                }
-                let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
-                let item = AVPlayerItem(url: playlistURL)
-                player.replaceCurrentItem(with: item)
-                player.play()
-                diagLog(.playback, "retryPlayback: serve() returned", details: [
-                    "elapsedMs": Int(
-                        Date().timeIntervalSince(serveStart) * 1000
-                    )
-                ])
-            } catch {
-                diagLog(.playback, "retryPlayback: serve() threw", details: [
-                    "error": "\(error)"
-                ])
-                playerError = .itemFailed(detail: "\(error)")
-                return
-            }
+            // VOD DASH: kick the async loadTask.  It will
+            // bump `currentPrepGeneration` inside the
+            // proxy via `beginServing()`, run prepare +
+            // publish, swap the item, and only then flip
+            // `playbackState = .ready` again.
+            loadPlayback(originalPlayback)
         } else {
+            playerError = nil
+            isBuffering = false
+            isPlaying = true
             let item = AVPlayerItem(asset: asset)
             player.replaceCurrentItem(with: item)
             player.play()
