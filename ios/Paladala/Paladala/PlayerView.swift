@@ -974,29 +974,57 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             vc.requiresLinearPlayback = false
         }
         vc.delegate = context.coordinator
+        context.coordinator.avPlayerViewController = vc
+        return vc
+    }
 
-        // Long-press gesture recogniser for 2x speed.
-        // Uses `delaysTouchesBegan=false` and
-        // `cancelsTouchesInView=false` so single taps still
-        // reach AVKit's own tap-to-show / tap-to-hide
-        // recognisers without delay.
-        let longPress = UILongPressGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handleLongPress(_:))
-        )
-        longPress.minimumPressDuration = 0.4
-        longPress.delaysTouchesBegan = false
-        longPress.cancelsTouchesInView = false
-        vc.contentOverlayView?.addGestureRecognizer(longPress)
+    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
+        if vc.player !== player {
+            vc.player = player
+        }
+        context.coordinator.playerController = controller
+        context.coordinator.badgeHost?.rootView = InlineSpeedBadge(controller: controller)
+        // Set up the gesture + badge once the view is loaded.
+        context.coordinator.setUpPlayerOverlays()
+    }
 
-        // Host the speed badge (just the visual, no gesture)
-        // so it renders above the video layer.
-        if let overlayView = vc.contentOverlayView {
-            let badge = InlineSpeedBadge(controller: controller)
+    func makeCoordinator() -> Coordinator {
+        Coordinator(controller: controller)
+    }
+
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        var playerController: PlayerController
+        weak var avPlayerViewController: AVPlayerViewController?
+        fileprivate var badgeHost: UIHostingController<InlineSpeedBadge>?
+        private var didSetUpOverlays = false
+
+        init(controller: PlayerController) {
+            self.playerController = controller
+        }
+
+        /// Set up the long-press gesture recogniser and badge host
+        /// inside the contentOverlayView. Idempotent — only runs
+        /// once per coordinator lifecycle.
+        func setUpPlayerOverlays() {
+            guard !didSetUpOverlays, let vc = avPlayerViewController else { return }
+            didSetUpOverlays = true
+
+            let longPress = UILongPressGestureRecognizer(
+                target: self,
+                action: #selector(handleLongPress(_:))
+            )
+            longPress.minimumPressDuration = 0.4
+            longPress.delaysTouchesBegan = false
+            longPress.cancelsTouchesInView = false
+            vc.contentOverlayView?.addGestureRecognizer(longPress)
+
+            guard let overlayView = vc.contentOverlayView else { return }
+
+            let badge = InlineSpeedBadge(controller: playerController)
             let hostingController = UIHostingController(rootView: badge)
             hostingController.view.backgroundColor = .clear
             hostingController.view.isUserInteractionEnabled = false
-            context.coordinator.badgeHost = hostingController
+            badgeHost = hostingController
 
             let view = hostingController.view!
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -1008,29 +1036,6 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
                 view.widthAnchor.constraint(equalTo: overlayView.widthAnchor),
                 view.heightAnchor.constraint(equalTo: overlayView.heightAnchor)
             ])
-        }
-
-        return vc
-    }
-
-    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
-        if vc.player !== player {
-            vc.player = player
-        }
-        context.coordinator.playerController = controller
-        context.coordinator.badgeHost?.rootView = InlineSpeedBadge(controller: controller)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(controller: controller)
-    }
-
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
-        var playerController: PlayerController
-        fileprivate var badgeHost: UIHostingController<InlineSpeedBadge>?
-
-        init(controller: PlayerController) {
-            self.playerController = controller
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
