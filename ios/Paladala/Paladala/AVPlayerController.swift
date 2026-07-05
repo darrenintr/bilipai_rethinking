@@ -324,9 +324,20 @@ final class PlayerController: ObservableObject {
                 ), let sourceAudioTrack = audioAsset
                     .tracks(withMediaType: .audio).first {
                     let audioDuration = sourceAudioTrack.timeRange.duration
+                    // `CMTime` doesn't conform to `Comparable`,
+                    // so we use the C interop helper
+                    // `CMTimeMinimum(...)` rather than Swift's
+                    // `min(_:_:)`.  Clamping the audio slice to
+                    // the video length keeps the two tracks
+                    // aligned even when the upstream audio
+                    // track runs a fraction of a second
+                    // longer (a known quirk of B站 DASH audio
+                    // tracks where the publisher pads the
+                    // tail with silence).
                     let slice = CMTimeRange(
                         start: .zero,
-                        duration: min(audioDuration, insertDuration)
+                        duration: CMTimeMinimum(audioDuration,
+                                                insertDuration)
                     )
                     do {
                         try compAudioTrack.insertTimeRange(
