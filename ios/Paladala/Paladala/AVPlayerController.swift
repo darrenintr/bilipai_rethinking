@@ -972,10 +972,27 @@ final class PlayerController: ObservableObject {
     /// (`loadPlayback`) translates this to
     /// `playbackState = .failed(...)`.
     private func validateLocalEndpoints(url: URL) async throws {
-        let baseURL = url.deletingLastPathComponent()
+        // Build the probe URLs via `URLComponents` relative
+        // resolution instead of string concatenation.
+        //
+        // **Build 183 fix**: the previous code did
+        // `url.deletingLastPathComponent().absoluteString + path`,
+        // which produced `"http://127.0.0.1:52461/" +
+        // "/playlist.m3u8"` → `"http://127.0.0.1:52461//playlist.m3u8"`
+        // (double slash).  The route table only matches
+        // `"/playlist.m3u8"` so the request fell into the
+        // default branch and returned 404.  Resolving
+        // `path` against the base URL via URLComponents
+        // produces the correct single-slash form.
         let paths = ["/playlist.m3u8", "/video.m3u8", "/audio.m3u8"]
         let deadline = Date().addingTimeInterval(2.0)
         let session = URLSession.shared
+        guard var components = URLComponents(
+            url: url,
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw PlayerPlaybackError.proxyFailed(code: -1)
+        }
         for path in paths {
             try Task.checkCancellation()
             guard Date() < deadline else {
@@ -984,20 +1001,25 @@ final class PlayerController: ObservableObject {
                         details: ["path": path])
                 throw PlayerPlaybackError.proxyFailed(code: -1)
             }
-            guard let probe = URL(
-                string: baseURL.absoluteString + path
-            ) else { continue }
+            components.path = path
+            components.query = nil
+            guard let probe = components.url else { continue }
             var req = URLRequest(url: probe, timeoutInterval: 1.5)
             req.httpMethod = "GET"
             do {
-                let (_, resp) = try await session.data(for: req)
+                let (data, resp) = try await session.data(for: req)
                 let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
                 guard code == 200 else {
+                    let bodyText = String(
+                        data: data,
+                        encoding: .utf8
+                    ) ?? "<non-utf8 body \(data.count) bytes>"
                     diagLog(.playback,
                             "endpoint self-test non-200",
                             details: [
                                 "path": path,
-                                "statusCode": code
+                                "statusCode": code,
+                                "body": bodyText
                             ])
                     throw PlayerPlaybackError.proxyFailed(code: code)
                 }

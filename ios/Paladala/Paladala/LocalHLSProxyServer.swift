@@ -1949,6 +1949,18 @@ final class LocalHLSProxyServer {
         }
         let pathOnly = req.path.split(separator: "?", maxSplits: 1)
             .first.map(String.init) ?? req.path
+        // Diagnostic log — Build 183 added because the
+        // endpoint self-test reported `/playlist.m3u8`
+        // returning 404 even though it is in the case list
+        // below; logging the parsed path tells us whether
+        // the request URL is malformed or the dispatch is.
+        diagLog(.playback,
+                "LocalHLSProxyServer route",
+                details: [
+                    "conn": connID,
+                    "path": pathOnly,
+                    "method": req.method
+                ])
         // Local-playback path: read init/media from disk
         // instead of the upstream CDN.  Same HLS wire
         // contract, so the route keys are unchanged; only
