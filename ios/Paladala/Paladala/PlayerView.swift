@@ -54,27 +54,18 @@ struct PlayerView: View {
             // any future iOS 17 deployment target drop).
             NativeInlinePlayerRepresentable(
                 player: controller.player,
-                controller: controller
+                controller: controller,
+                subtitleTrack: subtitleTrack,
+                danmakuItems: danmakuItems
             )
-
-            // Tap-to-wake controls. The native `AVPlayerViewController`
-            // already handles tap-to-show / tap-to-hide / auto-
-            // hide-on-inactivity internally, so we do not need a
-            // SwiftUI tap gesture here.
 
             // Keep transient status above the player, but avoid any
             // full-frame transparent gesture layer here. The system
             // controller's own recognisers need to receive taps in
             // order to reveal and hide the playback controls.
+            // PlayerTimedTextOverlay is now hosted inside
+            // contentOverlayView so it persists into native fullscreen.
             ZStack {
-                PlayerTimedTextOverlay(
-                    currentTime: controller.currentTime,
-                    subtitleTrack: subtitleTrack,
-                    danmakuItems: danmakuItems,
-                    mode: .inline
-                )
-                .allowsHitTesting(false)
-
                 if controller.isBuffering && controller.playerError == nil {
                     loadingOverlay
                         .transition(.opacity)
@@ -1013,6 +1004,8 @@ private struct GestureHint: View {
 struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
     let player: AVPlayer
     let controller: PlayerController
+    let subtitleTrack: BiliLyricTrack?
+    let danmakuItems: [BiliDanmakuItem]
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
@@ -1036,7 +1029,11 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             vc.player = player
         }
         context.coordinator.playerController = controller
-        context.coordinator.badgeHost?.rootView = InlineSpeedBadge(controller: controller)
+        context.coordinator.overlayHost?.rootView = InlinePlayerOverlay(
+            controller: controller,
+            subtitleTrack: subtitleTrack,
+            danmakuItems: danmakuItems
+        )
         // Set up the gesture + badge once the view is loaded.
         context.coordinator.setUpPlayerOverlays()
     }
@@ -1048,14 +1045,14 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
         var playerController: PlayerController
         weak var avPlayerViewController: AVPlayerViewController?
-        fileprivate var badgeHost: UIHostingController<InlineSpeedBadge>?
+        fileprivate var overlayHost: UIHostingController<InlinePlayerOverlay>?
         private var didSetUpOverlays = false
 
         init(controller: PlayerController) {
             self.playerController = controller
         }
 
-        /// Set up the long-press gesture recogniser and badge host
+        /// Set up the long-press gesture recogniser and overlay host
         /// inside the contentOverlayView. Idempotent — only runs
         /// once per coordinator lifecycle.
         func setUpPlayerOverlays() {
@@ -1075,11 +1072,15 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             // contentOverlayView is guaranteed non-nil.
             _ = vc.view
             guard let overlayView = vc.contentOverlayView else { return }
-            let badge = InlineSpeedBadge(controller: playerController)
-            let hostingController = UIHostingController(rootView: badge)
+            let overlay = InlinePlayerOverlay(
+                controller: playerController,
+                subtitleTrack: nil,
+                danmakuItems: []
+            )
+            let hostingController = UIHostingController(rootView: overlay)
             hostingController.view.backgroundColor = .clear
             hostingController.view.isUserInteractionEnabled = false
-            badgeHost = hostingController
+            self.overlayHost = hostingController
 
             let view = hostingController.view!
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -1139,6 +1140,28 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
                     playerController.player.play()
                 }
             }
+        }
+    }
+}
+
+/// Combined overlay hosted inside AVPlayerViewController.contentOverlayView
+/// so timed text (subtitles + danmaku) persists into native fullscreen.
+fileprivate struct InlinePlayerOverlay: View {
+    @ObservedObject var controller: PlayerController
+    let subtitleTrack: BiliLyricTrack?
+    let danmakuItems: [BiliDanmakuItem]
+
+    var body: some View {
+        ZStack {
+            PlayerTimedTextOverlay(
+                currentTime: controller.currentTime,
+                subtitleTrack: subtitleTrack,
+                danmakuItems: danmakuItems,
+                mode: .inline
+            )
+            .allowsHitTesting(false)
+
+            InlineSpeedBadge(controller: controller)
         }
     }
 }
