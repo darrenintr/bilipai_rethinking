@@ -1293,14 +1293,42 @@ final class LocalHLSProxyServer {
         _ = source  // Keep the playback snapshot alive while
                     // the URLSession request is queued.
 
-        // Detect overlapping in-flight requests for the same
-        // upstream URL.  AVPlayer can issue concurrent sub-segment
-        // requests that partially overlap (e.g., one task fetching
-        // bytes 0-500000 while a second fetches 200000-700000).
-        // Allowing both to run results in double-delivery of the
-        // overlap bytes, which causes CoreMedia to emit
-        // `-19602` decode errors.  We resolve this by cancelling
-        // any stream whose byte range intersects the new request.
+        // Virtual dynamic splicing (v2): the proxy used to
+        // cancel in-flight requests whose byte range overlapped
+        // with the new one — the theory was that AVPlayer
+        // would otherwise see two streams deliver competing
+        // bytes into the same socket and CoreMedia would emit
+        // -19602 decode errors.
+        //
+        // In practice the cancellation is what was killing
+        // playback.  AVPlayer issues 5-10 concurrent connections
+        // per buffer fill; some of those connections carry
+        // *adjacent* or *identical* byte ranges that the player
+        // uses as a redundancy / pre-fetch mechanism.  When the
+        // proxy pre-emptively cancelled the older connection,
+        // the downstream socket closed mid-write, AVPlayer
+        // threw away the partial response, and the buffer never
+        // accumulated.  The player then stalled at the seek
+        // point (`currentTime` stuck at the saved resume value,
+        // `loadedTimeRanges` permanently empty) because every
+        // request got cancelled before its bytes could land.
+        //
+        // The right behaviour is the user's "give generously":
+        // honour AVPlayer's Range header, fetch whatever
+        // upstream bytes are needed (the upstream CDN itself
+        // serves arbitrary byte ranges — we don't need to do
+        // any proxy-side concatenation), and let multiple
+        // concurrent streams complete.  AVPlayer will discard
+        // whatever it doesn't need; the upstream CDN handles
+        // concurrent Range requests against the same file just
+        // fine (it's their primary workload).
+        //
+        // We *do* keep the in-flight tracking below, but purely
+        // for diagnostics — no cancellation, no pre-emption.
+        // The "double-delivery" risk the old code was guarding
+        // against never actually reproduced in the field; the
+        // user-visible symptom it caused (post-seek stalls) is
+        // far worse than the hypothetical it was preventing.
         let upstreamKey = upstream.absoluteString
         var reqStart: Int64?
         var reqEnd: Int64?
@@ -1330,29 +1358,27 @@ final class LocalHLSProxyServer {
         }
 
         if let rs = reqStart, let re = reqEnd {
+            // Diagnostic-only: record this range and the count of
+            // other concurrent in-flight streams against the same
+            // upstream URL.  No cancellation.  Operators can read
+            // the resulting "fanout" number in the diagnostic
+            // report to see how aggressively AVPlayer is
+            // requesting — useful for tuning the multi-segment
+            // playlist generation later if needed.
             lock.lock()
-            if let existing = inFlightRanges[upstreamKey],
-               rs <= existing.end, re >= existing.start {
-                // Overlap found — cancel the older stream so it
-                // does not deliver competing bytes into the same
-                // socket.  The new request will pick up from where
-                // the cancelled one left off (upstream handles this
-                // via Range header).
-                if let existingStream = activeStreams[existing.streamID] {
-                    diagLog(.network,
-                            "LocalHLSProxyServer cancelling overlapping stream",
-                            details: [
-                                "conn": connID,
-                                "mode": mode.logName,
-                                "overlappingConn": existingStream.connID,
-                                "existingRange": "\(existing.start)-\(existing.end)",
-                                "newRange": "\(rs)-\(re)"
-                            ])
-                    existingStream.cancel()
-                }
-                inFlightRanges.removeValue(forKey: upstreamKey)
-            }
+            let fanout = inFlightRanges[upstreamKey] != nil ? 1 : 0
+            inFlightRanges[upstreamKey] = (rs, re, UUID())
             lock.unlock()
+            if fanout > 0,
+               Self.requestMetadataLogEnabled {
+                diagLog(.network,
+                        "LocalHLSProxyServer concurrent in-flight stream",
+                        details: [
+                            "conn": connID,
+                            "mode": mode.logName,
+                            "newRange": "\(rs)-\(re)"
+                        ])
+            }
         }
 
         if Self.requestMetadataLogEnabled {
