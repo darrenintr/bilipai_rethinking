@@ -70,7 +70,7 @@ final class SponsorBlockManager: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 let filtered = result.filter { segment in
-                    segment.votes >= config.minVotes
+                    (segment.votes ?? 0) >= config.minVotes
                 }
                 self.segments = filtered
 
