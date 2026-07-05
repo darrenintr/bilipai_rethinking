@@ -26,6 +26,23 @@ struct VideoCard: View {
     /// than its two-line neighbour, knocking the next row out of alignment.
     private static let titleBlockHeight: CGFloat = 40
 
+    /// Reserved height for the UP-owner line (`.caption`, 1 line).
+    /// Pinned so cards don't grow / shrink based on whether the
+    /// owner name happens to include a Chinese full-width
+    /// character that affects line metrics.
+    private static let ownerLineHeight: CGFloat = 18
+
+    /// Reserved height for the play / danmaku count row (`.caption2`, 1 line).
+    /// Pinned to remove the remaining height variation between cards.
+    private static let countsLineHeight: CGFloat = 16
+
+    /// Total card height = cover (16:10 of card width) + spacing +
+    /// title + owner + counts + bottom padding.  We don't pin the
+    /// cover to a fixed height because it scales with the column
+    /// width; pinning the three text rows above makes the total
+    /// height deterministic per column width.
+    private static let textRowsVerticalPadding: CGFloat = 8
+
     /// Convenience init for call sites that don't need the
     /// context menu or hero transition. Matches the original
     /// `init(video:action:)` signature so the existing call sites
@@ -85,11 +102,18 @@ struct VideoCard: View {
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .frame(minHeight: Self.titleBlockHeight, alignment: .topLeading)
+                    .frame(
+                        height: Self.titleBlockHeight,
+                        alignment: .topLeading
+                    )
                 Text(video.ownerName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .frame(
+                        height: Self.ownerLineHeight,
+                        alignment: .topLeading
+                    )
                 HStack(spacing: 10) {
                     Label(video.viewCount.compactCount, systemImage: "play.fill")
                     Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
@@ -98,6 +122,10 @@ struct VideoCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+                .frame(
+                    height: Self.countsLineHeight,
+                    alignment: .topLeading
+                )
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             // Asymmetric padding: only horizontal + bottom.  The
