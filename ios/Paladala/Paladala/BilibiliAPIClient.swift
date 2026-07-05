@@ -579,6 +579,7 @@ final class BilibiliAPIClient {
         var queryItems = [
             URLQueryItem(name: "mobi_app", value: "iphone"),
             URLQueryItem(name: "platform", value: "ios"),
+            URLQueryItem(name: "build", value: appBuild),
             URLQueryItem(name: "idx", value: "\(idx)"),
             URLQueryItem(name: "pull", value: "1"),
             URLQueryItem(name: "column", value: "1"),
