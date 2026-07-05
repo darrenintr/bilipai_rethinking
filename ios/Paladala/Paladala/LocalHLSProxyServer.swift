@@ -801,9 +801,7 @@ final class LocalHLSProxyServer {
             }
             do {
                 let parsed = try parseSIDX(body)
-                let initRange = track.initializationRange.offset
-                    ..<(track.initializationRange.offset
-                        + track.initializationRange.length)
+                let initRange = track.initializationRange.offset ..< (track.initializationRange.offset + track.initializationRange.length)
                 let index = makeTrackSegmentIndex(
                     initializationRange: initRange,
                     sidx: parsed

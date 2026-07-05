@@ -169,6 +169,12 @@ func parseSIDX(_ bytes: Data) throws -> (
         cursor += 4
         return v
     }
+    func readU16() throws -> UInt16 {
+        guard cursor + 2 <= bytes.count else { throw SIDXError.truncated }
+        let v = UInt16(bytes[cursor]) << 8 | UInt16(bytes[cursor+1])
+        cursor += 2
+        return v
+    }
     func readU64() throws -> UInt64 {
         guard cursor + 8 <= bytes.count else { throw SIDXError.truncated }
         var v: UInt64 = 0
