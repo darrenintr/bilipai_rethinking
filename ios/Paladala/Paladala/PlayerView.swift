@@ -1022,7 +1022,7 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
         var playerController: PlayerController
-        var inlineGestureHost: UIHostingController<InlineLongPressOverlay>?
+        fileprivate var inlineGestureHost: UIHostingController<InlineLongPressOverlay>?
 
         init(controller: PlayerController) {
             self.playerController = controller
