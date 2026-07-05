@@ -251,6 +251,15 @@ struct VideoDetailView: View {
             guard let playback else { return }
             miniPlayerStore.bind(video: model.detail, playback: playback, repository: repository)
         }
+        // Re-bind on every appearance so that returning from a
+        // navigation-push sub-page (UP profile, replies) hides the
+        // mini-player that `onDisappear` surfaced during the push.
+        // `bind` is idempotent for the same video — it won't
+        // restart playback or re-report `progress=0`.
+        .onAppear {
+            guard let playback = model.playback else { return }
+            miniPlayerStore.bind(video: model.detail, playback: playback, repository: repository)
+        }
         .onDisappear {
             // Suppress teardown during the iPad fullscreen quirk
             // (entering/leaving `.fullScreenCover` fires

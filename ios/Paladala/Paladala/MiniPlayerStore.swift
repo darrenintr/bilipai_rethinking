@@ -57,6 +57,14 @@ final class MiniPlayerStore: ObservableObject {
             // The controller is already bound to the same video.
             // Keep the existing controller and the existing watch
             // session (don't double-report `progress=0`).
+            // If the mini-player was surfaced by a navigation push
+            // (e.g. user opened UP profile then came back), hide it
+            // so the inline player re-takes over.
+            if isShowingMiniPlayer {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    isShowingMiniPlayer = false
+                }
+            }
             diagLog(.playback, "MiniPlayerStore.bind: idempotent re-bind", details: ["videoID": video.id])
             return
         }
