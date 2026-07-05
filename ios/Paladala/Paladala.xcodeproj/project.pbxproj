@@ -69,6 +69,10 @@
 		600000000000000000000805 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000902 /* PrivacyInfo.xcprivacy */; };
 		10000000000000000000012D /* LaunchMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022D /* LaunchMetrics.swift */; };
 		10000000000000000000012E /* UPProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022E /* UPProfileView.swift */; };
+		600000000000000000000621 /* SponsorBlockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000611 /* SponsorBlockModels.swift */; };
+		600000000000000000000622 /* SponsorBlockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000612 /* SponsorBlockService.swift */; };
+		600000000000000000000623 /* SponsorBlockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000613 /* SponsorBlockManager.swift */; };
+		600000000000000000000624 /* SponsorBlockSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000614 /* SponsorBlockSettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -138,6 +142,10 @@
 		600000000000000000000902 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		10000000000000000000022D /* LaunchMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetrics.swift; sourceTree = "<group>"; };
 		10000000000000000000022E /* UPProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPProfileView.swift; sourceTree = "<group>"; };
+		600000000000000000000611 /* SponsorBlockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockModels.swift; sourceTree = "<group>"; };
+		600000000000000000000612 /* SponsorBlockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockService.swift; sourceTree = "<group>"; };
+		600000000000000000000613 /* SponsorBlockManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockManager.swift; sourceTree = "<group>"; };
+		600000000000000000000614 /* SponsorBlockSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockSettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -224,6 +232,10 @@
 				50000000000000000000055C /* Analytics.swift */,
 				10000000000000000000022D /* LaunchMetrics.swift */,
 				10000000000000000000022E /* UPProfileView.swift */,
+				600000000000000000000611 /* SponsorBlockModels.swift */,
+				600000000000000000000612 /* SponsorBlockService.swift */,
+				600000000000000000000613 /* SponsorBlockManager.swift */,
+				600000000000000000000614 /* SponsorBlockSettingsView.swift */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -478,6 +490,10 @@
 				50000000000000000000055D /* Analytics.swift in Sources */,
 				10000000000000000000012D /* LaunchMetrics.swift in Sources */,
 				10000000000000000000012E /* UPProfileView.swift in Sources */,
+				600000000000000000000621 /* SponsorBlockModels.swift in Sources */,
+				600000000000000000000622 /* SponsorBlockService.swift in Sources */,
+				600000000000000000000623 /* SponsorBlockManager.swift in Sources */,
+				600000000000000000000624 /* SponsorBlockSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
