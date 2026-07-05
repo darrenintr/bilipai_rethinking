@@ -1342,9 +1342,20 @@ private struct RelatedVideoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topLeading) {
-                CoverImage(url: video.coverURL)
-                    .aspectRatio(16 / 10, contentMode: .fill)
+                // See `VideoCard.coverImage` for the sizing story.
+                // Same Rectangle() + .aspectRatio(16/10, .fit) +
+                // overlay pattern — applying `.fill` directly to
+                // CoverImage was the pre-2d1105d1 bug that collapsed
+                // the cell height in the "下一个" rail.
+                Rectangle()
+                    .fill(.clear)
+                    .aspectRatio(16 / 10, contentMode: .fit)
                     .frame(maxWidth: .infinity)
+                    .overlay(
+                        CoverImage(url: video.coverURL)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    )
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
                 if video.duration > 0 {
                     Text(video.duration.mmss)

@@ -158,24 +158,38 @@ struct VideoCard: View {
     /// hero-source modifier without duplicating the modifier
     /// chain in two places.
     ///
-    /// The container is sized to the card's column width with a
-    /// fixed 16:10 height ratio. The cover image is overlaid on
-    /// top with `scaledToFill() + .clipped()` so every thumbnail
-    /// — regardless of source aspect ratio (16:9, 4:3, 1:1) —
-    /// fills the same bounding box and gets cropped to fit. The
-    /// outer clipShape gives the cover the same 24 pt corner
-    /// radius as the card.
+    /// Sizing story (this is the third rewrite — see commit
+    /// history): the box must report a *deterministic* height to
+    /// the parent `LazyVGrid` cell so the cell's text rows
+    /// (title / owner / counts, all pinned to fixed heights) get
+    /// stacked below the cover instead of being painted on top
+    /// of the next row's cover.
+    ///
+    /// - `Rectangle().fill(.clear)` is a `Shape` and proposes a
+    ///   non-zero intrinsic size to its parent. `Color.clear` is
+    ///   a `Color` wrapped as `View` and its intrinsic size
+    ///   collapses to zero on iPad horizontal + sidebar layouts,
+    ///   so `aspectRatio` has nothing to derive a height from.
+    /// - `.aspectRatio(16/10, .fit)` then locks the rectangle to
+    ///   a 16:10 box; the `.frame(maxWidth: .infinity)` above
+    ///   gives it the column's full width, so height becomes
+    ///   `width * 10/16` deterministically.
+    /// - `CoverImage` (a `ZStack` of placeholder + `Image`) is
+    ///   overlaid into that fixed box. We force it to fill via
+    ///   `maxWidth:.infinity, maxHeight:.infinity` because
+    ///   ZStacks don't fill by default. The internal
+    ///   `Image(uiImage:)` already does `.scaledToFill() + .clipped()`
+    ///   so every source aspect ratio (16:9, 4:3, 1:1) gets
+    ///   cropped to the 16:10 box.
+    /// - The outer `.clipShape(RoundedRectangle(cardRadius))`
+    ///   gives the cover the same 24 pt corner radius as the
+    ///   card.
     private var coverImage: some View {
-        Color.clear
+        Rectangle()
+            .fill(.clear)
             .aspectRatio(16 / 10, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .overlay(
-                // `CoverImage` is a ZStack (placeholder + Image);
-                // it doesn't fill its parent by default, so force
-                // it to fill the container. The internal
-                // `Image(uiImage:)` already does .scaledToFill() +
-                // .clipped() so every source aspect ratio (16:9,
-                // 4:3, 1:1) is cropped to the 16:10 box.
                 CoverImage(url: video.coverURL)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             )
@@ -233,8 +247,23 @@ struct LiveRoomCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 ZStack(alignment: .topLeading) {
-                    CoverImage(url: room.coverURL)
+                    // See `VideoCard.coverImage` for the sizing story.
+                    // Same Rectangle() + .aspectRatio(16/10, .fit)
+                    // pattern — without the explicit Shape container,
+                    // CoverImage's ZStack of Rectangle+Image can
+                    // collapse to placeholder size on first paint
+                    // (before the URL image lands) and the grid cell
+                    // reports a tiny height to the parent, causing
+                    // the LIVE badge to be painted on top of the
+                    // next row's cover.
+                    Rectangle()
+                        .fill(.clear)
                         .aspectRatio(16 / 10, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .overlay(
+                            CoverImage(url: room.coverURL)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        )
                         .clipped()
                         .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
                     Text("LIVE")

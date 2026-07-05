@@ -338,8 +338,24 @@ struct MusicPlayerView: View {
     private var artworkSection: some View {
         Group {
             if let url = video.coverURL {
-                ResilientImage(url: url)
-                    .aspectRatio(1, contentMode: .fill)
+                // See `VideoCard.coverImage` for the sizing story.
+                // Same Rectangle() + .aspectRatio(1, .fit) + overlay
+                // pattern — applying .aspectRatio directly to
+                // `ResilientImage` (a ZStack) was the same pre-2d1105d1
+                // fragile pattern. On first paint the ZStack's largest
+                // child is the placeholder ProgressView, so the
+                // artwork collapsed to a tiny box until the URL
+                // bytes landed; with the explicit Shape container the
+                // box is a deterministic 1:1 of the parent width
+                // from the very first layout pass.
+                Rectangle()
+                    .fill(.clear)
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .overlay(
+                        ResilientImage(url: url)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    )
                     .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle))
                     .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
             } else {
