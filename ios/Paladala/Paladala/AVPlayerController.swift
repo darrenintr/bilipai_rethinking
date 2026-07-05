@@ -276,6 +276,7 @@ final class PlayerController: ObservableObject {
         let referer = playback.referer.absoluteString
         var asset: AVAsset
         let usesProxy: Bool
+        var initialPlayerError: PlayerPlaybackError?
 
         // Fast path: a downloaded video with the merged
         // mp4 files on disk.  We play both tracks through
@@ -379,28 +380,27 @@ final class PlayerController: ObservableObject {
             // pre-date the merge step (no `mergedVideo` yet).
             do {
                 try LocalHLSProxyServer.shared.serve(playback: playback)
+                if let baseURL = LocalHLSProxyServer.shared.waitForReady() {
+                    let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
+                    asset = AVURLAsset(url: playlistURL)
+                    usesProxy = true
+                    diagLog(.playback,
+                            "AVPlayerController bound to local HLS proxy",
+                            details: ["url": playlistURL.absoluteString])
+                } else {
+                    diagLog(.playback, "LocalHLSProxyServer did not become ready")
+                    asset = AVMutableComposition()
+                    usesProxy = true
+                    initialPlayerError = .proxyFailed(code: -1)
+                }
             } catch {
                 diagLog(.playback,
                         "Failed to start LocalHLSProxyServer",
-                        details: ["error": error.localizedDescription])
+                        details: ["error": "\(error)"])
+                asset = AVMutableComposition()
+                usesProxy = true
+                initialPlayerError = .proxyFailed(code: -1)
             }
-            // The `waitForReady()` method blocks on a semaphore until the
-            // NWListener fires its `.ready` state callback on the
-            // proxy's queue, or until the 2-second timeout elapses.
-            // Compared to the previous `while + Thread.sleep` polling
-            // loop this uses far less CPU (no thread wake every 10 ms)
-            // and is explicit about the intent.  The semaphore waits
-            // on the proxy's serial `queue`, which is safe to block —
-            // the queue has no async work pending at init time.
-            guard let baseURL = LocalHLSProxyServer.shared.waitForReady() else {
-                fatalError("LocalHLSProxyServer did not become ready in time")
-            }
-            let playlistURL = baseURL.appendingPathComponent("playlist.m3u8")
-            asset = AVURLAsset(url: playlistURL)
-            usesProxy = true
-            diagLog(.playback,
-                    "AVPlayerController bound to local HLS proxy",
-                    details: ["url": playlistURL.absoluteString])
         } else if let fallback = playback.fallbackURL {
             // Direct URL path: live HLS or legacy MP4.  AVPlayer
             // can consume either directly, but B站's CDN still
@@ -431,6 +431,7 @@ final class PlayerController: ObservableObject {
         self.asset = asset
         self.usesProxy = usesProxy
         self.originalPlayback = playback
+        self.playerError = initialPlayerError
 
         let item = AVPlayerItem(asset: asset)
         
@@ -958,9 +959,9 @@ final class PlayerController: ObservableObject {
                 player.play()
             } catch {
                 diagLog(.playback, "retryPlayback: serve() threw", details: [
-                    "error": error.localizedDescription
+                    "error": "\(error)"
                 ])
-                playerError = .itemFailed(detail: error.localizedDescription)
+                playerError = .itemFailed(detail: "\(error)")
                 return
             }
         } else {
