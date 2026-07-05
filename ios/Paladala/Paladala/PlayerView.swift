@@ -1058,11 +1058,17 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             }
         }
 
+        /// Whether the player was actively playing before the
+        /// fullscreen transition began, so we can resume on
+        /// dismiss (AVKit pauses when exiting native fullscreen).
+        private var wasPlayingBeforeFullscreen = false
+
         @MainActor
         func playerViewController(
             _ playerViewController: AVPlayerViewController,
             willBeginFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
         ) {
+            wasPlayingBeforeFullscreen = playerController.player.timeControlStatus == .playing
             playerController.isNativeFullscreenActive = true
         }
 
@@ -1072,8 +1078,12 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
         ) {
             coordinator.animate(alongsideTransition: nil) { [weak self] context in
-                if !context.isCancelled {
-                    self?.playerController.isNativeFullscreenActive = false
+                guard let self, !context.isCancelled else { return }
+                playerController.isNativeFullscreenActive = false
+                // AVKit pauses when exiting native fullscreen.
+                // Resume if it was playing before entering.
+                if wasPlayingBeforeFullscreen {
+                    playerController.player.play()
                 }
             }
         }
