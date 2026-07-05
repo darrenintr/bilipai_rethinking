@@ -2281,7 +2281,16 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             // resolve the parent track and bump the cursor.
             // No-op if we're already at the end of the backup
             // list for this track.
-            server?.markUpstreamFailed(url: upstream)
+            // `guard let` rather than `?.` because
+            // `markUpstreamFailed` is a `fileprivate` mutating
+            // method on the server — Swift's optional-chaining
+            // inference refuses to call mutating methods on
+            // a `weak` reference, and we want to surface a
+            // clear compile error rather than silently skip
+            // the failover on a deallocated server.
+            if let server {
+                server.markUpstreamFailed(url: upstream)
+            }
             if upstreamAttempt < Self.maxRetries {
                 // Still have retries left — wait for a
                 // fresh upstream attempt with the Range
