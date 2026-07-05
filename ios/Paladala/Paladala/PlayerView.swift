@@ -1016,10 +1016,12 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             longPress.minimumPressDuration = 0.4
             longPress.delaysTouchesBegan = false
             longPress.cancelsTouchesInView = false
-            vc.contentOverlayView?.addGestureRecognizer(longPress)
+            vc.view.addGestureRecognizer(longPress)
 
+            // Force-load the view if not already loaded so
+            // contentOverlayView is guaranteed non-nil.
+            _ = vc.view
             guard let overlayView = vc.contentOverlayView else { return }
-
             let badge = InlineSpeedBadge(controller: playerController)
             let hostingController = UIHostingController(rootView: badge)
             hostingController.view.backgroundColor = .clear
