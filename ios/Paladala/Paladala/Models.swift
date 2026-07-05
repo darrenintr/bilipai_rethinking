@@ -175,27 +175,116 @@ enum BiliRelation: Int, Codable, Hashable {
 /// without one return `code != 0` and the repository layer
 /// maps that to `nil` — the ViewModel treats `nil` as
 /// "no section to render" rather than an error state.
+///
+/// Field provenance — every field below is documented in the
+/// upstream `bilibili-API-collect` repo at
+/// `docs/video/summary.md` (B站's official API spec).  Do not
+/// invent fields: this endpoint is not backwards-compatible and
+/// B站 has previously broken downstream clients when they
+/// relied on undocumented shapes.
 struct BiliAISummary: Codable, Hashable {
+    /// One-paragraph summary of the whole video. Markdown
+    /// formatted by B站's NLP pipeline. May be empty when
+    /// `resultType == 0`.
     let summary: String
+    /// Chapter outline. Empty when `resultType` is `0` or `1`;
+    /// always populated when `resultType == 2`.
     let outline: [BiliAISummaryChapter]
+    /// AI-generated subtitle cards. The upstream doc shows
+    /// `subtitle[]` with one element containing `part_subtitle`
+    /// bullets. Not surfaced in the detail view today but
+    /// decoded so future builds can fall back to it for
+    /// transcripts when the AI summary is missing.
+    let subtitle: [BiliAISummarySubtitle]
+    /// `0` = no summary (B站 rejected the video — sensitive
+    /// content, gated region, etc.); `1` = summary text only;
+    /// `2` = summary + outline. Mirrors `data.code` from the
+    /// upstream envelope.
+    let resultType: Int
+    /// Upstream-supplied like counter for the AI summary. The
+    /// POST `/x/web-interface/view/conclusion/set` endpoint
+    /// (SESSDATA + bili_jct required) updates this value.
+    let likeNum: Int
+    /// Upstream-supplied dislike counter for the AI summary.
+    let dislikeNum: Int
+    /// Upstream summary id, required by the
+    /// `/x/web-interface/view/conclusion/set` like/dislike
+    /// endpoint. Persisted so a future "like the summary"
+    /// button can fire the POST without re-fetching.
+    let stid: String
 
-    var isEmpty: Bool { summary.isEmpty && outline.isEmpty }
+    var isEmpty: Bool {
+        summary.isEmpty && outline.isEmpty && subtitle.isEmpty
+    }
+
+    /// Wire → Swift field map. B站 ships snake_case; Swift
+    /// convention here is camelCase. Hand-rolled rather than
+    /// `JSONDecoder.keyDecodingStrategy` because the rest of
+    /// this file uses synthesized Codable for fields that
+    /// already match the wire format.
+    private enum CodingKeys: String, CodingKey {
+        case summary, outline, subtitle, stid
+        case resultType = "result_type"
+        case likeNum = "like_num"
+        case dislikeNum = "dislike_num"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        outline = try c.decodeIfPresent([BiliAISummaryChapter].self, forKey: .outline) ?? []
+        subtitle = try c.decodeIfPresent([BiliAISummarySubtitle].self, forKey: .subtitle) ?? []
+        resultType = try c.decodeIfPresent(Int.self, forKey: .resultType) ?? 0
+        likeNum = try c.decodeIfPresent(Int.self, forKey: .likeNum) ?? 0
+        dislikeNum = try c.decodeIfPresent(Int.self, forKey: .dislikeNum) ?? 0
+        stid = try c.decodeIfPresent(String.self, forKey: .stid) ?? ""
+    }
+
+    init(summary: String,
+         outline: [BiliAISummaryChapter],
+         subtitle: [BiliAISummarySubtitle] = [],
+         resultType: Int = 2,
+         likeNum: Int = 0,
+         dislikeNum: Int = 0,
+         stid: String = "") {
+        self.summary = summary
+        self.outline = outline
+        self.subtitle = subtitle
+        self.resultType = resultType
+        self.likeNum = likeNum
+        self.dislikeNum = dislikeNum
+        self.stid = stid
+    }
 }
 
 /// One chapter in the AI summary outline. Bilibili publishes
 /// `timestamp` as raw seconds (an Int); the ViewModel renders
-/// it as `HH:MM:SS` / `MM:SS` via `timestampLabel`. The
-/// `content` field is a short paragraph elaborating the
-/// chapter — used as the row subtitle.
+/// it as `HH:MM:SS` / `MM:SS` via `timestampLabel`.
+///
+/// The wire shape (per `bilibili-API-collect`) is
+/// `{title, part_outline: [{timestamp, content}, ...], timestamp}` —
+/// each chapter has its own bullet list. Tapping a chapter
+/// title seeks to the chapter's start; tapping a bullet seeks
+/// to that bullet's start. Earlier Paladala builds decoded
+/// `outline[i].content` directly, which is null on the wire —
+/// the chapter body was rendering empty as a result.
 struct BiliAISummaryChapter: Codable, Hashable, Identifiable {
     let title: String
-    let content: String
+    /// Bullet points elaborating this chapter. Each bullet has
+    /// its own seek-to timestamp; tapping one seeks the player
+    /// to that exact moment. Empty for `resultType == 1`.
+    let partOutline: [BiliAISummaryBullet]
+    /// Chapter start timestamp in seconds.
     let timestamp: Int
 
     var id: Int { timestamp }
 
     var timestampLabel: String {
-        let total = max(0, timestamp)
+        Self.formatTimestamp(seconds: timestamp)
+    }
+
+    static func formatTimestamp(seconds: Int) -> String {
+        let total = max(0, seconds)
         let h = total / 3600
         let m = (total % 3600) / 60
         let s = total % 60
@@ -203,6 +292,117 @@ struct BiliAISummaryChapter: Codable, Hashable, Identifiable {
             return String(format: "%d:%02d:%02d", h, m, s)
         }
         return String(format: "%d:%02d", m, s)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title, timestamp
+        case partOutline = "part_outline"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        partOutline = try c.decodeIfPresent([BiliAISummaryBullet].self, forKey: .partOutline) ?? []
+        timestamp = try c.decodeIfPresent(Int.self, forKey: .timestamp) ?? 0
+    }
+
+    init(title: String,
+         partOutline: [BiliAISummaryBullet],
+         timestamp: Int) {
+        self.title = title
+        self.partOutline = partOutline
+        self.timestamp = timestamp
+    }
+}
+
+/// One bullet inside an AI summary chapter. Each bullet has
+/// its own timestamp the player can seek to; `content` is a
+/// one-line description of the bullet.
+struct BiliAISummaryBullet: Codable, Hashable, Identifiable {
+    let content: String
+    let timestamp: Int
+
+    var id: Int { timestamp }
+
+    var timestampLabel: String {
+        BiliAISummaryChapter.formatTimestamp(seconds: timestamp)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case content, timestamp
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        content = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
+        timestamp = try c.decodeIfPresent(Int.self, forKey: .timestamp) ?? 0
+    }
+
+    init(content: String, timestamp: Int) {
+        self.content = content
+        self.timestamp = timestamp
+    }
+}
+
+/// AI subtitle card. The upstream serves at most one entry
+/// here (the array always has length 0 or 1); the actual
+/// subtitle line list lives inside `partSubtitle`. Decoded
+/// today so the data is on hand when we want to surface an
+/// auto-generated transcript.
+struct BiliAISummarySubtitle: Codable, Hashable, Identifiable {
+    let partSubtitle: [BiliAISummarySubtitleLine]
+    let timestamp: Int
+    let title: String
+
+    var id: Int { timestamp }
+
+    private enum CodingKeys: String, CodingKey {
+        case timestamp, title
+        case partSubtitle = "part_subtitle"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        partSubtitle = try c.decodeIfPresent([BiliAISummarySubtitleLine].self, forKey: .partSubtitle) ?? []
+        timestamp = try c.decodeIfPresent(Int.self, forKey: .timestamp) ?? 0
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+    }
+
+    init(partSubtitle: [BiliAISummarySubtitleLine], timestamp: Int, title: String) {
+        self.partSubtitle = partSubtitle
+        self.timestamp = timestamp
+        self.title = title
+    }
+}
+
+struct BiliAISummarySubtitleLine: Codable, Hashable, Identifiable {
+    let content: String
+    let startTimestamp: Double
+    let endTimestamp: Double
+
+    var id: Double { startTimestamp }
+
+    private enum CodingKeys: String, CodingKey {
+        case content
+        case startTimestamp = "start_timestamp"
+        case endTimestamp = "end_timestamp"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        content = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
+        // Wire uses ints (seconds); decoder accepts both via
+        // the type system falling through to `Double`.
+        startTimestamp = try c.decodeIfPresent(Double.self, forKey: .startTimestamp)
+            ?? Double(try c.decodeIfPresent(Int.self, forKey: .startTimestamp) ?? 0)
+        endTimestamp = try c.decodeIfPresent(Double.self, forKey: .endTimestamp)
+            ?? Double(try c.decodeIfPresent(Int.self, forKey: .endTimestamp) ?? 0)
+    }
+
+    init(content: String, startTimestamp: Double, endTimestamp: Double) {
+        self.content = content
+        self.startTimestamp = startTimestamp
+        self.endTimestamp = endTimestamp
     }
 }
 

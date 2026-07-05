@@ -246,6 +246,10 @@ enum L10n {
         static let title = String(localized: "aiSummary.title", defaultValue: "AI 视频总结")
         /// "章节" — small heading above the chapter outline list.
         static let chapters = String(localized: "aiSummary.chapters", defaultValue: "章节")
+        /// "跳转到此位置" — VoiceOver hint on each outline chapter
+        /// and bullet row. Both rows are tap-to-seek, so the
+        /// hint is identical for both.
+        static let seekHint = String(localized: "aiSummary.seekHint", defaultValue: "跳转到此位置")
     }
 }
 

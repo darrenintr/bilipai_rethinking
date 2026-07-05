@@ -663,8 +663,9 @@ struct VideoDetailView: View {
     /// Body of the AI summary card (rendered only when expanded).
     /// Renders the Markdown prose via `Text(.init(...))` so
     /// `**bold**`, `_italic_`, and `[link](url)` survive without
-    /// pulling in a Markdown parser; the outline is a plain
-    /// `ForEach` of `Button` rows that seek the player.
+    /// pulling in a Markdown parser; the outline is a chapter
+    /// header row plus a list of bullet rows under it, each of
+    /// which seeks the player to its own timestamp.
     @ViewBuilder
     private func aiSummaryExpandedBody(_ summary: BiliAISummary) -> some View {
         if !summary.summary.isEmpty {
@@ -681,41 +682,93 @@ struct VideoDetailView: View {
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(summary.outline) { chapter in
-                    Button {
-                        model.seekAIOutline(
-                            toSeconds: Double(chapter.timestamp),
-                            controller: playerController
-                        )
-                        Haptics.tap()
-                    } label: {
-                        HStack(alignment: .top, spacing: 10) {
-                            Text(chapter.timestampLabel)
-                                .font(.caption.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(PaladalaTheme.biliPink)
-                                .frame(width: 52, alignment: .leading)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(chapter.title)
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                if !chapter.content.isEmpty {
-                                    Text(chapter.content)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
-                            Spacer(minLength: 0)
+                    chapterHeader(chapter)
+                    if !chapter.partOutline.isEmpty {
+                        ForEach(chapter.partOutline) { bullet in
+                            bulletRow(bullet)
                         }
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
                     if chapter.id != summary.outline.last?.id {
-                        Divider()
+                        Divider().padding(.vertical, 6)
                     }
                 }
             }
         }
+    }
+
+    /// Chapter header row in the AI outline. Tapping it seeks
+    /// to the chapter's start timestamp and provides the chapter
+    /// title + bullet count.
+    @ViewBuilder
+    private func chapterHeader(_ chapter: BiliAISummaryChapter) -> some View {
+        Button {
+            model.seekAIOutline(
+                toSeconds: Double(chapter.timestamp),
+                controller: playerController
+            )
+            Haptics.tap()
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Text(chapter.timestampLabel)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(PaladalaTheme.biliPink)
+                    .frame(width: 52, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(chapter.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(3)
+                    if !chapter.partOutline.isEmpty {
+                        Text("\(chapter.partOutline.count) 个要点")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "play.circle")
+                    .font(.callout)
+                    .foregroundStyle(PaladalaTheme.biliPink.opacity(0.85))
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(chapter.timestampLabel) \(chapter.title)")
+        .accessibilityHint(L10n.aiSummary.seekHint)
+    }
+
+    /// One bullet row nested inside a chapter. The wire shape
+    /// (`outline[].part_outline[]`) gives every bullet its own
+    /// timestamp the player can seek to, so bullets are their
+    /// own tap targets rather than passive text.
+    @ViewBuilder
+    private func bulletRow(_ bullet: BiliAISummaryBullet) -> some View {
+        Button {
+            model.seekAIOutline(
+                toSeconds: Double(bullet.timestamp),
+                controller: playerController
+            )
+            Haptics.tap()
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Text(bullet.timestampLabel)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(PaladalaTheme.biliPink.opacity(0.85))
+                    .frame(width: 52, alignment: .leading)
+                Text(bullet.content)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 14)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(bullet.timestampLabel) \(bullet.content)")
+        .accessibilityHint(L10n.aiSummary.seekHint)
     }
 
     /// Quality menu lifted out of `controlPanel` so the helper that

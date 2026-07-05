@@ -2086,7 +2086,14 @@ private struct UserVideoDTO: Decodable {
 /// `data.model_result.{summary, outline}` envelope. `model_result`
 /// is sometimes `null` on the wire (videos with no AI summary yet)
 /// and the shape is also absent on older endpoint versions, so
-/// both fields are optional via a hand-rolled `init(from:)`.
+/// every field is optional via a hand-rolled `init(from:)`.
+///
+/// The encoder on the Bili side has been observed to omit the
+/// `part_outline` key when the video only has prose (no outline
+/// chapters) and to omit the `subtitle` key on older sessions
+/// entirely. Both decode paths default to an empty array so
+/// downstream consumers can rely on `outline` / `subtitle` never
+/// being `nil`.
 private struct BiliAISummaryPayload: Decodable {
     let modelResult: BiliAISummary?
 
