@@ -29,6 +29,11 @@ struct RootView: View {
     /// that pushed the OnboardingView onto the screen
     /// before any other init could claim the first frame.
     @State private var hasPresentedFirstFrame: Bool = false
+    /// One-shot app opening overlay. It is mounted above the
+    /// root shell only for the first launch moment, then removed
+    /// from the hierarchy so it cannot intercept navigation,
+    /// sheets, or video gestures.
+    @State private var isOpeningAnimationVisible: Bool = true
     /// The threshold above which a background → foreground
     /// transition is treated as "long" and triggers a proxy
     /// teardown.  Picked at 5 s: shorter than that and we
@@ -155,6 +160,15 @@ struct RootView: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.85),
                            value: miniPlayerIsShowing)
         }
+        .overlay {
+            if isOpeningAnimationVisible {
+                OpeningScreenAnimation {
+                    isOpeningAnimationVisible = false
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+        }
     }
 
     /// Mirror of `miniPlayerStore.isShowingMiniPlayer` so the
@@ -196,6 +210,204 @@ struct RootView: View {
             }
         default:
             break
+        }
+    }
+}
+
+private struct OpeningScreenAnimation: View {
+    let onFinished: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var tileScale: CGFloat = 0.78
+    @State private var tileRotation: Double = -8
+    @State private var tileOpacity: Double = 0
+    @State private var playScale: CGFloat = 0.72
+    @State private var playOpacity: Double = 0
+    @State private var titleOffset: CGFloat = 14
+    @State private var titleOpacity: Double = 0
+    @State private var accentProgress: CGFloat = 0
+    @State private var shimmerOffset: CGFloat = -150
+    @State private var screenOpacity: Double = 1
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                background
+
+                VStack(spacing: 22) {
+                    ZStack {
+                        RoundedRectangle(
+                            cornerRadius: 32,
+                            style: PaladalaTheme.cornerStyle
+                        )
+                        .fill(.ultraThinMaterial)
+                        .frame(width: 118, height: 118)
+                        .overlay {
+                            RoundedRectangle(
+                                cornerRadius: 32,
+                                style: PaladalaTheme.cornerStyle
+                            )
+                            .strokeBorder(Color.primary.opacity(0.16), lineWidth: 0.8)
+                        }
+                        .shadow(
+                            color: Color.black.opacity(colorScheme == .dark ? 0.34 : 0.12),
+                            radius: 34,
+                            y: 20
+                        )
+
+                        RoundedRectangle(
+                            cornerRadius: 25,
+                            style: PaladalaTheme.cornerStyle
+                        )
+                        .fill(PaladalaTheme.biliPink)
+                        .frame(width: 82, height: 82)
+                        .overlay(alignment: .topLeading) {
+                            highlightSweep
+                                .frame(width: 70, height: 120)
+                                .offset(x: shimmerOffset)
+                                .clipShape(
+                                    RoundedRectangle(
+                                        cornerRadius: 25,
+                                        style: PaladalaTheme.cornerStyle
+                                    )
+                                )
+                        }
+
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundStyle(.white)
+                            .offset(x: 3)
+                            .scaleEffect(playScale)
+                            .opacity(playOpacity)
+                    }
+                    .scaleEffect(tileScale)
+                    .rotationEffect(.degrees(tileRotation))
+                    .opacity(tileOpacity)
+
+                    VStack(spacing: 9) {
+                        Text("Paladala")
+                            .font(.system(.title2, design: .rounded).weight(.bold))
+                            .foregroundStyle(.primary)
+                        premiumAccent
+                            .frame(width: 86, height: 3)
+                            .scaleEffect(x: accentProgress, anchor: .leading)
+                    }
+                    .opacity(titleOpacity)
+                    .offset(y: titleOffset)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, geo.safeAreaInsets.bottom + 24)
+            }
+            .opacity(screenOpacity)
+            .ignoresSafeArea()
+        }
+        .onAppear { run() }
+    }
+
+    private var background: some View {
+        ZStack {
+            Color(uiColor: .systemBackground)
+            VStack(spacing: 0) {
+                Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.05)
+                    .frame(height: 1)
+                Spacer()
+                Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.04)
+                    .frame(height: 1)
+            }
+            VStack {
+                Spacer()
+                premiumAccent
+                    .frame(height: 2)
+                    .opacity(0.42)
+                    .padding(.horizontal, 72)
+                    .padding(.bottom, 118)
+                    .scaleEffect(x: accentProgress, anchor: .center)
+            }
+        }
+    }
+
+    private var premiumAccent: some View {
+        Capsule()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        PaladalaTheme.cyan,
+                        PaladalaTheme.biliPink,
+                        PaladalaTheme.violet
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+    }
+
+    private var highlightSweep: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        .white.opacity(0),
+                        .white.opacity(0.42),
+                        .white.opacity(0)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .rotationEffect(.degrees(18))
+    }
+
+    private func run() {
+        if reduceMotion {
+            withAnimation(.easeOut(duration: 0.18)) {
+                tileOpacity = 1
+                playOpacity = 1
+                titleOpacity = 1
+                titleOffset = 0
+                tileScale = 1
+                tileRotation = 0
+                playScale = 1
+                accentProgress = 1
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 650_000_000)
+                withAnimation(.easeOut(duration: 0.18)) {
+                    screenOpacity = 0
+                }
+                try? await Task.sleep(nanoseconds: 180_000_000)
+                onFinished()
+            }
+            return
+        }
+
+        withAnimation(.spring(response: 0.58, dampingFraction: 0.76)) {
+            tileOpacity = 1
+            tileScale = 1
+            tileRotation = 0
+        }
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.68).delay(0.12)) {
+            playOpacity = 1
+            playScale = 1
+        }
+        withAnimation(.easeOut(duration: 0.32).delay(0.18)) {
+            titleOpacity = 1
+            titleOffset = 0
+        }
+        withAnimation(.easeInOut(duration: 0.42).delay(0.24)) {
+            accentProgress = 1
+        }
+        withAnimation(.easeInOut(duration: 0.76).delay(0.28)) {
+            shimmerOffset = 110
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_250_000_000)
+            withAnimation(.easeInOut(duration: 0.32)) {
+                screenOpacity = 0
+                tileScale = 1.04
+            }
+            try? await Task.sleep(nanoseconds: 340_000_000)
+            onFinished()
         }
     }
 }
