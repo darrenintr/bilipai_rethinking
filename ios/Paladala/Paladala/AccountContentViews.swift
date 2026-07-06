@@ -172,12 +172,19 @@ final class WatchLaterViewModel: ObservableObject {
 struct HistoryListView: View {
     let repository: PaladalaRepository
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
     @StateObject private var model = HistoryListViewModel()
 
     var body: some View {
         List {
             if let error = model.errorMessage {
-                ErrorBanner(message: error)
+                ErrorBanner(
+                    message: error,
+                    retry: { Task { await model.load(repository: repository) } },
+                    primary: authStore.activeAccount == nil
+                        ? .init(label: "登录", action: { router.openLogin() })
+                        : nil
+                )
                     .listRowSeparator(.hidden)
             }
             ForEach(Array(model.items.enumerated()), id: \.element.id) { index, entry in
@@ -261,12 +268,19 @@ struct HistoryListView: View {
 struct WatchLaterListView: View {
     let repository: PaladalaRepository
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
     @StateObject private var model = WatchLaterViewModel()
 
     var body: some View {
         List {
             if let error = model.errorMessage {
-                ErrorBanner(message: error)
+                ErrorBanner(
+                    message: error,
+                    retry: { Task { await model.load(repository: repository) } },
+                    primary: authStore.activeAccount == nil
+                        ? .init(label: "登录", action: { router.openLogin() })
+                        : nil
+                )
                     .listRowSeparator(.hidden)
             }
             ForEach(model.videos) { video in
@@ -309,12 +323,20 @@ struct WatchLaterListView: View {
 struct FavoriteFoldersView: View {
     let repository: PaladalaRepository
     let mid: Int64
+    @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
     @StateObject private var model = FavoriteFoldersViewModel()
 
     var body: some View {
         List {
             if let error = model.errorMessage {
-                ErrorBanner(message: error)
+                ErrorBanner(
+                    message: error,
+                    retry: { Task { await model.load(repository: repository) } },
+                    primary: authStore.activeAccount == nil
+                        ? .init(label: "登录", action: { router.openLogin() })
+                        : nil
+                )
                     .listRowSeparator(.hidden)
             }
             ForEach(model.folders) { folder in
@@ -336,12 +358,19 @@ struct FavoriteFolderVideosView: View {
     let repository: PaladalaRepository
     let folder: FavoriteFolderSummary
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var authStore: AuthStore
     @StateObject private var model = FavoriteFolderVideosViewModel()
 
     var body: some View {
         List {
             if let error = model.errorMessage {
-                ErrorBanner(message: error)
+                ErrorBanner(
+                    message: error,
+                    retry: { Task { await model.load(repository: repository) } },
+                    primary: authStore.activeAccount == nil
+                        ? .init(label: "登录", action: { router.openLogin() })
+                        : nil
+                )
                     .listRowSeparator(.hidden)
             }
             ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in

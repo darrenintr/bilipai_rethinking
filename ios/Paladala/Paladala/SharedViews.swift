@@ -523,16 +523,67 @@ struct MetricPill: View {
     }
 }
 
+/// Standard error / status banner.  The previous shape was
+/// text-only — consumers dropped `ErrorBanner(message:)` into the
+/// view tree and the user got a dead-end string.  Premium apps
+/// always pair the error with an actionable row so the user has
+/// somewhere to go from the failure state.  The two optional
+/// closures defer to the caller: history / favorites pass
+/// `retry: { Task { await model.load(...) } }`; auth-gated
+/// surfaces pass `primary: ("登录", { router.openLogin() })`.
 struct ErrorBanner: View {
     let message: String
+    /// Optional retry button rendered to the right of the message.
+    /// When nil and no `primary` action is supplied, the banner
+    /// keeps the original text-only layout.
+    let retry: (() -> Void)?
+    /// Optional primary CTA (label + action). Rendered as a tinted
+    /// button when present so it visually outranks the retry
+    /// secondary action.
+    let primary: PrimaryAction?
+
+    struct PrimaryAction: View, Identifiable {
+        let id = UUID()
+        let label: String
+        let action: () -> Void
+    }
+
+    init(message: String,
+         retry: (() -> Void)? = nil,
+         primary: ErrorBanner.PrimaryAction? = nil) {
+        self.message = message
+        self.retry = retry
+        self.primary = primary
+    }
 
     var body: some View {
-        Label(message, systemImage: "exclamationmark.triangle.fill")
-            .font(.subheadline)
-            .foregroundStyle(Color(uiColor: .systemOrange))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color(uiColor: .systemOrange).opacity(0.12), in: RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline)
+                .foregroundStyle(Color(uiColor: .systemOrange))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let primary {
+                Button(primary.label) {
+                    Haptics.tap()
+                    primary.action()
+                }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.borderedProminent)
+                .tint(Color(uiColor: .systemOrange))
+            }
+            if retry != nil {
+                Button {
+                    Haptics.tap()
+                    retry?()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .background(Color(uiColor: .systemOrange).opacity(0.12), in: RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
     }
 }
 
