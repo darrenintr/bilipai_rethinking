@@ -256,9 +256,18 @@ final class LocalHLSProxyServer {
     /// `DiagnosticLogger` and is swallowed — the caller must
     /// never see an exception thrown from cold-launch
     /// housekeeping.
+    ///
+    /// Calls `ensureListenerAsync()` first so the singleton
+    /// actually has a listener running before we poll for
+    /// `.ready`; without this, the loop was a no-op and the
+    /// 500 ms ceiling always tripped, logging
+    /// `proxy_prewarm_failed` on every cold launch.
+    /// Idempotent: re-invoking after a listener is already
+    /// bound is a cheap no-op (see `ensureListener()`).
     static func prewarmProxyServer() async {
         do {
             let server = LocalHLSProxyServer.shared
+            try await server.ensureListenerAsync()
             try await server.waitForListener(timeoutMs: 500, pollIntervalMs: 5)
         } catch {
             DiagnosticLogger.shared.log(.playback, "proxy_prewarm_failed",

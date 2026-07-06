@@ -31,9 +31,16 @@ final class LocalHLSProxyServerTests: XCTestCase {
         XCTAssertLessThan(elapsedMs, 200)
     }
 
-    func test_prewarmProxyServer_succeedsOrLogsAndSwallows() async {
-        // Must never throw to callers — best-effort.
+    func test_prewarmProxyServer_startsListenerAndSucceeds() async {
+        // Prewarm must (a) never throw, and (b) leave the shared
+        // singleton with a listener that is actually `.ready`.
+        // Before the `ensureListenerAsync()` fix, this assertion
+        // would have failed because `init(port:)` does not start
+        // the listener — only `serve(...)` / `serveLive(...)` did.
         await LocalHLSProxyServer.prewarmProxyServer()
-        // Pass on no-throw.
+        let listener = LocalHLSProxyServer.shared.listener
+        XCTAssertNotNil(listener, "prewarm must install a listener on .shared")
+        XCTAssertEqual(listener?.state, .ready,
+                       "prewarm must wait for listener.ready, got \(String(describing: listener?.state))")
     }
 }
