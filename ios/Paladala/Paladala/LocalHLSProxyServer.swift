@@ -916,6 +916,14 @@ final class LocalHLSProxyServer {
     private let queue = DispatchQueue(label: "Paladala.LocalHLSProxy")
     fileprivate let lock = NSRecursiveLock()
     private var listener: NWListener?
+    /// Test seam — exposes the listener's current state for XCTest assertions.
+    /// Mirrors the `private(set) var baseURL: URL?` access pattern used elsewhere.
+    internal var listenerState: NWListener.State? { listener?.state }
+    /// Test seam — cancels the underlying `NWListener` so XCTest's `tearDown`
+    /// can release the loopback port bound by `prewarmProxyServer()` without
+    /// reaching into the still-`private` `listener` property (which is not
+    /// visible across module boundaries even with `@testable import`).
+    internal func cancelListenerForTest() { listener?.cancel() }
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
     /// Live playback state.  Mirrors `currentPlayback` for the

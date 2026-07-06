@@ -2,6 +2,15 @@ import XCTest
 @testable import Paladala
 
 final class LocalHLSProxyServerTests: XCTestCase {
+    override func tearDown() async throws {
+        // Cancel the loopback listener installed by
+        // `prewarmProxyServer()` so subsequent tests don't see a
+        // stale `.ready` port and so the next `.shared` access can
+        // lazy-rebuild via `ensureListenerAsync()`.
+        LocalHLSProxyServer.shared.cancelListenerForTest()
+        try await super.tearDown()
+    }
+
     func test_waitForListener_respectsTimeoutCeiling() async {
         // When the listener is never started, waitForListener must throw
         // within timeout + a small grace window (50 ms), not hang for the
@@ -38,9 +47,9 @@ final class LocalHLSProxyServerTests: XCTestCase {
         // would have failed because `init(port:)` does not start
         // the listener — only `serve(...)` / `serveLive(...)` did.
         await LocalHLSProxyServer.prewarmProxyServer()
-        let listener = LocalHLSProxyServer.shared.listener
-        XCTAssertNotNil(listener, "prewarm must install a listener on .shared")
-        XCTAssertEqual(listener?.state, .ready,
-                       "prewarm must wait for listener.ready, got \(String(describing: listener?.state))")
+        let state = LocalHLSProxyServer.shared.listenerState
+        XCTAssertNotNil(state, "prewarm must install a listener on .shared")
+        XCTAssertEqual(state, .ready,
+                       "prewarm must wait for listener.ready, got \(String(describing: state))")
     }
 }

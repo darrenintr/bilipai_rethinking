@@ -75,6 +75,7 @@
 		600000000000000000000623 /* SponsorBlockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000613 /* SponsorBlockManager.swift */; };
 		600000000000000000000624 /* SponsorBlockSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000614 /* SponsorBlockSettingsView.swift */; };
 		7E5C0A000000000000000001 /* PaladalaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000002 /* PaladalaTests.swift */; };
+		7E5C0A00000000000000000E /* LocalHLSProxyServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -151,6 +152,7 @@
 		600000000000000000000614 /* SponsorBlockSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockSettingsView.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000002 /* PaladalaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaTests.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000003 /* PaladalaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PaladalaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHLSProxyServerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -309,6 +311,7 @@
 			isa = PBXGroup;
 			children = (
 				7E5C0A000000000000000002 /* PaladalaTests.swift */,
+				7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */,
 			);
 			path = PaladalaTests;
 			sourceTree = "<group>";
@@ -568,6 +571,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7E5C0A000000000000000001 /* PaladalaTests.swift in Sources */,
+				7E5C0A00000000000000000E /* LocalHLSProxyServerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
