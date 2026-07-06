@@ -41,6 +41,61 @@ struct PaladalaPressBounceButtonStyle: ButtonStyle {
     }
 }
 
+/// Responsive press feedback for the player action bar.
+///
+/// Each chip in the player control panel uses this style so the
+/// press feedback is consistent across subtitle / danmaku /
+/// quality / download / coin.  Three layers, all driven by
+/// `configuration.isPressed`:
+///
+/// 1. A scale dip to 0.93 with a snappy spring (response 0.18)
+///    so the button feels alive on touch-down.
+/// 2. A subtle highlight that lifts the foreground opacity to
+///    1.0 (1.0 → 1.0 is a no-op but acts as the explicit
+///    "touched" marker when the chip is normally dimmed because
+///    it is disabled or pending).
+/// 3. A glow halo around the chip that pulses on press — the
+///    radial gradient lives behind the label, animates from
+///    0 → 0.45 opacity on press, and uses an asymmetric easing
+///    so the press builds tension and the release releases it.
+///
+/// Use `.buttonStyle(PaladalaActionPillStyle())` from any control
+/// that lives inside the player's control panel.
+struct PaladalaActionPillStyle: ButtonStyle {
+    var accent: Color = PaladalaTheme.biliPink
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.93 : 1.0)
+            .background(
+                // Press-glow halo.  Uses an animated radial
+                // gradient so the chip "breathes" outward when
+                // touched, then collapses back.  Layered behind
+                // the label so it never interferes with text
+                // legibility.
+                RadialGradient(
+                    colors: [
+                        accent.opacity(configuration.isPressed ? 0.45 : 0),
+                        accent.opacity(0)
+                    ],
+                    center: .center,
+                    startRadius: 4,
+                    endRadius: 36
+                )
+                .animation(
+                    .easeOut(duration: configuration.isPressed ? 0.12 : 0.32),
+                    value: configuration.isPressed
+                )
+            )
+            .animation(
+                configuration.isPressed
+                    ? .spring(response: 0.18, dampingFraction: 0.6)
+                    : .spring(response: 0.34, dampingFraction: 0.74),
+                value: configuration.isPressed
+            )
+    }
+}
+
 private struct PaladalaInteractiveGlassModifier<S: InsettableShape>: ViewModifier {
     let design: MaterialDesign
     let shape: S

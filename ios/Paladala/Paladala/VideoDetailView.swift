@@ -544,40 +544,70 @@ struct VideoDetailView: View {
     }
 
     private var controlPanel: some View {
-        HStack {
-            Toggle(L10n.video.subtitles, isOn: $model.subtitleEnabled)
-                .toggleStyle(.button)
-                .disabled(model.subtitleTrack == nil)
-                .onChange(of: model.subtitleEnabled) { _, newValue in
-                    storedSubtitleEnabled = newValue
-                }
-            Toggle(L10n.video.danmaku, isOn: $model.danmakuEnabled)
-                .toggleStyle(.button)
-            // Quality picker. Maps the four Bilibili accept-quality
-            // ladder entries (80 / 64 / 32 / 16) onto the user-facing
-            // 1080P / 720P / 480P / 360P labels. Picking a new value
-            // refetches the playurl with the new preferred slot via
-            // `VideoDetailViewModel.setPreferredQn(...)`; the
-            // `BilibiliAPIClient` falls through to lower qualities
-            // automatically when the chosen one is gated. The current
-            // pick shows as a checkmark in the menu and is persisted
-            // to `@AppStorage` so a fresh open picks up the user's
-            // last choice without a visible refetch round-trip.
+        // Five chips: subtitle, danmaku, quality, download, coin.
+        // The previous iteration also exposed a 倍速 menu, but
+        // AVPlayerViewController already surfaces the same set
+        // natively (long-press the play button → speed picker)
+        // so keeping a duplicate here caused the two surfaces to
+        // drift — clearing it lets the AVKit path own speed.
+        HStack(spacing: 8) {
+            subtitleChip
+            danmakuChip
             qualityMenu
             downloadButton
-            Menu {
-                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
-                    Button(String(format: "%.2gx", speed)) {
-                        model.playbackSpeed = Float(speed)
-                    }
-                }
-            } label: {
-                Label(String(format: "%.2gx", Double(model.playbackSpeed)), systemImage: "speedometer")
-            }
+            coinButton
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .paladalaCardSurface(materialDesign)
+        // Coin-banner overlay anchored to the bottom of the
+        // card.  Renders only while `model.coinToast` is set,
+        // auto-dismisses via `Task.sleep` in the model so the
+        // view stays declarative.
+        .overlay(alignment: .bottom) {
+            if let toast = model.coinToast {
+                CoinToastBanner(text: toast)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.34, dampingFraction: 0.86),
+                   value: model.coinToast)
+    }
+
+    /// Subtitle toggle.  Disabled when the upstream didn't
+    /// publish a timed-text track for the active video — the
+    /// button dims and ignores taps in that case.
+    private var subtitleChip: some View {
+        Toggle(isOn: $model.subtitleEnabled) {
+            // Animated icon swap: outlined glyph when off, filled
+            // when on, with a 220 ms crossfade + slight scale
+            // so toggling feels deliberate rather than binary.
+            Image(systemName: model.subtitleEnabled
+                  ? "captions.bubble.fill"
+                  : "captions.bubble")
+                .contentTransition(.symbolEffect(.replace.downUp))
+        }
+        .toggleStyle(.button)
+        .disabled(model.subtitleTrack == nil)
+        .buttonStyle(PaladalaActionPillStyle(accent: .blue))
+        .onChange(of: model.subtitleEnabled) { _, newValue in
+            storedSubtitleEnabled = newValue
+        }
+    }
+
+    /// Danmaku toggle.  Same animation contract as
+    /// `subtitleChip` so the two toggles feel like a pair.
+    private var danmakuChip: some View {
+        Toggle(isOn: $model.danmakuEnabled) {
+            Image(systemName: model.danmakuEnabled
+                  ? "text.bubble.fill"
+                  : "text.bubble")
+                .contentTransition(.symbolEffect(.replace.downUp))
+        }
+        .toggleStyle(.button)
+        .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
     }
 
     /// Download button.  Renders one of four labels
@@ -601,7 +631,7 @@ struct VideoDetailView: View {
         } label: {
             downloadButtonLabel
         }
-        .toggleStyle(.button)
+        .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
         .disabled(!canStart)
         .opacity(canStart ? 1 : 0.5)
     }
@@ -609,18 +639,110 @@ struct VideoDetailView: View {
     /// Pure value builder for the download button label.
     /// Pulled out of `downloadButton` so the parent can stay
     /// a regular `some View` (no `@ViewBuilder` gymnastics
-    /// around a `let` + `switch`).
+    /// around a `let` + `switch`).  Uses `.contentTransition`
+    /// so the icon swaps with a 220 ms crossfade when the
+    /// download state flips — the user gets a clear "the
+    /// button did something" cue without us adding an extra
+    /// spinner overlay.
     @ViewBuilder
     private var downloadButtonLabel: some View {
         switch model.downloadState {
         case .notDownloaded:
-            Label("下载", systemImage: "arrow.down.circle")
+            Label {
+                Text("下载")
+            } icon: {
+                Image(systemName: "arrow.down.circle")
+                    .contentTransition(.symbolEffect(.replace.downUp))
+            }
         case .downloading(let p):
-            Label("\(Int(p * 100))%", systemImage: "stop.fill")
+            Label {
+                Text("\(Int(p * 100))%")
+            } icon: {
+                Image(systemName: "stop.fill")
+                    .contentTransition(.symbolEffect(.replace.downUp))
+            }
         case .downloaded:
-            Label("已下载", systemImage: "checkmark.circle.fill")
+            Label {
+                Text("已下载")
+            } icon: {
+                Image(systemName: "checkmark.circle.fill")
+                    .contentTransition(.symbolEffect(.replace.downUp))
+            }
         case .failed:
-            Label("重试下载", systemImage: "exclamationmark.arrow.circlepath")
+            Label {
+                Text("重试下载")
+            } icon: {
+                Image(systemName: "exclamationmark.arrow.circlepath")
+                    .contentTransition(.symbolEffect(.replace.downUp))
+            }
+        }
+    }
+
+    /// 投币 (B-coin) button.  The label flips to a filled
+    /// glyph + count chip once the user has given at least one
+    /// coin, so the action bar surfaces both the action and its
+    /// current state in a single tap target.  The 1x / 2x
+    /// choice lives in the menu so the chip itself stays a
+    /// single tap ("give one more"); long-press / chevron pick
+    /// for "give two at once" is exposed for power users.
+    private var coinButton: some View {
+        Menu {
+            Button {
+                Haptics.tap()
+                Task {
+                    await model.giveCoins(multiply: 1, repository: repository)
+                    scheduleCoinToastDismiss()
+                }
+            } label: {
+                Label("投 1 枚硬币", systemImage: "bitcoinsign.circle")
+            }
+            Button {
+                Haptics.tap()
+                Task {
+                    await model.giveCoins(multiply: 2, repository: repository)
+                    scheduleCoinToastDismiss()
+                }
+            } label: {
+                Label("投 2 枚硬币", systemImage: "bitcoinsign.circle.fill")
+            }
+            if model.coinGiven > 0 {
+                Divider()
+                Text("已投 \(model.coinGiven) 枚")
+            }
+        } label: {
+            // The label crosses between three visual states:
+            //   idle / dimmed        — outline glyph + "投币"
+            //   pending              — outline + progressView
+            //   given (≥ 1)          — filled glyph + count chip
+            // `.contentTransition` crossfades the icon swap so
+            // the state change reads as motion, not a blink.
+            HStack(spacing: 4) {
+                if model.coinInFlight {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: model.coinGiven > 0
+                          ? "bitcoinsign.circle.fill"
+                          : "bitcoinsign.circle")
+                        .contentTransition(.symbolEffect(.replace.downUp))
+                }
+                Text(model.coinGiven > 0 ? "已投 \(model.coinGiven)" : "投币")
+                    .contentTransition(.numericText(value: Double(model.coinGiven)))
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .buttonStyle(PaladalaActionPillStyle(accent: .orange))
+        .disabled(model.coinInFlight)
+    }
+
+    /// Auto-dismiss the coin-success toast after ~1.6 s.
+    /// Lives on the view so the timer survives re-renders of
+    /// `controlPanel` (a `Task` captured inside `model` would
+    /// get cancelled when the view disappears and re-appears).
+    private func scheduleCoinToastDismiss() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            model.clearCoinToast()
         }
     }
 
@@ -1394,5 +1516,47 @@ private struct RelatedVideoCard: View {
         }
         .padding(8)
         .paladalaCardSurface(.liquidGlass)
+    }
+}
+
+/// Transient banner shown under the player action bar after a
+/// 投币 attempt.  Renders the upstream reason on failure or a
+/// success line on success, auto-dismisses via the
+/// `scheduleCoinToastDismiss()` task on the parent view.  The
+/// banner uses `.move(edge:).combined(with: .opacity)` so it
+/// slides up + fades in and reverses on dismiss — the same
+/// contract used elsewhere in the app for transient chrome.
+private struct CoinToastBanner: View {
+    let text: String
+    @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bitcoinsign.circle.fill")
+                .foregroundStyle(.orange)
+            Text(text)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(
+                cornerRadius: PaladalaTheme.cardRadius,
+                style: PaladalaTheme.cornerStyle
+            )
+            .fill(.thinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: PaladalaTheme.cardRadius,
+                style: PaladalaTheme.cornerStyle
+            )
+            .strokeBorder(PaladalaTheme.biliPink.opacity(0.3), lineWidth: 0.75)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+        .paladalaCardSurface(materialDesign)
     }
 }

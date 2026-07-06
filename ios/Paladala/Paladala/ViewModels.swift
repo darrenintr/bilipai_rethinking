@@ -358,6 +358,23 @@ final class VideoDetailViewModel: ObservableObject {
     /// `$downloadState` to redraw the control-panel button
     /// when the user starts, completes, or fails a download.
     @Published var downloadState: DownloadState = .notDownloaded
+    /// How many B-coins (硬币) the user has given this video.
+    /// Bilibili allows 0 / 1 / 2 per video; we start at 0 (the
+    /// upstream default is "not yet coined").  Used by the control
+    /// bar's 投币 button to render the active state (filled
+    /// glyph + count chip) and to short-circuit duplicate
+    /// submissions (the upstream `coin/add` endpoint would
+    /// otherwise return -11002 投币上限 for the second attempt).
+    @Published var coinGiven: Int = 0
+    /// `true` while a `coin/add` request is in flight so the
+    /// 投币 button can show a brief spinner / dim the icon.
+    @Published var coinInFlight = false
+    /// Surface a transient toast-style banner under the action
+    /// bar when a coin succeeds or fails.  Cleared by the view
+    /// after ~1.6 s via `Task.sleep`.  Mirrors the same
+    /// pattern `onDownloadTap` uses through `downloadState`
+    /// but for a side-effect the upstream returns silently.
+    @Published var coinToast: String?
     /// Bilibili's official "AI 视频总结" for this video, if one
     /// exists. `nil` means either (a) we haven't fetched yet,
     /// (b) the upstream returned no summary for this video, or
@@ -530,6 +547,45 @@ final class VideoDetailViewModel: ObservableObject {
         case .downloaded:
             break
         }
+    }
+
+    /// Tap handler for the action bar's 投币 (B-coin) button.
+    /// Bilibili allows 0 / 1 / 2 coins per video; tapping once
+    /// gives 1, the menu lets the user pick 2 (the rest of the
+    /// "give 1 to a UP main you don't subscribe to" pattern).
+    /// Increments `coinGiven` on success and surfaces a brief
+    /// toast so the user gets feedback even though the upstream
+    /// returns no payload.  Ignored when already at 2 (the
+    /// upstream would reject the third coin with -11002).
+    func giveCoins(multiply: Int, repository: PaladalaRepository) async {
+        guard !coinInFlight else { return }
+        guard multiply >= 1, multiply <= 2 else { return }
+        guard coinGiven < 2 else {
+            coinToast = "已经投过 2 枚硬币啦"
+            return
+        }
+        coinInFlight = true
+        defer { coinInFlight = false }
+        do {
+            try await repository.giveCoins(
+                to: detail, multiply: multiply, alsoLike: false
+            )
+            coinGiven = min(2, coinGiven + multiply)
+            coinToast = "投了 \(coinGiven) 枚硬币 · 感谢支持 UP 主"
+        } catch {
+            // The upstream returns a structured reason on rejection
+            // (e.g. 硬币余额不足); surface it directly so the user
+            // sees why the action didn't take.
+            let message = error.localizedDescription
+            coinToast = message.isEmpty ? "投币失败，请稍后再试" : message
+        }
+    }
+
+    /// Clear the transient coin banner.  Called by the view
+    /// after the toast's auto-dismiss timer fires so the same
+    /// coin action can re-surface the banner next time.
+    func clearCoinToast() {
+        coinToast = nil
     }
 
     /// Fetch Bilibili's official AI 视频总结 for the current video.
