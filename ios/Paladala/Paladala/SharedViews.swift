@@ -102,20 +102,14 @@ struct VideoCard: View {
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .frame(
-                        maxWidth: .infinity,
-                        height: Self.titleBlockHeight,
-                        alignment: .topLeading
-                    )
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(height: Self.titleBlockHeight, alignment: .topLeading)
                 Text(video.ownerName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .frame(
-                        maxWidth: .infinity,
-                        height: Self.ownerLineHeight,
-                        alignment: .topLeading
-                    )
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(height: Self.ownerLineHeight, alignment: .topLeading)
                 HStack(spacing: 10) {
                     Label(video.viewCount.compactCount, systemImage: "play.fill")
                     Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
@@ -124,11 +118,8 @@ struct VideoCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
-                .frame(
-                    maxWidth: .infinity,
-                    height: Self.countsLineHeight,
-                    alignment: .topLeading
-                )
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(height: Self.countsLineHeight, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             // Asymmetric padding: only horizontal + bottom.  The
