@@ -1184,52 +1184,92 @@ struct VideoDetailView: View {
     /// or hides the overlay.
     @ViewBuilder
     private var nextUpOverlay: some View {
-        if let next = model.nextUpIndex,
-           next < model.relatedVideos.count,
-           isShowingNextUp {
-            let video = model.relatedVideos[next]
+        if isShowingNextUp {
+            // PR-6 (M4): the overlay is now always rendered when
+            // the video ends.  When the related-queue is empty
+            // (`nextUpIndex == nil` or out of range) we still
+            // surface a "replay / back to feed" card so the user
+            // has somewhere to go from the end-of-video state
+            // instead of being stuck on the last frame.
+            let hasQueue: Bool = {
+                guard let next = model.nextUpIndex else { return false }
+                return next < model.relatedVideos.count
+            }()
             VStack(spacing: 12) {
-                Text("下一个视频")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.85))
-                CoverImage(url: video.coverURL)
-                    .frame(width: 200, height: 120)
-                    .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
-                Text(video.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 12)
-                HStack(spacing: 12) {
-                    Button {
-                        Haptics.tap()
-                        advanceToNextUp()
-                    } label: {
-                        Label("立即播放", systemImage: "play.fill")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.white)
-                    .foregroundStyle(.black)
-                    Button {
-                        Haptics.tap()
-                        withAnimation(.easeInOut(duration: 0.22)) {
-                            isShowingNextUp = false
-                        }
-                    } label: {
-                        Text("取消")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
+                if hasQueue, let next = model.nextUpIndex,
+                   next < model.relatedVideos.count {
+                    let video = model.relatedVideos[next]
+                    Text("下一个视频")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                    CoverImage(url: video.coverURL)
+                        .frame(width: 200, height: 120)
+                        .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+                    Text(video.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                } else {
+                    Text("已经看完了")
+                        .font(.headline)
+                        .foregroundStyle(.white)
                 }
-                if isCountingDownToNext {
+                HStack(spacing: 12) {
+                    if hasQueue {
+                        Button {
+                            Haptics.tap()
+                            advanceToNextUp()
+                        } label: {
+                            Label("立即播放", systemImage: "play.fill")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white)
+                        .foregroundStyle(.black)
+                    } else {
+                        // PR-6 (M4) end-of-video replay path.  The
+                        // original code rendered the overlay only
+                        // when there was a queue; empty-queue
+                        // videos (very common — most older clips
+                        // have no related list) left the user
+                        // stranded.  Always offer replay + back.
+                        Button {
+                            Haptics.tap()
+                            controller?.seek(to: 0)
+                            controller?.play()
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                isShowingNextUp = false
+                            }
+                        } label: {
+                            Label("重新播放", systemImage: "arrow.counterclockwise")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white)
+                        .foregroundStyle(.black)
+                        Button {
+                            Haptics.tap()
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                isShowingNextUp = false
+                            }
+                            router.open(.home)
+                        } label: {
+                            Label("回到首页", systemImage: "house.fill")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.white)
+                    }
+                }
+                if isCountingDownToNext && hasQueue {
                     Text("\(nextUpCountdown) 秒后自动播放")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.7))
@@ -1268,11 +1308,24 @@ struct VideoDetailView: View {
     /// user doesn't see an overlay with no actionable
     /// content.
     private func handleVideoDidEnd() {
-        guard let next = model.nextUpIndex, next < model.relatedVideos.count else {
-            return
-        }
         nextUpCountdownTask?.cancel()
         nextUpCountdown = Self.nextUpCountdownDuration
+        // PR-6 (M4): always render the end-overlay, even when the
+        // related-queue is empty.  Previously the early-return
+        // left the player frozen on the last frame with no CTA.
+        // The conditional inside the overlay (`hasQueue`) flips the
+        // body between "Replay + Back-to-feed" and the normal
+        // "立即播放 next" countdown.
+        let hasQueue = (model.nextUpIndex != nil)
+            && (model.nextUpIndex ?? 0) < model.relatedVideos.count
+        if !hasQueue {
+            // No queue → show the static "replay + return" card.
+            isCountingDownToNext = false
+            withAnimation(.easeInOut(duration: 0.22)) {
+                isShowingNextUp = true
+            }
+            return
+        }
         withAnimation(.easeInOut(duration: 0.22)) {
             isShowingNextUp = true
             isCountingDownToNext = UserDefaults.standard.bool(forKey: "paladala.autoPlayNext")
