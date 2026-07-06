@@ -1,5 +1,58 @@
 # Paladala for iOS — Changelog
 
+## v0.5.1 (2026-07-06)
+
+`CFBundleShortVersionString` bumped from `0.5.0 TESTING` → `0.5.1`.
+Iteration release on the v0.5 line.
+
+### Home grid spacing rework
+
+- **Card-to-card gaps widened.** `GridItem` inter-column spacing
+  `12 → 28`, minimum column width `156 → 146` (keeps 2 columns on
+  iPhone SE with the wider gap). `LazyVGrid` inter-row spacing
+  `18 → 22` for both the video grid and the live-room grid.
+- **Top padding inside `VideoCard`** — `.padding(.top, 8)` so the
+  thumbnail has breathing room from the card's top edge (previously
+  flush with the card surface by design).
+- **Cover image pinned to 16:10.** `frame(maxWidth:.infinity)` +
+  `aspectRatio(16/10, .fill)` + `clipped`. Every thumbnail now
+  occupies the exact same bounding box regardless of source aspect
+  ratio (16:9, 4:3, 1:1 all get scaled to fill and cropped).
+  Combined with `maxWidth:.infinity` on the title / owner / counts
+  rows, every card in a row has the same height — the grid no longer
+  wobbles.
+- **Cover corner radius matches the card.** Re-applied
+  `clipShape(RoundedRectangle(cardRadius))` to the cover now that
+  it sits 8pt inside the card (the card-level clip no longer reaches
+  it). The two share the same 24pt curve.
+
+### B 站 coin (硬币) support
+
+- **Coin balance chip** in the signed-in profile header. Loads
+  alongside the follow / fan / dynamic stats from
+  `/site/getCoin` (`data.money`).
+- **投币 (give coins) action** in the video context menu — a
+  "投币支持 UP 主" submenu offering 1 or 2 coins per video,
+  hitting `/x/web-interface/coin/add` with auto-extracted CSRF.
+  Upstream rejection reasons (硬币余额不足, 超过投币上限) are
+  surfaced to the user.
+
+### App identity hardening
+
+- The personalised app recommendation feed (`/x/v2/feed/index`)
+  and the story / reels feed now include the official iOS client
+  `build` number (`84900100`) in the signed query. Verified live:
+  10 vs 8 items on the same account, better algorithm ranking.
+
+### CI
+
+- `ios-unsigned-ipa.yml` now derives the prerelease tag from
+  `CFBundleShortVersionString`, so bumping the marketing version
+  in `Info.plist` automatically rolls the tag forward (e.g.
+  `0.5.1` → `v0.5.1.N` instead of always being `v0.4.N`).
+  Old `v0.4.*` / `v0.3-alpha-ios-*` tag patterns are still
+  recognised so the monotonic build counter does not reset.
+
 ## v0.5.0 BETA (2026-07-04)
 
 `CFBundleShortVersionString` bumped from `0.4 BETA` → `0.5.0 BETA`,

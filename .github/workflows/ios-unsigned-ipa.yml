@@ -111,7 +111,11 @@ jobs:
           TAGS="$(printf '%s' "$TAGS_JSON" | sed '/^$/d')"
           for tag in $TAGS; do
             n=""
-            if [[ "$tag" =~ ^v0\.4\.([0-9]+)$ ]]; then
+            if [[ "$tag" =~ ^v0\.5\.([0-9]+)$ ]]; then
+              n="${BASH_REMATCH[1]}"
+            elif [[ "$tag" =~ ^v0\.5-beta-ios-([0-9]+)$ ]]; then
+              n="${BASH_REMATCH[1]}"
+            elif [[ "$tag" =~ ^v0\.4\.([0-9]+)$ ]]; then
               n="${BASH_REMATCH[1]}"
             elif [[ "$tag" =~ ^v0\.4-beta-ios-([0-9]+)$ ]]; then
               n="${BASH_REMATCH[1]}"
@@ -224,7 +228,9 @@ jobs:
       # ------------------------------------------------------------------
       # Derive a release tag from the build number we just bumped.
       # The patch component is the monotonically increasing build
-      # sequence: v0.4.105, v0.4.106, and so on.
+      # sequence: v0.5.3, v0.5.4, and so on.  The version line
+      # (0.4 → 0.5) follows `CFBundleShortVersionString` in
+      # Info.plist; bump both at once when shipping a new minor.
       # ------------------------------------------------------------------
       - name: Resolve release tag
         id: tag
@@ -235,9 +241,21 @@ jobs:
             echo "::error::BUNDLE_VERSION is not set — did Bump build number run?"
             exit 1
           fi
-          TAG="v0.4.${BUNDLE_VERSION}"
+          # Pull the marketing version (e.g. "0.5.1") from
+          # CFBundleShortVersionString so the tag always matches
+          # the Info.plist the user ships.  We use a permissive
+          # pattern (digits + dots) so a "0.5.1 BETA" suffix
+          # can't accidentally land in the tag — the CI gets the
+          # numeric version only.
+          MARKET_VERSION="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$PLIST" | grep -Eo '[0-9]+(\.[0-9]+)+' | head -n1)"
+          if [ -z "$MARKET_VERSION" ]; then
+            echo "::error::Could not parse CFBundleShortVersionString from $PLIST"
+            exit 1
+          fi
+          TAG="v${MARKET_VERSION}.${BUNDLE_VERSION}"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
-          echo "Resolved tag: $TAG (CFBundleVersion=$BUNDLE_VERSION)"
+          echo "MARKET_VERSION=$MARKET_VERSION" >> "$GITHUB_ENV"
+          echo "Resolved tag: $TAG (CFBundleVersion=$BUNDLE_VERSION, CFBundleShortVersionString=$MARKET_VERSION)"
 
       - name: Package unsigned IPA
         run: |
@@ -287,11 +305,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          name: Paladala iOS 0.4.${{ env.BUNDLE_VERSION }}
+          name: Paladala iOS ${{ env.TAG }}
           body: |
             Unsigned iOS IPA built from ${{ github.sha }} on ${{ github.ref_name }}.
 
             - Commit: `${{ github.sha }}`
+            - CFBundleShortVersionString: `${{ env.MARKET_VERSION }}` (${{ env.TAG }})
             - CFBundleVersion: `${{ env.BUNDLE_VERSION }}`
             - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           prerelease: true

@@ -28,9 +28,9 @@ struct HomeView: View {
     private var accountMid: Int64 { authStore.activeAccount?.mid ?? 0 }
 
     private var columns: [GridItem] {
-        // [TESTING] widened card-to-card gaps so the home grid reads
-        // as distinct containers. min column width dropped to 146 so
-        // a 28 pt inter-column gap still keeps 2 columns on iPhone SE.
+        // Card-to-card gap tuned for a clear "distinct container"
+        // read; minimum column width 146 keeps 2 columns on
+        // iPhone SE with the 28 pt inter-column gap.
         let minimumWidth: CGFloat = horizontalSizeClass == .regular ? 220 : 146
         return [
             GridItem(
@@ -155,21 +155,6 @@ struct HomeView: View {
                     .id("feedTop")
 
                 categoryStrip
-                // [TESTING] visible label so an on-device tester
-                // can tell at a glance this is the spacing test
-                // build, not the released 0.5.0 BETA.
-                HStack(spacing: 6) {
-                    Image(systemName: "ladybug.fill")
-                    Text("TESTING BUILD · 间距 28/22 · 卡片顶 8 · 16:10 锁尺寸")
-                }
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule().fill(Color.orange)
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
                 if model.category == .popular {
                     popularSubCategoryStrip
                 }
