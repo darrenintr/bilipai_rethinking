@@ -46,6 +46,7 @@ final class DiagnosticLogger: ObservableObject {
         case session = "SES"    // network-type transitions, AuthStore.refresh
         case download = "DOWN"  // DownloadManager + DownloadStore lifecycle
         case music = "MUSIC"    // MusicHomeView / MusicPlayerView
+        case notification = "NOTI"  // FollowNotificationService / BG-task lifecycle
     }
 
     struct Event: Identifiable {

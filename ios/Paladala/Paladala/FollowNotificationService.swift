@@ -75,6 +75,12 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
     /// `BilibiliAPIClient` to avoid a retain cycle through
     /// `PaladalaApp`.
     private weak var repository: PaladalaRepository?
+    /// Active account mid at the time `bootstrap(...)` was
+    /// called. The poll uses this for the `attentionFeed`
+    /// call's `accountMid:` parameter. Updated by `bootstrap`
+    /// every time the app resumes so account switches take
+    /// effect on the next BG tick.
+    private var activeAccountMid: Int64 = 0
     /// Set to `true` while a `BGAppRefreshTask` is in flight
     /// so we can ignore a second OS wake that arrives before
     /// the first completes (rare but observed when the OS
@@ -92,8 +98,9 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
     /// (the doc says register in `application(_:didFinishLaunching…)`
     /// or earlier).  Also kicks off the permission request
     /// once the user enables the feature in settings.
-    func bootstrap(repository: PaladalaRepository) {
+    func bootstrap(repository: PaladalaRepository, accountMid: Int64) {
         self.repository = repository
+        self.activeAccountMid = accountMid
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: Self.backgroundTaskIdentifier,
             using: nil
@@ -222,17 +229,21 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
     /// it directly without waiting for the OS scheduler.
     @discardableResult
     func poll(repository: PaladalaRepository) async throws -> Int {
-        // Fetch the followings set + first page of the dynamic
-        // feed in parallel — `attentionFeed(...)` already does
-        // the filtering for the home tab; we reuse the same
-        // `followingFilter` path so the notification surface
-        // matches what the user sees on 关注.
+        // Fetch the first page of the attention (follow-filtered)
+        // dynamic feed. The repository caches the followings set
+        // internally on first call and refreshes it when the
+        // account changes — we don't need to manage that here.
         let defaults = UserDefaults.standard
         let lastSeen = defaults.string(forKey: Self.lastSeenIDKey) ?? ""
+        guard activeAccountMid > 0 else {
+            diagLog(.notification, "follow poll skipped: no active account mid")
+            return 0
+        }
 
-        let followings = (try? await repository.followingMids()) ?? []
         let page = try await repository.attentionFeed(
-            offset: "", followingFilter: Set(followings)
+            offset: "",
+            accountMid: activeAccountMid,
+            refreshFollowings: true
         )
         // Drop items that don't carry a fresh ID we can use as
         // a cursor (legacy cards the upstream didn't fill) and
@@ -262,7 +273,7 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
         defaults.set(Date(), forKey: Self.lastPollAtKey)
         diagLog(.notification, "follow poll complete",
                 details: [
-                    "followings": followings.count,
+                    "followings": page.items.count,
                     "fresh": fresh.count,
                     "delivered": delivered,
                     "newCursor": newestID.isEmpty ? "<none>" : newestID

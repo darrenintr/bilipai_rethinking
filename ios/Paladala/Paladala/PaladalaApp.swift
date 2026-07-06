@@ -106,7 +106,10 @@ struct PaladalaApp: App {
                     // installed so the BG poll can decide whether
                     // the user is signed in. Idempotent — calling
                     // twice just re-registers the same handler.
-                    FollowNotificationService.shared.bootstrap(repository: repository)
+                    FollowNotificationService.shared.bootstrap(
+                        repository: repository,
+                        accountMid: authStore.activeAccount?.mid ?? 0
+                    )
                     // When the upstream API returns 401 the user is
                     // effectively logged out (B站 rotates SESSDATA
                     // every ~30 days). Pop the login sheet on the
