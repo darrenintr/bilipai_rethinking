@@ -51,6 +51,7 @@
 		300000000000000000000603 /* WatchSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000503 /* WatchSession.swift */; };
 		100000000000000000000468 /* ICloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000467 /* ICloudSync.swift */; };
 		10000000000000000000046A /* LiveActivityCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000469 /* LiveActivityCoordinator.swift */; };
+		10000000000000000000050B /* FollowNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000050A /* FollowNotificationService.swift */; };
 		100000000000000000000465 /* LiveRoomActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000464 /* LiveRoomActivityAttributes.swift */; };
 		100000000000000000000472 /* PaladalaWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000471 /* PaladalaWidgetBundle.swift */; };
 		100000000000000000000474 /* LiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000473 /* LiveActivityWidget.swift */; };
@@ -123,6 +124,7 @@
 		100000000000000000000464 /* LiveRoomActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveRoomActivityAttributes.swift; sourceTree = "<group>"; };
 		100000000000000000000467 /* ICloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSync.swift; sourceTree = "<group>"; };
 		100000000000000000000469 /* LiveActivityCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityCoordinator.swift; sourceTree = "<group>"; };
+		10000000000000000000050A /* FollowNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowNotificationService.swift; sourceTree = "<group>"; };
 		10000000000000000000046B /* Paladala.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Paladala.entitlements; sourceTree = "<group>"; };
 		100000000000000000000471 /* PaladalaWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaWidgetBundle.swift; sourceTree = "<group>"; };
 		100000000000000000000473 /* LiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityWidget.swift; sourceTree = "<group>"; };
@@ -216,6 +218,7 @@
 				100000000000000000000214 /* BundledFeedService.swift */,
 				100000000000000000000467 /* ICloudSync.swift */,
 				100000000000000000000469 /* LiveActivityCoordinator.swift */,
+				10000000000000000000050A /* FollowNotificationService.swift */,
 				10000000000000000000046B /* Paladala.entitlements */,
 				600000000000000000000901 /* PrivacyInfo.xcprivacy */,
 				100000000000000000000463 /* Shared */,
@@ -478,6 +481,7 @@
 				300000000000000000000603 /* WatchSession.swift in Sources */,
 				100000000000000000000468 /* ICloudSync.swift in Sources */,
 				10000000000000000000046A /* LiveActivityCoordinator.swift in Sources */,
+				10000000000000000000050B /* FollowNotificationService.swift in Sources */,
 				100000000000000000000465 /* LiveRoomActivityAttributes.swift in Sources */,
 				500000000000000000000551 /* DownloadManager.swift in Sources */,
 				500000000000000000000553 /* DownloadStore.swift in Sources */,
