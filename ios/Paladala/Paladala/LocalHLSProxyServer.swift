@@ -49,13 +49,35 @@
 import Foundation
 import Network
 
+// MARK: - errors
+
+/// Errors thrown by `LocalHLSProxyServer` itself (as opposed
+/// to upstream / SIDX errors, which live under
+/// `PlaybackPreparationError`).  Today only the listener-wait
+/// timeout pathway surfaces one of these — every other
+/// failure mode continues to throw `PlaybackPreparationError`
+/// so existing call sites don't have to learn a new error
+/// type.
+enum ProxyServerError: Error {
+    case listenerTimeout
+}
+
 // MARK: - public surface
 
 /// A 127.0.0.1-only HTTP server that exposes an HLS manifest
 /// for a single `BiliPlayback`.  Always access through
 /// `LocalHLSProxyServer.shared`.
 final class LocalHLSProxyServer {
-    static let shared = LocalHLSProxyServer()
+    /// OS-chosen port (`0`).  `NWListener.start` picks a real
+    /// loopback port on its own; the `requiredLocalEndpoint`
+    /// setting in `ensureListener()` uses `.any`, so passing
+    /// `0` here is just a placeholder for the field declared
+    /// below — the value gets overwritten by the listener's
+    /// `.ready` state callback (`p.rawValue`) once the kernel
+    /// hands us a port.  Exposed publicly so cold-launch tests
+    /// can construct isolated proxy instances via
+    /// `@testable import Paladala`.
+    static let shared = LocalHLSProxyServer(port: 0)
 
     /// The result of a successful SIDX preparation.  Built
     /// by `preparePlayback(...)` and consumed by
@@ -189,68 +211,59 @@ final class LocalHLSProxyServer {
         return baseURL
     }
 
-    /// Async waiter for the listener to bind a port.  Returns
-    /// the bound port (and resolves to a `baseURL` once the
-    /// listener reports `.ready`).  Replaces the old
-    /// semaphore-based `waitForReady`; uses `withCheckedContinuation`
-    /// paired with a one-shot listener state observer instead
-    /// of polling timers, so the awaiting task suspends cleanly
-    /// on the cooperative thread pool.
+    /// Async waiter for the listener to bind a port.  Resolves
+    /// once `self.listener?.state == .ready`.  Replaces the
+    /// legacy 2 s-semaphore-paced `waitForReady` with a tight
+    /// 5 ms / 500 ms poll loop — bound by the 2026-07-03
+    /// cold-start audit item #8.  The narrower ceiling matters
+    /// because the very first call after a long background
+    /// used to wait the full 2 s for a listener the OS already
+    /// had ready (the proxy was simply rebooting off a cached
+    /// listener), and that delay lived on the playback critical
+    /// path.
+    ///
+    /// Returns `Void` (not the bound port): callers that need
+    /// the URL/port read `safeBaseURL` / `currentPlaylistURL`
+    /// *after* this returns — the listener-state observer has
+    /// already populated both by the time `.ready` fires.
     ///
     /// **Important**: this only waits for the *listener* to
     /// be ready.  For the manifest to be available too, use
     /// `publishAndStart(...)`, which composes listener + SIDX
     /// prep + manifest publish into a single awaitable.
-    func waitForListener(timeout: TimeInterval = 2.0) async throws -> UInt16 {
-        // Fast path: already listening.
-        if let url = safeBaseURL,
-           let port = url.port,
-           let p = UInt16(exactly: port) {
-            return p
-        }
-        let deadline = Date().addingTimeInterval(timeout)
-        // Holder lets `onCancel` reach the waiter Task created
-        // inside the continuation closure.  `CheckedThrowingContinuation`
-        // has no `onTermination` callback (only the non-throwing
-        // variant does), so `withTaskCancellationHandler` is the
-        // canonical Swift 6 replacement.
-        let holder = WaiterHolder()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<UInt16, Error>) in
-                holder.task = Task<Void, Never> { [weak self] in
-                    while !Task.isCancelled {
-                        guard let self else {
-                            cont.resume(throwing: CancellationError())
-                            return
-                        }
-                        if let url = self.safeBaseURL,
-                           let port = url.port,
-                           let p = UInt16(exactly: port) {
-                            cont.resume(returning: p)
-                            return
-                        }
-                        if Date() >= deadline {
-                            cont.resume(throwing: PlaybackPreparationError.listenerFailed(
-                                "listener did not become ready within \(timeout)s"
-                            ))
-                            return
-                        }
-                        try? await Task.sleep(nanoseconds: 20_000_000)
+    internal func waitForListener(
+        timeoutMs: Int = 500,
+        pollIntervalMs: Int = 5
+    ) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
+            Task { @MainActor in
+                while Date() < deadline {
+                    if let listener = self.listener, listener.state == .ready {
+                        cont.resume(); return
                     }
+                    try? await Task.sleep(nanoseconds: UInt64(pollIntervalMs) * 1_000_000)
                 }
+                cont.resume(throwing: ProxyServerError.listenerTimeout)
             }
-        } onCancel: {
-            holder.task?.cancel()
         }
     }
 
-    /// Holder for the waiter `Task` so `withTaskCancellationHandler`'s
-    /// `onCancel` closure can reach it across the continuation
-    /// boundary.  `@unchecked Sendable` because `Task<Void, Never>?`
-    /// is `Sendable` but the holder's mutation happens-before the
-    /// `onCancel` fires via the cancellation handler's barrier.
-    private final class WaiterHolder: @unchecked Sendable {
-        var task: Task<Void, Never>?
+    /// Pre-warm the process-wide `LocalHLSProxyServer.shared`
+    /// at cold-launch so the very first `serve(playback:)`
+    /// doesn't pay the NWListener-bind cost on the playback
+    /// critical path.  Best-effort: a failure logs once via
+    /// `DiagnosticLogger` and is swallowed — the caller must
+    /// never see an exception thrown from cold-launch
+    /// housekeeping.
+    static func prewarmProxyServer() async {
+        do {
+            let server = LocalHLSProxyServer.shared
+            try await server.waitForListener(timeoutMs: 500, pollIntervalMs: 5)
+        } catch {
+            DiagnosticLogger.shared.log(.playback, "proxy_prewarm_failed",
+                                        details: ["error": String(describing: error)])
+        }
     }
 
     /// Total bytes streamed from the B站 CDN to AVPlayer.
@@ -464,7 +477,7 @@ final class LocalHLSProxyServer {
         // returning.  We do not need the SIDX-prep /
         // manifest-publish pipeline the VOD path uses, but we
         // still need a port to point AVPlayer at.
-        _ = try await waitForListener()
+        try await waitForListener()
 
         // Stash the live state under lock.  Routes read it on
         // every request so swapping `serveLive(...)` is
@@ -638,7 +651,7 @@ final class LocalHLSProxyServer {
 
         // Ensure listener is running and wait for it.
         try await ensureListenerAsync()
-        _ = try await waitForListener()
+        try await waitForListener()
 
         guard let url = currentPlaylistURL else {
             throw PlaybackPreparationError.listenerFailed("listener bound but baseURL is nil")
@@ -1853,7 +1866,15 @@ final class LocalHLSProxyServer {
             .joined(separator: " ")
     }
 
-    private init() {
+    /// Construct a proxy.  `port` is the *seed* value for the
+    /// `port` field; `0` (the default) lets the kernel pick
+    /// the loopback port via the `requiredLocalEndpoint`
+    /// `.any` setting in `ensureListener()`.  Exposed as
+    /// `internal` so `PaladalaTests` can build isolated
+    /// instances without colliding with the process-wide
+    /// `shared` singleton.
+    internal init(port: UInt16 = 0) {
+        self.port = port
         prepSession = Self.makePrepSession()
     }
 
