@@ -332,7 +332,7 @@ struct FavoriteFoldersView: View {
             if let error = model.errorMessage {
                 ErrorBanner(
                     message: error,
-                    retry: { Task { await model.load(repository: repository) } },
+                    retry: { Task { await model.load(repository: repository, mid: mid) } },
                     primary: authStore.activeAccount == nil
                         ? .init(label: "登录", action: { router.openLogin() })
                         : nil
@@ -366,7 +366,7 @@ struct FavoriteFolderVideosView: View {
             if let error = model.errorMessage {
                 ErrorBanner(
                     message: error,
-                    retry: { Task { await model.load(repository: repository) } },
+                    retry: { Task { await model.load(repository: repository, mediaID: folder.id) } },
                     primary: authStore.activeAccount == nil
                         ? .init(label: "登录", action: { router.openLogin() })
                         : nil

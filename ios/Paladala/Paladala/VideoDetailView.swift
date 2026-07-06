@@ -75,6 +75,11 @@ struct VideoDetailView: View {
     @State private var isCountingDownToNext: Bool = false
     @State private var nextUpCountdown: Int = 5
     @State private var nextUpCountdownTask: Task<Void, Never>?
+    /// PR-4 (M3): the saved-time-confirmation sheet.  Nil until
+    /// the user has progress > 30 s for this bvid.  When set,
+    /// a sheet offers "继续观看 MM:SS" or "重新播放".  Auto-dismisses
+    /// to nil after the user picks (or taps outside).
+    @State private var resumePromptSeconds: Double?
     /// Default countdown duration. YouTube uses 5 s; matches
     /// the HIG-recommended transition window for video
     /// chrome.
@@ -234,6 +239,41 @@ struct VideoDetailView: View {
                 model.subtitleEnabled = storedSubtitleEnabled
             }
             await model.load(repository: repository)
+            // PR-4 (M3): after load, surface the saved-time
+            // confirmation sheet so the user can either continue
+            // from where they left off or restart.  Gated > 30 s
+            // of progress so trivial re-opens (skipped a tab,
+            // came back) don't pepper the user.
+            if let saved = PlayProgressStore.shared.lastProgress(for: model.detail.bvid),
+               saved.currentTime > 30,
+               let duration = controller?.duration, duration > 0,
+               saved.currentTime < duration - 30 {
+                resumePromptSeconds = saved.currentTime
+            }
+        }
+        .sheet(item: Binding(
+            get: { resumePromptSeconds.map { ResumePromptChoice(seconds: $0) } },
+            set: { resumePromptSeconds = $0?.seconds }
+        )) { choice in
+            ResumePromptSheet(
+                seconds: choice.seconds,
+                onContinue: {
+                    Haptics.tap()
+                    controller?.seek(to: choice.seconds)
+                    controller?.play()
+                    resumePromptSeconds = nil
+                },
+                onRestart: {
+                    Haptics.tap()
+                    PlayProgressStore.shared.clear(bvid: model.detail.bvid)
+                    controller?.seek(to: 0)
+                    controller?.play()
+                    resumePromptSeconds = nil
+                },
+                onDismiss: { resumePromptSeconds = nil }
+            )
+            .presentationDetents([.height(220)])
+            .presentationDragIndicator(.visible)
         }
         // `initial: true` is REQUIRED for the offline (cached
         // video) path.  When `localRecord` is set, the model
@@ -1566,6 +1606,75 @@ private struct CoinToastBanner: View {
             .strokeBorder(PaladalaTheme.biliPink.opacity(0.3), lineWidth: 0.75)
         )
         .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+        .paladalaCardSurface(materialDesign)
+    }
+}
+
+/// Tiny value type used as the `.sheet(item:)` payload so the
+/// resume-prompt sheet can present a single chunk of state.
+/// `.id` is the timestamp; SwiftUI's `.sheet(item:)` requires
+/// `Identifiable`.
+private struct ResumePromptChoice: Identifiable, Hashable {
+    let seconds: Double
+    var id: Double { seconds }
+}
+
+/// PR-4 (M3) "Continue from where you left off" sheet.  Lifted
+/// out of `VideoDetailView.body` so the latter stays under the
+/// SwiftUI type-checker budget.  Always renders "重新播放" as the
+/// secondary action — premium apps all leave that path explicit
+/// rather than absorbing it into "继续观看".
+private struct ResumePromptSheet: View {
+    let seconds: Double
+    let onContinue: () -> Void
+    let onRestart: () -> Void
+    let onDismiss: () -> Void
+
+    @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+
+    private var mmss: String {
+        let total = max(0, Int(seconds))
+        let mm = total / 60
+        let ss = total % 60
+        return String(format: "%02d:%02d", mm, ss)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Capsule()
+                .fill(Color.secondary.opacity(0.18))
+                .frame(width: 36, height: 5)
+                .padding(.top, 8)
+            Text("继续观看 \(mmss)？")
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            Text("上次你看到这里了，要不要接着看？")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            HStack(spacing: 12) {
+                Button {
+                    onDismiss()
+                } label: {
+                    Text("重新播放")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                Button {
+                    onContinue()
+                } label: {
+                    Text("继续观看")
+                        .frame(maxWidth: .infinity)
+                        .fontWeight(.semibold)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(PaladalaTheme.biliPink)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 16)
+        }
+        .padding(.vertical, 4)
         .paladalaCardSurface(materialDesign)
     }
 }

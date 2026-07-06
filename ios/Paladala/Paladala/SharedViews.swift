@@ -542,7 +542,9 @@ struct ErrorBanner: View {
     /// secondary action.
     let primary: PrimaryAction?
 
-    struct PrimaryAction: View, Identifiable {
+    /// Plain value type — the banner renders it as a `Button`
+    /// inline rather than instantiating the type as a view.
+    struct PrimaryAction: Identifiable, Hashable {
         let id = UUID()
         let label: String
         let action: () -> Void

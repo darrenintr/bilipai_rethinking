@@ -640,18 +640,15 @@ final class PlayerController: ObservableObject {
     /// after `replaceCurrentItem(with:)` — identical work,
     /// different caller.
     private func startPlaybackSession(item: AVPlayerItem) {
-        // Optimization: Seek to the resume time *before*
-        // calling `player.play()`.  This is more efficient
-        // as the media only loads at the actual start time.
-        if originalPlayback.resumeTime > 0 {
-            item.seek(
-                to: CMTime(
-                    seconds: originalPlayback.resumeTime,
-                    preferredTimescale: 600
-                ),
-                completionHandler: nil
-            )
-        }
+        // PR-4 (premium-UX plan, Milestone 3): previously we
+        // silently auto-seek to `resumeTime` if it was > 0.  That
+        // was the single most-cited "where was I?" friction
+        // shape in App Store reviews for similar apps — the user
+        // never sees confirmation and can't choose to restart.
+        // Resume-confirmation is now owned by the SwiftUI sheet
+        // (`VideoDetailView.resumePromptSheet`) — we just play
+        // from 0 here and let the user pick.
+        _ = originalPlayback.resumeTime
         if let sbBvid = nowPlayingBvid {
             SponsorBlockManager.shared.reset(for: sbBvid)
             SponsorBlockManager.shared.loadSegments(for: sbBvid)
