@@ -346,7 +346,6 @@
 			);
 			dependencies = (
 				100000000000000000000480 /* PBXTargetDependency */,
-				7E5C0A000000000000000008 /* PBXTargetDependency */,
 			);
 			name = Paladala;
 			packageProductDependencies = (
@@ -365,6 +364,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				7E5C0A000000000000000008 /* PBXTargetDependency */,
 			);
 			name = PaladalaTests;
 			packageProductDependencies = (
@@ -401,8 +401,8 @@
 			isa = PBXContainerItemProxy;
 			containerPortal = 100000000000000000000601 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 7E5C0A000000000000000007;
-			remoteInfo = PaladalaTests;
+			remoteGlobalIDString = 100000000000000000000501;
+			remoteInfo = Paladala;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -418,7 +418,7 @@
 		};
 		7E5C0A000000000000000008 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 7E5C0A000000000000000007 /* PaladalaTests */;
+			target = 100000000000000000000501 /* Paladala */;
 			targetProxy = 7E5C0A000000000000000009 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -825,10 +825,12 @@
 					"DEBUG=1",
 					"$(inherited)",
 				);
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paladala.PaladalaTests;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -849,9 +851,11 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paladala.PaladalaTests;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_COMPILATION_MODE = wholemodule;
