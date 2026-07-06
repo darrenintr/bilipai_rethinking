@@ -62,46 +62,32 @@ struct HomeView: View {
                     placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "搜索 Bilibili 视频和 UP 主"
                 )
-                // Keystroke-rate suggestions — `.searchSuggestions`
-                // renders below the keyboard as the user types,
-                // driven by `HomeViewModel.searchSuggestions`
-                // (populated via a 120 ms debounce against
-                // `s.search.bilibili.com/main/suggest`).
-                .searchSuggestions(model.searchSuggestions) { suggestion in
-                    Button {
-                        // Tap → prefill the field and submit so
-                        // the user lands on the existing search
-                        // results page for the picked term.
+                // Keystroke-rate suggestions + debounced fetch +
+                // submit handler — bundled into a single modifier
+                // to keep the body expression small enough that
+                // the SwiftUI type-checker can finish in its
+                // budget.  See `HomeSearchModifier` below.
+                .modifier(HomeSearchModifier(
+                    query: $model.searchQuery,
+                    suggestions: model.searchSuggestions,
+                    onSuggestionPicked: { suggestion in
                         model.searchQuery = suggestion.displayName
                         model.category = .search
                         Haptics.selection()
+                        Task { await model.load(repository: repository, accountMid: accountMid) }
+                    },
+                    onQueryChanged: { query in
+                        model.searchQueryChanged(query, repository: repository)
+                    },
+                    onSubmit: {
+                        model.clearSuggestions()
+                        model.category = .search
                         Task {
                             await model.load(repository: repository, accountMid: accountMid)
+                            await model.runAllSearch(repository: repository)
                         }
-                    } label: {
-                        SuggestionRow(suggestion: suggestion)
                     }
-                }
-                // Drive the debounced suggest fetch off the
-                // publisher.  `dropFirst` swallows the initial
-                // empty-string event so we don't fire on view
-                // mount; the explicit `clearSuggestions` in
-                // `.onChange(of: category)` resets the strip
-                // when the user switches tabs.
-                .onChange(of: model.searchQuery) { _, query in
-                    model.searchQueryChanged(query, repository: repository)
-                }
-                .onSubmit(of: .search) {
-                    model.clearSuggestions()
-                    model.category = .search
-                    Task {
-                        await model.load(repository: repository, accountMid: accountMid)
-                        // Fire the merged five-slot search in
-                        // parallel so the "全部" tab can render
-                        // results the moment the user opens it.
-                        await model.runAllSearch(repository: repository)
-                    }
-                }
+                ))
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         // 离线缓存 quick access. Lives in the top
@@ -875,6 +861,37 @@ private struct DynamicPostCard: View {
                 .frame(width: 42, height: 42)
                 .overlay(Text(String(post.author.prefix(1))).font(.headline))
         }
+    }
+}
+
+/// ViewModifier that bundles `.searchSuggestions` +
+/// `.onChange(of: query)` + `.onSubmit(of: .search)` so the
+/// home `body` expression stays under the SwiftUI type-checker
+/// budget.  The previous in-place chain was timing out at
+/// `HomeView.swift:44: the compiler is unable to type-check this
+/// expression in reasonable time` (build-198 CI failure).
+private struct HomeSearchModifier: ViewModifier {
+    @Binding var query: String
+    let suggestions: [BiliSearchSuggestion]
+    let onSuggestionPicked: (BiliSearchSuggestion) -> Void
+    let onQueryChanged: (String) -> Void
+    let onSubmit: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .searchSuggestions(suggestions) { suggestion in
+                Button {
+                    onSuggestionPicked(suggestion)
+                } label: {
+                    SuggestionRow(suggestion: suggestion)
+                }
+            }
+            .onChange(of: query) { _, newQuery in
+                onQueryChanged(newQuery)
+            }
+            .onSubmit(of: .search) {
+                onSubmit()
+            }
     }
 }
 

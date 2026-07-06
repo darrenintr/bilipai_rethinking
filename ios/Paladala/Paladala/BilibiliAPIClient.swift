@@ -535,7 +535,7 @@ final class BilibiliAPIClient {
         }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -569,7 +569,7 @@ final class BilibiliAPIClient {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("deflate", forHTTPHeaderField: "Accept-Encoding")
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
@@ -1678,6 +1678,13 @@ final class BilibiliAPIClient {
         path: String,
         queryItems: [URLQueryItem],
         signWithWBI: Bool = false,
+        // Per-call Referer override. The default is the
+        // bilibili-wide `https://www.bilibili.com`; some
+        // endpoints (the suggest endpoint at
+        // `s.search.bilibili.com`) expect the matching
+        // referer (`https://search.bilibili.com`) so the
+        // upstream doesn't reject the cross-host call.
+        referer: String = "https://www.bilibili.com",
         // Diagnostic flags: when both are set, the first 4 KB
         // of the response body is dumped to the diagnostic log
         // so we can see exactly what the upstream returned.
@@ -1711,7 +1718,7 @@ final class BilibiliAPIClient {
 
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
@@ -1805,7 +1812,7 @@ final class BilibiliAPIClient {
         request.httpMethod = "POST"
         request.httpBody = bodyString.data(using: .utf8)
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
 
         if let cookies = cookieProvider?() {
@@ -1893,7 +1900,7 @@ private actor WbiSigner {
         do {
             var request = URLRequest(url: URL(string: "https://api.bilibili.com/x/web-interface/nav")!)
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+            request.setValue(referer, forHTTPHeaderField: "Referer")
             request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
             let (data, _) = try await session.data(for: request)
             let payload = try JSONDecoder().decode(WbiNavResponse.self, from: data)
@@ -1949,7 +1956,7 @@ private actor WbiSigner {
 
         var request = URLRequest(url: navURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         let (data, _) = try await session.data(for: request)
         let payload = try JSONDecoder().decode(WbiNavResponse.self, from: data)
