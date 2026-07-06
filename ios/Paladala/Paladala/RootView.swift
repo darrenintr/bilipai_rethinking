@@ -433,14 +433,17 @@ private struct PhoneRootView: View {
                     .tabItem {
                         // Apple's recommended "select bounce" — the
                         // SF Symbol scales up + back down when the
-                        // value flips. Keyed off `selectedTab` so
-                        // only the newly-selected icon bounces (not
-                        // all five on every render).
+                        // value flips. Previously the binder was
+                        // `selectedTab` itself, which made every
+                        // tab icon observe the same value and
+                        // bounce on every switch. The bool
+                        // per-tab now flips only for the freshly
+                        // selected one, matching HIG.
                         Label {
                             Text(MainTab.home.title)
                         } icon: {
                             Image(systemName: MainTab.home.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab)
+                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.home)
                         }
                     }
                     .tag(MainTab.home)
@@ -451,7 +454,7 @@ private struct PhoneRootView: View {
                             Text(MainTab.dynamic.title)
                         } icon: {
                             Image(systemName: MainTab.dynamic.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab)
+                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.dynamic)
                         }
                     }
                     .tag(MainTab.dynamic)
@@ -462,7 +465,7 @@ private struct PhoneRootView: View {
                             Text(MainTab.live.title)
                         } icon: {
                             Image(systemName: MainTab.live.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab)
+                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.live)
                         }
                     }
                     .tag(MainTab.live)
@@ -473,7 +476,7 @@ private struct PhoneRootView: View {
                             Text(MainTab.music.title)
                         } icon: {
                             Image(systemName: MainTab.music.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab)
+                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.music)
                         }
                     }
                     .tag(MainTab.music)
@@ -484,7 +487,7 @@ private struct PhoneRootView: View {
                             Text(MainTab.profile.title)
                         } icon: {
                             Image(systemName: MainTab.profile.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab)
+                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.profile)
                         }
                     }
                     .tag(MainTab.profile)

@@ -16,6 +16,12 @@ struct HomeView: View {
     @StateObject private var model = HomeViewModel()
     @State private var isShortVideoFeedPresented = false
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+    /// Observed so SwiftUI re-evaluates the toolbar's
+    /// `.badge(downloadStore.records.count)` whenever a
+    /// record is added or removed — without this observation the
+    /// pill was frozen at the count rendered on first body eval
+    /// (Performance audit #2 / Polish agent).
+    @ObservedObject private var downloadStore = DownloadStore.shared
 
     init(repository: PaladalaRepository, heroNamespace: Namespace.ID? = nil) {
         self.repository = repository
@@ -96,7 +102,7 @@ struct HomeView: View {
                         } label: {
                             Label("离线缓存", systemImage: "arrow.down.circle")
                         }
-                        .badge(DownloadStore.shared.records.count)
+                        .badge(downloadStore.records.count)
                         Button {
                             Haptics.tap()
                             isShortVideoFeedPresented = true
@@ -171,21 +177,6 @@ struct HomeView: View {
                     .id("feedTop")
 
                 categoryStrip
-                // [TESTING] visible label so an on-device tester
-                // can tell at a glance this is the cover-overlap
-                // fix build.
-                HStack(spacing: 6) {
-                    Image(systemName: "ladybug.fill")
-                    Text("TESTING BUILD · 直播 HLS 代理 + 多 CDN 故障转移")
-                }
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule().fill(Color.orange)
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
                 if model.category == .popular {
                     popularSubCategoryStrip
                 }
