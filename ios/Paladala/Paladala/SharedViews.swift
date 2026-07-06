@@ -243,6 +243,7 @@ struct LiveRoomCard: View {
 
     var body: some View {
         Button {
+            Haptics.tap()
             router.openLive(room)
         } label: {
             VStack(alignment: .leading, spacing: 8) {

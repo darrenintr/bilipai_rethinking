@@ -182,6 +182,7 @@ struct HistoryListView: View {
             }
             ForEach(Array(model.items.enumerated()), id: \.element.id) { index, entry in
                 Button {
+                    Haptics.tap()
                     var video = entry.video
                     video.resumeTime = Double(entry.progress)
                     router.openVideo(video)
@@ -270,6 +271,7 @@ struct WatchLaterListView: View {
             }
             ForEach(model.videos) { video in
                 Button {
+                    Haptics.tap()
                     router.openVideo(video)
                 } label: {
                     VideoListRow(video: video, subtitle: video.ownerName)
@@ -344,6 +346,7 @@ struct FavoriteFolderVideosView: View {
             }
             ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
                 Button {
+                    Haptics.tap()
                     router.openVideo(video)
                 } label: {
                     VideoListRow(video: video, subtitle: video.ownerName)

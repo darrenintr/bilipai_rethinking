@@ -201,6 +201,7 @@ struct VideoDetailView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    Haptics.selection()
                     withAnimation(.easeInOut(duration: 0.25)) {
                         isImmersiveMode.toggle()
                     }
@@ -1080,7 +1081,11 @@ struct VideoDetailView: View {
                 if isSubmittingComment {
                     ProgressView().controlSize(.small)
                 } else {
-                    Text("發佈")
+                    // Mixed-script bug fix from A11y honourable
+                    // mentions — the rest of the app is 简体 so
+                    // the comment-publish button was reading
+                    // 繁體 against the rest.  Use the localized key.
+                    Text(L10n.video.publish)
                         .font(.subheadline.weight(.semibold))
                 }
             }
@@ -1275,7 +1280,11 @@ private struct CommentRow: View {
                         .lineLimit(1)
                     Spacer()
                     Button {
-                        Task { await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like") }
+                        Haptics.tap()
+                        Task {
+                            await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like")
+                            Haptics.success()
+                        }
                     } label: {
                         Label(comment.likeCount.compactCount, systemImage: "hand.thumbsup")
                             .font(.caption2)

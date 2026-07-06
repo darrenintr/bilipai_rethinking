@@ -54,7 +54,7 @@ struct MusicHomeView: View {
                             } label: {
                                 MusicCard(video: video)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PaladalaPressBounceButtonStyle())
                         }
                     }
                 }

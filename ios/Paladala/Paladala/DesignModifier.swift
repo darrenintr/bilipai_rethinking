@@ -16,7 +16,15 @@ struct PaladalaGlassButtonStyle: ButtonStyle {
                 tint: nil
             ))
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+            // Springified from `.easeInOut(0.12)` so the press matches
+            // the `PaladalaPressBounceButtonStyle` / `PaladalaActionPillStyle`
+            // family (Polish audit notes).
+            .animation(
+                configuration.isPressed
+                    ? .spring(response: 0.18, dampingFraction: 0.7)
+                    : .spring(response: 0.26, dampingFraction: 0.78),
+                value: configuration.isPressed
+            )
     }
 }
 

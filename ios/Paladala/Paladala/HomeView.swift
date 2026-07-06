@@ -115,17 +115,26 @@ struct HomeView: View {
                         } label: {
                             Image(systemName: "arrow.clockwise")
                         }
-                        .accessibilityLabel("Refresh")
+                        .accessibilityLabel(L10n.home.refresh)
                         Button {
+                            Haptics.tap()
                             router.open(.dynamic)
                         } label: {
                             Image(systemName: "bell")
                         }
+                        // Accessibility label for the icon-only
+                        // bell — VoiceOver previously read just
+                        // "button" (A11y audit #2).
+                        .accessibilityLabel("动态")
                         Button {
+                            Haptics.tap()
                             router.open(.profile)
                         } label: {
                             Image(systemName: "person.crop.circle")
                         }
+                        // Same fix as the bell above — VoiceOver
+                        // reads the symbol name without context.
+                        .accessibilityLabel("我的")
                     }
                 }
                 .modifier(HomeToolbarGlassModifier(materialDesign: materialDesign))
