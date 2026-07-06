@@ -229,7 +229,6 @@ private struct OnboardingPreferencesPage: View {
     @AppStorage("paladala.danmakuEnabled") private var danmakuEnabled = true
     @AppStorage("paladala.backgroundAudio") private var backgroundAudio = false
     @AppStorage("paladala.iCloudSync") private var iCloudSync = false
-    @AppStorage("paladala.todayWatch") private var todayWatch = true
     @AppStorage("paladala.didOnboard") private var didOnboard = false
 
     @State private var appear = false
@@ -315,7 +314,6 @@ private struct OnboardingPreferencesPage: View {
                 Toggle(isOn: $backgroundAudio) { Label("后台音频", systemImage: "speaker.wave.2.fill") }
                 Toggle(isOn: $iCloudSync) { Label("iCloud 同步", systemImage: "icloud.fill") }
                     .disabled(!ICloudSync.shared.isAvailable)
-                Toggle(isOn: $todayWatch) { Label("今日看什么", systemImage: "list.star") }
             }
         }
         .padding(PaladalaTheme.Spacing.content)

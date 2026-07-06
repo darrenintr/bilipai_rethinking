@@ -445,9 +445,25 @@ final class LocalHLSProxyServer {
                     "candidates": playback.hlsCandidates.count
                 ])
 
-        // Wait for the listener before returning.  We do not need
-        // the SIDX-prep / manifest-publish pipeline the VOD path
-        // uses, but we still need a port to point AVPlayer at.
+        // Start the listener if it isn't already up.  The VOD
+        // path (`serve(_:)` / `publishAndStart(_:)`) goes
+        // through `ensureListenerAsync(...)` on its own, but the
+        // live path used to just *wait* for an existing listener
+        // — when a user opens a live room as their very first
+        // playback (no prior VOD), no listener exists yet, so
+        // `waitForListener` timed out at its 2 s deadline and
+        // `LivePlayerView.loadPlayback(...)` silently fell back to
+        // the direct CDN URL, where AVPlayer 403s on signed m3u8
+        // segments.  Surfaced via the build-195 diagnostic report
+        // (room 7734200, 2026-07-06): the gap between
+        // "serveLive started" and "Initialising AVPlayerController
+        // using direct asset" was exactly 2 005 ms.
+        try await ensureListenerAsync()
+
+        // Wait for the listener to report `.ready` before
+        // returning.  We do not need the SIDX-prep /
+        // manifest-publish pipeline the VOD path uses, but we
+        // still need a port to point AVPlayer at.
         _ = try await waitForListener()
 
         // Stash the live state under lock.  Routes read it on

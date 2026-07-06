@@ -111,11 +111,24 @@ jobs:
           TAGS="$(printf '%s' "$TAGS_JSON" | sed '/^$/d')"
           for tag in $TAGS; do
             n=""
-            if [[ "$tag" =~ ^v0\.5\.([0-9]+)$ ]]; then
+            # Match the prerelease tag shapes that the workflow
+            # has historically emitted.  Each pattern captures
+            # the trailing N so the build sequence is monotonic.
+            # NOTE: the v0.5.1+ line follows the pattern
+            # v0.5.<marketing-patch>.<N>, e.g. v0.5.1.195 — the
+            # previous `^v0\.5\.([0-9]+)$` regex matched
+            # v0.5.<N> but NOT v0.5.1.<N>, so HIGHEST stayed at
+            # 194 forever and every CI run produced CFBundleVersion
+            # 195 (the value of `max(CURRENT, 194) + 1`).  Fixed
+            # 2026-07-06.
+            if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.([0-9]+)$ ]]; then
+              # v0.5.1.N (current line; marketing version + N).
+              n="${BASH_REMATCH[1]}"
+            elif [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.([0-9]+)$ ]]; then
+              # v0.4.N (legacy; kept for backward compat with
+              # already-released 0.4.<N> tags).
               n="${BASH_REMATCH[1]}"
             elif [[ "$tag" =~ ^v0\.5-beta-ios-([0-9]+)$ ]]; then
-              n="${BASH_REMATCH[1]}"
-            elif [[ "$tag" =~ ^v0\.4\.([0-9]+)$ ]]; then
               n="${BASH_REMATCH[1]}"
             elif [[ "$tag" =~ ^v0\.4-beta-ios-([0-9]+)$ ]]; then
               n="${BASH_REMATCH[1]}"

@@ -127,7 +127,15 @@ final class AppRouter: ObservableObject {
     }
 
     func open(_ tab: MainTab) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+        // Drive the transition through `ScreenSwitchTransition.animation`
+        // so the iPad `PadRootView.selectedView` and the phone
+        // `TabView` crossfade / scale at the same speed and with the
+        // same curve.  Setting `selectedTab` inside `withAnimation` is
+        // what tells SwiftUI to interpolate the view identity change
+        // rather than just swapping it.  Clearing the path keeps a
+        // tap on a sidebar / tab item from re-pushing the previous
+        // destination — the user lands at the root of the new tab.
+        withAnimation(ScreenSwitchTransition.animation) {
             selectedTab = tab
             path.removeLast(path.count)
         }

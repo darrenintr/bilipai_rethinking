@@ -229,10 +229,6 @@ struct HomeView: View {
                         }
                     )
                 } else {
-                    if model.category == .recommend {
-                        TodayWatchCard(videos: Array(model.videos.prefix(4)))
-                            .padding(.bottom, 4)
-                    }
                     if model.category == .search && !model.searchUsers.isEmpty {
                         SearchUserResultsStrip(users: model.searchUsers)
                             .padding(.bottom, 2)
@@ -846,49 +842,3 @@ private struct DynamicPostCard: View {
     }
 }
 
-private struct TodayWatchCard: View {
-    let videos: [BiliVideo]
-    @EnvironmentObject private var router: AppRouter
-    @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("今日看什么", systemImage: "sparkles")
-                    .font(.headline)
-                Spacer()
-                Text("今晚轻松看")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(PaladalaTheme.biliPink)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(videos) { video in
-                        Button {
-                            router.openVideo(video)
-                        } label: {
-                            HStack(spacing: 10) {
-                                CoverImage(url: video.coverURL)
-                                    .frame(width: 110, height: 70)
-                                    .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(video.title)
-                                        .font(.subheadline.weight(.semibold))
-                                        .lineLimit(2)
-                                    Text("基于最近播放的本地推荐位")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
-                            .frame(width: 270, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding(14)
-        .paladalaCardSurface(materialDesign)
-    }
-}

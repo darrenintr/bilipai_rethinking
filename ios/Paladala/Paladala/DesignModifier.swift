@@ -287,9 +287,9 @@ extension View {
 
     /// Toggle-style chip. Tap to flip `isOn`. Renders pink when on,
     /// neutral when off. Used by the welcome preferences card for
-    /// the on/off feature flags (danmaku, background audio, iCloud,
-    /// 今日看什么). `disabled` dims + ignores taps — the iCloud chip
-    /// is disabled when the user has no iCloud account signed in.
+    /// the on/off feature flags (danmaku, background audio, iCloud).
+    /// `disabled` dims + ignores taps — the iCloud chip is disabled
+    /// when the user has no iCloud account signed in.
     @ViewBuilder
     func paladalaToggleChip(
         isOn: Binding<Bool>,

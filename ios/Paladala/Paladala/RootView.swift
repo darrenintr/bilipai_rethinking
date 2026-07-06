@@ -586,19 +586,63 @@ private struct PadRootView: View {
 
     @ViewBuilder
     private var selectedView: some View {
-        switch router.selectedTab {
-        case .home:
-            HomeView(repository: repository, heroNamespace: heroNamespace)
-        case .dynamic:
-            DynamicFeedView(repository: repository, heroNamespace: heroNamespace)
-        case .live:
-            LiveRoomsView(repository: repository)
-        case .music:
-            MusicHomeView(repository: repository)
-        case .profile:
-            ProfileSettingsView(repository: repository)
+        // Wrap the tab content in a ZStack keyed by `router.selectedTab`
+        // so swapping tabs animates the outgoing / incoming view
+        // with a crossfade + slide instead of a hard cut.  The
+        // `.id(...)` on the inner view forces SwiftUI to discard the
+        // previous tab's state (scroll position, async tasks) which
+        // also fixes the "iPad sidebar tap doesn't switch" symptom —
+        // without the id the navigation stack would sometimes keep
+        // showing the prior destination when both tabs route to the
+        // same `NavigationStack` shape.
+        ZStack {
+            switch router.selectedTab {
+            case .home:
+                HomeView(repository: repository, heroNamespace: heroNamespace)
+                    .transition(ScreenSwitchTransition.active)
+                    .id(MainTab.home)
+            case .dynamic:
+                DynamicFeedView(repository: repository, heroNamespace: heroNamespace)
+                    .transition(ScreenSwitchTransition.active)
+                    .id(MainTab.dynamic)
+            case .live:
+                LiveRoomsView(repository: repository)
+                    .transition(ScreenSwitchTransition.active)
+                    .id(MainTab.live)
+            case .music:
+                MusicHomeView(repository: repository)
+                    .transition(ScreenSwitchTransition.active)
+                    .id(MainTab.music)
+            case .profile:
+                ProfileSettingsView(repository: repository)
+                    .transition(ScreenSwitchTransition.active)
+                    .id(MainTab.profile)
+            }
         }
+        .animation(ScreenSwitchTransition.animation, value: router.selectedTab)
     }
+}
+
+/// Animation contract for tab → tab screen swaps. Centralised
+/// here so the iPad sidebar (`PadRootView.selectedView`), the
+/// phone tab bar, and any future navigation root all use the
+/// same crossfade + slight scale curve.  Tweak the curve in one
+/// place and the whole app picks it up.
+enum ScreenSwitchTransition {
+    /// The transition applied to the outgoing / incoming tab content.
+    /// `.opacity` keeps both views readable mid-animation; `.scale`
+    /// adds a subtle 2 % depth cue so the change reads as motion,
+    /// not a blink.
+    static let active: AnyTransition = .asymmetric(
+        insertion: .opacity.combined(with: .scale(scale: 0.985))
+            .combined(with: .offset(y: 6)),
+        removal: .opacity.combined(with: .scale(scale: 1.01))
+    )
+
+    /// Driver animation — slightly bouncy so the swap feels alive
+    /// rather than mechanical, but tuned short enough (260 ms) that
+    /// the user never waits for the chrome to settle.
+    static let animation: Animation = .spring(response: 0.26, dampingFraction: 0.86)
 }
 
 /// New iPad sidebar matching the redesigned mockup:

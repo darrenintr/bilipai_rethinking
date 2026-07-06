@@ -70,7 +70,6 @@ enum L10n {
         static let knowledge = String(localized: "home.knowledge", defaultValue: "知识")
         static let tech = String(localized: "home.tech", defaultValue: "科技")
         static let refresh = String(localized: "home.refresh", defaultValue: "刷新")
-        static let todayWatch = String(localized: "home.todayWatch", defaultValue: "今日看什么")
     }
 
     // MARK: - Live

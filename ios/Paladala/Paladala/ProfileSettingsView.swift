@@ -52,7 +52,6 @@ struct ProfileSettingsView: View {
     /// `MiniPlayerStore.detachInline()`.
     @AppStorage("paladala.miniPlayerOnExit") private var miniPlayerOnExit: Bool = true
     @AppStorage("paladala.autoPlayNext") private var autoPlayNext: Bool = false
-    @AppStorage("paladala.todayWatch") private var todayWatch = true
     /// iCloud sync toggle stub. Defaults to `false` because the
     /// CloudKit / `NSUbiquitousKeyValueStore` plumbing does not
     /// exist yet — the toggle is rendered disabled with a
@@ -198,8 +197,6 @@ struct ProfileSettingsView: View {
             }
 
             Section("插件中心") {
-                Toggle("今日看什么", isOn: $todayWatch)
-
                 NavigationLink {
                     SponsorBlockSettingsView()
                 } label: {
