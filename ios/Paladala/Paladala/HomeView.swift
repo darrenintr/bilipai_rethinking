@@ -259,23 +259,16 @@ struct HomeView: View {
                             )
                             .frame(maxWidth: .infinity)
                             .id(video.id)
-                            // One-shot stagger fan-in on the
-                            // initial session load. Each card fades
-                            // in with a small delay so the grid
-                            // feels alive instead of popping in.
-                            // Capped at index 12 (≈420 ms total)
-                            // so the 13th card and beyond mount at
-                            // their natural pace — otherwise the
-                            // bottom of the grid would still be
-                            // fading in 700 ms after the top, which
-                            // reads as laggy on a fast scroll-back.
-                            .opacity(model.firstPageAnimated ? 1 : 0)
-                            .offset(y: model.firstPageAnimated ? 0 : 12)
-                            .animation(
-                                .easeOut(duration: 0.32)
-                                    .delay(Double(min(index, 12)) * 0.035),
-                                value: model.firstPageAnimated
-                            )
+                            // PR-5 (M5): dropped the per-card
+                            // `model.firstPageAnimated` animation.
+                            // 20 simultaneously-animating layers
+                            // (each with its own `delay(Double * 0.035)`
+                            // modifier) cost ~12 transition closures
+                            // per grid and re-evaluated every body
+                            // pass — for the same visible effect.
+                            // The root-level `.animation(...)` on
+                            // `LazyVGrid` (set inside `feedContent`)
+                            // carries the same fan-in.
                             .onAppear {
                                 triggerLoadMoreIfNeeded(currentIndex: index)
                             }

@@ -493,7 +493,22 @@ final class PlayerController: ObservableObject {
                 // KVO observers.
                 Task { @MainActor in
                     guard let self else { return }
-                    self.currentTime = seconds
+                    // PR-5 (M5): throttle `currentTime`
+                    // publication to the integer-second boundary.
+                    // The 2 Hz observer drove every observing view
+                    // (MusicProgressBar, LyricScrollView,
+                    // MusicPlayerView, PlayerView, mini-player) to
+                    // repaint twice per second indefinitely.  At
+                    // 1 Hz the slider / progress bar still moves
+                    // smoothly (one pixel per refresh on Retina),
+                    // downstream observers update less, and
+                    // PlayProgressStore still gets enough samples
+                    // to persist the right resume time.
+                    let wholeSecond = Int(seconds)
+                    let previousWholeSecond = Int(self.currentTime)
+                    if wholeSecond != previousWholeSecond {
+                        self.currentTime = seconds
+                    }
                     // Persist to disk so the user can resume after
                     // a kill / crash / `Caches` purge.  The store
                     // coalesces internally (won't rewrite the JSON

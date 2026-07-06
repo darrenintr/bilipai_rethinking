@@ -533,6 +533,13 @@ private struct LyricScrollView: View {
     /// active-line highlight stuck on whichever line was
     /// active at first render.
     @ObservedObject var controller: PlayerController
+    /// PR-5 (M5): last-seen active-line index so we only call
+    /// `proxy.scrollTo` when the line actually changes.  Without
+    /// this cache every `currentTime` tick (now throttled to 1 Hz
+    /// but still every second) re-runs `scrollTo(id, anchor: .center)`
+    /// with the same target, churning the scroll view and
+    /// re-animating the active-line highlight.
+    @State private var lastActiveIndex: Int?
     /// Fires when the user taps a lyric line. The owner wires
     /// this to `controller.seek(to:)` — without it the tap
     /// only flips a `@State` and never moves the playhead.
@@ -596,7 +603,10 @@ private struct LyricScrollView: View {
                         // *previous* `currentTime` until SwiftUI
                         // re-evaluates `body`, and the animation
                         // would otherwise target the wrong line.
-                        let id = track.lines[track.index(at: newTime)].id
+                        let next = track.index(at: newTime)
+                        if next == lastActiveIndex { return }
+                        lastActiveIndex = next
+                        let id = track.lines[next].id
                         withAnimation(.easeInOut(duration: 0.32)) {
                             proxy.scrollTo(id, anchor: .center)
                         }
