@@ -3013,10 +3013,12 @@ fileprivate func proxySegmentRange(
             throw URLError(.badURL)
         }
         let session = prepSession ?? Self.makePrepSession()
-        let (data, response) = try await session.data(
-            for: req,
-            timeout: 5.0
-        )
+        let (data, response) = try await raceWithDeadline(
+            seconds: 5.0,
+            label: "live-manifest"
+        ) {
+            try await session.data(for: req)
+        }
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -3100,9 +3102,12 @@ fileprivate func proxySegmentRange(
         let session = prepSession ?? Self.makePrepSession()
         Task {
             do {
-                let (data, response) = try await session.data(
-                    for: upstreamReq, timeout: 8.0
-                )
+                let (data, response) = try await raceWithDeadline(
+                    seconds: 8.0,
+                    label: "live-seg"
+                ) {
+                    try await session.data(for: upstreamReq)
+                }
                 guard let http = response as? HTTPURLResponse else {
                     respondError(connection: connection, status: 502,
                                  reason: "bad upstream response",
