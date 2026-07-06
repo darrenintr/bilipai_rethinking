@@ -3036,26 +3036,70 @@ fileprivate func proxySegmentRange(
     private func rewriteLiveManifest(body: String,
                                      baseURL: URL,
                                      connID: String) -> String {
+        // Matches `#EXT-X-MAP:URI="<some-uri>"` (HLSv6 fMP4 init
+        // segment).  The URI may be absolute, scheme-less
+        // (`//host/path`), or relative to the manifest — capture
+        // the inner content of the `URI="..."` attribute so we
+        // can rewrite it through the proxy alongside the regular
+        // segments.  Without this rewrite AVPlayer fetches the
+        // init segment directly from the B 站 CDN, which 403s
+        // without the loopback Referer/UA — and the player stalls
+        // on the first keyframe.  Surfaces on every fMP4 live
+        // room (verified on room 7734200, 2026-07-06 via
+        // `scripts/probe_live_endpoints.py`).
+        let extXMapPattern = try? NSRegularExpression(
+            pattern: #"#EXT-X-MAP:URI=\"([^\"]+)\""#
+        )
+
         var out: [String] = []
         for raw in body.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
             let line = String(raw)
-            // Header / metadata lines pass through unchanged.
-            // Segment lines are the bare relative or absolute
-            // URI after each `#EXTINF:` (no `URI=` here — this
-            // is a media playlist, not a master).
-            if line.isEmpty || line.hasPrefix("#") {
+            // Header / metadata lines pass through unchanged —
+            // except `#EXT-X-MAP` which carries a URI that must
+            // go through this proxy.
+            if line.isEmpty {
+                out.append(line)
+                continue
+            }
+            if line.hasPrefix("#EXT-X-MAP:") {
+                if let regex = extXMapPattern,
+                   let match = regex.firstMatch(
+                    in: line, range: NSRange(line.startIndex..., in: line)
+                   ),
+                   let uriRange = Range(match.range(at: 1), in: line),
+                   let inner = URL(
+                    string: String(line[uriRange]), relativeTo: baseURL
+                   )?.absoluteURL,
+                   let rewritten = rewriteLiveURI(inner) {
+                    let prefix = line[..<uriRange.lowerBound]
+                    let suffix = line[uriRange.upperBound...]
+                    out.append("\(prefix)\(rewritten)\(suffix)")
+                } else {
+                    out.append(line)
+                }
+                continue
+            }
+            if line.hasPrefix("#") {
                 out.append(line)
                 continue
             }
             guard let resolved = URL(string: line, relativeTo: baseURL)?
-                .absoluteURL else {
+                .absoluteURL,
+                  let rewritten = rewriteLiveURI(resolved) else {
                 out.append(line)
                 continue
             }
-            let encoded = base64urlEncode(resolved.absoluteString)
-            out.append("/live/seg?u=\(encoded)")
+            out.append(rewritten)
         }
         return out.joined(separator: "\n") + "\n"
+    }
+
+    /// Rewrite a single upstream URI to `/live/seg?u=<base64url>`.
+    /// Extracted so both the segment-line and `#EXT-X-MAP` paths
+    /// can share the exact same encoding rules.
+    private func rewriteLiveURI(_ resolved: URL) -> String? {
+        let encoded = base64urlEncode(resolved.absoluteString)
+        return "/live/seg?u=\(encoded)"
     }
 
     /// `GET /live/seg?u=<base64url>` — byte-passthrough the

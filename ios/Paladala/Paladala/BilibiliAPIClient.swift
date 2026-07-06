@@ -969,12 +969,22 @@ final class BilibiliAPIClient {
     /// prefer HTTPS when the host scheme allows it. The `extra`
     /// segment carries the query-string parameters Bilibili's CDN
     /// requires to validate the request.
+    ///
+    /// NB: `baseURL` typically ends with `?` already (Bilibili's
+    /// pre-signed pattern is `<path>?`). Naively appending `?<extra>`
+    /// would produce `<path>??<extra>` — and the live CDN returns
+    /// 403 Forbidden for the malformed query, killing playback before
+    /// the first segment. Join with `&` whenever the base already
+    /// has the trailing `?` so the assembled URL is well-formed.
+    /// Surfaced by `scripts/probe_live_endpoints.py` against
+    /// room 7734200 on 2026-07-06.
     private func composeStreamURL(urlInfo: LivePlayURLHost, codec: LivePlayCodec) -> URL? {
         let scheme = urlInfo.host.lowercased().hasPrefix("https://") ? "https" : "http"
         let hostPart = urlInfo.host.hasPrefix("\(scheme)://") ? String(urlInfo.host.dropFirst("\(scheme)://".count)) : urlInfo.host
         var raw = "\(scheme)://\(hostPart)\(codec.baseURL)"
         if !urlInfo.extra.isEmpty {
-            raw += "?" + urlInfo.extra
+            let joiner = codec.baseURL.hasSuffix("?") ? "&" : "?"
+            raw += joiner + urlInfo.extra
         }
         return URL(string: raw)
     }
