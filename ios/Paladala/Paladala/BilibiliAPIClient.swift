@@ -535,7 +535,7 @@ final class BilibiliAPIClient {
         }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

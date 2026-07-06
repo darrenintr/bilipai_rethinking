@@ -101,6 +101,12 @@ struct PaladalaApp: App {
                         guard let account = authStore?.activeAccount else { return nil }
                         return BiliAppConfig(buvid3: account.buvid3, mid: account.mid, csrf: account.csrf)
                     }
+                    // Hook the follow-notification BG-task handler.
+                    // Must happen after the cookieProvider is
+                    // installed so the BG poll can decide whether
+                    // the user is signed in. Idempotent — calling
+                    // twice just re-registers the same handler.
+                    FollowNotificationService.shared.bootstrap(repository: repository)
                     // When the upstream API returns 401 the user is
                     // effectively logged out (B站 rotates SESSDATA
                     // every ~30 days). Pop the login sheet on the

@@ -53,6 +53,19 @@ final class PaladalaAppDelegate: NSObject, UIApplicationDelegate, MXMetricManage
         Task { @MainActor in
             DownloadManager.shared.bootstrap()
         }
+        // The follow-notification BG-task handler must be
+        // registered *before* the app finishes launching, per
+        // Apple's docs — `BGTaskScheduler.shared.register(...)`
+        // will fatalError if called after `application(_:didFinishLaunching…)`
+        // returns.  We touch `.shared` here so the singleton's
+        // `UNUserNotificationCenter.delegate` self-assignment
+        // runs early; the actual `bootstrap(repository:)` call
+        // needs the `PaladalaRepository` so we defer it to
+        // `PaladalaApp.body.task` where the repository is in
+        // scope.  Without this touch the BG handler wouldn't be
+        // wired when the OS re-fires the task after a cold
+        // launch.
+        _ = FollowNotificationService.shared
         LaunchMetrics.shared.mark(.appDelegateComplete)
         return true
     }
