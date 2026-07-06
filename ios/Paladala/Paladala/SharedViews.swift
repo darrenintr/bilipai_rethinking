@@ -103,6 +103,7 @@ struct VideoCard: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(
+                        maxWidth: .infinity,
                         height: Self.titleBlockHeight,
                         alignment: .topLeading
                     )
@@ -111,6 +112,7 @@ struct VideoCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .frame(
+                        maxWidth: .infinity,
                         height: Self.ownerLineHeight,
                         alignment: .topLeading
                     )
@@ -123,6 +125,7 @@ struct VideoCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
                 .frame(
+                    maxWidth: .infinity,
                     height: Self.countsLineHeight,
                     alignment: .topLeading
                 )
@@ -162,14 +165,28 @@ struct VideoCard: View {
 
     /// The cover image, kept as a property so we can apply the
     /// hero-source modifier without duplicating the modifier
-    /// chain in two places. The cover is clipped to the same
-    /// `cardRadius` as the card itself so its top corners
-    /// visually share the card's curve, even though the cover
-    /// now sits 8pt inside the card (top padding) instead of
-    /// flush with it.
+    /// chain in two places.
+    ///
+    /// Width and height are pinned to the card's column width ×
+    /// a 16:10 ratio. The image uses `.scaledToFill()` (and is
+    /// clipped to the card radius) so every thumbnail — whether
+    /// the source is 16:9, 4:3, or 1:1 — renders in the exact same
+    /// bounding box and gets cropped to fit. Combined with the
+    /// fixed-width title/owner/counts rows below, this guarantees
+    /// every card in a row is the same height and the grid never
+    /// wobbles between rows.
     private var coverImage: some View {
+        // Pin to the parent VStack's width. `.frame(maxWidth: .infinity)`
+        // lets the cover stretch to the column edge; the
+        // `.aspectRatio(16/10, .fill)` below derives the height
+        // from that width, so all covers in a row share the same
+        // height regardless of source aspect ratio. The cover is
+        // clipped to the card radius so its top corners match the
+        // card's curve.
         CoverImage(url: video.coverURL)
-            .aspectRatio(16 / 10, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(16 / 10, contentMode: .fill)
+            .clipped()
             .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
     }
 }

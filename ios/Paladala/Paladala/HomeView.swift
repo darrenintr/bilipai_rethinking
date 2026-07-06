@@ -160,7 +160,7 @@ struct HomeView: View {
                 // build, not the released 0.5.0 BETA.
                 HStack(spacing: 6) {
                     Image(systemName: "ladybug.fill")
-                    Text("TESTING BUILD · 间距 28 列 / 22 行 · 卡片顶 8")
+                    Text("TESTING BUILD · 间距 28/22 · 卡片顶 8 · 16:10 锁尺寸")
                 }
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.white)
