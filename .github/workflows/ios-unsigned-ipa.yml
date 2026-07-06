@@ -241,6 +241,14 @@ jobs:
             echo "::error::BUNDLE_VERSION is not set — did Bump build number run?"
             exit 1
           fi
+          # PLIST was defined inside the `Bump build number` step's
+          # `run:` block; each `run:` is a fresh shell so the
+          # variable does not carry over.  Recompute it here.
+          PLIST="$PROJECT_DIR/$PROJECT_NAME/Info.plist"
+          if [ ! -f "$PLIST" ]; then
+            echo "::error::Info.plist not found at $PLIST"
+            exit 1
+          fi
           # Pull the marketing version (e.g. "0.5.1") from
           # CFBundleShortVersionString so the tag always matches
           # the Info.plist the user ships.  We use a permissive
