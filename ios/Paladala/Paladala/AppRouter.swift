@@ -106,7 +106,22 @@ enum LiveRoute: Hashable {
 
 @MainActor
 final class AppRouter: ObservableObject {
-    @Published var selectedTab: MainTab = .home
+    /// PR-7 (M6): hydrate `selectedTab` from `UserDefaults` so a
+    /// force-quit + cold launch returns the user to where they
+    /// were.  The raw value is the `MainTab.rawValue` string so
+    /// defaults migrate cleanly when `MainTab` gains a new case.
+    /// First-launch default is `.home` when no key is set.
+    @Published var selectedTab: MainTab = {
+        if let raw = UserDefaults.standard.string(forKey: "paladala.selectedTab"),
+           let restored = MainTab(rawValue: raw) {
+            return restored
+        }
+        return .home
+    }() {
+        didSet {
+            UserDefaults.standard.set(selectedTab.rawValue, forKey: "paladala.selectedTab")
+        }
+    }
     @Published var path = NavigationPath()
     @Published var pendingSearchQuery = ""
     /// Set to `true` to present the login sheet. The sheet sets it back

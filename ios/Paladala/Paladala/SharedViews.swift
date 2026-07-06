@@ -544,7 +544,11 @@ struct ErrorBanner: View {
 
     /// Plain value type — the banner renders it as a `Button`
     /// inline rather than instantiating the type as a view.
-    struct PrimaryAction: Identifiable, Hashable {
+    /// Not `Hashable` because `(() -> Void)` doesn't have a
+    /// meaningful synthesis (would require Equatable on closures,
+    /// which Swift forbids).  The `id` is unused — kept for
+    /// forward-compat if the API grows to need it.
+    struct PrimaryAction {
         let id = UUID()
         let label: String
         let action: () -> Void

@@ -246,35 +246,28 @@ struct VideoDetailView: View {
             // came back) don't pepper the user.
             if let saved = PlayProgressStore.shared.lastProgress(for: model.detail.bvid),
                saved.currentTime > 30,
-               let duration = controller?.duration, duration > 0,
+               let duration = playerController?.duration, duration > 0,
                saved.currentTime < duration - 30 {
                 resumePromptSeconds = saved.currentTime
             }
         }
-        .sheet(item: Binding(
-            get: { resumePromptSeconds.map { ResumePromptChoice(seconds: $0) } },
-            set: { resumePromptSeconds = $0?.seconds }
-        )) { choice in
-            ResumePromptSheet(
-                seconds: choice.seconds,
-                onContinue: {
-                    Haptics.tap()
-                    controller?.seek(to: choice.seconds)
-                    controller?.play()
-                    resumePromptSeconds = nil
-                },
-                onRestart: {
-                    Haptics.tap()
-                    PlayProgressStore.shared.clear(bvid: model.detail.bvid)
-                    controller?.seek(to: 0)
-                    controller?.play()
-                    resumePromptSeconds = nil
-                },
-                onDismiss: { resumePromptSeconds = nil }
-            )
-            .presentationDetents([.height(220)])
-            .presentationDragIndicator(.visible)
-        }
+        .modifier(ResumePromptSheetModifier(
+            seconds: $resumePromptSeconds,
+            bvid: model.detail.bvid,
+            continueAction: {
+                Haptics.tap()
+                playerController?.seek(to: resumePromptSeconds ?? 0)
+                playerController?.play()
+                resumePromptSeconds = nil
+            },
+            restartAction: {
+                Haptics.tap()
+                PlayProgressStore.shared.clear(bvid: model.detail.bvid)
+                playerController?.seek(to: 0)
+                playerController?.play()
+                resumePromptSeconds = nil
+            }
+        ))
         // `initial: true` is REQUIRED for the offline (cached
         // video) path.  When `localRecord` is set, the model
         // already has a non-nil `playback` at construction time
@@ -1729,5 +1722,33 @@ private struct ResumePromptSheet: View {
         }
         .padding(.vertical, 4)
         .paladalaCardSurface(materialDesign)
+    }
+}
+
+/// PR-4 (M3) wrapper that keeps the resume-prompt sheet
+/// decoupled from the parent body so `VideoDetailView.body`
+/// stays under the SwiftUI type-checker budget.  See the
+/// companion `HomeSearchModifier` from PR-2 for the same
+/// pattern applied to the home search field.
+private struct ResumePromptSheetModifier: ViewModifier {
+    @Binding var seconds: Double?
+    let bvid: String
+    let continueAction: () -> Void
+    let restartAction: () -> Void
+
+    func body(content: Content) -> some View {
+        content.sheet(item: Binding(
+            get: { seconds.map { ResumePromptChoice(seconds: $0) } },
+            set: { seconds = $0?.seconds }
+        )) { choice in
+            ResumePromptSheet(
+                seconds: choice.seconds,
+                onContinue: continueAction,
+                onRestart: restartAction,
+                onDismiss: { seconds = nil }
+            )
+            .presentationDetents([.height(220)])
+            .presentationDragIndicator(.visible)
+        }
     }
 }
