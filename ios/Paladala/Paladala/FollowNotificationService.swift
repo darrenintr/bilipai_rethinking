@@ -252,7 +252,12 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
         // hundred notifications on the first poll after install.
         let fresh = page.items.compactMap { item -> (String, String, String)? in
             guard !item.id.isEmpty else { return nil }
-            let title = item.title.isEmpty ? "新动态" : item.title
+            // `DynamicPost` has no top-level `title` — the visible
+            // headline is the `text` body, or the attached video's
+            // title when the post is a video card. Use whichever
+            // the upstream populated; fall back to "新动态".
+            let raw = item.attachedVideo?.title ?? item.text
+            let title = raw.isEmpty ? "新动态" : raw
             return (item.id, title, item.author)
         }.prefix(5)
 
