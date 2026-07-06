@@ -865,24 +865,37 @@ final class BilibiliAPIClient {
 
     /// Fetch the playable stream URLs for a live room. The endpoint
     /// returns a tree of protocols (`stream[]`) → formats (`format[]`)
-    /// → codecs (`codec[]`) → CDN hosts (`url_info[]`). We pick the
-    /// first CDN for the FLV and HLS slots and let the player toggle
-    /// between them at runtime.
+    /// → codecs (`codec[]`) → CDN hosts (`url_info[]`). We collect
+    /// *every* CDN host per format (not just the first) so the
+    /// HLS proxy / AVPlayer can fail over when one edge 403s —
+    /// live CDN edges are much flakier than VOD.
     ///
-    /// Older CDNs occasionally return only FLV; in that case the HLS
-    /// slot on the resulting `BiliLivePlayback` is `nil` and the UI
-    /// disables the toggle. Throws when the room is offline (code != 0
-    /// or no playable streams) so the caller can show a specific
-    /// "未开播" message instead of pretending playback failed.
+    /// Within a format we prefer the AVPlayer-native path: HLS
+    /// `ts` → HLS `fmp4` → any HLS codec → FLV as last resort. When
+    /// the room exposes no HLS, the result has an empty
+    /// `hlsCandidates` and the player surfaces a "FLV only" error.
+    ///
+    /// Throws when the room is offline (code != 0 or no playable
+    /// streams) so the caller can show a specific "未开播" message
+    /// instead of pretending playback failed.
     func livePlaybackURL(roomID: Int) async throws -> BiliLivePlayback {
+        // `data` may be `nil` when the room is offline (code != 0).
+        // `LivePlayInfoPayload` is the same either way; we just
+        // re-check `code` after the optional chain.
         let payload: APIResponse<LivePlayInfoPayload> = try await get(
             baseURL: liveBaseURL,
             path: "/xlive/web-room/v2/index/getRoomPlayInfo",
             queryItems: [
                 URLQueryItem(name: "room_id", value: "\(roomID)"),
+                // protocol: 0=FLV, 1=HLS
                 URLQueryItem(name: "protocol", value: "0,1"),
+                // format: 0=FLV, 1=TS, 2=fMP4
                 URLQueryItem(name: "format", value: "0,1,2"),
+                // codec: 0=AVC, 1=HEVC
                 URLQueryItem(name: "codec", value: "0,1"),
+                // qn 10000 = "原画" (highest). The room usually
+                // returns a single qn here; the player can step
+                // down via the quality sheet if it wants.
                 URLQueryItem(name: "qn", value: "10000"),
                 URLQueryItem(name: "platform", value: "web"),
                 URLQueryItem(name: "ptype", value: "8")
@@ -893,39 +906,51 @@ final class BilibiliAPIClient {
             throw BilibiliAPIError.missingData
         }
 
-        var streams: [BiliLiveStreamFormat: URL] = [:]
+        // Bucket all playable URLs by the player's view of them.
+        // HLS slots are split by container (ts / fmp4) so the
+        // proxy can prefer the AVPlayer-native ts path; we also
+        // remember the codec order so the proxy can fall back to
+        // HEVC if AVC's edge is down.
+        var hlsTS: [URL] = []
+        var hlsFMP4: [URL] = []
+        var hlsOther: [URL] = []
+        var flv: [URL] = []
 
-        // Bilibili returns one `stream` entry per `protocol` value
-        // requested (0 = FLV, 1 = HLS). We walk the list once and
-        // pull the best URL out of each. The codec/format nesting
-        // inside each stream is what gives us the actual playable
-        // URL — we pick the first codec whose `url_info` exposes at
-        // least one host.
         for stream in data.playurlInfo?.playurl.stream ?? [] {
-            let format: BiliLiveStreamFormat?
-            switch stream.protocolName {
-            case "http_hls", "https_hls":
-                format = .hls
-            case "http_flv", "https_flv", "rtmp_flv", "rtmp_flv_h265":
-                format = .flv
-            default:
-                format = nil
-            }
-            guard let format else { continue }
-            // Already populated (Bilibili can return both protocols
-            // for the same format on some rooms) — prefer the first.
-            if streams[format] != nil { continue }
+            let isHLS = stream.protocolName == "http_hls"
+                || stream.protocolName == "https_hls"
+            let isFLV = stream.protocolName == "http_flv"
+                || stream.protocolName == "https_flv"
+                || stream.protocolName == "rtmp_flv"
+                || stream.protocolName == "rtmp_flv_h265"
+            guard isHLS || isFLV else { continue }
             for fmt in stream.format {
                 for codec in fmt.codec {
-                    if let urlInfo = codec.urlInfo.first,
-                       let composed = composeStreamURL(urlInfo: urlInfo, codec: codec) {
-                        streams[format] = composed
-                        break
+                    let composed = codec.urlInfo.compactMap {
+                        composeStreamURL(urlInfo: $0, codec: codec)
+                    }
+                    if isHLS {
+                        switch fmt.formatName {
+                        case "ts":
+                            hlsTS.append(contentsOf: composed)
+                        case "fmp4":
+                            hlsFMP4.append(contentsOf: composed)
+                        default:
+                            hlsOther.append(contentsOf: composed)
+                        }
+                    } else if isFLV {
+                        flv.append(contentsOf: composed)
                     }
                 }
-                if streams[format] != nil { break }
             }
         }
+
+        // Prefer the AVPlayer-native TS path, then fMP4 (also
+        // supported), then any other HLS variant. FLV is last
+        // because AVPlayer can't decode it without a custom
+        // resource loader — the caller can still surface the URL
+        // for a future FLV-enabled player.
+        let hls = hlsTS + hlsFMP4 + hlsOther
 
         let referer = URL(string: "https://live.bilibili.com/\(roomID)")!
         let info = data.roomInfo
@@ -933,7 +958,8 @@ final class BilibiliAPIClient {
             roomID: roomID,
             title: info?.title ?? "",
             hostName: info?.areaName ?? "",
-            streams: streams,
+            hlsCandidates: hls,
+            flvCandidates: flv,
             referer: referer
         )
     }

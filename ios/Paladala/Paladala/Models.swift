@@ -716,8 +716,20 @@ struct BiliLivePlayback: Hashable {
     let roomID: Int
     let title: String
     let hostName: String
-    let streams: [BiliLiveStreamFormat: URL]
+    /// CDN candidates for the HLS playlist, in the order the
+    /// upstream returned them. The HLS proxy (or AVPlayer on the
+    /// direct path) walks the list when the current host errors.
+    /// Empty when the room only exposes FLV.
+    let hlsCandidates: [URL]
+    /// CDN candidates for the FLV stream, same ordering rules.
+    /// Empty when the room only exposes HLS.
+    let flvCandidates: [URL]
     let referer: URL
+
+    /// First HLS candidate, or `nil` when the room is FLV-only.
+    var hlsURL: URL? { hlsCandidates.first }
+    /// First FLV candidate, or `nil` when the room is HLS-only.
+    var flvURL: URL? { flvCandidates.first }
 }
 
 /// Kinds of dynamic card the follow feed surfaces. The HTTP payload is

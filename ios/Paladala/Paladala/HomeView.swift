@@ -160,7 +160,7 @@ struct HomeView: View {
                 // fix build.
                 HStack(spacing: 6) {
                     Image(systemName: "ladybug.fill")
-                    Text("TESTING BUILD · 封面尺寸修复")
+                    Text("TESTING BUILD · 直播 HLS 代理 + 多 CDN 故障转移")
                 }
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.white)

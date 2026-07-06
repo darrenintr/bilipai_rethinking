@@ -405,6 +405,64 @@ final class LocalHLSProxyServer {
         return currentPrepGeneration
     }
 
+    /// Serve a Bilibili live HLS stream.
+    ///
+    /// Live streams are different from the VOD case in two ways:
+    ///   1. There is no DASH source — the upstream gives us a
+    ///      pre-built `playlist.m3u8` whose segment URIs point
+    ///      directly at the B站 CDN.
+    ///   2. The m3u8 is **live** — every refresh (every few
+    ///      seconds) can list new segments and the proxy must
+    ///      re-fetch on each request, not synthesise a static
+    ///      playlist from a SIDX.
+    ///
+    /// We solve this by:
+    ///   - caching the upstream m3u8 URL + referer in
+    ///     `currentLivePlayback`,
+    ///   - returning a `127.0.0.1/live/manifest.m3u8` URL that
+    ///     AVPlayer binds to,
+    ///   - serving `/live/manifest.m3u8` by fetching the
+    ///     upstream m3u8 with the proper `Referer` + iOS UA,
+    ///     rewriting every segment URI back through the proxy
+    ///     (`/live/seg?u=<base64url>`),
+    ///   - serving `/live/seg?u=...` as a byte-passthrough
+    ///     (reusing the same upstream-host + Referer rules
+    ///     that the VOD `proxySegment(..., .passthrough)`
+    ///     path enforces).
+    ///
+    /// CDNs in `playback.hlsCandidates` are tried in order on
+    /// each manifest fetch; the first one that returns 200 wins,
+    /// and the manifest rewrites reflect the *winning* URL.
+    /// If all CDNs 403/404 the proxy surfaces a 502 to AVPlayer
+    /// so it can report a transient upstream failure.
+    func serveLive(playback: BiliLivePlayback) async throws -> URL {
+        guard !playback.hlsCandidates.isEmpty else {
+            throw PlaybackPreparationError.noDash
+        }
+        diagLog(.playback, "LocalHLSProxyServer serveLive started",
+                details: [
+                    "roomID": playback.roomID,
+                    "candidates": playback.hlsCandidates.count
+                ])
+
+        // Wait for the listener before returning.  We do not need
+        // the SIDX-prep / manifest-publish pipeline the VOD path
+        // uses, but we still need a port to point AVPlayer at.
+        _ = try await waitForListener()
+
+        // Stash the live state under lock.  Routes read it on
+        // every request so swapping `serveLive(...)` is
+        // immediately observable.
+        lock.lock()
+        currentLivePlayback = playback
+        lock.unlock()
+
+        guard let base = safeBaseURL else {
+            throw PlaybackPreparationError.noDash
+        }
+        return base.appendingPathComponent("live/manifest.m3u8")
+    }
+
     /// SIDX preparation for the current playback.  Replaces
     /// the old `prepareRemotePlayback(_:)` and runs video +
     /// audio in parallel via two `async let` bindings wrapped
@@ -822,6 +880,10 @@ final class LocalHLSProxyServer {
     private var listener: NWListener?
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
+    /// Live playback state.  Mirrors `currentPlayback` for the
+    /// `/live/manifest.m3u8` + `/live/seg` routes; null when the
+    /// last `serve(playback:)` was a VOD stream (or nothing).
+    private var currentLivePlayback: BiliLivePlayback?
     /// Long-lived `URLSession` used by the SIDX-preparation code
     /// path.  Replaces the per-call ephemeral `URLSession` that
     /// the original sync implementation created inside
@@ -2021,6 +2083,10 @@ final class LocalHLSProxyServer {
                     proxySegment(req: req, connection: connection,
                                  mode: .passthrough, connID: connID)
                 }
+            } else if pathOnly == "/live/manifest.m3u8" {
+                respondLiveManifest(connection: connection, connID: connID)
+            } else if pathOnly.hasPrefix("/live/seg") {
+                proxyLiveSegment(req: req, connection: connection, connID: connID)
             } else {
                 respondError(connection: connection, status: 404,
                              reason: "no route", connID: connID)
@@ -2858,6 +2924,228 @@ fileprivate func proxySegmentRange(
             connID: connID,
             label: "DOWNSTREAM RESPONSE HEADER+SMALL BODY"
         )
+    }
+
+    // MARK: live
+
+    /// Snapshot the active live playback.  Returns the cached
+    /// state (upstream m3u8 URL list + referer) under lock.
+    fileprivate func liveSnapshot() -> (candidates: [URL], referer: String)? {
+        lock.lock(); defer { lock.unlock() }
+        guard let p = currentLivePlayback,
+              !p.hlsCandidates.isEmpty else { return nil }
+        return (p.hlsCandidates, p.referer.absoluteString)
+    }
+
+    /// `GET /live/manifest.m3u8` — fetch the upstream m3u8 with
+    /// the proper Referer + iOS UA, rewrite every segment URI
+    /// back through this proxy (`/live/seg?u=<base64url>`), and
+    /// return the rewritten m3u8.  Tries the CDN candidates in
+    /// order; the first one that returns 200 wins.
+    private func respondLiveManifest(connection: NWConnection,
+                                     connID: String) {
+        guard let (candidates, referer) = liveSnapshot() else {
+            respondError(connection: connection, status: 503,
+                         reason: "no live playback", connID: connID)
+            return
+        }
+        diagLog(.playback, "/live/manifest fetch started",
+                details: ["conn": connID, "candidates": candidates.count])
+
+        // Walk the candidates in order.  Each fetch is async; the
+        // first one that produces a 200 OK text body wins and we
+        // rewrite the manifest to point at the proxy.
+        Task {
+            for (idx, candidate) in candidates.enumerated() {
+                do {
+                    let body = try await fetchLiveManifestBody(
+                        url: candidate, referer: referer, connID: connID
+                    )
+                    let rewritten = rewriteLiveManifest(
+                        body: body,
+                        baseURL: candidate,
+                        connID: connID
+                    )
+                    diagLog(.playback, "/live/manifest served",
+                            details: [
+                                "conn": connID,
+                                "winning": idx,
+                                "upstream": candidate.host ?? "?"
+                            ])
+                    respondText(
+                        connection: connection,
+                        connID: connID,
+                        body: rewritten
+                    )
+                    return
+                } catch {
+                    diagLog(.playback, "/live/manifest candidate failed",
+                            details: [
+                                "conn": connID,
+                                "candidate": candidate.host ?? "?",
+                                "error": String(describing: error)
+                            ])
+                    continue
+                }
+            }
+            respondError(connection: connection, status: 502,
+                         reason: "all live candidates failed",
+                         connID: connID)
+        }
+    }
+
+    /// Fetch the upstream m3u8 body.  Uses the prep session so we
+    /// reuse the same TLS handshake; a 5-second deadline caps the
+    /// wait so a dead CDN can't stall the player.
+    private func fetchLiveManifestBody(url: URL,
+                                       referer: String,
+                                       connID: String) async throws -> String {
+        var req = URLRequest(url: url)
+        req.setValue(referer, forHTTPHeaderField: "Referer")
+        req.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+            + "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            + "Version/18.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        req.setValue("https://live.bilibili.com", forHTTPHeaderField: "Origin")
+        guard let host = url.host, isAllowedUpstreamHost(host) else {
+            throw URLError(.badURL)
+        }
+        let session = prepSession ?? Self.makePrepSession()
+        let (data, response) = try await session.data(
+            for: req,
+            timeout: 5.0
+        )
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw URLError(.init(rawValue: code))
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// Rewrite the upstream m3u8 so every segment URI is served
+    /// by us (`/live/seg?u=<base64url>`) instead of going direct
+    /// to the CDN.  Bilibili playlists use absolute paths like
+    /// `/live-bvc/.../123.ts` and full URLs interchangeably, so
+    /// we resolve each non-`#EXT` line against the m3u8's base
+    /// URL before encoding.
+    private func rewriteLiveManifest(body: String,
+                                     baseURL: URL,
+                                     connID: String) -> String {
+        var out: [String] = []
+        for raw in body.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+            let line = String(raw)
+            // Header / metadata lines pass through unchanged.
+            // Segment lines are the bare relative or absolute
+            // URI after each `#EXTINF:` (no `URI=` here — this
+            // is a media playlist, not a master).
+            if line.isEmpty || line.hasPrefix("#") {
+                out.append(line)
+                continue
+            }
+            guard let resolved = URL(string: line, relativeTo: baseURL)?
+                .absoluteURL else {
+                out.append(line)
+                continue
+            }
+            let encoded = base64urlEncode(resolved.absoluteString)
+            out.append("/live/seg?u=\(encoded)")
+        }
+        return out.joined(separator: "\n") + "\n"
+    }
+
+    /// `GET /live/seg?u=<base64url>` — byte-passthrough the
+    /// upstream segment.  Mirrors the VOD
+    /// `proxySegment(..., .passthrough)` rules: forward Range
+    /// headers, allow only B站 CDN hosts, send the room's
+    /// Referer + iOS UA.  Reuses the prep session so we share
+    /// the connection pool with the manifest fetch.
+    private func proxyLiveSegment(req: HTTPRequest,
+                                  connection: NWConnection,
+                                  connID: String) {
+        guard let (_, referer) = liveSnapshot() else {
+            respondError(connection: connection, status: 503,
+                         reason: "no live playback", connID: connID)
+            return
+        }
+        let query = req.path.split(separator: "?", maxSplits: 1)
+            .last.map(String.init) ?? ""
+        let params = parseQuery(query)
+        guard let encoded = params["u"],
+              let upstreamString = base64urlDecode(encoded),
+              let upstream = URL(string: upstreamString) else {
+            respondError(connection: connection, status: 400,
+                         reason: "missing u", connID: connID)
+            return
+        }
+        guard let host = upstream.host,
+              isAllowedUpstreamHost(host) else {
+            respondError(connection: connection, status: 400,
+                         reason: "bad upstream host", connID: connID)
+            return
+        }
+        var upstreamReq = URLRequest(url: upstream)
+        upstreamReq.setValue(referer, forHTTPHeaderField: "Referer")
+        upstreamReq.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+            + "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            + "Version/18.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        if let range = req.headers["range"] {
+            upstreamReq.setValue(range, forHTTPHeaderField: "Range")
+        }
+        let session = prepSession ?? Self.makePrepSession()
+        Task {
+            do {
+                let (data, response) = try await session.data(
+                    for: upstreamReq, timeout: 8.0
+                )
+                guard let http = response as? HTTPURLResponse else {
+                    respondError(connection: connection, status: 502,
+                                 reason: "bad upstream response",
+                                 connID: connID)
+                    return
+                }
+                let status = http.statusCode
+                if !(200..<300).contains(status) {
+                    respondError(connection: connection, status: status,
+                                 reason: "upstream returned \(status)",
+                                 connID: connID)
+                    return
+                }
+                // Forward Content-Length / Content-Range so
+                // AVPlayer's byte accounting matches the bytes
+                // we actually send.  Without Content-Range on a
+                // 206 response AVPlayer abandons the stream.
+                var extra: [String: String] = [:]
+                if let cl = http.value(forHTTPHeaderField: "Content-Length") {
+                    extra["Content-Length"] = cl
+                }
+                if let cr = http.value(forHTTPHeaderField: "Content-Range") {
+                    extra["Content-Range"] = cr
+                }
+                // Live ts / fMP4 segments are octet-stream; let
+                // AVPlayer sniff the container from the bytes
+                // themselves by omitting Content-Type.
+                respondBytes(
+                    connection: connection,
+                    status: status,
+                    contentType: http.value(forHTTPHeaderField: "Content-Type")
+                        ?? "application/octet-stream",
+                    body: data,
+                    extraHeaders: extra,
+                    connID: connID,
+                    label: "DOWNSTREAM LIVE SEGMENT"
+                )
+            } catch {
+                respondError(connection: connection, status: 502,
+                             reason: "upstream fetch failed: \(error)",
+                             connID: connID)
+            }
+        }
     }
 
     private func respondError(

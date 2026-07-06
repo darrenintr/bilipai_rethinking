@@ -263,13 +263,32 @@ private struct LivePlayerView: View {
             // controller is created from the HLS URL when the
             // room offers one. If only FLV is offered, we surface
             // a friendly error and skip controller init.
-            if let hlsURL = resolved.streams[.hls] {
+            if let hlsURL = resolved.hlsURL {
                 if controller == nil {
-                    let livePlayback = BiliPlayback(
-                        dash: nil,
-                        fallbackURL: hlsURL,
-                        referer: resolved.referer
-                    )
+                    // Prefer the local HLS proxy so we get CDN
+                    // failover (Bilibili's live CDN edges 403
+                    // more often than VOD). The proxy also
+                    // strips the upstream Referer / UA from
+                    // every request, which is what AVPlayer
+                    // needs to avoid the CDN's 403 on signed
+                    // m3u8 URLs. Falls back to the direct URL
+                    // if the proxy can't bind a port (e.g.
+                    // a previous teardown left it dead).
+                    let livePlayback: BiliPlayback
+                    if let proxyURL = try? await LocalHLSProxyServer.shared
+                        .serveLive(playback: resolved) {
+                        livePlayback = BiliPlayback(
+                            dash: nil,
+                            fallbackURL: proxyURL,
+                            referer: resolved.referer
+                        )
+                    } else {
+                        livePlayback = BiliPlayback(
+                            dash: nil,
+                            fallbackURL: hlsURL,
+                            referer: resolved.referer
+                        )
+                    }
                     controller = PlayerController(playback: livePlayback)
                 }
             } else {
