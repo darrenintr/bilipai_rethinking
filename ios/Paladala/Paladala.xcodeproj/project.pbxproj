@@ -74,6 +74,7 @@
 		600000000000000000000622 /* SponsorBlockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000612 /* SponsorBlockService.swift */; };
 		600000000000000000000623 /* SponsorBlockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000613 /* SponsorBlockManager.swift */; };
 		600000000000000000000624 /* SponsorBlockSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000614 /* SponsorBlockSettingsView.swift */; };
+		7E5C0A000000000000000001 /* PaladalaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000002 /* PaladalaTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -148,6 +149,8 @@
 		600000000000000000000612 /* SponsorBlockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockService.swift; sourceTree = "<group>"; };
 		600000000000000000000613 /* SponsorBlockManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockManager.swift; sourceTree = "<group>"; };
 		600000000000000000000614 /* SponsorBlockSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockSettingsView.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000002 /* PaladalaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaTests.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000003 /* PaladalaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PaladalaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -165,6 +168,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7E5C0A000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -173,6 +183,7 @@
 			children = (
 				100000000000000000000402 /* Paladala */,
 				100000000000000000000470 /* PaladalaWidget */,
+				7E5C0A000000000000000004 /* PaladalaTests */,
 				100000000000000000000403 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -248,6 +259,7 @@
 			children = (
 				100000000000000000000001 /* Paladala.app */,
 				100000000000000000000479 /* PaladalaWidget.appex */,
+				7E5C0A000000000000000003 /* PaladalaTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -293,6 +305,14 @@
 			path = PaladalaWidget;
 			sourceTree = "<group>";
 		};
+		7E5C0A000000000000000004 /* PaladalaTests */ = {
+			isa = PBXGroup;
+			children = (
+				7E5C0A000000000000000002 /* PaladalaTests.swift */,
+			);
+			path = PaladalaTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -326,6 +346,7 @@
 			);
 			dependencies = (
 				100000000000000000000480 /* PBXTargetDependency */,
+				7E5C0A000000000000000008 /* PBXTargetDependency */,
 			);
 			name = Paladala;
 			packageProductDependencies = (
@@ -333,6 +354,24 @@
 			productName = Paladala;
 			productReference = 100000000000000000000001 /* Paladala.app */;
 			productType = "com.apple.product-type.application";
+		};
+		7E5C0A000000000000000007 /* PaladalaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7E5C0A00000000000000000A /* Build configuration list for PBXNativeTarget "PaladalaTests" */;
+			buildPhases = (
+				7E5C0A000000000000000005 /* Sources */,
+				7E5C0A000000000000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PaladalaTests;
+			packageProductDependencies = (
+			);
+			productName = PaladalaTests;
+			productReference = 7E5C0A000000000000000003 /* PaladalaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -358,6 +397,13 @@
 			remoteGlobalIDString = 10000000000000000000047B;
 			remoteInfo = PaladalaWidget;
 		};
+		7E5C0A000000000000000009 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 100000000000000000000601 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7E5C0A000000000000000007;
+			remoteInfo = PaladalaTests;
+		};
 /* End PBXContainerItemProxy section */
 
 
@@ -369,6 +415,11 @@
 			isa = PBXTargetDependency;
 			target = 10000000000000000000047B /* PaladalaWidget */;
 			targetProxy = 100000000000000000000481 /* PBXContainerItemProxy */;
+		};
+		7E5C0A000000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7E5C0A000000000000000007 /* PaladalaTests */;
+			targetProxy = 7E5C0A000000000000000009 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -405,6 +456,7 @@
 			targets = (
 				100000000000000000000501 /* Paladala */,
 				10000000000000000000047B /* PaladalaWidget */,
+				7E5C0A000000000000000007 /* PaladalaTests */,
 			);
 		};
 /* End PBXProject section */
@@ -508,6 +560,14 @@
 				100000000000000000000472 /* PaladalaWidgetBundle.swift in Sources */,
 				100000000000000000000474 /* LiveActivityWidget.swift in Sources */,
 				100000000000000000000475 /* LiveRoomActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7E5C0A000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7E5C0A000000000000000001 /* PaladalaTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -749,6 +809,60 @@
 			};
 			name = Release;
 		};
+		7E5C0A00000000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Paladala.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Paladala";
+			};
+			name = Debug;
+		};
+		7E5C0A00000000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Paladala.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Paladala";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -775,6 +889,15 @@
 			buildConfigurations = (
 				100000000000000000000B05 /* Debug */,
 				100000000000000000000B06 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7E5C0A00000000000000000A /* Build configuration list for PBXNativeTarget "PaladalaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7E5C0A00000000000000000B /* Debug */,
+				7E5C0A00000000000000000C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
