@@ -114,4 +114,7 @@ docs/*
 !docs/images/screenshot*.png
 !docs/wiki/
 !docs/wiki/*.md
+!docs/superpowers/
+!docs/superpowers/specs/*.md
+!docs/superpowers/plans/*.md
 .omx/
