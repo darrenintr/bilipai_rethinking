@@ -158,25 +158,27 @@ struct VideoCard: View {
     /// hero-source modifier without duplicating the modifier
     /// chain in two places.
     ///
-    /// Width and height are pinned to the card's column width ×
-    /// a 16:10 ratio. The image uses `.scaledToFill()` (and is
-    /// clipped to the card radius) so every thumbnail — whether
-    /// the source is 16:9, 4:3, or 1:1 — renders in the exact same
-    /// bounding box and gets cropped to fit. Combined with the
-    /// fixed-width title/owner/counts rows below, this guarantees
-    /// every card in a row is the same height and the grid never
-    /// wobbles between rows.
+    /// The container is sized to the card's column width with a
+    /// fixed 16:10 height ratio. The cover image is overlaid on
+    /// top with `scaledToFill() + .clipped()` so every thumbnail
+    /// — regardless of source aspect ratio (16:9, 4:3, 1:1) —
+    /// fills the same bounding box and gets cropped to fit. The
+    /// outer clipShape gives the cover the same 24 pt corner
+    /// radius as the card.
     private var coverImage: some View {
-        // Pin to the parent VStack's width. `.frame(maxWidth: .infinity)`
-        // lets the cover stretch to the column edge; the
-        // `.aspectRatio(16/10, .fill)` below derives the height
-        // from that width, so all covers in a row share the same
-        // height regardless of source aspect ratio. The cover is
-        // clipped to the card radius so its top corners match the
-        // card's curve.
-        CoverImage(url: video.coverURL)
+        Color.clear
+            .aspectRatio(16 / 10, contentMode: .fit)
             .frame(maxWidth: .infinity)
-            .aspectRatio(16 / 10, contentMode: .fill)
+            .overlay(
+                // `CoverImage` is a ZStack (placeholder + Image);
+                // it doesn't fill its parent by default, so force
+                // it to fill the container. The internal
+                // `Image(uiImage:)` already does .scaledToFill() +
+                // .clipped() so every source aspect ratio (16:9,
+                // 4:3, 1:1) is cropped to the 16:10 box.
+                CoverImage(url: video.coverURL)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            )
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
     }

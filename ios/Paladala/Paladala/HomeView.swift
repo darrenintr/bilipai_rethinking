@@ -155,6 +155,21 @@ struct HomeView: View {
                     .id("feedTop")
 
                 categoryStrip
+                // [TESTING] visible label so an on-device tester
+                // can tell at a glance this is the cover-overlap
+                // fix build.
+                HStack(spacing: 6) {
+                    Image(systemName: "ladybug.fill")
+                    Text("TESTING BUILD · 封面尺寸修复")
+                }
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule().fill(Color.orange)
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
                 if model.category == .popular {
                     popularSubCategoryStrip
                 }
