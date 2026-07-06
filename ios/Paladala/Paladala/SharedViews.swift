@@ -139,6 +139,7 @@ struct VideoCard: View {
             // aligning with them, which read as overlapping
             // borders to the user.
             .padding(.horizontal, 10)
+            .padding(.top, 8)
             .padding(.bottom, 10)
             .paladalaCardSurface(materialDesign)
             .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))

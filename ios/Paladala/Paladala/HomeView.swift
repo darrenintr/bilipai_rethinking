@@ -160,7 +160,7 @@ struct HomeView: View {
                 // build, not the released 0.5.0 BETA.
                 HStack(spacing: 6) {
                     Image(systemName: "ladybug.fill")
-                    Text("TESTING BUILD · 网格间距 28/44")
+                    Text("TESTING BUILD · 间距 28 列 / 22 行 · 卡片顶 8")
                 }
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.white)
@@ -205,7 +205,7 @@ struct HomeView: View {
                     SkeletonGrid()
                         .padding(.top, 4)
                 } else if model.category == .live && !model.liveRooms.isEmpty {
-                    LazyVGrid(columns: columns, spacing: 44) {
+                    LazyVGrid(columns: columns, spacing: 22) {
                         ForEach(model.liveRooms) { room in
                             LiveRoomCard(room: room)
                         }
@@ -237,7 +237,7 @@ struct HomeView: View {
                         SearchUserResultsStrip(users: model.searchUsers)
                             .padding(.bottom, 2)
                     }
-                    LazyVGrid(columns: columns, spacing: 44) {
+                    LazyVGrid(columns: columns, spacing: 22) {
                         ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
                             VideoCard(
                                 video: video,
