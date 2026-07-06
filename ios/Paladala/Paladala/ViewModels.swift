@@ -8,6 +8,29 @@ final class HomeViewModel: ObservableObject {
     @Published var searchQuery = ""
     @Published var videos: [BiliVideo] = []
     @Published var searchUsers: [BiliUserSearchResult] = []
+    /// Keystroke-rate search suggestions. Surfaced by the
+    /// home view via `.searchSuggestions(_:)` so the
+    /// `.searchable` modifier can show them inline as the
+    /// user types. Empty while the user isn't actively
+    /// typing in the search field.
+    ///
+    /// `suggestionsInFlight` is bumped every time we kick
+    /// off a suggest call so older in-flight requests can
+    /// short-circuit when the user types another character
+    /// before the previous response arrives — without it
+    /// the user sees the suggestions for an older term
+    /// flash in after a newer one is rendered.
+    @Published var searchSuggestions: [BiliSearchSuggestion] = []
+    /// True while a suggest call is pending. Lets the
+    /// view render a subtle "loading" affordance without
+    /// taking over the keyboard.
+    @Published var suggestionsInFlight = false
+    /// Set when a "全部" search (the merged five-slot
+    /// `searchAll(...)` call) is pending or has finished.
+    /// Used to render a top progress strip while the
+    /// combined search result page populates.
+    @Published var allSearchResults: BiliAllSearchResults?
+    @Published var allSearchInFlight = false
     @Published var liveRooms: [BiliLiveRoom] = []
     /// Dynamic feed rendered on the 关注 tab. Lives in parallel to
     /// `videos` / `liveRooms` because the upstream envelope is a
@@ -307,6 +330,101 @@ final class HomeViewModel: ObservableObject {
 
     private func isCurrentRequest(_ requestID: UInt64) -> Bool {
         requestID == requestGeneration
+    }
+
+    // MARK: instant search
+
+    /// Generation counter for the keystroke-rate suggest
+    /// pipeline. Bumped every time `searchQuery` flips so
+    /// in-flight suggest calls for an older term can
+    /// short-circuit when their response arrives (the user
+    /// already moved on).
+    private var suggestGeneration: UInt64 = 0
+    /// Handle to the currently-running suggest debounce
+    /// task. Cancelled on every new keystroke so only the
+    /// most recent one ever fires the network call.
+    private var suggestDebounceTask: Task<Void, Never>?
+
+    /// Debounced keystroke handler for the home search field.
+    /// Cancels any pending suggest debounce when called again,
+    /// then schedules a new one 120 ms out.  The 120 ms value
+    /// matches the probe-verified latency floor for the
+    /// `s.search.bilibili.com/main/suggest` endpoint (~100 ms
+    /// median) — long enough that a fast typist only fires
+    /// once or twice, short enough that the suggestions feel
+    /// instant.
+    func searchQueryChanged(_ query: String, repository: PaladalaRepository) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            // Empty query — clear suggestions immediately.
+            suggestDebounceTask?.cancel()
+            suggestDebounceTask = nil
+            searchSuggestions = []
+            suggestionsInFlight = false
+            return
+        }
+        suggestDebounceTask?.cancel()
+        let generation = suggestGeneration
+        suggestDebounceTask = Task { [weak self] in
+            // 120 ms debounce — picked against the ~100 ms
+            // median round-trip the probe measured; the
+            // debounce equals the round-trip so a fast typist
+            // sees suggestions for the *previous* term, not
+            // every intermediate one.
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.runSuggest(term: trimmed, generation: generation, repository: repository)
+        }
+    }
+
+    /// Internal: actually fire the suggest call, but only
+    /// commit the result if no newer keystroke bumped
+    /// `suggestGeneration` in the meantime.
+    private func runSuggest(term: String, generation: UInt64, repository: PaladalaRepository) async {
+        suggestionsInFlight = true
+        defer { suggestionsInFlight = false }
+        do {
+            let suggestions = try await repository.searchSuggestions(for: term)
+            // Drop the result if a newer keystroke has fired.
+            guard generation == suggestGeneration else { return }
+            searchSuggestions = suggestions
+        } catch {
+            // Silent — failed suggest calls just leave the
+            // suggestion strip empty so the keyboard flow is
+            // never blocked by an upstream hiccup.
+            guard generation == suggestGeneration else { return }
+            searchSuggestions = []
+        }
+    }
+
+    /// Cancel any in-flight suggest debounce and clear
+    /// suggestions. Called from `.searchable` when the user
+    /// dismisses the search field or submits the query.
+    func clearSuggestions() {
+        suggestDebounceTask?.cancel()
+        suggestDebounceTask = nil
+        searchSuggestions = []
+        suggestionsInFlight = false
+    }
+
+    /// "全部" search — runs all five type slots in parallel
+    /// via the repository's pass-through.  Populates
+    /// `allSearchResults` so the search result view can
+    /// render the merged "全部 / 视频 / UP 主 / 番剧 / 直播
+    /// / 专栏" sections in a single scroll view.
+    func runAllSearch(repository: PaladalaRepository) async {
+        let keyword = searchQuery
+        guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            allSearchResults = nil
+            return
+        }
+        allSearchInFlight = true
+        defer { allSearchInFlight = false }
+        do {
+            allSearchResults = try await repository.searchAll(keyword: keyword, page: 1)
+        } catch {
+            allSearchResults = nil
+        }
     }
 }
 

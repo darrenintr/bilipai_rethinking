@@ -157,6 +157,22 @@ final class PaladalaRepository: ObservableObject {
         try await apiClient.searchUsers(keyword: keyword, page: page)
     }
 
+    /// Keystroke-rate search suggestions. Pass-through to
+    /// `BilibiliAPIClient.suggestSearch`; the caller (the home
+    /// view model) is responsible for debouncing so we don't
+    /// flood the upstream endpoint.
+    func searchSuggestions(for term: String) async throws -> [BiliSearchSuggestion] {
+        try await apiClient.suggestSearch(term: term)
+    }
+
+    /// "全部" search across all five type slots in parallel.
+    /// `BilibiliAPIClient.searchAll` swallows per-slot failures
+    /// so a gated slot (e.g. live without login) doesn't block
+    /// the other four.
+    func searchAll(keyword: String, page: Int = 1) async throws -> BiliAllSearchResults {
+        try await apiClient.searchAll(keyword: keyword, page: page)
+    }
+
     func shortVideoFeed(freshIndex: Int = 0) async throws -> [BiliVideo] {
         try await apiClient.shortVideoFeed(freshIndex: freshIndex)
     }

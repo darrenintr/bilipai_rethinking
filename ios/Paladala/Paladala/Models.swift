@@ -152,6 +152,64 @@ struct BiliUserSearchResult: Identifiable, Hashable, Codable {
     let videos: Int
 }
 
+/// One entry returned by the keystroke-rate suggest endpoint
+/// `s.search.bilibili.com/main/suggest`.  The upstream wraps
+/// the matched substring in `<em class="suggest_high_light">…</em>`
+/// so the view can render the highlight as part of the row.
+/// `displayName` strips those tags for plain-text contexts.
+struct BiliSearchSuggestion: Identifiable, Hashable, Decodable {
+    var id: String { name }
+
+    /// Raw upstream value — keeps the `<em>` highlight spans
+    /// so the row renderer can render them.
+    let name: String
+    /// Optional bvid when the term resolves to a known video.
+    /// Lets the iOS app jump straight to `VideoDetailView`
+    /// without a second search-type round-trip.
+    let bvid: String?
+    /// Optional aid (article id) when the term resolves to a
+    /// known 专栏 / 番剧 / 直播 entry.  Decoded as `Int` because
+    /// the upstream sometimes sends it as a numeric string.
+    let aid: String?
+    /// Term type — 1 = tag, 2 = hot-word, 3 = history, etc.
+    let termType: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case bvid
+        case aid
+        case termType = "term_type"
+    }
+
+    /// Plain-text name with the `<em>…</em>` highlight tags
+    /// stripped.  Useful for accessibility labels and the
+    /// on-submit echo.
+    var displayName: String {
+        name.replacingOccurrences(
+            of: #"<[^>]+>"#,
+            with: "",
+            options: .regularExpression
+        )
+    }
+}
+
+/// Aggregated "全部" search results across the five type slots.
+/// `searchAll(keyword:page:)` on `BilibiliAPIClient` returns
+/// this so the iOS app can render a merged result page in one
+/// shot instead of running five separate `search-type` calls.
+struct BiliAllSearchResults {
+    var videos: [BiliVideo] = []
+    var users: [BiliUserSearchResult] = []
+    var bangumi: [VideoDTO] = []    // raw DTOs; the UI can re-decode via BangumiCard
+    var liveRooms: [VideoDTO] = []  // ditto
+    var articles: [VideoDTO] = []   // ditto
+
+    var isEmpty: Bool {
+        videos.isEmpty && users.isEmpty && bangumi.isEmpty
+            && liveRooms.isEmpty && articles.isEmpty
+    }
+}
+
 /// Relation between the signed-in user and another UP. Mirrors
 /// Bilibili's `/x/relation` `attribute` field — `1` is followed,
 /// `2` is the special "悄悄关注" (silent follow) state, `6` is

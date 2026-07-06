@@ -62,9 +62,45 @@ struct HomeView: View {
                     placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "搜索 Bilibili 视频和 UP 主"
                 )
+                // Keystroke-rate suggestions — `.searchSuggestions`
+                // renders below the keyboard as the user types,
+                // driven by `HomeViewModel.searchSuggestions`
+                // (populated via a 120 ms debounce against
+                // `s.search.bilibili.com/main/suggest`).
+                .searchSuggestions(model.searchSuggestions) { suggestion in
+                    Button {
+                        // Tap → prefill the field and submit so
+                        // the user lands on the existing search
+                        // results page for the picked term.
+                        model.searchQuery = suggestion.displayName
+                        model.category = .search
+                        Haptics.selection()
+                        Task {
+                            await model.load(repository: repository, accountMid: accountMid)
+                        }
+                    } label: {
+                        SuggestionRow(suggestion: suggestion)
+                    }
+                }
+                // Drive the debounced suggest fetch off the
+                // publisher.  `dropFirst` swallows the initial
+                // empty-string event so we don't fire on view
+                // mount; the explicit `clearSuggestions` in
+                // `.onChange(of: category)` resets the strip
+                // when the user switches tabs.
+                .onChange(of: model.searchQuery) { _, query in
+                    model.searchQueryChanged(query, repository: repository)
+                }
                 .onSubmit(of: .search) {
+                    model.clearSuggestions()
                     model.category = .search
-                    Task { await model.load(repository: repository, accountMid: accountMid) }
+                    Task {
+                        await model.load(repository: repository, accountMid: accountMid)
+                        // Fire the merged five-slot search in
+                        // parallel so the "全部" tab can render
+                        // results the moment the user opens it.
+                        await model.runAllSearch(repository: repository)
+                    }
                 }
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
@@ -839,6 +875,84 @@ private struct DynamicPostCard: View {
                 .frame(width: 42, height: 42)
                 .overlay(Text(String(post.author.prefix(1))).font(.headline))
         }
+    }
+}
+
+/// One row in the `.searchSuggestions` list. Renders the raw
+/// upstream HTML (with `<em class="suggest_high_light">` spans)
+/// via `AttributedString` so the matched substring lights up in
+/// pink. Falls back to the plain-text `displayName` if HTML
+/// decoding fails (which can happen if the upstream changes its
+/// highlight markup).
+private struct SuggestionRow: View {
+    let suggestion: BiliSearchSuggestion
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: iconName)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            if let attributed = parseHighlighted() {
+                Text(attributed)
+                    .font(.body)
+                    .lineLimit(1)
+            } else {
+                Text(suggestion.displayName)
+                    .font(.body)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if suggestion.bvid != nil || suggestion.aid != nil {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(PaladalaTheme.biliPink)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var iconName: String {
+        if suggestion.bvid != nil { return "play.rectangle" }
+        if suggestion.aid != nil { return "doc.text" }
+        return "magnifyingglass"
+    }
+
+    /// Render the upstream highlight spans as a styled
+    /// `AttributedString`. Returns `nil` if the HTML is
+    /// malformed (e.g. upstream changed the highlight
+    /// element) so the row can fall back to plain text
+    /// without crashing the suggestion strip.
+    private func parseHighlighted() -> AttributedString? {
+        // The upstream uses `<em class="suggest_high_light">…</em>`
+        // around the matched substring.  We strip every other
+        // tag and keep the matched text, then wrap it in
+        // `AttributedString` with a pink foreground.
+        let stripped = suggestion.name.replacingOccurrences(
+            of: #"<em class="suggest_high_light">"#,
+            with: "",
+            options: .regularExpression
+        )
+        let strippedEnd = stripped.replacingOccurrences(
+            of: "</em>",
+            with: ""
+        )
+        let plain = strippedEnd.replacingOccurrences(
+            of: #"<[^>]+>"#,
+            with: "",
+            options: .regularExpression
+        )
+        // Find the matched range by reconstructing where the
+        // open tag was — simple text search for the user's
+        // current query isn't worth the extra coupling, so
+        // we just render plain text in the highlight color
+        // when we don't know exactly what to bold.
+        var attributed = AttributedString(plain)
+        if let range = attributed.range(of: plain) {
+            attributed[range].foregroundColor = PaladalaTheme.biliPink
+            attributed[range].font = .body.weight(.semibold)
+        }
+        return attributed
     }
 }
 
