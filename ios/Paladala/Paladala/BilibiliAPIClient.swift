@@ -569,7 +569,7 @@ final class BilibiliAPIClient {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("deflate", forHTTPHeaderField: "Accept-Encoding")
-        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
@@ -1779,7 +1779,8 @@ final class BilibiliAPIClient {
         baseURL: URL,
         path: String,
         queryItems: [URLQueryItem] = [],
-        parameters: [String: String] = [:]
+        parameters: [String: String] = [:],
+        referer: String = "https://www.bilibili.com"
     ) async throws -> T {
         var items = parameters
 
@@ -1900,7 +1901,7 @@ private actor WbiSigner {
         do {
             var request = URLRequest(url: URL(string: "https://api.bilibili.com/x/web-interface/nav")!)
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.setValue(referer, forHTTPHeaderField: "Referer")
+            request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
             request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
             let (data, _) = try await session.data(for: request)
             let payload = try JSONDecoder().decode(WbiNavResponse.self, from: data)
@@ -1956,7 +1957,7 @@ private actor WbiSigner {
 
         var request = URLRequest(url: navURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         let (data, _) = try await session.data(for: request)
         let payload = try JSONDecoder().decode(WbiNavResponse.self, from: data)

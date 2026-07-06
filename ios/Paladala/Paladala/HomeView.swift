@@ -70,12 +70,6 @@ struct HomeView: View {
                 .modifier(HomeSearchModifier(
                     query: $model.searchQuery,
                     suggestions: model.searchSuggestions,
-                    onSuggestionPicked: { suggestion in
-                        model.searchQuery = suggestion.displayName
-                        model.category = .search
-                        Haptics.selection()
-                        Task { await model.load(repository: repository, accountMid: accountMid) }
-                    },
                     onQueryChanged: { query in
                         model.searchQueryChanged(query, repository: repository)
                     },
@@ -870,20 +864,28 @@ private struct DynamicPostCard: View {
 /// budget.  The previous in-place chain was timing out at
 /// `HomeView.swift:44: the compiler is unable to type-check this
 /// expression in reasonable time` (build-198 CI failure).
+///
+/// Tapping a suggestion row fills the search field with the
+/// suggestion's `displayName` (via `.searchCompletion`) and
+/// triggers `.onSubmit(of: .search)` — the same code path
+/// the user hits when they tap the keyboard's search button.
 private struct HomeSearchModifier: ViewModifier {
     @Binding var query: String
     let suggestions: [BiliSearchSuggestion]
-    let onSuggestionPicked: (BiliSearchSuggestion) -> Void
     let onQueryChanged: (String) -> Void
     let onSubmit: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .searchSuggestions(suggestions) { suggestion in
-                Button {
-                    onSuggestionPicked(suggestion)
-                } label: {
+            // `.searchSuggestions` takes a `@ViewBuilder`
+            // closure of suggestion rows; the tap-to-fill
+            // behavior is wired via `.searchCompletion(_:)`
+            // on each row, which is what `.searchable` looks
+            // for when the user taps a suggestion.
+            .searchSuggestions {
+                ForEach(suggestions) { suggestion in
                     SuggestionRow(suggestion: suggestion)
+                        .searchCompletion(suggestion.displayName)
                 }
             }
             .onChange(of: query) { _, newQuery in
