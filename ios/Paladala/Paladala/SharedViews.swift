@@ -162,21 +162,15 @@ struct VideoCard: View {
 
     /// The cover image, kept as a property so we can apply the
     /// hero-source modifier without duplicating the modifier
-    /// chain in two places. We deliberately do NOT add a
-    /// `clipShape(RoundedRectangle(cardRadius))` here — the
-    /// card-level `.clipShape` further down the modifier chain
-    /// already clips everything (including this image) to the
-    /// card's rounded rect. The previous inner clipShape created
-    /// a second 24 pt curve at each top corner, offset 10 pt
-    /// horizontally from the card's own outer stroke; the two
-    /// parallel curves read as overlapping borders on every
-    /// card. Letting the card's clip win means the cover's
-    /// edge coincides with the card's stroke instead of
-    /// duplicating it.
+    /// chain in two places. The cover is clipped to the same
+    /// `cardRadius` as the card itself so its top corners
+    /// visually share the card's curve, even though the cover
+    /// now sits 8pt inside the card (top padding) instead of
+    /// flush with it.
     private var coverImage: some View {
         CoverImage(url: video.coverURL)
             .aspectRatio(16 / 10, contentMode: .fit)
-            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
     }
 }
 
