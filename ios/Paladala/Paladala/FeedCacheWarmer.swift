@@ -29,7 +29,12 @@ final class FeedCacheWarmer {
 
     private let directory: URL
 
-    init(directory: URL) {
+    /// `nonisolated` so the `static let shared` initializer (which runs
+    /// on first access from any context) can construct the instance.
+    /// The body only stores a URL — no main-actor state mutation — so
+    /// non-isolated construction is safe. The class itself stays
+    /// `@MainActor`, so all instance methods remain main-actor-isolated.
+    nonisolated init(directory: URL) {
         self.directory = directory
     }
 

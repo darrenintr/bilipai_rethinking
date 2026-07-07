@@ -16,7 +16,10 @@ final class FeedCacheWarmerTests: XCTestCase {
         tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FCWTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        sut = await FeedCacheWarmer(directory: tmpDir)
+        // FeedCacheWarmer.init is `nonisolated` so the `static let shared`
+        // initializer can call it from any context; the `await` here would
+        // be a no-op warning.
+        sut = FeedCacheWarmer(directory: tmpDir)
     }
 
     override func tearDown() async throws {
