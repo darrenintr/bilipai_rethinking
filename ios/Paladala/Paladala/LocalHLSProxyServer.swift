@@ -1027,7 +1027,7 @@ final class LocalHLSProxyServer {
     /// `moof+mdat` fragment byte ranges and durations, so it is
     /// the only source allowed to publish a multi-segment media
     /// playlist.
-    fileprivate var trackSegmentIndex: [URL: TrackSegmentIndex] = [:]
+    internal var trackSegmentIndex: [URL: TrackSegmentIndex] = [:]
 
     /// Which segmentation strategy to use for a track in the
     /// current playback session.  Decided once on the first
@@ -1048,7 +1048,7 @@ final class LocalHLSProxyServer {
     /// Per-track segmentation mode for the current playback.
     /// Keyed by `track.baseURL`.  Populated on first playlist
     /// request; cleared by `stop()`.
-    private var decidedModes: [URL: SegmentationMode] = [:]
+    internal var decidedModes: [URL: SegmentationMode] = [:]
 
     /// Kick off a `Range: bytes=0-0` GET to the upstream track
     /// URL.  Idempotent.  Safe to call from any thread; the
@@ -1976,7 +1976,7 @@ final class LocalHLSProxyServer {
     /// against `Content-Length` to detect the trap-2 mismatch
     /// (hand-rolled HTTP server accidentally sends a
     /// Content-Length that doesn't match the body).
-    fileprivate static func parseContentRangeHeader(_ s: String)
+    internal static func parseContentRangeHeader(_ s: String)
         -> (start: Int64, end: Int64, total: Int64)
     {
         guard s.hasPrefix("bytes ") else { return (-1, -1, -1) }
@@ -2414,13 +2414,23 @@ final class LocalHLSProxyServer {
         }
         let mode: SegmentationMode =
             trackSegmentIndex[track.baseURL] != nil ? .sidx : .unavailable
-        decidedModes[track.baseURL] = mode
+        // **PR-A Group 3 (item 6)**: only cache a *stable* answer
+        // (`.sidx`).  When the SIDX has not yet been published
+        // (`.unavailable`) we MUST NOT lock the mode in, or
+        // AVPlayer will pin a temp playlist and race the SIDX
+        // publish.  Leave `.unavailable` uncached so the next
+        // request re-evaluates once the SIDX has been indexed.
+        let locked = (mode == .sidx)
+        if locked {
+            decidedModes[track.baseURL] = mode
+        }
         diagLog(.playback,
                 "LocalHLSProxyServer segmentation mode",
                 details: [
                     "host": track.baseURL.host ?? "",
                     "segmentationMode": mode == .sidx ? "sidx" : "unavailable",
-                    "generation": currentPrepGeneration
+                    "generation": currentPrepGeneration,
+                    "locked": locked
                 ])
         return (mode, currentPrepGeneration)
     }
@@ -2455,13 +2465,29 @@ fileprivate func proxySegmentRange(
     connection: NWConnection,
     connID: String
 ) {
-    // PR-A Group 2: log every segment request.  In
-    // Group 3 this moves below the generation guard so
-    // stale-prep requests don't pollute the log.
+    // **PR-A Group 3 (item 7, D7)**: capture the prep
+    // generation at handler entry.  Any subsequent increment
+    // (e.g. `stop()` / new session) makes this request stale;
+    // the guard below returns 503 + Retry-After so AVPlayer
+    // backs off and re-fetches against the new session.
+    let capturedGen = currentPrepGenerationValue()
+    guard guardSegmentGeneration(
+        capturedGen: capturedGen,
+        connection: connection,
+        connID: connID
+    ) != nil else { return }
+    // **PR-A Group 2 + Group 3**: log `segment_request` only
+    // AFTER the generation guard passes so stale-prep requests
+    // don't pollute the playback log.
+    let pathOnly = req.path.split(separator: "?", maxSplits: 1).first
+        .map(String.init) ?? req.path
+    let queryOnly = req.path.split(separator: "?", maxSplits: 1).last
+        .map(String.init) ?? ""
     diagLog(.playback, "segment_request", details: [
         "conn": connID,
-        "path": req.path,
-        "generation": currentPrepGenerationValue()
+        "path": pathOnly,
+        "query": queryOnly,
+        "generation": capturedGen
     ])
     guard let (source, referer) = snapshot() else {
         respondError(connection: connection, status: 503,
@@ -2596,14 +2622,27 @@ fileprivate func proxySegmentRange(
         mode: ProxyMode,
         connID: String
     ) {
-        // PR-A Group 2: log every segment request.  In
-        // Group 3 this moves below the generation guard so
-        // stale-prep requests don't pollute the log.
+        // **PR-A Group 3 (item 7, D7)**: capture the prep
+        // generation at handler entry.  See proxySegmentRange
+        // for rationale.
+        let capturedGen = currentPrepGenerationValue()
+        guard guardSegmentGeneration(
+            capturedGen: capturedGen,
+            connection: connection,
+            connID: connID
+        ) != nil else { return }
+        // **PR-A Group 2 + Group 3**: log `segment_request`
+        // only AFTER the generation guard passes.
+        let pathOnly = req.path.split(separator: "?", maxSplits: 1).first
+            .map(String.init) ?? req.path
+        let queryOnly = req.path.split(separator: "?", maxSplits: 1).last
+            .map(String.init) ?? ""
         diagLog(.playback, "segment_request", details: [
             "conn": connID,
-            "path": req.path,
+            "path": pathOnly,
+            "query": queryOnly,
             "mode": "\(mode)",
-            "generation": currentPrepGenerationValue()
+            "generation": capturedGen
         ])
         guard let (source, referer) = snapshot() else {
             respondError(connection: connection, status: 503,
@@ -2843,13 +2882,27 @@ fileprivate func proxySegmentRange(
         kind: ProxyMode,
         connID: String
     ) {
-        // PR-A Group 2: log every local segment request.
-        // In Group 3 this moves below the generation guard.
+        // **PR-A Group 3 (item 7, D7)**: capture the prep
+        // generation at handler entry.  See proxySegmentRange
+        // for rationale.
+        let capturedGen = currentPrepGenerationValue()
+        guard guardSegmentGeneration(
+            capturedGen: capturedGen,
+            connection: connection,
+            connID: connID
+        ) != nil else { return }
+        // **PR-A Group 2 + Group 3**: log `segment_request`
+        // only AFTER the generation guard passes.
+        let pathOnly = req.path.split(separator: "?", maxSplits: 1).first
+            .map(String.init) ?? req.path
+        let queryOnly = req.path.split(separator: "?", maxSplits: 1).last
+            .map(String.init) ?? ""
         diagLog(.playback, "segment_request", details: [
             "conn": connID,
-            "path": req.path,
+            "path": pathOnly,
+            "query": queryOnly,
             "kind": "\(kind)",
-            "generation": currentPrepGenerationValue()
+            "generation": capturedGen
         ])
         let context: LocalPlaybackContext? = {
             lock.lock(); defer { lock.unlock() }
@@ -3314,6 +3367,39 @@ fileprivate func proxySegmentRange(
             connID: connID,
             label: "DOWNSTREAM ERROR RESPONSE"
         )
+    }
+
+    /// **PR-A Group 3 (item 7, D7)** — return the current prep
+    /// generation if it still matches `capturedGen`, otherwise
+    /// respond 503 + `Retry-After: 0` and return `nil`.  Used
+    /// by `/init`, `/media`, `/segment` handlers so that an
+    /// in-flight request for a previous playback session cannot
+    /// serve stale bytes to the AVPlayer of a new session.
+    internal func guardSegmentGeneration(
+        capturedGen: UInt64,
+        connection: NWConnection,
+        connID: String
+    ) -> UInt64? {
+        let current: UInt64 = {
+            lock.lock(); defer { lock.unlock() }
+            return currentPrepGeneration
+        }()
+        guard current == capturedGen else {
+            diagLog(.playback, "segment_generation_stale", details: [
+                "conn": connID,
+                "captured": capturedGen,
+                "current": current
+            ])
+            respondError(
+                connection: connection,
+                status: 503,
+                reason: "stale prep generation",
+                extraHeaders: ["Retry-After": "0"],
+                connID: connID
+            )
+            return nil
+        }
+        return current
     }
 
     private func respondBytes(
@@ -4156,6 +4242,38 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         let computed: Int64 = (rangeStart >= 0 && rangeEnd >= rangeStart)
             ? (rangeEnd - rangeStart + 1)
             : -1
+
+        // **PR-A Group 3 (item 8, D6)**: when we requested a
+        // Range from upstream and got a 206 response, the
+        // upstream's Content-Range MUST match what we asked
+        // for.  If it doesn't (buggy upstream, CDN race, etc.)
+        // returning the wrong slice to AVPlayer produces
+        // decode errors and silent stalls.  Reject with 502 —
+        // do NOT auto-retry, since retrying the same request
+        // against the same upstream will hit the same bug
+        // (per D6: avoid amplifying buggy upstreams).
+        if let reqStart = self.rangeStart, let reqEnd = self.rangeEnd,
+           http.statusCode == 206,
+           rangeStart >= 0, rangeEnd >= rangeStart,
+           (rangeStart != reqStart || rangeEnd != reqEnd) {
+            diagLog(.playback, "content_range_mismatch", details: [
+                "conn": connID,
+                "mode": mode,
+                "path": upstream.path,
+                "expected": "\(reqStart)-\(reqEnd)",
+                "actual": "\(rangeStart)-\(rangeEnd)",
+                "total": rangeTotal
+            ])
+            server.sendHeader(
+                connection: connection,
+                status: 502,
+                contentType: "application/json",
+                contentLength: nil,
+                connID: connID
+            )
+            completionHandler(.cancel)
+            return
+        }
         let upstreamCL: Int64 = http.expectedContentLength >= 0
             ? http.expectedContentLength
             : -1
