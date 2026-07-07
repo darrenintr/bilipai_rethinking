@@ -753,6 +753,18 @@ final class PlayerController: ObservableObject {
         if isPlaying {
             player.play()
         }
+        // **PR-A Group 4 (item 9, D4)**: if a retry on the proxy
+        // path captured the previous playhead, restore it now
+        // (after `play()` so AVPlayer's seek target is honoured).
+        // Goes through the Group-1 instrumented performSeek so it
+        // participates in seekGeneration + tolerance + logging.
+        if let restore = retryRestoreTime {
+            retryRestoreTime = nil
+            diagLog(.playback, "retry_restore", details: [
+                "restoreTo": restore
+            ])
+            performSeek(restore)
+        }
     }
 
     /// **Build 182 orchestration entry point.**  Drives the
@@ -1379,6 +1391,18 @@ final class PlayerController: ObservableObject {
         ])
 
         if usesProxy {
+            // **PR-A Group 4 (item 9, D4)**: on the proxy
+            // path, snapshot the playhead before reloading so
+            // `startPlaybackSession(item:)` can restore it
+            // once the new item is bound.  This avoids
+            // bouncing the user back to 0:00 every time the
+            // proxy recovers from a transient upstream
+            // failure mid-video.
+            let snapshot = CMTimeGetSeconds(player.currentTime())
+            retryRestoreTime = (snapshot.isFinite && snapshot > 0) ? snapshot : nil
+            diagLog(.playback, "retry_begin", details: [
+                "path": "proxy", "restoreTo": retryRestoreTime ?? "nil"
+            ])
             // VOD DASH: kick the async loadTask.  It will
             // bump `currentPrepGeneration` inside the
             // proxy via `beginServing()`, run prepare +
@@ -1386,6 +1410,14 @@ final class PlayerController: ObservableObject {
             // `playbackState = .ready` again.
             loadPlayback(originalPlayback)
         } else {
+            // **PR-A Group 4 (item 9, D4)**: non-proxy path
+            // (live / legacy MP4).  The asset is the same;
+            // only the error + buffering flags need clearing.
+            // Snapshotting here would be misleading because
+            // the same player item keeps playing — so we
+            // explicitly do NOT seek on restore.
+            retryRestoreTime = nil
+            diagLog(.playback, "retry_begin", details: ["path": "direct"])
             playerError = nil
             isBuffering = false
             isPlaying = true
@@ -1401,6 +1433,10 @@ final class PlayerController: ObservableObject {
         stopPolling()
         stallTimerTask?.cancel()
         stallTimerTask = nil
+        // **PR-A Group 4 (item 9)**: clear any pending retry
+        // snapshot so a teardown mid-recovery doesn't leak
+        // the restore target into a future playback.
+        retryRestoreTime = nil
         player.pause()
         if let token = timeObserver {
             player.removeTimeObserver(token)
