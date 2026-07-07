@@ -17,9 +17,12 @@ enum LaunchEvent: String, CaseIterable {
     case firstFeedNetworkComplete = "first_feed_network_complete"
     // PR-A Task 6: per-tab and cache-seed milestones. The `tag` on
     // `firstTabInteractive` is appended to the event key by
-    // `key(for:)` so each tag fires independently.
+    // `key(for:)` so each tag fires independently. Cases with
+    // associated values cannot have raw values in Swift, so
+    // `firstTabInteractive` carries no `= "..."` here — the
+    // string form lives in `key(for:)` and `tag`'s rawValue.
     case firstFeedCached          = "firstFeedCached"
-    case firstTabInteractive      = "firstTabInteractive"
+    case firstTabInteractive(tag: MainTab)
     case proxyListenerRequested   = "proxyListenerRequested"
     case proxyListenerReady       = "proxyListenerReady"
 
@@ -223,7 +226,10 @@ final class LaunchMetrics {
     private static func key(for event: LaunchEvent) -> String {
         switch event {
         case .firstTabInteractive(let tag):
-            return "\(event.rawValue).\(tag.rawValue)"
+            // Use the literal here — `event.rawValue` is nil for
+            // associated-value cases (Swift forbids `=` rawValues
+            // on those), but the key string stays stable.
+            return "firstTabInteractive.\(tag.rawValue)"
         default:
             return event.rawValue
         }
