@@ -29,6 +29,18 @@ struct PaladalaApp: App {
         Task.detached(priority: .userInitiated) {
             await BilibiliAPIClient.prewarmWbiKeys()
         }
+        // PR-A Task 10: pre-warm the HLS proxy listener off the
+        // launch critical path. The first video tap would
+        // otherwise pay the listener-startup cost synchronously
+        // (audit item #8). The .proxyListenerReady mark is
+        // emitted here, not inside prewarmProxyServer itself, so
+        // the milestone measures the actual ready time as seen
+        // by the app, not the time the call returned.
+        LaunchMetrics.shared.mark(.proxyListenerRequested)
+        Task.detached(priority: .userInitiated) {
+            await LocalHLSProxyServer.prewarmProxyServer()
+            LaunchMetrics.shared.mark(.proxyListenerReady)
+        }
         let repo = PaladalaRepository(apiClient: client)
         // Do NOT clear `cookieProvider` here — the wired closure is
         // installed in `body.onAppear` below. Clearing it in `init`
