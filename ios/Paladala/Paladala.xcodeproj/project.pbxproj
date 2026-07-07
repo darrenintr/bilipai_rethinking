@@ -78,6 +78,8 @@
 		7E5C0A00000000000000000E /* LocalHLSProxyServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */; };
 		7E5C0A00000000000000000F /* FeedCacheWarmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000010 /* FeedCacheWarmer.swift */; };
 		7E5C0A000000000000000011 /* FeedCacheWarmerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000012 /* FeedCacheWarmerTests.swift */; };
+		7E5C0A000000000000000013 /* LazyTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000014 /* LazyTab.swift */; };
+		7E5C0A000000000000000015 /* LazyTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000016 /* LazyTabTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -157,6 +159,8 @@
 		7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHLSProxyServerTests.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000010 /* FeedCacheWarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCacheWarmer.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000012 /* FeedCacheWarmerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCacheWarmerTests.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000014 /* LazyTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyTab.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000016 /* LazyTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyTabTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -257,6 +261,7 @@
 				600000000000000000000613 /* SponsorBlockManager.swift */,
 				600000000000000000000614 /* SponsorBlockSettingsView.swift */,
 				7E5C0A000000000000000010 /* FeedCacheWarmer.swift */,
+				7E5C0A000000000000000014 /* LazyTab.swift */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -318,6 +323,7 @@
 				7E5C0A000000000000000002 /* PaladalaTests.swift */,
 				7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */,
 				7E5C0A000000000000000012 /* FeedCacheWarmerTests.swift */,
+				7E5C0A000000000000000016 /* LazyTabTests.swift */,
 			);
 			path = PaladalaTests;
 			sourceTree = "<group>";
@@ -560,6 +566,7 @@
 				600000000000000000000623 /* SponsorBlockManager.swift in Sources */,
 				600000000000000000000624 /* SponsorBlockSettingsView.swift in Sources */,
 				7E5C0A00000000000000000F /* FeedCacheWarmer.swift in Sources */,
+				7E5C0A000000000000000013 /* LazyTab.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -580,6 +587,7 @@
 				7E5C0A000000000000000001 /* PaladalaTests.swift in Sources */,
 				7E5C0A00000000000000000E /* LocalHLSProxyServerTests.swift in Sources */,
 				7E5C0A000000000000000011 /* FeedCacheWarmerTests.swift in Sources */,
+				7E5C0A000000000000000015 /* LazyTabTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
