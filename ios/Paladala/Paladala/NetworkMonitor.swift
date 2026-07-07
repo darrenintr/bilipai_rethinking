@@ -15,6 +15,11 @@ import SwiftUI
 @MainActor
 final class NetworkMonitor: ObservableObject {
     @Published private(set) var isOnline: Bool = true
+    /// PR-8 (M8): the active interface type so the player can
+    /// auto-cap quality on cellular.  Nil on the very first launch
+    /// before the first `NWPath` update lands.  Use `path.usesInterfaceType(.cellular)`
+    /// / `.wifi` downstream.
+    @Published private(set) var interface: NWInterface.InterfaceType?
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.paladala.network-monitor", qos: .utility)
@@ -40,6 +45,16 @@ final class NetworkMonitor: ObservableObject {
         didStart = true
         monitor.pathUpdateHandler = { [weak self] path in
             let online = (path.status == .satisfied)
+            // Pick the dominant interface — `usesInterfaceType(.other)`
+            // is a "no claim" state on iOS sim / freshly-booted
+            // devices. Prefer Wi-Fi > cellular > wiredEthernet when
+            // multiple interfaces are up; nil when none are claimed.
+            let iface: NWInterface.InterfaceType? = {
+                if path.usesInterfaceType(.wifi) { return .wifi }
+                if path.usesInterfaceType(.cellular) { return .cellular }
+                if path.usesInterfaceType(.wiredEthernet) { return .wiredEthernet }
+                return nil
+            }()
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.debounceTask?.cancel()
@@ -49,6 +64,12 @@ final class NetworkMonitor: ObservableObject {
                     if self.isOnline != online {
                         self.isOnline = online
                         diagLog(.network, "isOnline changed", details: ["online": online])
+                    }
+                    // PR-8: surface the interface type so the
+                    // player / download views can auto-cap quality
+                    // on cellular without polling the path itself.
+                    if self.interface != iface {
+                        self.interface = iface
                     }
                 }
             }
