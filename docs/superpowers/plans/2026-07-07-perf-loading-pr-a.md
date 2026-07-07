@@ -1064,6 +1064,55 @@
 
 ---
 
+## Linux handoff — Tasks 1–10 shipped, Tasks 11–12 Mac-only
+
+> Captured 2026-07-07 from the Linux dev env, where `xcodebuild` cannot run. All code-bearing tasks (1–10) landed, built green on the `build-unsigned-ipa` GitHub Actions workflow, and were pushed to `working`. Tasks 11–12 require a Mac (xcodebuild + simulator launch + `simctl get_app_container`) and are deferred to whoever has a Mac on hand.
+
+**Commits (newest first):**
+
+| # | SHA | Task | Note |
+|---|----|------|------|
+| 1 | `44d597e0` | 10/12 | wire `LocalHLSProxyServer.prewarm` in `App.init` |
+| 2 | `deaf3039` | 9 build fix | `markBootstrapped()` setter fix |
+| 3 | `569d5cc3` | 9/12 | cache-seed `HomeView` + `MusicHomeView` `.task` |
+| 4 | `a7005500` | 8/12 | wire `LazyTab` in `RootView` `TabView` |
+| 5 | `a70ba390` | 7/12 | init audit — all cheap, no-op |
+| 6 | `f3430018` | 6 build fix | drop `String` raw type from `LaunchEvent` |
+| 7 | `baed0f29` | 6 build fix | drop raw value from `.firstTabInteractive` |
+| 8 | `635184be` | 6/12 | new `LaunchMetrics` milestones for #5/#6/#14 + #8 |
+| 9 | `a3ea0f6d` | 5/12 | `PaladalaBackdrop` Equatable + static gradient |
+| 10 | `79421c2d` | 4/12 | add `LazyTab` wrapper |
+| 11 | `d4eda7a7` | 3 build fix | Swift 6 isolation, `Category.feed`, replay button |
+| 12 | `d95e8f7b` | 3 build fix | `FeedCacheWarmer.init` nonisolated |
+| 13 | `e4de552e` | 3/12 | add `FeedCacheWarmer` |
+| 14 | `e0bc773c` | (pre) | dominant interface type on `NetworkMonitor` (PR-8) |
+| 15 | `dd9b9e1b` | (pre) | plan refinements from Task 2 review |
+
+**CI verification:**
+
+- Task 10 commit `44d597e0` → GH Actions run [`28853875279`](https://github.com/darrenintr/paladala/actions/runs/28853875279) → `success`.
+- All other Task N commits were green on their respective runs (recorded in earlier session messages).
+
+**Plan deviations worth flagging for review:**
+
+1. **`@MainActor` isolation:** Plan said `FeedCacheWarmer` is `@MainActor`. Implementation kept that, but had to mark `init`, `read`, and `defaultDirectory` `nonisolated` for Swift 6 strict-concurrency compilation (Swift 6 treats a `static let shared` initializer as non-isolated, which conflicted with `@MainActor init`). All public methods that touch state remain `@MainActor`.
+2. **`FeedSnapshotEnvelope`:** Plan implied `[FeedCard]` directly on disk; implementation uses `{ version, cards: [BiliVideo] }` so a future schema migration can land without breaking old snapshots.
+3. **`markBootstrapped()` seam:** `didBootstrap` is `private(set)` on both view models. The plan's first attempt set it directly in the `.task` block, which failed to build under Swift 6. The explicit method is the smallest fix that preserves the privacy.
+4. **`LazyTab` test:** Plan's hand-written `.onChange(of:activeTag)` text omitted the `Optional` unwrap; final implementation uses `if let unwrapped = new, unwrapped == tag` because `Optional<Hashable> == Hashable` doesn't compile.
+5. **Task 7 was a no-op.** All five tab view-model inits were already cheap; the audit confirmed it and the work reduced to a doc note. The plan's "refactor init + add a test" step was therefore dropped.
+
+**What Tasks 11–12 need from a Mac user (handoff checklist):**
+
+- [ ] `xcodebuild … test -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'` — run the unit tests locally; the Linux-side CI only ran the `build-unsigned-ipa` workflow which doesn't include test execution.
+- [ ] `PALADALA_COLD_START_DUMP=1 xcrun simctl launch booted com.paladala.Paladala` and `cat` `cold-start.jsonl` — capture before/after numbers.
+- [ ] Append a "PR-A results (2026-07-07)" section to `ios/Paladala/MEASURING_COLD_START.md` per Task 11 Step 2.
+- [ ] Debug + Release `xcodebuild` per Task 12 Steps 2–3.
+- [ ] Manual smoke: 5-tab scroll, Home cache first-frame, video first-tap latency (Task 12 Step 4).
+- [ ] Confirm no untracked files leak into the PR diff (`git status` clean except for the 2 new test files; **`__pycache__/` must NOT be staged** — see Global Constraints).
+- [ ] Push the branch when ready, or hand it back for the final push.
+
+---
+
 ## Self-Review Notes
 
 **Spec coverage** (each spec item → plan task):
