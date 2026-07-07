@@ -79,7 +79,7 @@ struct MusicHomeView: View {
                 if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "music") {
                     model.seedFromCache(cached)
                 }
-                model.didBootstrap = true
+                model.markBootstrapped()
                 LaunchMetrics.shared.mark(.firstFeedCached)
                 await Task.yield()
                 LaunchMetrics.shared.mark(.firstFeedNetworkStart)

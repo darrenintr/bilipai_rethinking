@@ -79,6 +79,15 @@ final class HomeViewModel: ObservableObject {
         self.videos = cards
         self.didBootstrap = true
     }
+
+    /// PR-A Task 9: separate from `seedFromCache(_:)` so the .task
+    /// block can mark the bootstrap complete even when the cache
+    /// missed (otherwise a cache miss would re-run the seed + load
+    /// on every view re-appearance). The setter on `didBootstrap`
+    /// stays private; this is the only legitimate outside path.
+    func markBootstrapped() {
+        didBootstrap = true
+    }
     /// The maximum number of items the upstream endpoint will return in one
     /// request. Once we get fewer than this many results we know we are at
     /// the end of the feed.

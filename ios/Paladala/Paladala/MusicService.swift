@@ -227,6 +227,11 @@ final class MusicViewModel: ObservableObject {
         self.didBootstrap = true
     }
 
+    /// PR-A Task 9: see HomeViewModel.markBootstrapped for rationale.
+    func markBootstrapped() {
+        didBootstrap = true
+    }
+
     func load(repository: PaladalaRepository) async {
         isLoading = true
         errorMessage = nil
