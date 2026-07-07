@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import AVFoundation
 
 extension Notification.Name {
     static let paladalaSponsorSegmentSkipped = Notification.Name("app.paladala.ios.sponsorSegmentSkipped")
@@ -89,9 +88,24 @@ final class SponsorBlockManager: ObservableObject {
         }
     }
 
-    /// Optimized check: only scans from the current index forward.
-    func checkCurrentTime(_ time: Double, player: AVPlayer) -> Bool {
-        guard config.isEnabled, config.autoSkip, !sortedSegments.isEmpty else { return false }
+    /// Optimized check: only scans from the current index
+    /// forward.  Returns the timestamp to seek to if the
+    /// playhead has entered a sponsored segment, or `nil` if
+    /// no skip is needed.
+    ///
+    /// **PR-A Group 1**: previously this method took an
+    /// `AVPlayer` and called `player.seek(to:)` directly with
+    /// the default (zero-tolerance) seek.  That bypassed the
+    /// controller's `seekGeneration` + `isSeeking` +
+    /// `seekTolerance` machinery — a SponsorBlock skip during
+    /// a user scrub could clobber the user's in-flight
+    /// `isSeeking = false` when its completion fired.  The
+    /// seek side-effect is now the caller's responsibility:
+    /// the controller's periodic time observer calls
+    /// `seekToSponsorSegmentEnd(_:)` if this returns a non-nil
+    /// target.
+    func checkCurrentTime(_ time: Double) -> Double? {
+        guard config.isEnabled, config.autoSkip, !sortedSegments.isEmpty else { return nil }
 
         while segmentIndex < sortedSegments.count {
             let segment = sortedSegments[segmentIndex]
@@ -102,9 +116,6 @@ final class SponsorBlockManager: ObservableObject {
             if segment.contains(time: time) {
                 segmentIndex += 1
                 lastSkippedSegment = segment
-
-                let target = CMTime(seconds: segment.endTime, preferredTimescale: 600)
-                player.seek(to: target)
 
                 diagLog(.playback, "SponsorBlock: skipped segment", details: [
                     "uuid": segment.uuid, "category": segment.category,
@@ -120,11 +131,11 @@ final class SponsorBlockManager: ObservableObject {
                 Task { [uuid = segment.uuid] in
                     try? await SponsorBlockService.shared.recordView(uuid: uuid)
                 }
-                return true
+                return segment.endTime
             }
             break
         }
-        return false
+        return nil
     }
 
     func submitSegment(videoID: String, cid: String?, category: String, startTime: Double, endTime: Double, videoDuration: Double) async throws {

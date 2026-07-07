@@ -178,6 +178,61 @@ final class PlayerController: ObservableObject {
     @Published private(set) var playbackState: PlaybackState = .idle
     @Published private(set) var networkSpeed: Double = 0
 
+    // MARK: seek state machine (PR-A Group 1)
+
+    /// `true` while an `AVPlayer.seek(to:)` is in flight.  Used
+    /// by the prolonged-stall watchdog (`stallTimerTask`) and
+    /// by `armStallWatchdog()` to suppress the 10-second stall
+    /// error while AVPlayer is still finishing the seek —
+    /// without this guard, scrubbing past the buffered range
+    /// would race the watchdog and surface a spurious
+    /// `prolongedStall` error.  Cleared in the seek completion
+    /// handler after the generation check passes.
+    @Published private(set) var isSeeking: Bool = false
+
+    /// Monotonic counter incremented at the start of every
+    /// seek.  The completion handler captures the value at
+    /// dispatch time and compares it against the live counter
+    /// before clearing `isSeeking` — if a newer seek has
+    /// started, the older completion is treated as stale and
+    /// ignored (logged as `seek_stale`).  Lets the user mash
+    /// the scrubber without older completions clobbering a
+    /// newer in-flight seek.
+    internal private(set) var seekGeneration: UInt64 = 0
+
+    /// Snapshot of the user's playhead at the moment
+    /// `retryPlayback()` was called, consumed by
+    /// `startPlaybackSession(item:)` to seek back after the
+    /// proxy re-init completes.  Populated only on the VOD
+    /// DASH (proxy) path per PR-A architectural decision D4 —
+    /// live / legacy MP4 playback restarts from 0.  Declared
+    /// here for proximity to the other seek state; the actual
+    /// snapshot/restore logic lands in Group 4.
+    internal private(set) var retryRestoreTime: Double?
+
+    /// Tolerance applied to every seek path (user scrub,
+    /// ±10 s double-tap, SponsorBlock auto-skip).  Half a
+    /// second lets AVPlayer snap to the nearest keyframe
+    /// instead of decoding the precise frame — past the
+    /// buffered range this difference is the gap between
+    /// "snaps immediately" and "buffer wheel for a second".
+    /// Pinned so future refactors can't drift the value.
+    private static let seekTolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
+
+    /// Test-accessible mirror of `seekTolerance`.  Group 5
+    /// asserts that all seek paths use the same tolerance —
+    /// the wrapper exposes the half-second pair as an
+    /// `Equatable` value type so XCTest can read both halves
+    /// without touching `CMTime` internals.
+    internal struct SeekToleranceForTesting: Equatable {
+        let toleranceBefore: CMTime
+        let toleranceAfter: CMTime
+    }
+    internal static let seekToleranceForTesting = SeekToleranceForTesting(
+        toleranceBefore: CMTime(seconds: 0.5, preferredTimescale: 600),
+        toleranceAfter:  CMTime(seconds: 0.5, preferredTimescale: 600)
+    )
+
     // MARK: underlying AVPlayer
 
     /// The single `AVPlayer` instance the view layer binds to
@@ -211,7 +266,12 @@ final class PlayerController: ObservableObject {
     /// `AVURLAsset` (live HLS or legacy MP4) or an
     /// `AVMutableComposition` of merged local mp4 tracks; the
     /// proxy is not involved.
-    private let usesProxy: Bool
+    ///
+    /// `internal private(set) var` so Group 5 tests can read
+    /// the proxy-vs-direct routing without exposing mutation.
+    /// The init-time assignment `self.usesProxy = usesProxy`
+    /// works identically for `let` and `var`.
+    internal private(set) var usesProxy: Bool
 
     // MARK: observers / timer
 
@@ -526,7 +586,15 @@ final class PlayerController: ObservableObject {
                     // new keys after the first write) and gives
                     // Control Center a moving scrubber.
                     self.updateNowPlaying()
-                    SponsorBlockManager.shared.checkCurrentTime(seconds, player: self.player)
+                    // PR-A Group 1: SponsorBlock check no longer
+                    // takes an AVPlayer and seeks from inside.
+                    // The check now returns the seek target (or
+                    // nil); the controller routes the seek through
+                    // `performSeek(_:)` so it participates in the
+                    // generation guard + tolerance + log pipeline.
+                    if let sponsorTarget = SponsorBlockManager.shared.checkCurrentTime(seconds) {
+                        self.seekToSponsorSegmentEnd(sponsorTarget)
+                    }
                 }
             }
         }
@@ -559,10 +627,19 @@ final class PlayerController: ObservableObject {
         // the buffer has been empty for ≥ 10 s.  The task is
         // cancelled in `tearDown()` so a player that's been
         // paused and discarded doesn't fire a phantom error.
+        //
+        // **PR-A Group 1**: gated on `!isSeeking` so a seek
+        // in flight doesn't race the watchdog.  Without this
+        // guard, scrubbing past the buffered range would let
+        // the 10 s timer fire while AVPlayer was still
+        // settling on the new keyframe, surfacing a phantom
+        // `prolongedStall` error.  Seek completion re-arms
+        // the watchdog via `armStallWatchdog()` if AVPlayer
+        // is still buffering after the seek lands.
         stallTimerTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled, let self else { return }
-            if self.isBuffering && self.playerError == nil {
+            if self.isBuffering && !self.isSeeking && self.playerError == nil {
                 self.playerError = .prolongedStall
                 diagLog(.playback, "PlayerController.playerError assigned", details: [
                     "case": "prolongedStall"
@@ -1123,19 +1200,16 @@ final class PlayerController: ObservableObject {
     /// keeps the inline seek-bar (if it ever comes back)
     /// consistent with the double-tap gesture.
     ///
-    /// Uses default (approximate) tolerances so AVPlayer snaps
-    /// to the nearest keyframe.  Exact-tolerance seeks
-    /// (`toleranceBefore/After: .zero`) force AVPlayer to wait
-    /// for the precise frame to be decoded, which makes HLS
-    /// scrubbing — especially past the buffered range — feel
-    /// sluggish.  The 10-second double-tap skip is a short hop
-    /// that users expect to feel instant.
+    /// **PR-A Group 1**: routes through `performSeek(_:)` so
+    /// the seek-in-flight guard (`isSeeking` +
+    /// `seekGeneration`) and the uniform 0.5 s tolerance
+    /// apply.  Direct `player.seek(to:)` is no longer used by
+    /// any caller — `performSeek` is the single entry point.
     func seek(by offset: Double) {
         let now = CMTimeGetSeconds(player.currentTime())
         guard now.isFinite, duration > 0 else { return }
         let target = max(0, min(duration, now + offset))
-        let time = CMTime(seconds: target, preferredTimescale: 600)
-        player.seek(to: time)
+        performSeek(target)
     }
 
     /// Seek to an absolute timestamp in seconds.  Used by the
@@ -1143,11 +1217,115 @@ final class PlayerController: ObservableObject {
     /// seeks the playhead to that line's `startTime` rather
     /// than jumping by a fixed offset.  Clamps to
     /// `[0, duration]` for the same reason `seek(by:)` does.
+    ///
+    /// **PR-A Group 1**: routes through `performSeek(_:)`.
     func seek(to seconds: Double) {
         guard seconds.isFinite, duration > 0 else { return }
         let target = max(0, min(duration, seconds))
-        let time = CMTime(seconds: target, preferredTimescale: 600)
-        player.seek(to: time)
+        performSeek(target)
+    }
+
+    /// SponsorBlock auto-skip entry point.  Called from the
+    /// periodic time observer when
+    /// `SponsorBlockManager.shared.checkCurrentTime(_:)` returns
+    /// a non-nil target (i.e. the playhead has entered a
+    /// sponsored segment and should jump to its end).
+    ///
+    /// **PR-A Group 1**: previously the manager called
+    /// `player.seek(to:)` directly with the default
+    /// (zero-tolerance) seek.  That bypassed the controller's
+    /// `seekGeneration` + `isSeeking` + `seekTolerance`
+    /// machinery — a SponsorBlock skip during a user scrub
+    /// could clobber `isSeeking = false` when its completion
+    /// fired.  Routing through `performSeek(_:)` makes the
+    /// skip first-class: it participates in the same
+    /// generation-guarded completion handler as user seeks.
+    func seekToSponsorSegmentEnd(_ time: Double) {
+        performSeek(time)
+    }
+
+    /// The single AVPlayer.seek entry point.  Every public seek
+    /// (`seek(by:)`, `seek(to:)`, `seekToSponsorSegmentEnd(_:)`)
+    /// and the `retryPlayback()` restore path (Group 4) calls
+    /// through here so the generation guard, the tolerance,
+    /// and the seek log lines are applied uniformly.
+    ///
+    /// Bumps `seekGeneration` BEFORE the AVPlayer.seek call so
+    /// any older in-flight completion sees a stale generation
+    /// and bails out.  Clears `isSeeking` in the completion
+    /// handler ONLY if the generation still matches — older
+    /// completions are ignored as `seek_stale`.
+    ///
+    /// If AVPlayer is still buffering after the seek lands,
+    /// the prolonged-stall watchdog is re-armed so the
+    /// post-seek buffering has its own 10 s budget separate
+    /// from the pre-seek one.
+    private func performSeek(_ target: Double) {
+        let clamped = max(0, min(duration, target))
+        let time = CMTime(seconds: clamped, preferredTimescale: 600)
+        seekGeneration &+= 1
+        let generation = seekGeneration
+        isSeeking = true
+        diagLog(.playback, "seek_begin", details: [
+            "generation": generation,
+            "from": String(format: "%.3f", CMTimeGetSeconds(player.currentTime())),
+            "to": String(format: "%.3f", clamped),
+            "duration": String(format: "%.3f", duration)
+        ])
+        player.seek(
+            to: time,
+            toleranceBefore: Self.seekTolerance,
+            toleranceAfter: Self.seekTolerance
+        ) { [weak self] finished in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.seekGeneration == generation else {
+                    diagLog(.playback, "seek_stale", details: [
+                        "generation": generation,
+                        "current": self.seekGeneration
+                    ])
+                    return
+                }
+                self.isSeeking = false
+                diagLog(.playback, "seek_complete", details: [
+                    "generation": generation,
+                    "finished": finished,
+                    "landedAt": String(format: "%.3f", CMTimeGetSeconds(self.player.currentTime()))
+                ])
+                if self.isBuffering && self.playerError == nil {
+                    self.armStallWatchdog()
+                }
+            }
+        }
+    }
+
+    /// Re-arm the prolonged-stall watchdog with a fresh 10 s
+    /// timer.  Called from two sites:
+    ///
+    ///  1. The end of the buffering-detection branch in the
+    ///     `isPlaybackBufferEmpty` KVO observer (initial arm
+    ///     on entering `.buffering`).
+    ///  2. The end of `performSeek`'s completion handler, when
+    ///     the seek lands but AVPlayer is still buffering
+    ///     (e.g. the user scrubbed past the buffered range).
+    ///
+    /// Cancels any in-flight watchdog first so we never have
+    /// two timers racing.  The `!isSeeking` guard inside the
+    /// task is what makes the post-seek re-arm safe: a
+    /// second seek started during the gap can't accidentally
+    /// cancel this watchdog before the timer fires.
+    private func armStallWatchdog() {
+        stallTimerTask?.cancel()
+        stallTimerTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled, let self else { return }
+            if self.isBuffering && !self.isSeeking && self.playerError == nil {
+                self.playerError = .prolongedStall
+                diagLog(.playback, "PlayerController.playerError assigned", details: [
+                    "case": "prolongedStall"
+                ])
+            }
+        }
     }
 
     // MARK: recovery
