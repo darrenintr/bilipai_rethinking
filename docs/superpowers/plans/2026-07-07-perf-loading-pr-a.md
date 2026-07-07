@@ -974,99 +974,39 @@
 
 ---
 
-## Task 11: Cold-start capture + doc append
+## ~~Tasks 11 & 12: Cold-start capture + integration smoke~~ — ABANDONED
 
-**Files:**
-- Modify: `ios/Paladala/MEASURING_COLD_START.md` (append-only)
+> **Status (2026-07-07):** User explicitly abandoned these tasks. They required a Mac (xcodebuild + `xcrun simctl` + physical-device hand-off) which is not part of the Linux dev workflow. No further work will be done on them; the original step bodies are kept below for reference only.
 
-- [ ] **Step 1: Capture pre-merge numbers**
+**Why abandoned:**
+- All five cold-start audit fixes (#5, #6, #8, #10, #14) are merged and the new `LaunchMetrics` milestones are wired in. The instrumentation is what Tasks 11/12 would have *measured*; without those measurements, the perf delta is unverified, but the *code* is shippable as-is.
+- The `PALADALA_COLD_START_DUMP=1` opt-in dump path is already live in `App.init` — anyone with a Mac can capture `cold-start.jsonl` and fill in the table in `MEASURING_COLD_START.md` ad-hoc, with no plan dependency.
+- Task 12's "manual smoke" is a human verification step that doesn't benefit from a tracked task in this plan.
 
-  On a Mac, run:
-  ```bash
-  PALADALA_COLD_START_DUMP=1 xcrun simctl launch booted com.paladala.Paladala
-  cat "$(xcrun simctl get_app_container booted com.paladala.Paladala data)/Library/Application Support/Paladala/cold-start.jsonl"
-  ```
-  Expected: JSONL with one entry per launch that covers appInitStart → firstRootViewAppeared, plus the new firstFeedCached / firstTabInteractive / proxyListenerRequested / proxyListenerReady entries.
+**Original Task 11 body (reference, not to be executed):**
 
-  **Note**: simulator-only captures are for *trending* (verify the new milestones emit and the deltas shrink). The hard "≤1500 ms on A14+" target from the spec needs physical-device sign-off as a follow-up — PR-A Task 11 records simulator numbers; device-grade verification is a separate Task 12½ step the user can run on a connected iPhone 13 Pro+ later.
+**Files:** `ios/Paladala/MEASURING_COLD_START.md` (append-only)
 
-- [ ] **Step 2: Append to `MEASURING_COLD_START.md`**
+1. On a Mac: `PALADALA_COLD_START_DUMP=1 xcrun simctl launch booted com.paladala.Paladala` then `cat "$(xcrun simctl get_app_container booted com.paladala.Paladala data)/Library/Application Support/Paladala/cold-start.jsonl"`.
+2. Append a `## PR-A results (2026-07-07)` table with `appInitStart → firstRootViewAppeared`, `→ firstTabInteractive[.home]`, `→ firstFeedCached`, `proxyListenerRequested → proxyListenerReady` rows.
+3. Commit the doc.
 
-  Add a new section at the bottom:
-  ```markdown
-  ## PR-A results (2026-07-07)
-
-  | Metric | Before | After | Delta |
-  |---|---|---|---|
-  | appInitStart → firstRootViewAppeared | <ms> | <ms> | <delta> ms |
-  | firstRootViewAppeared → firstTabInteractive[.home] | (n/a) | <ms> | (new) |
-  | firstTabInteractive → firstFeedCached | (n/a) | <ms> | (new) |
-  | proxyListenerRequested → proxyListenerReady | <ms> | <ms> | <delta> ms |
-  ```
-  Fill the table from the captured JSONL.
-
-- [ ] **Step 3: Commit**
-
-  ```bash
-  git add ios/Paladala/MEASURING_COLD_START.md
-  git commit -m "docs: PR-A cold-start before/after (Task 11/12 PR-A)
-
-  Co-Authored-By: Claude <noreply@anthropic.com>"
-  ```
-
----
-
-## Task 12: Final integration smoke test
+**Original Task 12 body (reference, not to be executed):**
 
 **Files:** none.
 
-- [ ] **Step 1: Run all tests**
-
-  ```bash
-  xcodebuild -project ios/Paladala/Paladala.xcodeproj -scheme Paladala test \
-    -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
-  ```
-  Expected: every test passes; no build warnings added by PR-A files.
-
-- [ ] **Step 2: Debug build**
-
-  ```bash
-  xcodebuild -project ios/Paladala/Paladala.xcodeproj -scheme Paladala \
-    -configuration Debug -destination 'generic/platform=iOS Simulator' build
-  ```
-  Expected: build succeeds without warnings.
-
-- [ ] **Step 3: Release build**
-
-  ```bash
-  xcodebuild -project ios/Paladala/Paladala.xcodeproj -scheme Paladala \
-    -configuration Release -destination 'generic/platform=iOS Simulator' build
-  ```
-  Expected: build succeeds. (Catches ENABLE_PREVIEWS=NO + dyld path differences.)
-
-- [ ] **Step 4: Manual smoke on Simulator + physical device**
-
-  - [ ] Open each of the 5 tabs; scroll; switch away; switch back; state preserved.
-  - [ ] Open Home tab — first frame shows cached grid if a prior session has populated the cache.
-  - [ ] Tap to play a video — first-tap latency near zero on warm install.
-  - [ ] Cold-launch: capture `cold-start.jsonl` and confirm `appInitStart → firstRootViewAppeared` delta is shorter or equal to the pre-merge capture (Task 11).
-
-- [ ] **Step 5: Confirm no untracked files in the PR**
-
-  ```bash
-  git status
-  ```
-  Expected: clean (no `__pycache__/`, no pbxproj diffs outside what we intentionally added in Task 1).
-
-- [ ] **Step 6: Push the branch**
-
-  Push only when the user says "push". Stop and report PR-A as ready-for-review.
+1. `xcodebuild … test -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'`
+2. Debug build via `xcodebuild … -configuration Debug …`
+3. Release build via `xcodebuild … -configuration Release …`
+4. Manual smoke (5 tabs, Home cache first-frame, video first-tap latency).
+5. `git status` clean.
+6. Push.
 
 ---
 
-## Linux handoff — Tasks 1–10 shipped, Tasks 11–12 Mac-only
+## Linux handoff — Tasks 1–10 shipped, Tasks 11–12 abandoned
 
-> Captured 2026-07-07 from the Linux dev env, where `xcodebuild` cannot run. All code-bearing tasks (1–10) landed, built green on the `build-unsigned-ipa` GitHub Actions workflow, and were pushed to `working`. Tasks 11–12 require a Mac (xcodebuild + simulator launch + `simctl get_app_container`) and are deferred to whoever has a Mac on hand.
+> Captured 2026-07-07 from the Linux dev env, where `xcodebuild` cannot run. All code-bearing tasks (1–10) landed, built green on the `build-unsigned-ipa` GitHub Actions workflow, and were pushed to `working`. Tasks 11–12 were explicitly abandoned by the user — they required a Mac (xcodebuild + simulator launch + `simctl get_app_container`) and are not in scope for the Linux dev workflow. The `PALADALA_COLD_START_DUMP=1` opt-in dump in `App.init` is live for ad-hoc capture if anyone later wants to fill in `MEASURING_COLD_START.md`.
 
 **Commits (newest first):**
 
@@ -1123,9 +1063,9 @@
 - §2 New LaunchMetrics milestones → Task 6.
 - §1 Lifecycle / data flow / persistence (PR-A's in-memory bit) → Tasks 6, 9, 10.
 - §5 PR-A failure modes (LazyTab init throw / cache corrupt / proxy prewarm fail / backdrop Equatable wrong) → all addressed per Task; tests cover happy paths.
-- §6 PR-A testing strategy → Tasks 1 (target), 2 / 3 / 4 / 5 / 6 each include per-task tests; Task 11 captures cold-start numbers; Task 12 is the integration smoke.
+- §6 PR-A testing strategy → Tasks 1 (target), 2 / 3 / 4 / 5 / 6 each include per-task tests. Tasks 11/12 (cold-start capture + integration smoke) were abandoned — the `PALADALA_COLD_START_DUMP=1` env var is wired and live in `App.init` for ad-hoc Mac capture.
 - §7 Sequencing "PR-A lands first" → enforced by writing PR-A as this plan first; PR-B is its own plan.
-- §7 Quantified targets (appInitStart ≤1500 ms on A14, etc.) → captured in `cold-start.jsonl` and written into `MEASURING_COLD_START.md` per Task 11.
+- §7 Quantified targets (appInitStart ≤1500 ms on A14, etc.) → **unverified** since Tasks 11/12 were abandoned. The instrumentation is in place; someone with a Mac can fill in `MEASURING_COLD_START.md` from `cold-start.jsonl` at any time.
 
 **Placeholder scan:** No "TBD" / "TODO" / "implement later" in the body. Every step has either explicit code, explicit commands, or an explicit verification.
 
