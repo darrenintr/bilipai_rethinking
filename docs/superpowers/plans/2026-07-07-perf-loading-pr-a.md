@@ -209,7 +209,7 @@
 
 - [ ] **Step 3: Modify `LocalHLSProxyServer.swift`**
 
-  Replace the existing private `waitForListener` (around line 204 in the audit-anchored block; verify the actual location with `grep -n 'waitForListener' ios/Paladala/Paladala/LocalHLSProxyServer.swift`) with:
+  Add `static let shared` first (right after the class declaration), then replace the existing private `waitForListener` (around line 204 in the audit-anchored block; verify the actual location with `grep -n 'waitForListener' ios/Paladala/Paladala/LocalHLSProxyServer.swift`) with:
   ```swift
   internal func waitForListener(
       timeoutMs: Int = 500,
@@ -240,6 +240,13 @@
   }
   ```
   Add `enum ProxyServerError: Error { case listenerTimeout }` at module scope in the same file (or pull it from a shared error file if one exists). Use whichever pattern exists for the file's other errors.
+
+  Above the `waitForListener` block (right after the class header), add:
+  ```swift
+  /// OS-chosen port (0). Listener.start picks a real port automatically.
+  static let shared = LocalHLSProxyServer(port: 0)
+  ```
+  This is what `prewarmProxyServer()` (and any other shared instance) references. `port: 0` defers binding to the kernel; the listener is `NWListener`-driven, not TCP-socket-bound.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -485,13 +492,17 @@
           _ = host.body  // exercise
       }
 
-      func test_body_invoked_whenActiveTagChanges() {
+      func test_body_staysEmpty_whenActiveTagMismatches() {
+          // Sanity-check the inverse: if activeTag != tag at construction,
+          // body must NOT invoke content. (Original draft of this test
+          // asserted the same with activeTag: nil; renamed so the
+          // behavioural intent is unambiguous.)
           var invocations = 0
-          let host = LazyTab(tag: "home", activeTag: nil) {
+          let host = LazyTab(tag: "home", activeTag: "dynamic") {
               invocations += 1
               return Text("home")
           }
-          // First body evaluation — not yet armed.
+          // First body evaluation — armed stays false because activeTag != tag.
           _ = host.body
           XCTAssertEqual(invocations, 0)
       }
@@ -888,7 +899,7 @@
   ```swift
   if !model.didBootstrap {
       if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "home") {
-          model.seed(cached)
+          model.seedFromCache(cached)
       }
       LaunchMetrics.shared.mark(.firstFeedCached)  // only when seedFromCache succeeded
       await Task.yield()
@@ -897,9 +908,11 @@
   }
   ```
 
-- [ ] **Step 1: Add `seed(cards:)` to `HomeViewModel` and `MusicViewModel`**
+  The `.task(id:)` form already in `MusicHomeView.swift:73` keeps the same shape; just swap the body to call `await FeedCacheWarmer.shared.seedFromCache(key: "music")` and `model.seedFromCache(cached)`.
 
-  Each model gains a `func seed(_ cards: [FeedCard])` that sets `@Published var cards = cards` (or the equivalent) and a `var didBootstrap: Bool = false` flag set to `true` after seeding.
+- [ ] **Step 1: Add `seedFromCache(cards:)` to `HomeViewModel` and `MusicViewModel`**
+
+  Each model gains a `func seedFromCache(_ cards: [FeedCard])` that sets `@Published var cards = cards` (or the equivalent) and a `var didBootstrap: Bool = false` flag set to `true` after seeding. The name **must** be `seedFromCache(_:)` — colliding with a pre-existing `seed` method on the model would silently overload the wrong code path, so we add the explicit suffix to avoid that risk.
 
 - [ ] **Step 2: Update `HomeView.swift:141-147` `.task` block**
 
@@ -974,6 +987,8 @@
   cat "$(xcrun simctl get_app_container booted com.paladala.Paladala data)/Library/Application Support/Paladala/cold-start.jsonl"
   ```
   Expected: JSONL with one entry per launch that covers appInitStart → firstRootViewAppeared, plus the new firstFeedCached / firstTabInteractive / proxyListenerRequested / proxyListenerReady entries.
+
+  **Note**: simulator-only captures are for *trending* (verify the new milestones emit and the deltas shrink). The hard "≤1500 ms on A14+" target from the spec needs physical-device sign-off as a follow-up — PR-A Task 11 records simulator numbers; device-grade verification is a separate Task 12½ step the user can run on a connected iPhone 13 Pro+ later.
 
 - [ ] **Step 2: Append to `MEASURING_COLD_START.md`**
 
