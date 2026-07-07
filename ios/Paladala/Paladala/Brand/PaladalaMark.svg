@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Paladala brand mark — the source-of-truth SVG for every
+  Paladala icon surface (landing-page web header, iOS app
+  icon, iOS launch screen). Mirrors the line-art mark used
+  by `landing-page/src/components/Header.tsx` so the web
+  nav and the iOS launcher stay visually paired.
+
+  Coordinate system: 140×140 viewBox; the mark itself lives
+  in (22, 22)–(118, 124), giving ~15% safe-area on every
+  edge. iOS applies a rounded-corner mask to the home-screen
+  app icon, so anything tighter than ~10% can get clipped at
+  the corners.
+
+  Two color layers:
+    • outer stroke: white  — only used when the background
+      is the brand pink; lets the body outline + antennas /
+      legs / face read as a single cohesive white silhouette
+    • inner body fill: none  — keeps the brand pink bg
+      visible through the body so the icon doesn't turn
+      into a flat white blob
+
+  To re-export: `rsvg-convert -w 1024 -h 1024 PaladalaMark.svg
+  -o AppIcon-1024.png` (or scale to 256/512/768 for the
+  launch-screen image set).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140" fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round">
+  <!-- TV body (rounded square outline) -->
+  <rect x="22" y="42" width="96" height="74" rx="22" stroke-width="7.5"/>
+  <!-- Antennas -->
+  <path d="M52 42 L34 22" stroke-width="8"/>
+  <path d="M88 42 L106 22" stroke-width="8"/>
+  <!-- Legs -->
+  <path d="M48 116 L48 124" stroke-width="8"/>
+  <path d="M92 116 L92 124" stroke-width="8"/>
+  <!-- Eyes (chevrons pointing toward center) -->
+  <path d="M48 78 L56 83 L48 88" stroke-width="5"/>
+  <path d="M92 78 L84 83 L92 88" stroke-width="5"/>
+  <!-- Mouth (the w-shape) -->
+  <path d="M64 91 C66 93.5 68 94.5 70 94.5 C72 94.5 74 93.5 76 91 C78 93.5 80 94.5 82 94.5 C84 94.5 86 93.5 88 91" stroke-width="5.5"/>
+</svg>
