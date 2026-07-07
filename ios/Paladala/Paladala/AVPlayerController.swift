@@ -62,13 +62,21 @@ enum PlayerPlaybackError: Equatable, Error {
     /// than 10 seconds.  Tracked separately so we don't
     /// immediately show the overlay for a brief network hiccup.
     case prolongedStall
+    /// **PR-B D8**: `BiliPlayback` had no DASH source AND no
+    /// fallback URL (server schema drift, region block, CDN
+    /// reset).  Previously this path hit `fatalError` and
+    /// crashed the app — it now surfaces through the existing
+    /// playbackErrorOverlay as a graceful error.  `detail`
+    /// carries a diagnostic line for the diagnostic dump.
+    case playbackSourceUnavailable(detail: String?)
 
     var title: String {
         switch self {
-        case .itemFailed:       return "无法播放此视频"
-        case .stoppedMidStream: return "播放中断"
-        case .proxyFailed:      return "服务器连接失败"
-        case .prolongedStall:   return "加载缓慢"
+        case .itemFailed:                   return "无法播放此视频"
+        case .stoppedMidStream:             return "播放中断"
+        case .proxyFailed:                  return "服务器连接失败"
+        case .prolongedStall:               return "加载缓慢"
+        case .playbackSourceUnavailable:    return "视频源不可用"
         }
     }
 
@@ -96,6 +104,11 @@ enum PlayerPlaybackError: Equatable, Error {
             return "视频代理服务器返回错误（HTTP \(code)），请稍后重试。"
         case .prolongedStall:
             return "加载时间过长，可能是网络问题。"
+        case .playbackSourceUnavailable(let detail):
+            if let d = detail, !d.isEmpty {
+                return d
+            }
+            return "该视频当前无法播放，可能已下架或地区受限。"
         }
     }
 
@@ -107,6 +120,13 @@ enum PlayerPlaybackError: Equatable, Error {
             return .signInAgain
         case .proxyFailed:                    return .retryPlayback
         case .prolongedStall:                 return .retrySeek
+        // PR-B D8: a schema-drift / region-block situation
+        // doesn't recover via retry (the same BiliPlayback
+        // would fail identically), but the recovery surface
+        // needs a button — falling back to retryPlayback
+        // gives the user something to tap while we surface
+        // the diagnostic detail to the developer.
+        case .playbackSourceUnavailable:      return .retryPlayback
         }
     }
 }
@@ -522,7 +542,29 @@ final class PlayerController: ObservableObject {
                     "AVPlayerController using direct asset",
                     details: ["url": fallback.absoluteString])
         } else {
-            fatalError("BiliPlayback has no DASH source and no fallback")
+            // PR-B D8: previously this path crashed the app
+            // with `fatalError` when a BiliPlayback had neither
+            // a DASH source nor a fallback URL — schema drift
+            // from the B站 server, region block, or a stale
+            // cached playback payload.  Surface through the
+            // existing playbackErrorOverlay so the user sees
+            // a graceful "视频源不可用" message and the developer
+            // gets a diagnostic dump instead of a process abort.
+            let detail = "BiliPlayback has no DASH source and no fallback URL"
+            diagLog(.playback,
+                    "AVPlayerController: no DASH source and no fallback",
+                    details: [
+                        "isDASH": playback.isDASH,
+                        "hasMergedLocal": playback.localContext?.mergedVideo != nil,
+                        "fallback": playback.fallbackURL?.absoluteString ?? "nil"
+                    ])
+            initialPlayerError = .playbackSourceUnavailable(detail: detail)
+            // Bind an `about:blank` URL asset so AVPlayer
+            // has a valid item to attach observers to; the
+            // overlay will surface the error and the user
+            // can tap "重新播放" without a process crash.
+            asset = AVURLAsset(url: URL(string: "about:blank")!)
+            usesProxy = false
         }
 
         self.asset = asset
@@ -773,7 +815,12 @@ final class PlayerController: ObservableObject {
             diagLog(.playback, "retry_restore", details: [
                 "restoreTo": restore
             ])
-            performSeek(restore)
+            // PR-B D5: `fromRestore: true` skips the
+            // upper-bound clamp in performSeek because
+            // `self.duration` is still 0 here (the periodic
+            // observer hasn't published the real duration
+            // yet).  AVPlayer clamps internally.
+            performSeek(restore, fromRestore: true)
         }
     }
 
@@ -859,12 +906,27 @@ final class PlayerController: ObservableObject {
                         "manifestReady": true
                     ])
         } catch is CancellationError {
+            // PR-B D6: clear the pending restore snapshot
+            // even on the cancellation path.  Without this,
+            // a load cancelled between `retryPlayback()`
+            // and `startPlaybackSession(item:)` would leave
+            // `retryRestoreTime` set; a future successful
+            // `loadPlayback(_:)` (e.g. from a video switch)
+            // would then seek the user back to the old
+            // playhead.  `tearDown()` already clears it, but
+            // teardown isn't reached when the load is just
+            // cancelled and the controller is reused.
+            retryRestoreTime = nil
             if playbackState == .preparing {
                 playbackState = .idle
             }
             diagLog(.playback, "AVPlayerController loadPlayback cancelled",
                     details: ["state": "\(playbackState)"])
         } catch {
+            // PR-B D6: same rationale as the cancellation
+            // path above — a failed load shouldn't leak the
+            // restore snapshot to a future playback session.
+            retryRestoreTime = nil
             let pbError: PlayerPlaybackError
             if let proxy = error as? PlayerPlaybackError {
                 pbError = proxy
@@ -1287,17 +1349,55 @@ final class PlayerController: ObservableObject {
     /// the prolonged-stall watchdog is re-armed so the
     /// post-seek buffering has its own 10 s budget separate
     /// from the pre-seek one.
-    private func performSeek(_ target: Double) {
-        let clamped = max(0, min(duration, target))
+    ///
+    /// `fromRestore` is `true` only for the seek-to-resume-time
+    /// path invoked from `startPlaybackSession(item:)` after a
+    /// proxy retry (PR-B D5).  When `true` we skip the upper
+    /// bound on the clamp because `self.duration` is published
+    /// by the periodic-time observer ~250 ms after item binding
+    /// and is still 0 here; AVPlayer's own `seek(to:)` will
+    /// clamp to the real duration internally.  Without this
+    /// guard the user is bounced to 0:00 every retry.
+    private func performSeek(_ target: Double, fromRestore: Bool = false) {
+        let liveDuration: Double = {
+            let d = duration
+            if d > 0 { return d }
+            // PR-B D5: AVPlayer publishes `duration` via the
+            // periodic-time observer ~250 ms after item binding,
+            // so `self.duration` is still 0 on the restore path.
+            // Read the AVAsset duration synchronously — it
+            // returns `.nan` when unknown rather than 0.
+            let assetDuration = player.currentItem?.asset.duration.seconds ?? .nan
+            return assetDuration.isFinite ? assetDuration : d
+        }()
+        let clamped = fromRestore
+            ? max(0, target)         // PR-B D5: AVPlayer clamps the
+                                     // upper bound internally.
+            : max(0, min(liveDuration, target))
         let time = CMTime(seconds: clamped, preferredTimescale: 600)
         seekGeneration &+= 1
         let generation = seekGeneration
         isSeeking = true
+        // PR-B D7: arm the prolonged-stall watchdog BEFORE the
+        // seek lands so any buffering that starts immediately
+        // after `player.seek` returns (the typical case when
+        // scrubbing past the buffered range) is covered from
+        // the moment the seek fires — not just from the moment
+        // its completion handler runs (which can be tens of ms
+        // later when AVPlayer is still settling on a keyframe).
+        // The post-seek re-arm at the end of the completion
+        // handler stays — together they guarantee the
+        // 10 s stall budget applies to *post-seek* buffering
+        // from time-zero.
+        if isBuffering && playerError == nil {
+            armStallWatchdog()
+        }
         diagLog(.playback, "seek_begin", details: [
             "generation": generation,
             "from": String(format: "%.3f", CMTimeGetSeconds(player.currentTime())),
             "to": String(format: "%.3f", clamped),
-            "duration": String(format: "%.3f", duration)
+            "duration": String(format: "%.3f", duration),
+            "fromRestore": fromRestore
         ])
         player.seek(
             to: time,
