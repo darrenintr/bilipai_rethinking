@@ -843,9 +843,23 @@ final class LocalHLSProxyServer {
                     } else {
                         self.state = .listening(port: p.rawValue)
                     }
+                    let issuedURL = self.baseURL?.absoluteString ?? "nil"
+                    let issuedGen = self.currentPrepGeneration
                     self.lock.unlock()
                     diagLog(.playback, "LocalHLSProxyServer listener ready",
                             details: ["port": p.rawValue])
+                    // PR-A Group 2: emit `session_url_issued`
+                    // alongside the listener-ready signal so the
+                    // diagnostic log shows which URL was actually
+                    // bound to this prep generation.  Without
+                    // this, a crash report or stale-segment 503
+                    // has to be cross-referenced against the
+                    // generation log to find the URL — and the
+                    // generation log doesn't include the URL.
+                    diagLog(.playback, "session_url_issued", details: [
+                        "url": issuedURL,
+                        "generation": issuedGen
+                    ])
                 }
             case .failed(let error):
                 self.lock.lock()
@@ -2441,6 +2455,14 @@ fileprivate func proxySegmentRange(
     connection: NWConnection,
     connID: String
 ) {
+    // PR-A Group 2: log every segment request.  In
+    // Group 3 this moves below the generation guard so
+    // stale-prep requests don't pollute the log.
+    diagLog(.playback, "segment_request", details: [
+        "conn": connID,
+        "path": req.path,
+        "generation": currentPrepGenerationValue()
+    ])
     guard let (source, referer) = snapshot() else {
         respondError(connection: connection, status: 503,
                      reason: "no playback", connID: connID)
@@ -2574,6 +2596,15 @@ fileprivate func proxySegmentRange(
         mode: ProxyMode,
         connID: String
     ) {
+        // PR-A Group 2: log every segment request.  In
+        // Group 3 this moves below the generation guard so
+        // stale-prep requests don't pollute the log.
+        diagLog(.playback, "segment_request", details: [
+            "conn": connID,
+            "path": req.path,
+            "mode": "\(mode)",
+            "generation": currentPrepGenerationValue()
+        ])
         guard let (source, referer) = snapshot() else {
             respondError(connection: connection, status: 503,
                          reason: "no playback", connID: connID)
@@ -2812,6 +2843,14 @@ fileprivate func proxySegmentRange(
         kind: ProxyMode,
         connID: String
     ) {
+        // PR-A Group 2: log every local segment request.
+        // In Group 3 this moves below the generation guard.
+        diagLog(.playback, "segment_request", details: [
+            "conn": connID,
+            "path": req.path,
+            "kind": "\(kind)",
+            "generation": currentPrepGenerationValue()
+        ])
         let context: LocalPlaybackContext? = {
             lock.lock(); defer { lock.unlock() }
             return localContext
@@ -3794,6 +3833,19 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                 details: [
                     "conn": connID,
                     "mode": mode,
+                    "reason": reason
+                ])
+        // PR-A Group 2: emit a structured
+        // `downstream_broken_cancelling_stream` event so the
+        // diagnostic log can be grepped for "when did each
+        // stream leg die?" without parsing the free-form
+        // `reason` field.  The existing "downstream closed"
+        // log stays for human-readable context.
+        diagLog(.playback,
+                "downstream_broken_cancelling_stream",
+                details: [
+                    "conn": connID,
+                    "streamID": "\(mode)",
                     "reason": reason
                 ])
     }

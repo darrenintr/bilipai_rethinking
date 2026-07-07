@@ -637,12 +637,17 @@ final class PlayerController: ObservableObject {
         // the watchdog via `armStallWatchdog()` if AVPlayer
         // is still buffering after the seek lands.
         stallTimerTask = Task { @MainActor [weak self] in
+            let startedAt = Date()
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled, let self else { return }
             if self.isBuffering && !self.isSeeking && self.playerError == nil {
                 self.playerError = .prolongedStall
                 diagLog(.playback, "PlayerController.playerError assigned", details: [
-                    "case": "prolongedStall"
+                    "case": "prolongedStall",
+                    "isSeeking": self.isSeeking,
+                    "isBuffering": self.isBuffering,
+                    "seekGeneration": self.seekGeneration,
+                    "stalledFor": Date().timeIntervalSince(startedAt)
                 ])
             }
         }
@@ -1317,12 +1322,17 @@ final class PlayerController: ObservableObject {
     private func armStallWatchdog() {
         stallTimerTask?.cancel()
         stallTimerTask = Task { @MainActor [weak self] in
+            let startedAt = Date()
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled, let self else { return }
             if self.isBuffering && !self.isSeeking && self.playerError == nil {
                 self.playerError = .prolongedStall
                 diagLog(.playback, "PlayerController.playerError assigned", details: [
-                    "case": "prolongedStall"
+                    "case": "prolongedStall",
+                    "isSeeking": self.isSeeking,
+                    "isBuffering": self.isBuffering,
+                    "seekGeneration": self.seekGeneration,
+                    "stalledFor": Date().timeIntervalSince(startedAt)
                 ])
             }
         }
