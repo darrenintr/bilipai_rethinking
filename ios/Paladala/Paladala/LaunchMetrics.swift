@@ -7,24 +7,31 @@ import os
 /// and the diagnostic-log message key). Adding a new case here is the
 /// only edit needed to wire a new milestone — `mark(_:)` handles the
 /// rest (signpost emit, diagnostic log, in-memory buffer, dump).
-enum LaunchEvent: String, CaseIterable {
-    case appInitStart             = "app_init_start"
-    case appInitComplete          = "app_init_complete"
-    case appDelegateStart         = "app_delegate_start"
-    case appDelegateComplete      = "app_delegate_complete"
-    case firstRootViewAppeared    = "first_root_view_appeared"
-    case firstFeedNetworkStart    = "first_feed_network_start"
-    case firstFeedNetworkComplete = "first_feed_network_complete"
+/// Public milestones emitted during the cold-start path.
+///
+/// Each value's string form (used as the signpost suffix, the
+/// diagnostic-log message key, and the gate / milestone key) is
+/// produced by `LaunchMetrics.key(for:)` — we don't use a String
+/// raw type because the `.firstTabInteractive(tag:)` case carries
+/// an associated value, and Swift forbids combining `RawRepresentable`
+/// with associated-value cases. The case names here are the source
+/// of truth for the string form; see `key(for:)` for the exact
+/// mapping.
+enum LaunchEvent {
+    case appInitStart
+    case appInitComplete
+    case appDelegateStart
+    case appDelegateComplete
+    case firstRootViewAppeared
+    case firstFeedNetworkStart
+    case firstFeedNetworkComplete
     // PR-A Task 6: per-tab and cache-seed milestones. The `tag` on
     // `firstTabInteractive` is appended to the event key by
-    // `key(for:)` so each tag fires independently. Cases with
-    // associated values cannot have raw values in Swift, so
-    // `firstTabInteractive` carries no `= "..."` here — the
-    // string form lives in `key(for:)` and `tag`'s rawValue.
-    case firstFeedCached          = "firstFeedCached"
+    // `key(for:)` so each tag fires independently.
+    case firstFeedCached
     case firstTabInteractive(tag: MainTab)
-    case proxyListenerRequested   = "proxyListenerRequested"
-    case proxyListenerReady       = "proxyListenerReady"
+    case proxyListenerRequested
+    case proxyListenerReady
 
     /// The associated `tag` for cases that carry one. PR-A's plan
     /// called this out as a verify-before-saving step — the real
@@ -140,7 +147,7 @@ final class LaunchMetrics {
         //
         // PR-A Task 6: use the full key (event + tag for
         // firstTabInteractive) so each tab fires independently
-        // — using just `event.rawValue` would silently drop the
+        // — using the case name alone would silently drop the
         // second tab's milestone.
         let key = Self.key(for: event)
         if firedEvents.contains(key) {
@@ -222,16 +229,22 @@ final class LaunchMetrics {
 
     /// Per-event key used for both the in-memory gate and the
     /// milestone `event` field. `firstTabInteractive` includes the
-    /// tag so each tab fires and is recorded independently.
+    /// tag so each tab fires and is recorded independently. All
+    /// other cases use a stable snake_case string to match the
+    /// pre-PR-A convention.
     private static func key(for event: LaunchEvent) -> String {
         switch event {
-        case .firstTabInteractive(let tag):
-            // Use the literal here — `event.rawValue` is nil for
-            // associated-value cases (Swift forbids `=` rawValues
-            // on those), but the key string stays stable.
-            return "firstTabInteractive.\(tag.rawValue)"
-        default:
-            return event.rawValue
+        case .appInitStart:               return "app_init_start"
+        case .appInitComplete:            return "app_init_complete"
+        case .appDelegateStart:           return "app_delegate_start"
+        case .appDelegateComplete:        return "app_delegate_complete"
+        case .firstRootViewAppeared:      return "first_root_view_appeared"
+        case .firstFeedNetworkStart:      return "first_feed_network_start"
+        case .firstFeedNetworkComplete:   return "first_feed_network_complete"
+        case .firstFeedCached:            return "firstFeedCached"
+        case .firstTabInteractive(let tag): return "firstTabInteractive.\(tag.rawValue)"
+        case .proxyListenerRequested:     return "proxyListenerRequested"
+        case .proxyListenerReady:         return "proxyListenerReady"
         }
     }
 
