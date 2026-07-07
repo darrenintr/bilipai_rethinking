@@ -81,6 +81,7 @@
 		7E5C0A000000000000000013 /* LazyTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000014 /* LazyTab.swift */; };
 		7E5C0A000000000000000015 /* LazyTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000016 /* LazyTabTests.swift */; };
 		7E5C0A000000000000000017 /* PaladalaBackdropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */; };
+		7E5C0A000000000000000019 /* LaunchMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000020 /* LaunchMetricsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -163,6 +164,7 @@
 		7E5C0A000000000000000014 /* LazyTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyTab.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000016 /* LazyTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyTabTests.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaBackdropTests.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000020 /* LaunchMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetricsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -327,6 +329,7 @@
 				7E5C0A000000000000000012 /* FeedCacheWarmerTests.swift */,
 				7E5C0A000000000000000016 /* LazyTabTests.swift */,
 				7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */,
+				7E5C0A000000000000000020 /* LaunchMetricsTests.swift */,
 			);
 			path = PaladalaTests;
 			sourceTree = "<group>";
@@ -592,6 +595,7 @@
 				7E5C0A000000000000000011 /* FeedCacheWarmerTests.swift in Sources */,
 				7E5C0A000000000000000015 /* LazyTabTests.swift in Sources */,
 				7E5C0A000000000000000017 /* PaladalaBackdropTests.swift in Sources */,
+				7E5C0A000000000000000019 /* LaunchMetricsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -15,6 +15,21 @@ enum LaunchEvent: String, CaseIterable {
     case firstRootViewAppeared    = "first_root_view_appeared"
     case firstFeedNetworkStart    = "first_feed_network_start"
     case firstFeedNetworkComplete = "first_feed_network_complete"
+    // PR-A Task 6: per-tab and cache-seed milestones. The `tag` on
+    // `firstTabInteractive` is appended to the event key by
+    // `key(for:)` so each tag fires independently.
+    case firstFeedCached          = "firstFeedCached"
+    case firstTabInteractive      = "firstTabInteractive"
+    case proxyListenerRequested   = "proxyListenerRequested"
+    case proxyListenerReady       = "proxyListenerReady"
+
+    /// The associated `tag` for cases that carry one. PR-A's plan
+    /// called this out as a verify-before-saving step — the real
+    /// type in this codebase is `MainTab`, not `RootTab`.
+    var tag: MainTab? {
+        if case let .firstTabInteractive(t) = self { return t }
+        return nil
+    }
 }
 
 /// One row in the cold-start JSONL dump. `elapsedMS` is measured from
@@ -24,6 +39,12 @@ struct LaunchMilestone: Codable {
     let event: String
     let elapsedMS: Double
     let thread: String
+
+    /// Test-facing alias for `event`. The PR-A plan's unit tests
+    /// assert on `eventName`; existing `cold-start.jsonl` readers
+    /// rely on the raw `event` field. Both point at the same
+    /// underlying value.
+    var eventName: String { event }
 }
 
 /// Singleton, allocation-light launcher for cold-start instrumentation.
@@ -73,7 +94,11 @@ final class LaunchMetrics {
     )
     private var startMachTime: UInt64 = 0
     private let lock = NSLock()
-    private var milestones: [LaunchMilestone] = []
+    /// Internal so PR-A unit tests can read the buffer (`@testable
+    /// import` does not grant access to `private`). Production code
+    /// does not need to read this — `dumpColdStartReport()` snapshots
+    /// it under the lock.
+    var milestones: [LaunchMilestone] = []
     /// Set of event names already recorded in this process.  We
     /// gate `mark(_:)` to fire at most once per event per
     /// process — `RootView.onAppear` and the per-tab `.task`
@@ -109,16 +134,22 @@ final class LaunchMetrics {
         // background, because `RootView.onAppear` and the
         // per-tab `.task` modifiers re-fire on every
         // foreground transition.
-        if firedEvents.contains(event.rawValue) {
+        //
+        // PR-A Task 6: use the full key (event + tag for
+        // firstTabInteractive) so each tab fires independently
+        // — using just `event.rawValue` would silently drop the
+        // second tab's milestone.
+        let key = Self.key(for: event)
+        if firedEvents.contains(key) {
             lock.unlock()
             return
         }
-        firedEvents.insert(event.rawValue)
+        firedEvents.insert(key)
         if startMachTime == 0 { startMachTime = now }
         elapsedMS = Self.machTimeToMS(now - startMachTime)
         thread = Thread.isMainThread ? "main" : "bg"
         milestone = LaunchMilestone(
-            event: event.rawValue,
+            event: key,
             elapsedMS: elapsedMS,
             thread: thread
         )
@@ -154,20 +185,48 @@ final class LaunchMetrics {
             os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.first_feed_network_start")
         case .firstFeedNetworkComplete:
             os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.first_feed_network_complete")
+        case .firstFeedCached:
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.firstFeedCached")
+        case .firstTabInteractive:
+            // The tag is not in the signpost name (StaticString);
+            // it's in the diagnostic-log details below.
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.firstTabInteractive")
+        case .proxyListenerRequested:
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.proxyListenerRequested")
+        case .proxyListenerReady:
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.proxyListenerReady")
         }
 
         // Sink 2: in-app log viewer. The `.app` category is
         // already documented as "launch / cold start" — no new
         // category needed. `elapsedMS` is the first detail so
-        // it's easy to filter / sort.
+        // it's easy to filter / sort. The message key uses the
+        // full `key(for:)` (event + tag) so different tabs log
+        // independently.
+        var details: [String: Any] = [
+            "elapsedMS": String(format: "%.1f", elapsedMS),
+            "thread": thread
+        ]
+        if let tag = event.tag {
+            details["tag"] = tag.rawValue
+        }
         DiagnosticLogger.shared.log(
             .app,
-            "launch.\(event.rawValue)",
-            details: [
-                "elapsedMS": String(format: "%.1f", elapsedMS),
-                "thread": thread
-            ]
+            "launch.\(key)",
+            details: details
         )
+    }
+
+    /// Per-event key used for both the in-memory gate and the
+    /// milestone `event` field. `firstTabInteractive` includes the
+    /// tag so each tab fires and is recorded independently.
+    private static func key(for event: LaunchEvent) -> String {
+        switch event {
+        case .firstTabInteractive(let tag):
+            return "\(event.rawValue).\(tag.rawValue)"
+        default:
+            return event.rawValue
+        }
     }
 
     /// Write the milestone log to
