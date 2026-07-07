@@ -718,6 +718,14 @@ final class LocalHLSProxyServer {
     /// `serve(playback:)` again will start a fresh listener
     /// (with a new OS-assigned port).
     func stop() {
+        // **PR-B B6**: per-resource diagnostic logs so a
+        // user-initiated stop mid-stream produces forensic
+        // evidence of which subsystem died first.  The
+        // final aggregate `"LocalHLSProxyServer stopped"`
+        // log line at the end still fires as a summary.
+        let hadPrep = prepSession != nil
+        diagLog(.proxy, "stop: cancelling prepSession",
+                details: ["hadSession": hadPrep])
         // Cancel any in-flight SIDX preparation *before* we
         // clear the dictionaries it writes to.  Build 182:
         // prep runs inline in `serve(playback:) async`; the
@@ -729,6 +737,9 @@ final class LocalHLSProxyServer {
         // landed yet.
         prepSession?.invalidateAndCancel()
         prepSession = nil
+        let hadListener = listener != nil
+        diagLog(.proxy, "stop: listener.cancel",
+                details: ["hadListener": hadListener])
         listener?.cancel()
         listener = nil
         lock.lock()
@@ -757,6 +768,9 @@ final class LocalHLSProxyServer {
         // single source of truth for "is this prep still
         // current?".
         inFlightRanges.removeAll()
+        let streamCount = activeStreams.count
+        diagLog(.proxy, "stop: cancelling streams",
+                details: ["count": streamCount])
         for (_, stream) in activeStreams {
             stream.cancel()
         }
@@ -2826,16 +2840,21 @@ fileprivate func proxySegmentRange(
         }
 
         if let rs = reqStart, let re = reqEnd {
-            // Diagnostic-only: record this range and the count of
-            // other concurrent in-flight streams against the same
-            // upstream URL.  No cancellation.  Operators can read
-            // the resulting "fanout" number in the diagnostic
-            // report to see how aggressively AVPlayer is
-            // requesting — useful for tuning the multi-segment
-            // playlist generation later if needed.
+            // Diagnostic-only: count concurrent in-flight streams
+            // against the same upstream URL.  The actual dict
+            // entry is registered in `StreamingProxyTask.start()`
+            // (L3913-3918) with the *real* stream UUID; if we
+            // pre-registered here with a throwaway UUID the
+            // entry would briefly claim a slot no stream owns,
+            // and `unregisterRange()` (L3932) — which checks
+            // `existing.streamID == id` against the real UUID —
+            // would leak the entry on cancellation.  Reading here
+            // without writing is safe: any earlier request for
+            // the same URL has already done its real-reg under
+            // the same `lock`, so the fanout count is accurate
+            // by the time this `proxySegmentRange` runs.
             lock.lock()
             let fanout = inFlightRanges[upstreamKey] != nil ? 1 : 0
-            inFlightRanges[upstreamKey] = (rs, re, UUID())
             lock.unlock()
             if fanout > 0,
                Self.requestMetadataLogEnabled {
@@ -3456,6 +3475,7 @@ fileprivate func proxySegmentRange(
 
     fileprivate func sendHeader(
         connection: NWConnection,
+        sendGroup: DispatchGroup,
         status: Int,
         contentType: String,
         contentLength: Int64?,
@@ -3480,9 +3500,22 @@ fileprivate func proxySegmentRange(
                         )
                     ])
         }
+        // **PR-B D1 (CRITICAL)**: pair every header send
+        // with a `sendGroup.enter()` so `finishWhenSendsDrain`
+        // can't fire on a count of zero and race the header
+        // write.  Previously the 5xx exhaustion path AND
+        // the Content-Range 502 path called `sendHeader` and
+        // then immediately scheduled drain / cancel — if the
+        // drain closure ran before the header bytes hit the
+        // wire, `connection.cancel` would terminate the
+        // send mid-flight and AVPlayer would see a truncated
+        // status line.
+        sendGroup.enter()
         connection.send(
             content: header,
-            completion: .contentProcessed { _ in }
+            completion: .contentProcessed { _ in
+                sendGroup.leave()
+            }
         )
     }
 
@@ -3798,6 +3831,15 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     /// "we cancelled because the downstream went away"
     /// path and we'd never retry.
     private var cancelledForRetry = false
+    /// **PR-B D3**: set when the Content-Range header
+    /// from the upstream doesn't match the Range we asked
+    /// for.  Without this flag a late `didReceive data`
+    /// callback (URLSession's `.cancel` is asynchronous)
+    /// could slip past the `downstreamBroken` guard and
+    /// trigger a synthesised 200 header for a socket we
+    /// have already decided to fail.  Mirrors
+    /// `cancelledForRetry` (L3800).
+    private var cancelledForRangeMismatch = false
 
     /// Maximum number of times we re-issue the upstream
     /// request after the first attempt.  With base backoff
@@ -4141,6 +4183,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             // then tear down.
             server.sendHeader(
                 connection: connection,
+                sendGroup: sendGroup,
                 status: 502,
                 contentType: "application/json",
                 contentLength: nil,
@@ -4281,13 +4324,25 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                 "actual": "\(rangeStart)-\(rangeEnd)",
                 "total": rangeTotal
             ])
+            // **PR-B D2**: mirror the 5xx exhaustion path
+            // above.  Without `didSendHeader = true` AND
+            // `finishWhenSendsDrain()` here, a late
+            // `didReceive data` callback (URLSession's
+            // `.cancel` is asynchronous) could slip past
+            // the `!didSendHeader` guard in `didReceive
+            // data` and synthesise a 200 header for a
+            // socket we have already decided to fail.
+            cancelledForRangeMismatch = true   // **D3**: guards late data callbacks
             server.sendHeader(
                 connection: connection,
+                sendGroup: sendGroup,
                 status: 502,
                 contentType: "application/json",
                 contentLength: nil,
                 connID: connID
             )
+            didSendHeader = true
+            finishWhenSendsDrain()
             completionHandler(.cancel)
             return
         }
@@ -4325,6 +4380,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                 ])
         server.sendHeader(
             connection: connection,
+            sendGroup: sendGroup,
             status: status,
             contentType: http.mimeType
                 ?? server.mimeType(for: upstream.pathExtension),
@@ -4340,6 +4396,15 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         dataTask: URLSessionDataTask,
         didReceive data: Data
     ) {
+        // **PR-B D3**: if the Content-Range mismatch path
+        // (the upstream returned the wrong bytes for our
+        // Range request) has already fired, late
+        // `didReceive data` callbacks from URLSession's
+        // internal queue can land here AFTER we've sent
+        // the 502 to AVPlayer.  Drop them silently — the
+        // connection is on its way out via
+        // `finishWhenSendsDrain`.
+        if cancelledForRangeMismatch { return }
         // Track every byte that arrives from upstream, even
         // when the downstream is broken, so the retry path
         // can shift the Range header by however much we did
@@ -4369,6 +4434,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             if downstreamBroken { return }
             server?.sendHeader(
                 connection: connection,
+                sendGroup: sendGroup,
                 status: 200,
                 contentType: server?.mimeType(
                     for: upstream.pathExtension
@@ -4492,6 +4558,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             if !didSendHeader {
                 server?.sendHeader(
                     connection: connection,
+                    sendGroup: sendGroup,
                     status: 502,
                     contentType: "application/json",
                     contentLength: nil,
@@ -4534,6 +4601,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         if !didSendHeader {
             server?.sendHeader(
                 connection: connection,
+                sendGroup: sendGroup,
                 status: 502,
                 contentType: "application/json",
                 contentLength: nil,
