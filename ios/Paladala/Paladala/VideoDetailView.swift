@@ -1232,8 +1232,8 @@ struct VideoDetailView: View {
                         // stranded.  Always offer replay + back.
                         Button {
                             Haptics.tap()
-                            controller?.seek(to: 0)
-                            controller?.play()
+                            playerController?.seek(to: 0)
+                            playerController?.play()
                             withAnimation(.easeInOut(duration: 0.22)) {
                                 isShowingNextUp = false
                             }

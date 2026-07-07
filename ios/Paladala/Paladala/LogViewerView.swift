@@ -302,6 +302,7 @@ private struct EventRow: View {
         case .download:              return Color(uiColor: .systemIndigo)
         case .music:                 return Color(uiColor: .systemYellow)
         case .notification:         return Color(uiColor: .systemTeal)
+        case .feed:                 return Color(uiColor: .systemBrown)
         }
     }
 }

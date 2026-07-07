@@ -50,8 +50,12 @@ final class FeedCacheWarmer {
     }
 
     /// Synchronous file read — runs on a detached task. Kept private so
-    /// callers can't accidentally do disk IO on the main actor.
-    private static func read(directory: URL, key: String) -> FeedCacheResult {
+    /// callers can't accidentally do disk IO on the main actor. Marked
+    /// `nonisolated` because in Swift 6 a `static func` inside a
+    /// `@MainActor` class inherits the @MainActor isolation, which would
+    /// force every `Task.detached` call site to `await` the read for no
+    /// good reason — the body is pure file IO and touches no actor state.
+    private nonisolated static func read(directory: URL, key: String) -> FeedCacheResult {
         let url = directory.appendingPathComponent("\(key).json")
         guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
         guard let data = try? Data(contentsOf: url) else { return .corrupt(reason: "io") }
@@ -67,8 +71,9 @@ final class FeedCacheWarmer {
 
     /// `Application Support/Paladala/`. Created on first access. Uses
     /// `try!` because the OS guarantees this directory is writable;
-    /// failing here is unrecoverable.
-    static var defaultDirectory: URL {
+    /// failing here is unrecoverable. `nonisolated` so the `static let
+    /// shared` initializer (a non-isolated context) can read it.
+    nonisolated static var defaultDirectory: URL {
         let fm = FileManager.default
         let dir = try! fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
                               appropriateFor: nil, create: true)
