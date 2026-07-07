@@ -71,9 +71,21 @@ struct MusicHomeView: View {
             diagLog(.music, "MusicHomeView disappeared")
         }
         .task(id: "music-load") {
-            LaunchMetrics.shared.mark(.firstFeedNetworkStart)
-            await model.load(repository: repository)
-            LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
+            // PR-A Task 9: see HomeView.task for the same
+            // seed-then-load pattern. The id makes this re-fire
+            // on explicit user actions, but the didBootstrap gate
+            // makes it a no-op for re-appearances with cached data.
+            if !model.didBootstrap {
+                if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "music") {
+                    model.seedFromCache(cached)
+                }
+                model.didBootstrap = true
+                LaunchMetrics.shared.mark(.firstFeedCached)
+                await Task.yield()
+                LaunchMetrics.shared.mark(.firstFeedNetworkStart)
+                await model.load(repository: repository)
+                LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
+            }
         }
         .refreshable {
             Haptics.medium()

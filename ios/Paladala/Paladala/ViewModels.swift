@@ -58,10 +58,27 @@ final class HomeViewModel: ObservableObject {
     /// value:)` so re-flipping is a no-op once the cards are
     /// already on screen.
     @Published var firstPageAnimated = false
+    /// PR-A Task 9: gates the .task bootstrap block. Set to true
+    /// after the first seedFromCache(...) call (cache hit) OR
+    /// after the surrounding .task block completes its load — see
+    /// HomeView.task. Persists across tab switches via SwiftUI's
+    /// @StateObject identity, so the seed runs at most once per
+    /// view-model lifetime (re-appearance is a no-op; pull-to-refresh
+    /// is the manual path).
+    @Published private(set) var didBootstrap = false
 
     private var page = 1
     private var requestGeneration: UInt64 = 0
     private var recommendFreshIndex = 0
+
+    /// PR-A Task 9: paint the first frame from the on-disk feed
+    /// snapshot if one is present. Sets `didBootstrap = true` so
+    /// the .task block does not attempt to re-seed on re-appearance.
+    /// Caller is expected to gate this on `!didBootstrap`.
+    func seedFromCache(_ cards: [BiliVideo]) {
+        self.videos = cards
+        self.didBootstrap = true
+    }
     /// The maximum number of items the upstream endpoint will return in one
     /// request. Once we get fewer than this many results we know we are at
     /// the end of the feed.

@@ -139,7 +139,19 @@ struct HomeView: View {
                 }
                 .modifier(HomeToolbarGlassModifier(materialDesign: materialDesign))
                 .task {
-                    if model.videos.isEmpty && model.liveRooms.isEmpty {
+                    // PR-A Task 9: bootstrap once per view-model
+                    // lifetime. Try the on-disk cache first so the
+                    // first frame paints from the snapshot while the
+                    // network request is still in flight; fall back
+                    // to network on a miss. Pull-to-refresh is the
+                    // manual re-bootstrap path.
+                    if !model.didBootstrap {
+                        if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "home") {
+                            model.seedFromCache(cached)
+                        }
+                        model.didBootstrap = true
+                        LaunchMetrics.shared.mark(.firstFeedCached)
+                        await Task.yield()
                         LaunchMetrics.shared.mark(.firstFeedNetworkStart)
                         await model.load(repository: repository, accountMid: accountMid)
                         LaunchMetrics.shared.mark(.firstFeedNetworkComplete)

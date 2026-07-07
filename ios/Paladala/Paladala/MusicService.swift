@@ -215,6 +215,17 @@ final class MusicViewModel: ObservableObject {
     @Published private(set) var videos: [BiliVideo] = []
     @Published private(set) var isLoading: Bool = false
     @Published var errorMessage: String?
+    /// PR-A Task 9: gates the .task bootstrap block. See
+    /// HomeViewModel.didBootstrap for the same rationale.
+    @Published private(set) var didBootstrap = false
+
+    /// PR-A Task 9: paint the first frame from the on-disk feed
+    /// snapshot if one is present. Caller is expected to gate
+    /// this on `!didBootstrap`.
+    func seedFromCache(_ cards: [BiliVideo]) {
+        self.videos = cards
+        self.didBootstrap = true
+    }
 
     func load(repository: PaladalaRepository) async {
         isLoading = true
