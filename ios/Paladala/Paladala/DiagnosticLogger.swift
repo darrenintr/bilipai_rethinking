@@ -47,6 +47,7 @@ final class DiagnosticLogger: ObservableObject {
         case download = "DOWN"  // DownloadManager + DownloadStore lifecycle
         case music = "MUSIC"    // MusicHomeView / MusicPlayerView
         case notification = "NOTI"  // FollowNotificationService / BG-task lifecycle
+        case feed = "FEED"      // FeedCacheWarmer seed-cache lifecycle
     }
 
     struct Event: Identifiable {

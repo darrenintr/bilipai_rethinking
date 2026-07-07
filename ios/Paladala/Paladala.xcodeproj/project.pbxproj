@@ -76,6 +76,8 @@
 		600000000000000000000624 /* SponsorBlockSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000614 /* SponsorBlockSettingsView.swift */; };
 		7E5C0A000000000000000001 /* PaladalaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000002 /* PaladalaTests.swift */; };
 		7E5C0A00000000000000000E /* LocalHLSProxyServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */; };
+		7E5C0A00000000000000000F /* FeedCacheWarmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000010 /* FeedCacheWarmer.swift */; };
+		7E5C0A000000000000000011 /* FeedCacheWarmerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000012 /* FeedCacheWarmerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -153,6 +155,8 @@
 		7E5C0A000000000000000002 /* PaladalaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaTests.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000003 /* PaladalaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PaladalaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHLSProxyServerTests.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000010 /* FeedCacheWarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCacheWarmer.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000012 /* FeedCacheWarmerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCacheWarmerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -252,6 +256,7 @@
 				600000000000000000000612 /* SponsorBlockService.swift */,
 				600000000000000000000613 /* SponsorBlockManager.swift */,
 				600000000000000000000614 /* SponsorBlockSettingsView.swift */,
+				7E5C0A000000000000000010 /* FeedCacheWarmer.swift */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -312,6 +317,7 @@
 			children = (
 				7E5C0A000000000000000002 /* PaladalaTests.swift */,
 				7E5C0A00000000000000000D /* LocalHLSProxyServerTests.swift */,
+				7E5C0A000000000000000012 /* FeedCacheWarmerTests.swift */,
 			);
 			path = PaladalaTests;
 			sourceTree = "<group>";
@@ -553,6 +559,7 @@
 				600000000000000000000622 /* SponsorBlockService.swift in Sources */,
 				600000000000000000000623 /* SponsorBlockManager.swift in Sources */,
 				600000000000000000000624 /* SponsorBlockSettingsView.swift in Sources */,
+				7E5C0A00000000000000000F /* FeedCacheWarmer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -572,6 +579,7 @@
 			files = (
 				7E5C0A000000000000000001 /* PaladalaTests.swift in Sources */,
 				7E5C0A00000000000000000E /* LocalHLSProxyServerTests.swift in Sources */,
+				7E5C0A000000000000000011 /* FeedCacheWarmerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
