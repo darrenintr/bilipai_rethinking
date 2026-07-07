@@ -31,31 +31,38 @@ const HEIGHT = 1080;
 const DURATION = 8.0; // seconds
 const FPS = 30;
 const STREAMS = 24;
-// With the mod() wraparound each stream is on-screen for
-// roughly WIDTH/speed seconds. Speeds in [140, 280] px/s
-// give 6.9–13.7s screen-cross time, so visibility per loop
-// is ~58–116% (effective ~85% on average). That keeps the
-// field populated without ever feeling busy.
-const SPEED_MIN = 140;
-const SPEED_MAX = 280;
-const FONT_SIZE_MIN = 16;
-const FONT_SIZE_MAX = 24;
-const OPACITY_MIN = 0.06;
-const OPACITY_MAX = 0.13;
+// Speeds snapped to multiples of WIDTH/DURATION = 240 px/s.
+// For the mod() expression to land every stream back on its
+// starting x at t=DURATION, speed * DURATION must be a
+// multiple of WIDTH — at 8s / 1920px that's 240 px/s, so
+// {240, 480, 720} each cross the canvas exactly 1, 2, or 3
+// times per loop with zero pixel-level seam. {240, 480} would
+// also be seamless and feels calmer; the 3-speed mix trades
+// a touch of calm for visual variety.
+const SEAMLESS_SPEEDS = [240, 480, 720];
+const FONT_SIZE_MIN = 18;
+const FONT_SIZE_MAX = 28;
+// Opacity 0.25–0.45 on white reads as ambient code-rain you
+// can read at a glance but never compete with the headline.
+// The earlier 0.06–0.13 range was technically drawn but
+// indistinguishable from pure white — snippets on white at
+// 6–13% just don't register, even on a calibrated monitor.
+const OPACITY_MIN = 0.25;
+const OPACITY_MAX = 0.45;
 const PINK = "0xFB7299"; // brand pink
 
 // Seamless-loop trick: each stream's x is computed by the
 // ffmpeg expression evaluator as
 //
-//     x = mod(xStart + speed*t, WIDTH) - WIDTH
+//     x = mod(xStart + speed*t, WIDTH)
 //
-// (mod is the ffmpeg built-in mod() function, not a JS one).
-// Because the snippet always lives at one of WIDTH discrete
-// x-offsets per loop, its position at t=DURATION equals its
-// position at t=0, so the video loops cleanly with no flash,
-// no crossfade, and no visible seam. xStart is chosen in
-// [-WIDTH, 0] so the snippet starts off-screen left and
-// enters from the left edge of the frame.
+// (mod is the ffmpeg built-in mod() function, not a JS one,
+// and behaves identically to JS `%` for non-negative moduli.)
+// xStart is uniform across [0, WIDTH) so the field reads as
+// populated from t=0. With `speed ∈ SEAMLESS_SPEEDS` (each
+// a multiple of WIDTH/DURATION), the position at t=DURATION
+// equals the position at t=0 — the loop is mathematically
+// seamless, not just visually lucky.
 
 const SWIFT_SNIPPETS = [
   "import SwiftUI",
@@ -121,12 +128,14 @@ function escapeForDrawtext(s) {
 
 const streams = [];
 for (let i = 0; i < STREAMS; i++) {
-  // Start each stream off-screen to the left, distributed across
-  // one full screen-width so the field looks populated from t=0.
-  // xStart is in [-WIDTH, 0] so the mod() expression lands the
-  // snippet cleanly on the canvas without a one-frame flash.
-  const speed = SPEED_MIN + rng() * (SPEED_MAX - SPEED_MIN);
-  const xStart = -WIDTH + rng() * WIDTH;
+  // Distribute starting positions across the full canvas width so
+  // the field reads as populated from t=0 (otherwise every snippet
+  // is at x=0 and they all march in formation from the left).
+  // Speed drawn from SEAMLESS_SPEEDS (multiples of WIDTH/DURATION)
+  // so mod() lands each stream back on xStart at the loop boundary
+  // — guaranteed seamless, not just visually lucky.
+  const speed = SEAMLESS_SPEEDS[Math.floor(rng() * SEAMLESS_SPEEDS.length)];
+  const xStart = rng() * WIDTH;
   const yStart = 40 + rng() * (HEIGHT - 80);
   const fontSize = Math.floor(FONT_SIZE_MIN + rng() * (FONT_SIZE_MAX - FONT_SIZE_MIN));
   const opacity = OPACITY_MIN + rng() * (OPACITY_MAX - OPACITY_MIN);
@@ -151,12 +160,12 @@ const drawtexts = streams
       `text='${text}'`,
       `fontsize=${s.fontSize}`,
       `fontcolor=${color}`,
-      // x: wrap-around linear slide. mod() makes the snippet
-      // re-enter from the left once it exits right; the -WIDTH
-      // offset keeps the position math non-negative inside the
-      // expression evaluator. Because x wraps cleanly over a
-      // fixed WIDTH interval, the loop seam is invisible.
-      `x='mod(${s.xStart.toFixed(2)}+${s.speed.toFixed(2)}*t\\,${WIDTH})-${WIDTH}'`,
+      // x: wrap-around linear slide. `mod` keeps the value in
+      // [0, WIDTH), so as the snippet exits the right edge it
+      // re-enters from x=0; with speed ∈ SEAMLESS_SPEEDS the
+      // position at t=DURATION equals the position at t=0 and
+      // the loop boundary is mathematically seamless.
+      `x='mod(${s.xStart.toFixed(2)}+${s.speed.toFixed(2)}*t\\,${WIDTH})'`,
       `y=${s.yStart.toFixed(2)}`,
     ].join(":");
   })
