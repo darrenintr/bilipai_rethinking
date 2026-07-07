@@ -158,38 +158,95 @@ struct PaladalaGlassContainer<Content: View>: View {
     }
 }
 
-struct PaladalaBackdrop: View {
-    @Environment(\.colorScheme) private var colorScheme
+struct PaladalaBackdrop: View, Equatable {
+    @Environment(\.colorScheme) private var envColorScheme
+    /// Test-only override. When `nil`, body uses `envColorScheme`
+    /// (production path). When non-nil, body uses the override
+    /// (unit-test path via `PaladalaBackdrop.scheme(_:)`).
+    private var overrideColorScheme: ColorScheme?
+
+    /// Designated init — production callers use `PaladalaBackdrop()`.
+    /// `colorScheme` is only used by tests via the `.scheme(_:)`
+    /// factory; the production `@Environment` path ignores it.
+    init(colorScheme: ColorScheme? = nil) {
+        self.overrideColorScheme = colorScheme
+    }
+
+    /// Resolved color scheme. `overrideColorScheme` wins so the
+    /// `Equatable` test is deterministic under unit-test conditions
+    /// (no `@Environment` injection).
+    var colorScheme: ColorScheme {
+        overrideColorScheme ?? envColorScheme
+    }
+
+    /// Equatable — keyed on the resolved color scheme. PR-A audit #10
+    /// relies on this so `RootView.body` re-evaluations are skipped
+    /// when the backdrop's color scheme is unchanged.
+    static func == (lhs: PaladalaBackdrop, rhs: PaladalaBackdrop) -> Bool {
+        lhs.colorScheme == rhs.colorScheme
+    }
+
+    /// Test seam — returns a backdrop with an explicit `colorScheme`
+    /// for the `Equatable` test. Not for production use.
+    static func scheme(_ scheme: ColorScheme) -> PaladalaBackdrop {
+        PaladalaBackdrop(colorScheme: scheme)
+    }
 
     var body: some View {
         ZStack {
             Color(uiColor: .systemBackground)
+            colorScheme == .dark ? Self.darkStyle : Self.lightStyle
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
 
+    // MARK: - Static gradient cache
+
+    /// The 3-layer gradient ZStack, cached per color scheme so
+    /// `RootView.body` re-evaluations don't rebuild the gradients.
+    private static let lightStyle: AnyView = AnyView(
+        ZStack {
             LinearGradient(
-                colors: colorScheme == .dark
-                    ? [Color.black, PaladalaTheme.violet.opacity(0.22), Color.black]
-                    : [Color.white, PaladalaTheme.cyan.opacity(0.18), PaladalaTheme.biliPink.opacity(0.14)],
+                colors: [Color.white, PaladalaTheme.cyan.opacity(0.18), PaladalaTheme.biliPink.opacity(0.14)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-
             RadialGradient(
-                colors: [PaladalaTheme.biliPink.opacity(colorScheme == .dark ? 0.22 : 0.18), .clear],
+                colors: [PaladalaTheme.biliPink.opacity(0.18), .clear],
                 center: .topTrailing,
                 startRadius: 20,
                 endRadius: 320
             )
-
             RadialGradient(
-                colors: [PaladalaTheme.cyan.opacity(colorScheme == .dark ? 0.16 : 0.14), .clear],
+                colors: [PaladalaTheme.cyan.opacity(0.14), .clear],
                 center: .bottomLeading,
                 startRadius: 30,
                 endRadius: 360
             )
         }
-        .ignoresSafeArea()
-        .accessibilityHidden(true)
-    }
+    )
+    private static let darkStyle: AnyView = AnyView(
+        ZStack {
+            LinearGradient(
+                colors: [Color.black, PaladalaTheme.violet.opacity(0.22), Color.black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [PaladalaTheme.biliPink.opacity(0.22), .clear],
+                center: .topTrailing,
+                startRadius: 20,
+                endRadius: 320
+            )
+            RadialGradient(
+                colors: [PaladalaTheme.cyan.opacity(0.16), .clear],
+                center: .bottomLeading,
+                startRadius: 30,
+                endRadius: 360
+            )
+        }
+    )
 }
 
 extension View {
