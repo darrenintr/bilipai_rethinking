@@ -919,9 +919,25 @@ final class LocalHLSProxyServer {
         fileName: String
     ) {
         let url = directory.appendingPathComponent(fileName)
-        guard let attrs = try? FileManager.default.attributesOfItem(
-            atPath: url.path
-        ),
+        // PR-B B10: previously a missing local m4s file
+        // silently fell through the `try?` to the next
+        // resolution path.  Now logged so an operator can
+        // tell whether a download was attempted at all
+        // (probe cache populated) vs. a local file was
+        // missing from disk (probe cache empty + log line).
+        let attrs: [FileAttributeKey: Any]
+        do {
+            attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        } catch {
+            diagLog(.network,
+                    "registerLocalFileSize: stat failed",
+                    details: [
+                        "path": url.path,
+                        "error": error.localizedDescription
+                    ])
+            return
+        }
+        guard let attrs = attrs as [FileAttributeKey: Any]?,
               let size = attrs[.size] as? Int64,
               size > 0 else {
             bpLog("LocalHLSProxyServer local file size failed: \(url.path)")
@@ -3029,9 +3045,28 @@ fileprivate func proxySegmentRange(
             }
         }()
 
-        guard let fileSize = (try? FileManager.default
-                .attributesOfItem(atPath: fileURL.path))?[.size]
-                as? Int64, fileSize > 0 else {
+        // PR-B B10: previously a missing local file fell through
+        // to a 404 with no diagnostic; operators couldn't tell
+        // whether the 404 was correct (file genuinely absent)
+        // or whether `attributesOfItem` had thrown on a
+        // permissions error.  Now logged so the dump
+        // distinguishes the two failure modes.
+        let fileSize: Int64? = {
+            do {
+                let attrs = try FileManager.default
+                    .attributesOfItem(atPath: fileURL.path)
+                return attrs[.size] as? Int64
+            } catch {
+                diagLog(.network,
+                        "local file stat failed",
+                        details: [
+                            "path": fileURL.path,
+                            "error": error.localizedDescription
+                        ])
+                return nil
+            }
+        }()
+        guard let fileSize, fileSize > 0 else {
             respondError(connection: connection, status: 404,
                          reason: "missing local file", connID: connID)
             return
@@ -3060,7 +3095,28 @@ fileprivate func proxySegmentRange(
         let data: Data
         do {
             let handle = try FileHandle(forReadingFrom: fileURL)
-            defer { try? handle.close() }
+            // PR-B B11: refactor `defer { try? handle.close() }`
+            // to log on close-failure.  The handle itself is
+            // already opened (this is a defer, not the open),
+            // so the failure mode is a kernel-level EBADF /
+            // EIO on close (very rare but observable when
+            // the file is concurrently replaced by a
+            // download write).  Logged so a "second-half of
+            // the byte range was 0 bytes" complaint can be
+            // disambiguated from a "second-half close failed"
+            // complaint (different remediation).
+            defer {
+                do {
+                    try handle.close()
+                } catch {
+                    diagLog(.network,
+                            "FileHandle.close failed",
+                            details: [
+                                "path": fileURL.path,
+                                "error": error.localizedDescription
+                            ])
+                }
+            }
             try handle.seek(toOffset: UInt64(clampedStart))
             data = handle.readData(ofLength: Int(byteCount))
         } catch {
@@ -3229,9 +3285,25 @@ fileprivate func proxySegmentRange(
         // on the first keyframe.  Surfaces on every fMP4 live
         // room (verified on room 7734200, 2026-07-06 via
         // `scripts/probe_live_endpoints.py`).
-        let extXMapPattern = try? NSRegularExpression(
-            pattern: #"#EXT-X-MAP:URI=\"([^\"]+)\""#
-        )
+        // PR-B B12: previously `try?` silently fell
+        // through to a no-op regex if the pattern was
+        // malformed (it isn't — the pattern is a literal —
+        // but a future change could introduce a runtime
+        // failure that then vanishes).  Now logged so the
+        // operator can see the failure rather than chase
+        // a phantom "#EXT-X-MAP line didn't rewrite"
+        // bug.
+        let extXMapPattern: NSRegularExpression?
+        do {
+            extXMapPattern = try NSRegularExpression(
+                pattern: #"#EXT-X-MAP:URI=\"([^\"]+)\""#
+            )
+        } catch {
+            diagLog(.proxy,
+                    "rewriteLiveBody: NSRegularExpression failed",
+                    details: ["error": error.localizedDescription])
+            extXMapPattern = nil
+        }
 
         var out: [String] = []
         for raw in body.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
@@ -3372,6 +3444,23 @@ fileprivate func proxySegmentRange(
                     label: "DOWNSTREAM LIVE SEGMENT"
                 )
             } catch {
+                // PR-B B2: previously the proxyLiveSegment
+                // catch silently emitted only the 502 to
+                // the client and the `error` description
+                // stringified into the response body.  No
+                // diagnostic survived in the dump — the
+                // operator couldn't distinguish a URLSession
+                // race-with-deadline timeout from an
+                // upstream connection refused from a
+                // JSON-decoding failure.  Now logged with
+                // the error description so the dump shows
+                // the exact failure mode.
+                diagLog(.proxy,
+                        "proxyLiveSegment: handler failed",
+                        details: [
+                            "conn": connID,
+                            "error": error.localizedDescription
+                        ])
                 respondError(connection: connection, status: 502,
                              reason: "upstream fetch failed: \(error)",
                              connID: connID)
@@ -3469,7 +3558,25 @@ fileprivate func proxySegmentRange(
         }
         connection.send(
             content: response,
-            completion: .contentProcessed { _ in connection.cancel() }
+            completion: .contentProcessed { _ in
+                // PR-B B7: log the connection.cancel()
+                // that fires after a successful body send.
+                // Without this line, the only signal in
+                // the dump is the connection-state
+                // transition a few ms later; the operator
+                // can't tell whether the cancel was
+                // expected (response complete) or a
+                // peer-closed race.
+                diagLog(.proxy,
+                        "respondBytes: connection.cancel",
+                        details: [
+                            "conn": connID,
+                            "label": label,
+                            "status": status,
+                            "bytesSent": body.count
+                        ])
+                connection.cancel()
+            }
         )
     }
 
@@ -3840,6 +3947,14 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     /// have already decided to fail.  Mirrors
     /// `cancelledForRetry` (L3800).
     private var cancelledForRangeMismatch = false
+    /// **PR-B B4**: gate so the "didReceive data first-chunk"
+    /// diagnostic fires exactly once per task.  Without
+    /// this gate, the log would repeat for every segment
+    /// in a long video (one line per segment) and drown
+    /// out the more interesting "first byte arrived N ms
+    /// after the request" signal that operators actually
+    /// use to spot slow-start upstream issues.
+    private var firstChunkLogged = false
 
     /// Maximum number of times we re-issue the upstream
     /// request after the first attempt.  With base backoff
@@ -3928,6 +4043,25 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     /// overlapping new request can proceed without competing
     /// with a dead socket.
     fileprivate func cancel() {
+        // PR-B B3: first-line log so the operator can
+        // see every cancellation, not just the ones that
+        // happen to trigger a downstream event.  Aggressive
+        // scrubbing produces a flurry of cancels; without
+        // this line, the only signal in the dump is the
+        // downstream-closed line, which fires after the
+        // connection state actually transitions.  Captures
+        // the cancellation reason (`cancelledForRetry` vs
+        // `downstreamBroken`) so the dump distinguishes
+        // user-initiated scrub-cancels from peer-closed
+        // connection cleans.
+        diagLog(.proxy,
+                "StreamingProxyTask.cancel",
+                details: [
+                    "id": id.uuidString,
+                    "downstreamBroken": downstreamBroken,
+                    "cancelledForRetry": cancelledForRetry,
+                    "url": upstream.absoluteString
+                ])
         task?.cancel()
         connection.cancel()
         session?.finishTasksAndInvalidate()
@@ -4443,6 +4577,23 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                 connID: connID
             )
             didSendHeader = true
+            // PR-B B4: log the first-chunk synthesis exactly
+            // once per task.  Useful diagnostic for spotting
+            // "upstream returned 200 with no headers (B站 CDN
+            // behaviour for /init)" — a slow-start signal
+            // that operators can correlate with a slow-start
+            // user-visible stall.
+            if !firstChunkLogged {
+                firstChunkLogged = true
+                diagLog(.proxy,
+                        "didReceive data first-chunk synthesised header",
+                        details: [
+                            "conn": connID,
+                            "id": id.uuidString,
+                            "bytes": data.count,
+                            "path": upstream.path
+                        ])
+            }
         }
         if LocalHLSProxyServer.wireDumpEnabled {
             downstreamChunksSent += 1
@@ -4613,6 +4764,15 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     }
 
     private func finishWhenSendsDrain() {
+        // PR-B B5: log every entry.  Without this, an
+        // operator reading the dump sees only the eventual
+        // connection.state=.cancelled transition and can't
+        // tell whether the drain finished cleanly (one
+        // pending send completed) or was a no-op (no sends
+        // in flight when the drain was scheduled).
+        diagLog(.proxy,
+                "finishWhenSendsDrain",
+                details: ["id": id.uuidString])
         guard !didFinish else { return }
         didFinish = true
         unregisterRange()

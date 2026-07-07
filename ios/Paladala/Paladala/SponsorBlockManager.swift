@@ -28,17 +28,44 @@ final class SponsorBlockManager: ObservableObject {
     private var _cachedUserID: String?
 
     private init() {
-        if let data = UserDefaults.standard.data(forKey: "paladala.sponsorBlockConfig"),
-           let saved = try? JSONDecoder().decode(SponsorConfig.self, from: data) {
-            self.config = saved
+        if let data = UserDefaults.standard.data(forKey: "paladala.sponsorBlockConfig") {
+            // PR-B B13: previously a corrupt JSON in
+            // UserDefaults silently fell back to
+            // `.default` with no diagnostic — operators
+            // couldn't tell whether the user's config was
+            // intentionally default or whether a bad write
+            // had nuked it.  Now we log the decode error
+            // so the diagnostic dump carries the
+            // distinction.
+            do {
+                let saved = try JSONDecoder().decode(SponsorConfig.self, from: data)
+                self.config = saved
+            } catch {
+                diagLog(.playback,
+                        "SponsorBlock: config decode failed, falling back to default",
+                        details: [
+                            "error": error.localizedDescription,
+                            "bytes": data.count
+                        ])
+                self.config = .default
+            }
         } else {
             self.config = .default
         }
     }
 
     private func saveConfig() {
-        if let data = try? JSONEncoder().encode(config) {
+        // PR-B B13: same rationale — encode failures used
+        // to silently drop the user's config change.  Log
+        // so a UserDefaults write failure (disk full,
+        // permissions) is observable.
+        do {
+            let data = try JSONEncoder().encode(config)
             defaults.set(data, forKey: configKey)
+        } catch {
+            diagLog(.playback,
+                    "SponsorBlock: config encode failed",
+                    details: ["error": error.localizedDescription])
         }
     }
 
@@ -129,7 +156,24 @@ final class SponsorBlockManager: ObservableObject {
                 )
 
                 Task { [uuid = segment.uuid] in
-                    try? await SponsorBlockService.shared.recordView(uuid: uuid)
+                    // PR-B B13: a SponsorBlock view-record
+                    // failure (network down at skip time,
+                    // sponsorblock.pe API down) used to
+                    // vanish silently.  Logged so operators
+                    // can correlate a high skip count in
+                    // metrics with low recordView count
+                    // (network failures) vs. successful
+                    // skips that all recorded normally.
+                    do {
+                        try await SponsorBlockService.shared.recordView(uuid: uuid)
+                    } catch {
+                        diagLog(.playback,
+                                "SponsorBlock: recordView failed",
+                                details: [
+                                    "uuid": uuid,
+                                    "error": error.localizedDescription
+                                ])
+                    }
                 }
                 return segment.endTime
             }

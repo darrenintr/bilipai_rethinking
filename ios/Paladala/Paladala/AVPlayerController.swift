@@ -347,10 +347,29 @@ final class PlayerController: ObservableObject {
         didActivateAudioSession = true
         // `.playback` lets the audio play when the silent
         // switch is on (the AliPlayer path did the same).
-        try? AVAudioSession.sharedInstance().setCategory(
-            .playback, mode: .moviePlayback, options: []
-        )
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // PR-B B15: previously both `try?` calls silently
+        // swallowed AVAudioSession errors — category set
+        // failure (audio HAL conflict) and `setActive`
+        // failure (interrupted by another app's session)
+        // both produced identical no-op behaviour with no
+        // diagnostic.  Each is now logged so an
+        // audio-output anomaly in the field can be
+        // attributed to a session-setup failure vs. a
+        // post-setup interruption.
+        do {
+            try AVAudioSession.sharedInstance().setCategory(
+                .playback, mode: .moviePlayback, options: []
+            )
+        } catch {
+            diagLog(.audio, "AVAudioSession.setCategory failed",
+                    details: ["error": error.localizedDescription])
+        }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            diagLog(.audio, "AVAudioSession.setActive failed",
+                    details: ["error": error.localizedDescription])
+        }
     }
 
     // MARK: network speed tracking
@@ -773,11 +792,36 @@ final class PlayerController: ObservableObject {
             "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
             forHTTPHeaderField: "User-Agent"
         )
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let image = UIImage(data: data) else {
+        // PR-B B1: previously `try?` swallowed both the
+        // network failure and the decode failure into a
+        // single `nil` return with no diagnostic.  Now each
+        // path emits a distinct diagLog so the operator can
+        // tell whether the failure was network (cover fetch
+        // rejected by the CDN) or decode (CDN served a
+        // non-image response or a corrupt payload).
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let image = UIImage(data: data) else {
+                diagLog(.playback,
+                        "cover download failed",
+                        details: [
+                            "url": url.absoluteString,
+                            "reason": "decode",
+                            "bytes": data.count
+                        ])
+                return nil
+            }
+            return image
+        } catch {
+            diagLog(.playback,
+                    "cover download failed",
+                    details: [
+                        "url": url.absoluteString,
+                        "reason": "fetch",
+                        "error": error.localizedDescription
+                    ])
             return nil
         }
-        return image
     }
 
     // MARK: playback orchestration
@@ -849,6 +893,18 @@ final class PlayerController: ObservableObject {
     /// `.playbackState = .idle` (preserving the previous
     /// observable state if the task finished already).
     func loadPlayback(_ playback: BiliPlayback) {
+        // PR-B B8: log before the cancel so the operator
+        // can tell whether a slow old loadTask was
+        // superseded (`hadTask=true`) or whether no prior
+        // load was running (`hadTask=false`).  Without
+        // this distinction, a slow-then-fast load pair is
+        // indistinguishable from a single cold load in
+        // the diagnostic dump.
+        let hadTask = loadTask != nil
+        if hadTask {
+            diagLog(.playback, "loadTask.cancel",
+                    details: ["hadTask": true])
+        }
         loadTask?.cancel()
         playbackState = .preparing
         playerError = nil
@@ -1541,6 +1597,19 @@ final class PlayerController: ObservableObject {
 
     func tearDown() {
         stopPolling()
+        // PR-B B9: log whether a stall watchdog was
+        // actually running at teardown.  Distinguishes a
+        // controller torn down during a real buffering
+        // pause (hadTask=true) from a controller torn down
+        // while the player was playing smoothly
+        // (hadTask=false).  Without this signal, a
+        // user-reported "pause stuck on loading" complaint
+        // is hard to disambiguate from a "tap to dismiss,
+        // playback was fine all along" complaint.
+        if stallTimerTask != nil {
+            diagLog(.playback, "stallTimer.cancel",
+                    details: ["hadTask": true])
+        }
         stallTimerTask?.cancel()
         stallTimerTask = nil
         // **PR-A Group 4 (item 9)**: clear any pending retry

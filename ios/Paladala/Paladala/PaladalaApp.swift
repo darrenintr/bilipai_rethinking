@@ -202,7 +202,21 @@ final class Logger: ObservableObject {
             if self.logs.count > self.maxLogs {
                 self.logs.removeFirst()
             }
+            // PR-B D10: previously this `print(logEntry)`
+            // fired once per diagLog line — every chunk
+            // arrival, every seek, every generation bump,
+            // every state transition.  During a long video
+            // that's tens of thousands of lines per session
+            // and the OSLog buffer rolls them in seconds.
+            // Replaced with a no-op (the entry is already in
+            // the in-memory `logs` ring buffer for the
+            // in-app viewer) so production builds don't
+            // pay the per-line stdout cost.  DEBUG builds
+            // still emit so the Xcode console shows the
+            // live stream during development.
+            #if DEBUG
             print(logEntry)
+            #endif
         }
     }
     
@@ -217,7 +231,10 @@ final class Logger: ObservableObject {
             try allLogs.write(to: tempURL, atomically: true, encoding: .utf8)
             return tempURL
         } catch {
-            print("Failed to export logs: \(error.localizedDescription)")
+            // PR-B D10: route the export failure through
+            // bpLog so it appears in the in-app log viewer
+            // and survives into the next diagnostic dump.
+            bpLog("Failed to export logs: \(error.localizedDescription)")
             return nil
         }
     }

@@ -324,7 +324,12 @@ final class DiagnosticLogger: ObservableObject {
             try report.write(to: tempURL, atomically: true, encoding: .utf8)
             return tempURL
         } catch {
-            print("Failed to export diagnostic report: \(error.localizedDescription)")
+            // PR-B D10: route the export failure through
+            // bpLog so it appears in the in-app log viewer
+            // (and survives into the next diagnostic dump)
+            // instead of being a one-shot stderr line that
+            // gets lost the moment the OSLog buffer rolls.
+            bpLog("Failed to export diagnostic report: \(error.localizedDescription)")
             return nil
         }
     }
