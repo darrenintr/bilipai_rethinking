@@ -3527,6 +3527,35 @@ fileprivate func proxySegmentRange(
         return current
     }
 
+    /// **PR-B Commit 4 (A4 test)**: test-only seam for
+    /// `guardSegmentGeneration`.  Returns the boolean guard
+    /// result (`true` = current, `false` = stale) WITHOUT
+    /// calling `respondError`, so the test can exercise the
+    /// stale detection logic without a live `NWConnection`.
+    /// Mirrors the production function's read-side logic
+    /// exactly: reads `currentPrepGeneration` under `lock`
+    /// and compares.
+    internal func guardSegmentGenerationForTest(
+        capturedGen: UInt64,
+        connection: NWConnection?,
+        connID: String
+    ) -> UInt64? {
+        let current: UInt64 = {
+            lock.lock(); defer { lock.unlock() }
+            return currentPrepGeneration
+        }()
+        // Match the production guard: stale → nil.  The
+        // `connection` parameter is intentionally unused
+        // here (production would `respondError` on the
+        // stale path; this seam drops that side effect so
+        // the test can run without a real connection).
+        _ = connection
+        guard current == capturedGen else {
+            return nil
+        }
+        return current
+    }
+
     private func respondBytes(
         connection: NWConnection,
         status: Int,

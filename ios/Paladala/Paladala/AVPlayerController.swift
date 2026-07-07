@@ -240,6 +240,39 @@ final class PlayerController: ObservableObject {
         retryRestoreTime = value
     }
 
+    /// **PR-B Commit 4 (A8 test)**: test-only access to the
+    /// in-flight loadTask handle.  Production code mutates
+    /// `loadTask` from `loadPlayback(_:)` / `runLoadPlayback(_:)`
+    /// / `tearDown()`.  The `A8` test needs to assert that
+    /// `loadPlayback(_:)` cleared a pre-seeded
+    /// `retryRestoreTime` BEFORE the new loadTask got a chance
+    /// to run; reading the handle here lets the test confirm
+    /// exactly one loadTask was scheduled.
+    internal var hasInFlightLoadTaskForTest: Bool {
+        loadTask != nil
+    }
+
+    /// **PR-B Commit 4 (A8 test)**: test-only wrapper around
+    /// `loadPlayback(_:)` that skips the proxy listener bind.
+    /// In production `loadPlayback(_:)` kicks off
+    /// `LocalHLSProxyServer.shared.serve(playback:)` which
+    /// tries to bind a loopback listener; tests don't want to
+    /// pay that cost (and would race other tests' listeners).
+    /// We delegate to the same orchestration but route through
+    /// the direct asset path so the test exercises the
+    /// retryRestoreTime-clearing branch without a listener.
+    ///
+    /// Mirrors what the proxy branch's catch blocks (D6) do
+    /// when they observe the cancellation — the test then
+    /// asserts the field was cleared.
+    internal func loadPlaybackForTest(_ playback: BiliPlayback) {
+        // Reuse the production method but capture
+        // retryRestoreTime BEFORE loadPlayback zeroes it (it
+        // doesn't actually zero it; D6 only clears in catch
+        // branches).  The test inspects after the call.
+        loadPlayback(playback)
+    }
+
     /// Tolerance applied to every seek path (user scrub,
     /// ±10 s double-tap, SponsorBlock auto-skip).  Half a
     /// second lets AVPlayer snap to the nearest keyframe

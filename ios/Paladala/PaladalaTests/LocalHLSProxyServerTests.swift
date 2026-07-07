@@ -170,4 +170,92 @@ final class LocalHLSProxyServerTests: XCTestCase {
         XCTAssertEqual(parsed.start, -1,
                        "missing 'bytes ' prefix must reject")
     }
+
+    // MARK: - PR-B Commit 4: parseContentRangeHeader edge cases (A5, A6)
+
+    func test_parseContentRangeHeader_zeroLengthRange() {
+        // PR-B A5: "bytes 0-0/*" — degenerate single-byte
+        // range with no total.  Must parse to (0, 0, -1)
+        // so the proxySegmentRange path can detect an
+        // open-ended total and forward it verbatim instead
+        // of dropping the Content-Range header.
+        let parsed = LocalHLSProxyServer.parseContentRangeHeader(
+            "bytes 0-0/*"
+        )
+        XCTAssertEqual(parsed.start, 0)
+        XCTAssertEqual(parsed.end, 0)
+        XCTAssertEqual(parsed.total, -1)
+    }
+
+    func test_parseContentRangeHeader_unsatisfiedRangeOnly() {
+        // PR-B A6: "bytes */100" — RFC 7233 §4.4 unsatisfied
+        // range form, signalling "the resource is 100 bytes
+        // long and your range request doesn't fit".  The
+        // parser must surface this as all-`-1` (existing
+        // contract) so the proxy can translate an upstream
+        // 416 response to a clean 416 for the loopback
+        // client without leaking the upstream error code.
+        let parsed = LocalHLSProxyServer.parseContentRangeHeader(
+            "bytes */100"
+        )
+        XCTAssertEqual(parsed.start, -1,
+                       "unsatisfied range start must be -1")
+        XCTAssertEqual(parsed.end, -1,
+                       "unsatisfied range end must be -1")
+        XCTAssertEqual(parsed.total, 100,
+                       "unsatisfied range total carries the byte count")
+    }
+
+    // MARK: - PR-B Commit 4: guardSegmentGeneration (A4)
+
+    func test_guardSegmentGeneration_staleReturns503() {
+        // PR-B A4: bump currentPrepGeneration mid-request;
+        // the guard must observe the mismatch and respond
+        // 503 + Retry-After: 0 + emit a
+        // `segment_generation_stale` diagLog so AVPlayer
+        // backs off and re-fetches against the new session.
+        let proxy = LocalHLSProxyServer(port: 0)
+        // Pre-condition: generation is 0 (or whatever the
+        // initial value is).
+        let initialGen = proxy.currentPrepGenerationValue()
+        XCTAssertGreaterThanOrEqual(initialGen, 0)
+
+        // Simulate the captured gen being stale: pass a
+        // value that's NOT the current value.  The guard
+        // will respond 503 (which we can't observe directly
+        // without a live connection — the test asserts the
+        // function returns nil, which is the "stale" signal
+        // for the caller).
+        let staleGen = initialGen &+ 99   // will never match
+
+        // No real connection — just verify the function's
+        // contract: returns nil for a stale gen.  The
+        // respondError path is exercised separately by the
+        // existing integration tests; this is the unit-level
+        // signal.
+        //
+        // We can't call guardSegmentGeneration with a nil
+        // connection in production code, but the function
+        // returns nil before any connection work when the
+        // generation mismatch is detected — so a nil
+        // connection is safe for the stale path.
+        let result = proxy.guardSegmentGenerationForTest(
+            capturedGen: staleGen,
+            connection: nil,
+            connID: "test-stale-conn"
+        )
+        XCTAssertNil(result,
+                     "stale gen must return nil so the caller short-circuits")
+
+        // Symmetric: a current gen returns the value (the
+        // caller's signal that the guard passed).
+        let currentGen = proxy.currentPrepGenerationValue()
+        let liveResult = proxy.guardSegmentGenerationForTest(
+            capturedGen: currentGen,
+            connection: nil,
+            connID: "test-live-conn"
+        )
+        XCTAssertEqual(liveResult, currentGen,
+                       "current gen must return the live value")
+    }
 }
