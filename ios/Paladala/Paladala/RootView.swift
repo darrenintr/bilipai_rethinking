@@ -429,68 +429,84 @@ private struct PhoneRootView: View {
     var body: some View {
         NavigationStack(path: $router.path) {
             TabView(selection: $router.selectedTab) {
-                HomeView(repository: repository, heroNamespace: heroNamespace)
-                    .tabItem {
-                        // Apple's recommended "select bounce" — the
-                        // SF Symbol scales up + back down when the
-                        // value flips. Previously the binder was
-                        // `selectedTab` itself, which made every
-                        // tab icon observe the same value and
-                        // bounce on every switch. The bool
-                        // per-tab now flips only for the freshly
-                        // selected one, matching HIG.
-                        Label {
-                            Text(MainTab.home.title)
-                        } icon: {
-                            Image(systemName: MainTab.home.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.home)
-                        }
+                // Each tab body is wrapped in LazyTab so the inner
+                // View (and its `@StateObject` / @State) is only
+                // constructed when the user first selects that tab.
+                // State is preserved across tab switches via the
+                // wrapper's own @State, so going to Settings and back
+                // does not re-init HomeView. PR-A, audit #5.
+                LazyTab(tag: MainTab.home, activeTag: router.selectedTab) {
+                    HomeView(repository: repository, heroNamespace: heroNamespace)
+                }
+                .tabItem {
+                    // Apple's recommended "select bounce" — the
+                    // SF Symbol scales up + back down when the
+                    // value flips. Previously the binder was
+                    // `selectedTab` itself, which made every
+                    // tab icon observe the same value and
+                    // bounce on every switch. The bool
+                    // per-tab now flips only for the freshly
+                    // selected one, matching HIG.
+                    Label {
+                        Text(MainTab.home.title)
+                    } icon: {
+                        Image(systemName: MainTab.home.symbolName)
+                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.home)
                     }
-                    .tag(MainTab.home)
+                }
+                .tag(MainTab.home)
 
-                DynamicFeedView(repository: repository, heroNamespace: heroNamespace)
-                    .tabItem {
-                        Label {
-                            Text(MainTab.dynamic.title)
-                        } icon: {
-                            Image(systemName: MainTab.dynamic.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.dynamic)
-                        }
+                LazyTab(tag: MainTab.dynamic, activeTag: router.selectedTab) {
+                    DynamicFeedView(repository: repository, heroNamespace: heroNamespace)
+                }
+                .tabItem {
+                    Label {
+                        Text(MainTab.dynamic.title)
+                    } icon: {
+                        Image(systemName: MainTab.dynamic.symbolName)
+                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.dynamic)
                     }
-                    .tag(MainTab.dynamic)
+                }
+                .tag(MainTab.dynamic)
 
-                LiveRoomsView(repository: repository)
-                    .tabItem {
-                        Label {
-                            Text(MainTab.live.title)
-                        } icon: {
-                            Image(systemName: MainTab.live.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.live)
-                        }
+                LazyTab(tag: MainTab.live, activeTag: router.selectedTab) {
+                    LiveRoomsView(repository: repository)
+                }
+                .tabItem {
+                    Label {
+                        Text(MainTab.live.title)
+                    } icon: {
+                        Image(systemName: MainTab.live.symbolName)
+                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.live)
                     }
-                    .tag(MainTab.live)
+                }
+                .tag(MainTab.live)
 
-                MusicHomeView(repository: repository)
-                    .tabItem {
-                        Label {
-                            Text(MainTab.music.title)
-                        } icon: {
-                            Image(systemName: MainTab.music.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.music)
-                        }
+                LazyTab(tag: MainTab.music, activeTag: router.selectedTab) {
+                    MusicHomeView(repository: repository)
+                }
+                .tabItem {
+                    Label {
+                        Text(MainTab.music.title)
+                    } icon: {
+                        Image(systemName: MainTab.music.symbolName)
+                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.music)
                     }
-                    .tag(MainTab.music)
+                }
+                .tag(MainTab.music)
 
-                ProfileSettingsView(repository: repository)
-                    .tabItem {
-                        Label {
-                            Text(MainTab.profile.title)
-                        } icon: {
-                            Image(systemName: MainTab.profile.symbolName)
-                                .symbolEffect(.bounce, value: router.selectedTab == MainTab.profile)
-                        }
+                LazyTab(tag: MainTab.profile, activeTag: router.selectedTab) {
+                    ProfileSettingsView(repository: repository)
+                }
+                .tabItem {
+                    Label {
+                        Text(MainTab.profile.title)
+                    } icon: {
+                        Image(systemName: MainTab.profile.symbolName)
+                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.profile)
                     }
-                    .tag(MainTab.profile)
+                }
+                .tag(MainTab.profile)
             }
             .paladalaTabBarBehavior()
             .navigationDestination(for: BiliVideo.self) { video in
