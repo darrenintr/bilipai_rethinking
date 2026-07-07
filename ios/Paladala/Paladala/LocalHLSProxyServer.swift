@@ -1036,7 +1036,14 @@ final class LocalHLSProxyServer {
     /// from seeing a different segment structure mid-stream
     /// when the async SIDX fetch completes after the playlist
     /// was already served.
-    fileprivate enum SegmentationMode: Hashable {
+    ///
+    /// **PR-A Group 5 fix**: was `fileprivate`.  Bumped to
+    /// `internal` because `decidedModes` (a dictionary keyed
+    /// by `URL` and valued by this enum) is `internal` for
+    /// test inspection of the cache-lock-in fix (item 6).
+    /// Swift forbids a more-public property type from
+    /// referencing a less-public nested type.
+    internal enum SegmentationMode: Hashable {
         /// SIDX-driven fragments with real byte ranges and
         /// durations (the spec-conformant path).
         case sidx
@@ -2433,6 +2440,16 @@ final class LocalHLSProxyServer {
                     "locked": locked
                 ])
         return (mode, currentPrepGeneration)
+    }
+
+    /// **PR-A Group 5**: test-only forwarder for
+    /// `resolveSegmentationMode`.  Lets the unit test suite
+    /// exercise the cache lock-in / no-lock-in behaviour
+    /// without having to construct a full DASH session.
+    internal func resolveSegmentationModeForTest(
+        for track: BiliDashSource.Track
+    ) -> (SegmentationMode, UInt64) {
+        resolveSegmentationMode(for: track)
     }
 
     // MARK: segment proxy

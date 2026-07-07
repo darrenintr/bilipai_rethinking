@@ -210,6 +210,16 @@ final class PlayerController: ObservableObject {
     /// snapshot/restore logic lands in Group 4.
     internal private(set) var retryRestoreTime: Double?
 
+    /// **PR-A Group 5**: test-only setter for `retryRestoreTime`.
+    /// Production code only writes this field from
+    /// `retryPlayback()` (proxy branch); tests need to seed a
+    /// pending restore target without firing the proxy load
+    /// sequence, so we expose a tiny hook behind a `_ForTest`
+    /// suffix that greps cleanly.
+    internal func setRetryRestoreTimeForTest(_ value: Double?) {
+        retryRestoreTime = value
+    }
+
     /// Tolerance applied to every seek path (user scrub,
     /// ±10 s double-tap, SponsorBlock auto-skip).  Half a
     /// second lets AVPlayer snap to the nearest keyframe
