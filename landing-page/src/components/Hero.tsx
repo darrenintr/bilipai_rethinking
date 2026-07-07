@@ -4,121 +4,20 @@ import { Github, ArrowRight, BookOpen } from "lucide-react";
 
 export default function Hero() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = useReducedMotion();
 
   // Light hero background — apple.com-style near-white surface
-  // with a faint brand-tinted wash. The dark canvas code-rain
-  // motif is demoted to a tiny ambient band so the headline
-  // and product feel are the visual focus.
+  // overlaid with a pre-rendered ffmpeg drawtext loop of pink
+  // Swift snippets drifting left→right. The mod()-wrapped x
+  // expression makes the loop seamless; snippets sit at 6–13%
+  // opacity on a white canvas so they're felt, not read. When
+  // prefers-reduced-motion is set, the video stays parked on
+  // its poster frame and never plays.
   useEffect(() => {
+    if (prefersReducedMotion) return;
     if (videoRef.current) {
       videoRef.current.play().catch(() => {});
     }
-  }, []);
-
-  useEffect(() => {
-    if (prefersReducedMotion) return;
-
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
-
-    let animationFrameId: number;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let width = 0;
-    let height = 0;
-
-    const handleResize = (entries: ResizeObserverEntry[]) => {
-      for (const entry of entries) {
-        const { width: w, height: h } = entry.contentRect;
-        width = w;
-        height = h;
-        canvas.width = w;
-        canvas.height = h;
-      }
-    };
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      requestAnimationFrame(() => handleResize(entries));
-    });
-    resizeObserver.observe(container);
-
-    const swiftSnippets = [
-      "import SwiftUI",
-      "import AVKit",
-      "import AVFoundation",
-      "struct VideoDetailView",
-      "LocalHLSProxyServer()",
-      "AVPlayer(url: streamURL)",
-      "struct MiniPlayerOverlay",
-      "BilibiliAPIClient.shared",
-      "let haptic = Haptics.tap()",
-      "struct VideoCard: View",
-      "class AuthStore",
-      "struct RootView: View",
-    ];
-
-    interface Stream {
-      x: number;
-      y: number;
-      speed: number;
-      text: string;
-      fontSize: number;
-      opacity: number;
-    }
-
-    // Far fewer streams + much lower opacity than before — the
-    // code rain is now an ambient texture, not the visual focus.
-    const streams: Stream[] = [];
-    for (let i = 0; i < 8; i++) {
-      streams.push({
-        x: Math.random() * 1000 - 200,
-        y: Math.random() * 200,
-        speed: 0.2 + Math.random() * 0.4,
-        text: swiftSnippets[Math.floor(Math.random() * swiftSnippets.length)],
-        fontSize: Math.floor(Math.random() * 3) + 10,
-        opacity: 0.04 + Math.random() * 0.06,
-      });
-    }
-
-    const tick = () => {
-      if (!ctx || width === 0 || height === 0) {
-        animationFrameId = requestAnimationFrame(tick);
-        return;
-      }
-
-      ctx.clearRect(0, 0, width, height);
-
-      streams.forEach((s) => {
-        s.x += s.speed;
-
-        if (s.x > width + 150) {
-          s.x = -150 - Math.random() * 200;
-          s.y = Math.random() * height;
-          s.text = swiftSnippets[Math.floor(Math.random() * swiftSnippets.length)];
-          s.opacity = 0.04 + Math.random() * 0.06;
-        }
-
-        ctx.save();
-        ctx.font = `500 ${s.fontSize}px ui-monospace, "SF Mono", Menlo, monospace`;
-        ctx.fillStyle = `rgba(251, 114, 153, ${s.opacity})`;
-        ctx.fillText(s.text, s.x, s.y);
-        ctx.restore();
-      });
-
-      animationFrameId = requestAnimationFrame(tick);
-    };
-
-    tick();
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-      resizeObserver.disconnect();
-    };
   }, [prefersReducedMotion]);
 
   return (
@@ -126,19 +25,29 @@ export default function Hero() {
       className="relative w-full min-h-screen flex items-center justify-center overflow-hidden bg-white text-[color:var(--color-text-primary)] pt-24 pb-24 scroll-mt-20"
       id="hero"
     >
-      {/* Ambient code-rain band, demoted to a thin strip with
-          low opacity. Lives behind a wash so it never competes
-          with the headline. */}
-      <div
-        ref={containerRef}
-        className="absolute inset-x-0 top-20 h-40 z-0 overflow-hidden pointer-events-none"
-      >
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
-      </div>
+      {/* Ambient code-rain backdrop, full-bleed. object-cover keeps
+          the field populated regardless of viewport aspect — the
+          snippet density (24 snippets across 1920×1080) means even
+          a portrait crop retains ~10 visible streams. The section's
+          own bg-white shows through any seams so the background
+          reads as continuous surface, not a tacked-on video. */}
+      <video
+        ref={videoRef}
+        autoPlay={!prefersReducedMotion}
+        loop
+        muted
+        playsInline
+        preload="auto"
+        poster="/hero-bg-poster.jpg"
+        aria-hidden="true"
+        className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none select-none"
+        src="/hero-bg.mp4"
+      />
 
       {/* Brand-tinted bottom wash so the hero stays light while
-          carrying a hint of identity. */}
-      <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[color:var(--color-bg-secondary)] to-transparent z-0 pointer-events-none" />
+          carrying a hint of identity. Sits on top of the video so
+          the wash itself never gets overdrawn by drifting snippets. */}
+      <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[color:var(--color-bg-secondary)] to-transparent z-[1] pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-5xl mx-auto px-6 text-center flex flex-col items-center">
         <motion.p
@@ -223,10 +132,10 @@ export default function Hero() {
         </motion.div>
       </div>
 
-      {/* Hidden video element kept as a future asset slot for the
-          sticky-shrink hero pattern. Loaded silently when present. */}
+      {/* Original placeholder asset (hero.mp4) kept around as the
+          future-asset slot for the sticky-shrink hero pattern. Loaded
+          silently when present, never displayed. */}
       <video
-        ref={videoRef}
         autoPlay
         loop
         muted
