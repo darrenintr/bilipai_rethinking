@@ -102,12 +102,12 @@ private extension FeedCacheResult {
         case .success(let cards):
             return cards
         case .missing:
-            DiagnosticLogger.shared.log(.feed, "seed_cache_unavailable",
-                                        details: ["reason": "missing"])
+            diagLog(.feed, "seed_cache_unavailable",
+                    details: ["reason": "missing"])
             return nil
         case .corrupt(let reason):
-            DiagnosticLogger.shared.log(.feed, "seed_cache_unavailable",
-                                        details: ["reason": reason])
+            diagLog(.feed, "seed_cache_unavailable",
+                    details: ["reason": reason])
             return nil
         }
     }

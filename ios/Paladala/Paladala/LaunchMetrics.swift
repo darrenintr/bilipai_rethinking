@@ -88,7 +88,7 @@ struct LaunchMilestone: Codable {
 /// before `Bundle.main` is fully resolved (the signposter is a
 /// `static let` initialised lazily on first access). The subsystem
 /// has to be a compile-time constant.
-final class LaunchMetrics {
+final class LaunchMetrics: @unchecked Sendable {
     // PR-C Task 5: `nonisolated` so callers from any
     // isolation domain (URLSession callback, BGTaskScheduler,
     // app delegate) can read the singleton's static without
@@ -227,11 +227,7 @@ final class LaunchMetrics {
         if let tag = event.tag {
             details["tag"] = tag.rawValue
         }
-        DiagnosticLogger.shared.log(
-            .app,
-            "launch.\(key)",
-            details: details
-        )
+        diagLog(.app, "launch.\(key)", details: details)
     }
 
     /// Per-event key used for both the in-memory gate and the

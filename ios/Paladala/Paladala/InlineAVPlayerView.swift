@@ -406,7 +406,7 @@ final class InlinePiPHolder: ObservableObject {
     /// bookkeeping simple — the alternative (a single
     /// multiplexed `for await` over `merge(...)`) is
     /// denser to read for four event types.
-    private var observationTasks: [Task<Void, Never>] = []
+    private var observationTokens: [NSObjectProtocol] = []
 
     init() {
         // The actual `InlinePiPController` is created in
@@ -418,7 +418,7 @@ final class InlinePiPHolder: ObservableObject {
     }
 
     deinit {
-        observationTasks.forEach { $0.cancel() }
+        observationTokens.forEach(NotificationCenter.default.removeObserver)
     }
 
     /// Hook the inline PiP controller into the holder.  Called
@@ -462,22 +462,13 @@ final class InlinePiPHolder: ObservableObject {
             .paladalaPiPDidStop
         ]
         for name in names {
-            observationTasks.append(
-                // PR-C Task 5: the parent `Task` is now
-                // `@MainActor`-annotated so the
-                // `NotificationCenter.notifications(named:)`
-                // AsyncSequence delivers its `Notification`
-                // element into the same isolation domain as
-                // the consumer (`refreshPiPPossible()` is
-                // `@MainActor`).  Under Swift 6, the
-                // `Notification` value is not Sendable so a
-                // non-isolated consumer would error out
-                // when re-entering the MainActor via
-                // `await self?.refreshPiPPossible()`.
-                Task { @MainActor [weak self] in
-                    for await _ in NotificationCenter.default.notifications(named: name) {
-                        self?.refreshPiPPossible()
-                    }
+            observationTokens.append(
+                NotificationCenter.default.addObserver(
+                    forName: name,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    self?.refreshPiPPossible()
                 }
             )
         }

@@ -67,7 +67,7 @@ enum ProxyServerError: Error {
 /// A 127.0.0.1-only HTTP server that exposes an HLS manifest
 /// for a single `BiliPlayback`.  Always access through
 /// `LocalHLSProxyServer.shared`.
-final class LocalHLSProxyServer {
+final class LocalHLSProxyServer: @unchecked Sendable {
     /// OS-chosen port (`0`).  `NWListener.start` picks a real
     /// loopback port on its own; the `requiredLocalEndpoint`
     /// setting in `ensureListener()` uses `.any`, so passing
@@ -279,8 +279,8 @@ final class LocalHLSProxyServer {
             try await server.ensureListenerAsync()
             try await server.waitForListener(timeoutMs: 500, pollIntervalMs: 5)
         } catch {
-            DiagnosticLogger.shared.log(.playback, "proxy_prewarm_failed",
-                                        details: ["error": String(describing: error)])
+            diagLog(.playback, "proxy_prewarm_failed",
+                    details: ["error": String(describing: error)])
         }
     }
 
@@ -323,10 +323,7 @@ final class LocalHLSProxyServer {
         // end up reading from disk (localContext) or
         // upstream (CDN) is decided later by `isLocalMode()`
         // based on this same flag.
-        lock.lock()
-        currentPlayback = playback
-        localContext = playback.localContext
-        lock.unlock()
+        setCurrentPlayback(playback)
 
         // Seed probe cache synchronously when the file is
         // already on disk; otherwise kick off upstream
@@ -436,6 +433,42 @@ final class LocalHLSProxyServer {
         return currentPrepGeneration
     }
 
+    private func setCurrentPlayback(_ playback: BiliPlayback) {
+        lock.lock()
+        currentPlayback = playback
+        localContext = playback.localContext
+        lock.unlock()
+    }
+
+    private func setCurrentLivePlayback(_ playback: BiliLivePlayback) {
+        lock.lock()
+        currentLivePlayback = playback
+        lock.unlock()
+    }
+
+    private func setFailoverIndex(_ index: Int, for primaryURL: URL) {
+        lock.lock()
+        failoverIndex[primaryURL] = index
+        lock.unlock()
+    }
+
+    private func publishPreparedManifest(_ prepared: PreparedPlayback) -> (URL?, URL?) {
+        lock.lock()
+        let videoURL = currentPlayback?.dash?.video.baseURL
+        let audioURL = currentPlayback?.dash?.audio?.baseURL
+        trackSegmentIndex.removeAll()
+        decidedModes.removeAll()
+        if let videoURL {
+            trackSegmentIndex[videoURL] = prepared.video
+        }
+        if let audio = prepared.audio, let audioURL {
+            trackSegmentIndex[audioURL] = audio
+        }
+        state = .manifestReady(prepared)
+        lock.unlock()
+        return (videoURL, audioURL)
+    }
+
     /// Serve a Bilibili live HLS stream.
     ///
     /// Live streams are different from the VOD case in two ways:
@@ -500,9 +533,7 @@ final class LocalHLSProxyServer {
         // Stash the live state under lock.  Routes read it on
         // every request so swapping `serveLive(...)` is
         // immediately observable.
-        lock.lock()
-        currentLivePlayback = playback
-        lock.unlock()
+        setCurrentLivePlayback(playback)
 
         guard let base = safeBaseURL else {
             throw PlaybackPreparationError.noDash
@@ -584,10 +615,10 @@ final class LocalHLSProxyServer {
     /// to preserve the per-track 10s budget introduced in
     /// build 180 when the parallel `async let` shape would
     /// otherwise lose the timeout.
-    private func raceWithDeadline<T>(
+    private func raceWithDeadline<T: Sendable>(
         seconds: Double,
         label: String,
-        _ work: @escaping () async throws -> T
+        _ work: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {
@@ -641,25 +672,7 @@ final class LocalHLSProxyServer {
         // can't nil out `currentPlayback` mid-publish.
         let videoURL: URL?
         let audioURL: URL?
-        lock.lock()
-        videoURL = currentPlayback?.dash?.video.baseURL
-        audioURL = currentPlayback?.dash?.audio?.baseURL
-        // Atomically swap the manifest + decision state +
-        // generation counter under one lock acquisition
-        // so a `/video.m3u8` request can never observe a
-        // half-published state.  `videoURL` / `audioURL`
-        // were read above under the same lock; `lock`
-        // is still held here.
-        trackSegmentIndex.removeAll()
-        decidedModes.removeAll()
-        if let videoURL {
-            trackSegmentIndex[videoURL] = prepared.video
-        }
-        if let audio = prepared.audio, let audioURL {
-            trackSegmentIndex[audioURL] = audio
-        }
-        state = .manifestReady(prepared)
-        lock.unlock()
+        (videoURL, audioURL) = publishPreparedManifest(prepared)
 
         diagLog(.playback, "Playback manifest ready", details: [
             "generation": generation,
@@ -1310,9 +1323,7 @@ final class LocalHLSProxyServer {
                     referer: referer,
                     sourceURL: candidate
                 )
-                lock.lock()
-                failoverIndex[track.baseURL] = idx
-                lock.unlock()
+                setFailoverIndex(idx, for: track.baseURL)
                 return index
             } catch is CancellationError {
                 throw CancellationError()
@@ -3919,7 +3930,7 @@ fileprivate func proxySegmentRange(
     }
 }
 
-private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
+private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     let id = UUID()
 
     /// Strong reference to the owning proxy.  The
@@ -4342,8 +4353,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             completionHandler(.cancel)
             return
         }
-        guard let server,
-              let http = response as? HTTPURLResponse else {
+        guard let http = response as? HTTPURLResponse else {
             completionHandler(.cancel)
             finishWithError(reason: "bad upstream response")
             return

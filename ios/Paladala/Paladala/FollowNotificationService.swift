@@ -42,7 +42,7 @@ import UserNotifications
 ///
 /// Plus the actual fetch is at most one HTTP round-trip —
 /// no extra threads, no timers, no scroll observers.
-final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegate {
+final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     // PR-C Task 5: `nonisolated` so the singleton is
     // reachable from any isolation domain.  The init is
     // `nonisolated` too — `super.init()` is fine from any

@@ -226,7 +226,10 @@ private extension Int64 {
     /// matches what the user sees in iOS's own storage
     /// settings.
     var compactFileSize: String {
-        Self.fileSizeFormatter.string(fromByteCount: self)
+        let f = ByteCountFormatter()
+        f.allowedUnits = [.useMB, .useGB, .useKB]
+        f.countStyle = .file
+        return f.string(fromByteCount: self)
     }
 
     /// One formatter per process.  `ByteCountFormatter` is
@@ -240,10 +243,4 @@ private extension Int64 {
     /// MainActor hop (the surrounding `View` body is
     /// already MainActor, but isolating the property
     /// would require an `await` on every cell render).
-    nonisolated private static let fileSizeFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = [.useMB, .useGB, .useKB]
-        f.countStyle = .file
-        return f
-    }()
 }
