@@ -463,16 +463,20 @@ final class InlinePiPHolder: ObservableObject {
         ]
         for name in names {
             observationTasks.append(
-                Task { [weak self] in
+                // PR-C Task 5: the parent `Task` is now
+                // `@MainActor`-annotated so the
+                // `NotificationCenter.notifications(named:)`
+                // AsyncSequence delivers its `Notification`
+                // element into the same isolation domain as
+                // the consumer (`refreshPiPPossible()` is
+                // `@MainActor`).  Under Swift 6, the
+                // `Notification` value is not Sendable so a
+                // non-isolated consumer would error out
+                // when re-entering the MainActor via
+                // `await self?.refreshPiPPossible()`.
+                Task { @MainActor [weak self] in
                     for await _ in NotificationCenter.default.notifications(named: name) {
-                        // The AsyncSequence delivers on the
-                        // posting thread (typically the
-                        // AVPiP delegate callbacks fire on
-                        // the main thread); we re-enter the
-                        // MainActor explicitly so the call
-                        // site stays Sendable-clean under
-                        // Swift 6.
-                        await self?.refreshPiPPossible()
+                        self?.refreshPiPPossible()
                     }
                 }
             )

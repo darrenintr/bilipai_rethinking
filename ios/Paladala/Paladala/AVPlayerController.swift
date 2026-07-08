@@ -1354,16 +1354,34 @@ final class PlayerController: ObservableObject {
             center.addObserver(
                 forName: .paladalaPiPDidStart, object: nil, queue: .main
             ) { [weak self] _ in
-                self?.isPictureInPictureActive = true
-                self?.updateNowPlaying()
+                // `queue: .main` guarantees this closure
+                // runs on the main thread, and the closure
+                // body touches `@MainActor`-isolated state
+                // (`isPictureInPictureActive` /
+                // `updateNowPlaying()`).  `MainActor.
+                // assumeIsolated` lets us bridge the
+                // non-Sendable closure boundary to the
+                // MainActor isolation domain without an
+                // `await` hop (the hop would force a
+                // Task, which in turn is fire-and-forget —
+                // we want a synchronous state flip so the
+                // MPNowPlayingInfoCenter update lands in
+                // the same runloop turn as the PiP
+                // notification).
+                MainActor.assumeIsolated {
+                    self?.isPictureInPictureActive = true
+                    self?.updateNowPlaying()
+                }
             }
         )
         pipObservers.append(
             center.addObserver(
                 forName: .paladalaPiPDidStop, object: nil, queue: .main
             ) { [weak self] _ in
-                self?.isPictureInPictureActive = false
-                self?.updateNowPlaying()
+                MainActor.assumeIsolated {
+                    self?.isPictureInPictureActive = false
+                    self?.updateNowPlaying()
+                }
             }
         )
     }
@@ -1856,7 +1874,13 @@ final class PlayerController: ObservableObject {
         }
     }
 
-    private static func describe(itemStatus status: AVPlayerItem.Status) -> String {
+    /// `nonisolated` because the body is a pure switch over
+    /// an `AVPlayerItem.Status` — no @MainActor state
+    /// touched.  The KVO observer (`observe(\.status, ...)`)
+    /// is a non-Sendable closure that fires on the KVO
+    /// thread, so calling the @MainActor default would
+    /// require a Task hop just to read the status name.
+    nonisolated private static func describe(itemStatus status: AVPlayerItem.Status) -> String {
         switch status {
         case .unknown:
             return "unknown"

@@ -182,8 +182,20 @@ struct PaladalaBackdrop: View, Equatable {
     /// Equatable — keyed on the resolved color scheme. PR-A audit #10
     /// relies on this so `RootView.body` re-evaluations are skipped
     /// when the backdrop's color scheme is unchanged.
-    static func == (lhs: PaladalaBackdrop, rhs: PaladalaBackdrop) -> Bool {
-        lhs.colorScheme == rhs.colorScheme
+    ///
+    /// PR-C Task 5: marked `nonisolated` so the `==` operator
+    /// satisfies the `Equatable` protocol's nonisolated
+    /// requirement (Swift 6's strict check rejects a
+    /// @MainActor-isolated operator where the protocol asks
+    /// for a nonisolated one).  The body wraps the
+    /// `colorScheme` access in `MainActor.assumeIsolated`
+    /// because the call sites are always on the main thread
+    /// (XCTest's `XCTAssertEqual` runs on main; SwiftUI's
+    /// diffing for `View` re-evaluation also runs on main).
+    nonisolated static func == (lhs: PaladalaBackdrop, rhs: PaladalaBackdrop) -> Bool {
+        MainActor.assumeIsolated {
+            lhs.colorScheme == rhs.colorScheme
+        }
     }
 
     /// Test seam — returns a backdrop with an explicit `colorScheme`

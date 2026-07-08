@@ -89,7 +89,14 @@ struct LaunchMilestone: Codable {
 /// `static let` initialised lazily on first access). The subsystem
 /// has to be a compile-time constant.
 final class LaunchMetrics {
-    static let shared = LaunchMetrics()
+    // PR-C Task 5: `nonisolated` so callers from any
+    // isolation domain (URLSession callback, BGTaskScheduler,
+    // app delegate) can read the singleton's static without
+    // first hopping to a specific actor.  The init is
+    // private, the static is a `let`, and the only state
+    // that needs to be guarded is `milestones` / `eventNames`
+    // — both protected by an internal `NSLock`.
+    nonisolated static let shared = LaunchMetrics()
 
     /// The `OSLog` handle for the cold-start signpost category.
     /// Shared across all milestones so Instruments shows them
@@ -121,7 +128,7 @@ final class LaunchMetrics {
     /// a no-op for them.
     private var firedEvents: Set<String> = []
 
-    private init() {}
+    nonisolated private init() {}
 
     /// Record a milestone. Safe to call from any thread. The first
     /// call anchors `startMachTime` to "now"; every subsequent

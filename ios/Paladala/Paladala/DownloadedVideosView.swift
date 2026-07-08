@@ -234,8 +234,13 @@ private extension Int64 {
     /// resolution) and the row body fires it on every
     /// visible cell during scroll — without caching the
     /// downloads list takes a measurable hit in the
-    /// Instruments → Time Profiler trace.
-    private static let fileSizeFormatter: ByteCountFormatter = {
+    /// Instruments → Time Profiler trace.  Marked
+    /// `nonisolated` so the formatter singleton is
+    /// reachable from the cell body without forcing a
+    /// MainActor hop (the surrounding `View` body is
+    /// already MainActor, but isolating the property
+    /// would require an `await` on every cell render).
+    nonisolated private static let fileSizeFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.allowedUnits = [.useMB, .useGB, .useKB]
         f.countStyle = .file

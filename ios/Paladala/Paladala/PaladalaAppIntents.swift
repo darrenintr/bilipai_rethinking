@@ -9,8 +9,8 @@ enum PaladalaDestination: String, AppEnum {
     case live
     case settings
 
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Paladala Destination")
-    static var caseDisplayRepresentations: [PaladalaDestination: DisplayRepresentation] = [
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Paladala Destination")
+    static let caseDisplayRepresentations: [PaladalaDestination: DisplayRepresentation] = [
         .home: "Home",
         .dynamic: "Dynamic",
         .live: "Live",
@@ -32,8 +32,8 @@ enum PaladalaDestination: String, AppEnum {
 }
 
 struct OpenPaladalaDestinationIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open Paladala"
-    static var description = IntentDescription("Open Paladala to a useful destination.")
+    static let title: LocalizedStringResource = "Open Paladala"
+    static let description = IntentDescription("Open Paladala to a useful destination.")
     static var openAppWhenRun: Bool { true }
 
     @Parameter(title: "Destination")
@@ -54,8 +54,8 @@ struct OpenPaladalaDestinationIntent: AppIntent {
 }
 
 struct SearchPaladalaIntent: AppIntent {
-    static var title: LocalizedStringResource = "Search Paladala"
-    static var description = IntentDescription("Search public Bilibili videos inside Paladala.")
+    static let title: LocalizedStringResource = "Search Paladala"
+    static let description = IntentDescription("Search public Bilibili videos inside Paladala.")
     static var openAppWhenRun: Bool { true }
 
     @Parameter(title: "Keyword")
@@ -76,8 +76,8 @@ struct SearchPaladalaIntent: AppIntent {
 }
 
 struct OpenPaladalaSearchIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open Paladala Search"
-    static var description = IntentDescription("Open Paladala to the video search field.")
+    static let title: LocalizedStringResource = "Open Paladala Search"
+    static let description = IntentDescription("Open Paladala to the video search field.")
     static var openAppWhenRun: Bool { true }
 
     func perform() async throws -> some IntentResult {
@@ -87,8 +87,8 @@ struct OpenPaladalaSearchIntent: AppIntent {
 }
 
 struct ContinueWatchingIntent: AppIntent {
-    static var title: LocalizedStringResource = "Continue Watching"
-    static var description = IntentDescription("Open the most recent Paladala video.")
+    static let title: LocalizedStringResource = "Continue Watching"
+    static let description = IntentDescription("Open the most recent Paladala video.")
     static var openAppWhenRun: Bool { true }
 
     func perform() async throws -> some IntentResult {
@@ -102,8 +102,8 @@ struct ContinueWatchingIntent: AppIntent {
 }
 
 struct AddVideoToWatchLaterIntent: AppIntent {
-    static var title: LocalizedStringResource = "Add to Paladala Watch Later"
-    static var description = IntentDescription("Save a recent Paladala video to the local Watch Later list.")
+    static let title: LocalizedStringResource = "Add to Paladala Watch Later"
+    static let description = IntentDescription("Save a recent Paladala video to the local Watch Later list.")
 
     @Parameter(title: "Video")
     var video: PaladalaVideoEntity
@@ -123,8 +123,8 @@ struct AddVideoToWatchLaterIntent: AppIntent {
 }
 
 struct PaladalaVideoEntity: AppEntity {
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Paladala Video")
-    static var defaultQuery = PaladalaVideoQuery()
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Paladala Video")
+    static let defaultQuery = PaladalaVideoQuery()
 
     let id: String
 
@@ -178,7 +178,7 @@ struct PaladalaVideoQuery: EntityQuery {
 }
 
 struct PaladalaShortcutsProvider: AppShortcutsProvider {
-    static var shortcutTileColor: ShortcutTileColor = .pink
+    static let shortcutTileColor: ShortcutTileColor = .pink
 
     static var appShortcuts: [AppShortcut] {
         AppShortcut(

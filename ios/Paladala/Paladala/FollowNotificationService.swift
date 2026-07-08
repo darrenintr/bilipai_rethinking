@@ -43,7 +43,12 @@ import UserNotifications
 /// Plus the actual fetch is at most one HTTP round-trip —
 /// no extra threads, no timers, no scroll observers.
 final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegate {
-    static let shared = FollowNotificationService()
+    // PR-C Task 5: `nonisolated` so the singleton is
+    // reachable from any isolation domain.  The init is
+    // `nonisolated` too — `super.init()` is fine from any
+    // thread, and `UNUserNotificationCenter.current()` is
+    // itself thread-safe.
+    nonisolated static let shared = FollowNotificationService()
 
     /// Background task identifier. Must match the
     /// `BGTaskSchedulerPermittedIdentifiers` entry in
@@ -87,7 +92,7 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
     /// re-fires after a crash mid-tick).
     private var pollInFlight = false
 
-    private override init() {
+    nonisolated private override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
     }

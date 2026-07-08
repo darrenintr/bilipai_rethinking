@@ -647,11 +647,15 @@ private struct PadRootView: View {
 /// phone tab bar, and any future navigation root all use the
 /// same crossfade + slight scale curve.  Tweak the curve in one
 /// place and the whole app picks it up.
+@MainActor
 enum ScreenSwitchTransition {
     /// The transition applied to the outgoing / incoming tab content.
     /// `.opacity` keeps both views readable mid-animation; `.scale`
     /// adds a subtle 2 % depth cue so the change reads as motion,
-    /// not a blink.
+    /// not a blink.  Marked `@MainActor` so the `AnyTransition`
+    /// / `Animation` storage is reachable from the same isolation
+    /// domain SwiftUI views live in (the types themselves are not
+    /// `Sendable`).
     static let active: AnyTransition = .asymmetric(
         insertion: .opacity.combined(with: .scale(scale: 0.985))
             .combined(with: .offset(y: 6)),
@@ -834,6 +838,7 @@ private struct SidebarRow: View {
     }
 }
 
+@MainActor
 @ViewBuilder
 private func profileRouteView(_ route: ProfileRoute, repository: PaladalaRepository) -> some View {
     switch route {

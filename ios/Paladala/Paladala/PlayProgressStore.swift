@@ -80,7 +80,15 @@ final class PlayProgressStore: ObservableObject {
     /// so iOS will not evict the file under storage pressure
     /// — losing the user's last-play position is exactly the
     /// regression this store is built to prevent.
-    static let manifestURL: URL = {
+    /// `Application Support/PlayProgress/manifest.json`.  We
+    /// deliberately use `Application Support` (not `Caches`)
+    /// so iOS will not evict the file under storage pressure
+    /// — losing the user's last-play position is exactly the
+    /// regression this store is built to prevent.  Marked
+    /// `nonisolated` so the ioQueue worker (background
+    /// `DispatchQueue`) can read the path without an actor
+    /// hop when rewriting the manifest.
+    nonisolated static let manifestURL: URL = {
         let fm = FileManager.default
         // `applicationSupportDirectory` is `nil` on first
         // launch until the directory has been created. We

@@ -48,7 +48,12 @@ final class DownloadStore: ObservableObject {
     ///   - `in_progress/{bvid}/` — staging, never read by the
     ///     player
     ///   - `ready/{bvid}/`       — atomic-swap destination
-    static let rootURL: URL = {
+    /// Marked `nonisolated` so `DownloadManager`'s URLSession
+    /// delegate (which runs on a non-MainActor queue) can
+    /// compute the staging path without an actor hop.  The
+    /// static values are derived from `Caches` and never
+    /// change after process start, so concurrency is trivial.
+    nonisolated static let rootURL: URL = {
         let caches = FileManager.default.urls(
             for: .cachesDirectory, in: .userDomainMask
         ).first!
@@ -57,11 +62,11 @@ final class DownloadStore: ObservableObject {
             .appendingPathComponent("Downloads", isDirectory: true)
     }()
 
-    static let inProgressURL: URL = rootURL
+    nonisolated static let inProgressURL: URL = rootURL
         .appendingPathComponent("in_progress", isDirectory: true)
-    static let readyURL: URL = rootURL
+    nonisolated static let readyURL: URL = rootURL
         .appendingPathComponent("ready", isDirectory: true)
-    static let manifestURL: URL = rootURL
+    nonisolated static let manifestURL: URL = rootURL
         .appendingPathComponent("manifest.json")
 
     /// Background queue.  Serial, so two concurrent writes do
@@ -216,7 +221,12 @@ final class DownloadStore: ObservableObject {
     /// iOS may purge `Caches/` under storage pressure; when
     /// that happens we do not want to keep surfacing a
     /// manifest entry that can never play.
-    func hasCompleteLocalBytes(for record: DownloadRecord) -> Bool {
+    /// Pure read against the on-disk layout — does not touch
+    /// the singleton's mutable state.  Marked `nonisolated`
+    /// so the `DownloadStore.ioQueue` worker (a non-MainActor
+    /// `DispatchQueue`) can call it during the post-move
+    /// integrity check without an actor hop.
+    nonisolated func hasCompleteLocalBytes(for record: DownloadRecord) -> Bool {
         let directory = readyDirectory(for: record.bvid)
         let fm = FileManager.default
         let videoMerged = directory.appendingPathComponent("video.mp4")
@@ -269,7 +279,11 @@ final class DownloadStore: ObservableObject {
     /// `moveItem` can succeed (returning no error) while the
     /// destination is empty, and the manifest then records a
     /// download that has no bytes.
-    private func directorySize(_ directory: URL) -> Int64 {
+    /// `nonisolated` because the only state touched is the
+    /// `FileManager` singleton (thread-safe) and the input
+    /// URL; the caller (ioQueue worker) is on a background
+    /// queue, not MainActor.
+    nonisolated private func directorySize(_ directory: URL) -> Int64 {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: directory,
@@ -291,13 +305,18 @@ final class DownloadStore: ObservableObject {
     /// On-disk directory for a `bvid` in the ready (final)
     /// state.  Computed from `readyURL` so the URL stays
     /// valid even if iOS rotates the Caches container.
-    func readyDirectory(for bvid: String) -> URL {
+    /// On-disk directory for a `bvid` in the ready (final)
+    /// state.  Computed from `readyURL` so the URL stays
+    /// valid even if iOS rotates the Caches container.
+    /// `nonisolated` because the ioQueue worker calls it
+    /// from a background `DispatchQueue`.
+    nonisolated func readyDirectory(for bvid: String) -> URL {
         Self.readyURL.appendingPathComponent(bvid, isDirectory: true)
     }
 
     /// On-disk directory for a `bvid` in the in-progress
     /// (staging) state.  Symmetric to `readyDirectory(for:)`.
-    func inProgressDirectory(for bvid: String) -> URL {
+    nonisolated func inProgressDirectory(for bvid: String) -> URL {
         Self.inProgressURL.appendingPathComponent(bvid, isDirectory: true)
     }
 

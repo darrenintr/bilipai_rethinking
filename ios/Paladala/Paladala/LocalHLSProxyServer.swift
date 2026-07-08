@@ -3922,7 +3922,19 @@ fileprivate func proxySegmentRange(
 private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     let id = UUID()
 
-    private weak var server: LocalHLSProxyServer?
+    /// Strong reference to the owning proxy.  The
+    /// `LocalHLSProxyServer` singleton is a process-lifetime
+    /// object (the brief and pre-existing code treat it
+    /// as a process singleton, see `recreateForResume()`
+    /// which clears `activeStreams` rather than
+    /// deallocating the proxy itself), so a strong
+    /// reference here cannot create a leak.  The previous
+    /// `weak var` triggered Swift 6's "stored property of
+    /// Sendable-conforming class is mutable" error because
+    /// the class is implicitly treated as Sendable in the
+    /// delegate-queue dispatch context; `let` satisfies
+    /// the Sendable storage check.
+    private let server: LocalHLSProxyServer
     private let connection: NWConnection
     private let upstream: URL
     private let request: URLRequest

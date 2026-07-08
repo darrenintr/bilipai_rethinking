@@ -28,7 +28,14 @@ import UIKit
 
 @MainActor
 final class DeviceInfo: ObservableObject {
-    static let shared = DeviceInfo()
+    // PR-C Task 5: mark the singleton `nonisolated` so
+    // non-MainActor call sites (`BilibiliAPIClient.init`,
+    // `WbiSigner.prewarm`, etc.) can read `userAgent`
+    // without first hopping to the main actor.  The init is
+    // private and the static is a `let`, so this is safe —
+    // there is no other place that can write to the
+    // reference.
+    nonisolated static let shared = DeviceInfo()
 
     @Published private(set) var networkType: String = "Unknown"
 
@@ -36,7 +43,10 @@ final class DeviceInfo: ObservableObject {
     private let queue = DispatchQueue(label: "Paladala.deviceInfo.net")
     private var started = false
 
-    private init() {}
+    // `nonisolated` lets the singleton's `static let shared`
+    // initialiser run from any context.  Body is empty so
+    // there is no MainActor state touched.
+    nonisolated private init() {}
 
     /// User-Agent string for outbound HTTP requests. Composed at
     /// runtime from the live iOS version so it stays accurate

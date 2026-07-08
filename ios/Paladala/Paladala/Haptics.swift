@@ -12,32 +12,56 @@ import UIKit
 /// - `rigid()`    – Long-press context menu open
 /// - `success()`  – Comment posted, video liked (server-confirmed)
 /// - `selection()` – Comment sort picker change, mini-player play/pause
+///
+/// PR-C Task 5: `UIImpactFeedbackGenerator` and friends are
+/// `@MainActor`-isolated under Swift 6.  The helpers stay
+/// nonisolated so non-SwiftUI callers (`@objc` gesture
+/// recognisers on the player's contentOverlayView, etc.) do
+/// not have to re-architect to be MainActor themselves; each
+/// helper internally dispatches the `MainActor`-isolated
+/// call through a structured `Task { @MainActor in … }`.
+/// The hop is fire-and-forget; haptic feedback timing is
+/// not synchronised with any caller.
 enum Haptics {
     static func tap() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task { @MainActor in
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
     }
 
     static func medium() {
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task { @MainActor in
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
     }
 
     static func rigid() {
-        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        Task { @MainActor in
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        }
     }
 
     static func success() {
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        Task { @MainActor in
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
     }
 
     static func warning() {
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        Task { @MainActor in
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        }
     }
 
     static func error() {
-        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        Task { @MainActor in
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
     }
 
     static func selection() {
-        UISelectionFeedbackGenerator().selectionChanged()
+        Task { @MainActor in
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
     }
 }

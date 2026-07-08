@@ -174,6 +174,7 @@ struct PaladalaApp: App {
 
 // MARK: - Logger
 
+@MainActor
 final class Logger: ObservableObject {
     static let shared = Logger()
 
@@ -187,7 +188,10 @@ final class Logger: ObservableObject {
     /// and `Logger.log(...)` is on the launch hot path via
     /// `bpLog`.  One per process — `DateFormatter` instances
     /// are documented as thread-safe for `string(from:)`.
-    private static let timestampFormatter: ISO8601DateFormatter = {
+    /// Marked `nonisolated` so the singleton's MainActor
+    /// isolation does not force every caller onto MainActor
+    /// just to read the formatter.
+    nonisolated private static let timestampFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
@@ -198,47 +202,45 @@ final class Logger: ObservableObject {
         let timestamp = Self.timestampFormatter.string(from: Date())
         let logEntry = "[\(timestamp)] [\(fileName):\(line)] \(message)"
 
-        // PR-C Task 3: hop to the main actor with structured
-        // concurrency. `bpLog(...)` (the callsite deferred to
-        // PR-D) is called from every thread on the planet,
+        // `Logger` is @MainActor; the @Published mutation
+        // runs on main.  `bpLog(...)` (the callsite deferred
+        // to PR-D) is called from every thread on the planet,
         // including URLSession and AVPlayer background
-        // callbacks, so the @Published mutation must run on
-        // the main actor. `Logger` is a singleton, so we
-        // capture `self` strongly (no retain risk) and the
-        // Task is bounded by the append/trim/print work.
-        Task { @MainActor in
-            if self.logs.isEmpty {
-                self.logs.append("[Paladala Session Start]")
-            }
-            self.logs.append(logEntry)
-            if self.logs.count > self.maxLogs {
-                self.logs.removeFirst()
-            }
-            // PR-B D10: previously this `print(logEntry)`
-            // fired once per diagLog line — every chunk
-            // arrival, every seek, every generation bump,
-            // every state transition.  During a long video
-            // that's tens of thousands of lines per session
-            // and the OSLog buffer rolls them in seconds.
-            // Replaced with a no-op (the entry is already in
-            // the in-memory `logs` ring buffer for the
-            // in-app viewer) so production builds don't
-            // pay the per-line stdout cost.  DEBUG builds
-            // still emit so the Xcode console shows the
-            // live stream during development.
-            #if DEBUG
-            print(logEntry)
-            #endif
+        // callbacks, so `bpLog` re-enters the main actor via
+        // `Task { @MainActor in Logger.shared.log(...) }`.
+        // Here inside `log(...)` we are already on the main
+        // actor, so the mutation is a direct write.
+        if self.logs.isEmpty {
+            self.logs.append("[Paladala Session Start]")
         }
+        self.logs.append(logEntry)
+        if self.logs.count > self.maxLogs {
+            self.logs.removeFirst()
+        }
+        // PR-B D10: previously this `print(logEntry)`
+        // fired once per diagLog line — every chunk
+        // arrival, every seek, every generation bump,
+        // every state transition.  During a long video
+        // that's tens of thousands of lines per session
+        // and the OSLog buffer rolls them in seconds.
+        // Replaced with a no-op (the entry is already in
+        // the in-memory `logs` ring buffer for the
+        // in-app viewer) so production builds don't
+        // pay the per-line stdout cost.  DEBUG builds
+        // still emit so the Xcode console shows the
+        // live stream during development.
+        #if DEBUG
+        print(logEntry)
+        #endif
     }
-    
+
     func export() -> URL? {
         let allLogs = logs.joined(separator: "\n")
         if allLogs.isEmpty { return nil }
-        
+
         let fileName = "Paladala_Logs_\(Int(Date().timeIntervalSince1970)).txt"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        
+
         do {
             try allLogs.write(to: tempURL, atomically: true, encoding: .utf8)
             return tempURL
@@ -250,24 +252,30 @@ final class Logger: ObservableObject {
             return nil
         }
     }
-    
+
     func copyToClipboard() {
         let allLogs = logs.joined(separator: "\n")
         UIPasteboard.general.string = allLogs
     }
 
     func clear() {
-        // PR-C Task 3: same structured-concurrency hop as
-        // `log(...)` above. Singleton lifetime means we can
-        // capture `self` strongly.
-        Task { @MainActor in
-            self.logs.removeAll()
-        }
+        // `Logger` is @MainActor; `bpLog` already hopped
+        // us onto the main actor before calling this.
+        self.logs.removeAll()
     }
 }
 
 func bpLog(_ message: String, file: String = #file, line: Int = #line) {
-    Logger.shared.log(message, file: file, line: line)
+    // PR-C Task 5: `Logger` is now @MainActor. `bpLog` is
+    // called from every thread (URLSession, AVPlayer, GCD
+    // timers, BGTaskScheduler) so we hop to the main actor
+    // via a structured-concurrency `Task`. The hop is
+    // fire-and-forget; the `bpLog` caller does not await
+    // the append, which is the same semantics the previous
+    // `Task { @MainActor in ... }` inside `log(...)` had.
+    Task { @MainActor in
+        Logger.shared.log(message, file: file, line: line)
+    }
 }
 
 // MARK: - Audio Session

@@ -26,8 +26,16 @@ import Combine
 /// queue, so the file survives app restarts and force-quits.  At
 /// every rehydrate we prune entries older than 24 h (user-decided
 /// retention).
+@MainActor
 final class DiagnosticLogger: ObservableObject {
-    static let shared = DiagnosticLogger()
+    // PR-C Task 5: `nonisolated` so the global `diagLog(...)`
+    // helper can reach `.shared` from any isolation domain
+    // (URLSession callbacks, AVPlayer notifications, the
+    // diagnostic report's own `bpLog` tail).  The init runs
+    // a `Task.detached` to rehydrate disk state, but the
+    // reference itself is established synchronously the
+    // first time it's touched.
+    nonisolated static let shared = DiagnosticLogger()
 
     enum Category: String, CaseIterable {
         // 5 original categories.  Existing call sites in
@@ -92,7 +100,12 @@ final class DiagnosticLogger: ObservableObject {
     private let diskQueue = DispatchQueue(
         label: "Paladala.diaglog.disk", qos: .utility
     )
-    private static let logFilePath: String = {
+    /// `nonisolated` so the ioQueue / diskQueue async
+    /// closures (which run on a background `DispatchQueue`)
+    /// can capture the path without an actor hop.  The
+    /// value is derived from `Caches` and never changes
+    /// after process start.
+    nonisolated private static let logFilePath: String = {
         let support = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!
@@ -106,7 +119,11 @@ final class DiagnosticLogger: ObservableObject {
     }()
     private static let retentionInterval: TimeInterval = 24 * 3600
 
-    private init() {
+    /// `nonisolated` so the singleton's `static let shared`
+    /// initialiser can run from any isolation domain.  The
+    /// body is a single `Task.detached` whose closure
+    /// captures `self` weakly and is itself non-isolated.
+    nonisolated private init() {
         // Defer disk read to avoid blocking init (which may be on the
         // main thread).  Events start empty; the background read
         // populates them once it finishes.
@@ -134,8 +151,11 @@ final class DiagnosticLogger: ObservableObject {
         self.events = rehydrated
     }
 
-    /// Load events from the on-disk JSONL.  Runs on `diskQueue`.
-    private func loadEventsFromDisk() -> [Event] {
+    /// Load events from the on-disk JSONL.  Pure read against
+    /// the file system — no MainActor state touched.  Marked
+    /// `nonisolated` so the `Task.detached` rehydration closure
+    /// in `init()` can call it from its background context.
+    nonisolated private func loadEventsFromDisk() -> [Event] {
         guard FileManager.default.fileExists(atPath: Self.logFilePath) else { return [] }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: Self.logFilePath)),
               let str = String(data: data, encoding: .utf8) else { return [] }
@@ -427,5 +447,12 @@ private struct LogEntry: Codable {
 
 // Global helper for quick logging
 func diagLog(_ category: DiagnosticLogger.Category, _ message: String, details: [String: Any]? = nil) {
-    DiagnosticLogger.shared.log(category, message, details: details)
+    // PR-C Task 5: `DiagnosticLogger` is `@MainActor`.  The
+    // global helper is called from every thread (URLSession,
+    // AVPlayer, GCD timers, etc.) so we hop to the main actor
+    // via a structured `Task`.  The hop is fire-and-forget;
+    // the caller does not await the log append.
+    Task { @MainActor in
+        DiagnosticLogger.shared.log(category, message, details: details)
+    }
 }

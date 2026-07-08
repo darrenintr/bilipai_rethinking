@@ -437,31 +437,46 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
         var overlayHostingController: UIHostingController<FullscreenPlayerOverlay>?
         
         // MARK: - AVPlayerViewControllerDelegate
-        
-        @MainActor
-        func playerViewController(
+
+        // PR-C Task 5: `AVPlayerViewControllerDelegate` declares
+        // its methods as nonisolated.  The previous
+        // `@MainActor` annotation on these witnesses meant
+        // Swift 6's strict check rejected the conformance.
+        // The body of every delegate method now hops to the
+        // main actor via a structured `Task { @MainActor in
+        // … }` because the targets (`coordinator`,
+        // `playerController`, `onDismiss`) are all
+        // `@MainActor`-isolated.  The hop is fire-and-forget
+        // — AVKit's delegate contract does not require the
+        // delegate method to synchronously finish its work
+        // before returning.
+
+        nonisolated func playerViewController(
             _ playerViewController: AVPlayerViewController,
             willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
         ) {
-            coordinator.animate(alongsideTransition: nil) { context in
-                if !context.isCancelled {
-                    self.onDismiss()
+            Task { @MainActor in
+                coordinator.animate(alongsideTransition: nil) { context in
+                    if !context.isCancelled {
+                        self.onDismiss()
+                    }
                 }
             }
         }
-        
-        @MainActor
-        func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
-            playerController?.setPiPActive(true)
+
+        nonisolated func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
+            Task { @MainActor in
+                self.playerController?.setPiPActive(true)
+            }
         }
-        
-        @MainActor
-        func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
-            playerController?.setPiPActive(false)
+
+        nonisolated func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
+            Task { @MainActor in
+                self.playerController?.setPiPActive(false)
+            }
         }
-        
-        @MainActor
-        func playerViewController(
+
+        nonisolated func playerViewController(
             _ playerViewController: AVPlayerViewController,
             restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
         ) {
@@ -1054,7 +1069,12 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
 
         /// Set up the long-press gesture recogniser and overlay host
         /// inside the contentOverlayView. Idempotent — only runs
-        /// once per coordinator lifecycle.
+        /// once per coordinator lifecycle.  Marked `@MainActor`
+        /// because every UIKit handle it touches (`vc.view`,
+        /// `vc.contentOverlayView`, `NSLayoutConstraint.activate`,
+        /// `UIHostingController`) is `@MainActor`-isolated
+        /// under Swift 6.
+        @MainActor
         func setUpPlayerOverlays() {
             guard !didSetUpOverlays, let vc = avPlayerViewController else { return }
             didSetUpOverlays = true
@@ -1095,20 +1115,31 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            switch gesture.state {
-            case .began:
-                Task { @MainActor in
-                    playerController.setRate(2.0)
-                    playerController.isLongPressingSpeed = true
+            // `@objc` selectors are nonisolated.  The
+            // gesture recognizer's `state` is `@MainActor`
+            // (UIKit).  UIKit delivers gesture callbacks on
+            // the main thread, so `assumeIsolated` is the
+            // correct bridge — the alternative (a
+            // `Task { @MainActor in … }` hop) would defer
+            // the state switch by a runloop turn and the
+            // haptic would land after the visual state
+            // update.
+            MainActor.assumeIsolated {
+                switch gesture.state {
+                case .began:
+                    Task { @MainActor in
+                        self.playerController.setRate(2.0)
+                        self.playerController.isLongPressingSpeed = true
+                    }
+                    Haptics.medium()
+                case .ended, .cancelled:
+                    Task { @MainActor in
+                        self.playerController.setRate(1.0)
+                        self.playerController.isLongPressingSpeed = false
+                    }
+                default:
+                    break
                 }
-                Haptics.medium()
-            case .ended, .cancelled:
-                Task { @MainActor in
-                    playerController.setRate(1.0)
-                    playerController.isLongPressingSpeed = false
-                }
-            default:
-                break
             }
         }
 
@@ -1117,27 +1148,34 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
         /// dismiss (AVKit pauses when exiting native fullscreen).
         private var wasPlayingBeforeFullscreen = false
 
-        @MainActor
-        func playerViewController(
+        // PR-C Task 5: see the note on the first
+        // `AVPlayerViewControllerDelegate` cluster above;
+        // these witnesses follow the same `nonisolated`
+        // shape so Swift 6 accepts the conformance.
+
+        nonisolated func playerViewController(
             _ playerViewController: AVPlayerViewController,
             willBeginFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
         ) {
-            wasPlayingBeforeFullscreen = playerController.player.timeControlStatus == .playing
-            playerController.isNativeFullscreenActive = true
+            Task { @MainActor in
+                self.wasPlayingBeforeFullscreen = self.playerController.player.timeControlStatus == .playing
+                self.playerController.isNativeFullscreenActive = true
+            }
         }
 
-        @MainActor
-        func playerViewController(
+        nonisolated func playerViewController(
             _ playerViewController: AVPlayerViewController,
             willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
         ) {
-            coordinator.animate(alongsideTransition: nil) { [weak self] context in
-                guard let self, !context.isCancelled else { return }
-                playerController.isNativeFullscreenActive = false
-                // AVKit pauses when exiting native fullscreen.
-                // Resume if it was playing before entering.
-                if wasPlayingBeforeFullscreen {
-                    playerController.player.play()
+            Task { @MainActor in
+                coordinator.animate(alongsideTransition: nil) { [weak self] context in
+                    guard let self, !context.isCancelled else { return }
+                    self.playerController.isNativeFullscreenActive = false
+                    // AVKit pauses when exiting native fullscreen.
+                    // Resume if it was playing before entering.
+                    if self.wasPlayingBeforeFullscreen {
+                        self.playerController.player.play()
+                    }
                 }
             }
         }
