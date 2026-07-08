@@ -456,7 +456,8 @@ func diagLog(_ category: DiagnosticLogger.Category, _ message: String, details: 
     // AVPlayer, GCD timers, etc.) so we hop to the main actor
     // via a structured `Task`.  The hop is fire-and-forget;
     // the caller does not await the log append.
+    let sendableDetails = details?.mapValues { String(describing: $0) }
     Task { @MainActor in
-        DiagnosticLogger.shared.log(category, message, details: details)
+        DiagnosticLogger.shared.log(category, message, details: sendableDetails)
     }
 }

@@ -3,6 +3,8 @@ import Foundation
 import UIKit
 import UserNotifications
 
+extension BGAppRefreshTask: @unchecked Sendable {}
+
 /// Background-driven "follow" notification pipeline.
 ///
 /// Bilibili doesn't push notifications to *us* — the official

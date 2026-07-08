@@ -23,7 +23,7 @@ private let appSec = "560c52ccd288fed045859ed18bffd973"
 // items) — it is part of the mobile identity the risk-control layer checks.
 private let appBuild = "84900100"
 
-final class BilibiliAPIClient {
+final class BilibiliAPIClient: @unchecked Sendable {
     private let baseURL = URL(string: "https://api.bilibili.com")!
     private let appBaseURL = URL(string: "https://app.bilibili.com")!
     private let liveBaseURL = URL(string: "https://api.live.bilibili.com")!

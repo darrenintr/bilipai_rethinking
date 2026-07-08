@@ -1899,21 +1899,23 @@ final class PlayerController: ObservableObject {
         // deallocates — no action needed.  The time observer and
         // NotificationCenter observers must be removed explicitly
         // because they hold a strong reference to self.
-        if let token = timeObserver {
-            player.removeTimeObserver(token)
-        }
-        pollTimer?.invalidate()
-        if let token = statusObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
-        if let token = errorObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
-        if let token = errorLogObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
-        pipObservers.forEach {
-            NotificationCenter.default.removeObserver($0)
+        MainActor.assumeIsolated {
+            if let token = timeObserver {
+                player.removeTimeObserver(token)
+            }
+            pollTimer?.invalidate()
+            if let token = statusObserver {
+                NotificationCenter.default.removeObserver(token)
+            }
+            if let token = errorObserver {
+                NotificationCenter.default.removeObserver(token)
+            }
+            if let token = errorLogObserver {
+                NotificationCenter.default.removeObserver(token)
+            }
+            pipObservers.forEach {
+                NotificationCenter.default.removeObserver($0)
+            }
         }
     }
 }

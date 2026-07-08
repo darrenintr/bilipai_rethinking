@@ -139,7 +139,7 @@ struct InlineAVPlayerRepresentable: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     @MainActor
-    final class Coordinator {
+    final class Coordinator: @unchecked Sendable {
         /// Strong reference to the PiP controller — see the
         /// file header for why this matters.
         private var pip: InlinePiPController?
@@ -418,7 +418,9 @@ final class InlinePiPHolder: ObservableObject {
     }
 
     deinit {
-        observationTokens.forEach(NotificationCenter.default.removeObserver)
+        MainActor.assumeIsolated {
+            observationTokens.forEach(NotificationCenter.default.removeObserver)
+        }
     }
 
     /// Hook the inline PiP controller into the holder.  Called

@@ -430,7 +430,7 @@ private struct AVPlayerSurfaceRepresentable: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate, @unchecked Sendable {
         weak var avPlayerViewController: AVPlayerViewController?
         var playerController: PlayerController?
         var onDismiss: () -> Void = {}
@@ -1057,7 +1057,7 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
         Coordinator(controller: controller)
     }
 
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate, @unchecked Sendable {
         var playerController: PlayerController
         weak var avPlayerViewController: AVPlayerViewController?
         fileprivate var overlayHost: UIHostingController<InlinePlayerOverlay>?

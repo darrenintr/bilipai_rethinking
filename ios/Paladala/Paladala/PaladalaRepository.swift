@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-final class PaladalaRepository: ObservableObject {
+final class PaladalaRepository: ObservableObject, @unchecked Sendable {
     let apiClient: BilibiliAPIClient
     private let bundled: BundledFeedService
 
