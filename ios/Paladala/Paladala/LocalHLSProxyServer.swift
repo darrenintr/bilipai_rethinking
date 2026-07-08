@@ -846,6 +846,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         // evidence of which subsystem died first.  The
         // final aggregate `"LocalHLSProxyServer stopped"`
         // log line at the end still fires as a summary.
+        var streamsToCancel: [StreamingProxyTask] = []
         let hadPrep = prepSession != nil
         diagLog(.proxy, "stop: cancelling prepSession",
                 details: ["hadSession": hadPrep])
@@ -897,15 +898,16 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         let streamCount = activeStreams.count
         diagLog(.proxy, "stop: cancelling streams",
                 details: ["count": streamCount])
-        for (_, stream) in activeStreams {
-            stream.cancel()
-        }
+        streamsToCancel = Array(activeStreams.values)
         activeStreams.removeAll()
         port = 0
         baseURL = nil
         lanBaseURL = nil
         state = .idle
         lock.unlock()
+        for stream in streamsToCancel {
+            stream.cancel()
+        }
         diagLog(.playback, "LocalHLSProxyServer stopped")
     }
 
@@ -4289,9 +4291,10 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
             guard let self else { return }
             switch state {
             case .cancelled, .failed:
-                self.markDownstreamBroken(
-                    reason: "connection state: \(state)"
-                )
+                let reason = "connection state: \(state)"
+                self.delegateQueue.addOperation { [weak self] in
+                    self?.markDownstreamBroken(reason: reason)
+                }
             default:
                 break
             }
@@ -4315,29 +4318,24 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
     /// overlapping new request can proceed without competing
     /// with a dead socket.
     fileprivate func cancel() {
-        // PR-B B3: first-line log so the operator can
-        // see every cancellation, not just the ones that
-        // happen to trigger a downstream event.  Aggressive
-        // scrubbing produces a flurry of cancels; without
-        // this line, the only signal in the dump is the
-        // downstream-closed line, which fires after the
-        // connection state actually transitions.  Captures
-        // the cancellation reason (`cancelledForRetry` vs
-        // `downstreamBroken`) so the dump distinguishes
-        // user-initiated scrub-cancels from peer-closed
-        // connection cleans.
-        diagLog(.proxy,
-                "StreamingProxyTask.cancel",
-                details: [
-                    "id": id.uuidString,
-                    "downstreamBroken": downstreamBroken,
-                    "cancelledForRetry": cancelledForRetry,
-                    "url": upstream.absoluteString
-                ])
-        task?.cancel()
-        connection.cancel()
-        session?.finishTasksAndInvalidate()
-        unregisterRange()
+        delegateQueue.addOperation { [weak self] in
+            guard let self else { return }
+            // PR-B B3: first-line log so the operator can
+            // see every cancellation, not just the ones that
+            // happen to trigger a downstream event.
+            diagLog(.proxy,
+                    "StreamingProxyTask.cancel",
+                    details: [
+                        "id": self.id.uuidString,
+                        "downstreamBroken": self.downstreamBroken,
+                        "cancelledForRetry": self.cancelledForRetry,
+                        "url": self.upstream.absoluteString
+                    ])
+            self.task?.cancel()
+            self.connection.cancel()
+            self.session?.finishTasksAndInvalidate()
+            self.unregisterRange()
+        }
     }
 
     private func unregisterRange() {
@@ -4898,7 +4896,10 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
             content: data,
             completion: .contentProcessed { [weak self] error in
                 guard let self else { return }
-                if let error {
+                let errorDescription = error?.localizedDescription
+                self.delegateQueue.addOperation { [weak self] in
+                    guard let self else { return }
+                    if let errorDescription {
                     // Mark the downstream as dead but do NOT
                     // cancel the connection here — doing so
                     // kills in-flight send completions before
@@ -4916,23 +4917,24 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
                     // `finishWhenSendsDrain()` which cancels
                     // the connection once all queued send
                     // completions have left the sendGroup.
-                    let wasAlreadyBroken = self.downstreamBroken
-                    self.markDownstreamBroken(
-                        reason: "send error: \(error.localizedDescription)"
-                    )
-                    guard !wasAlreadyBroken else {
-                        self.sendGroup.leave()
-                        return
+                        let wasAlreadyBroken = self.downstreamBroken
+                        self.markDownstreamBroken(
+                            reason: "send error: \(errorDescription)"
+                        )
+                        guard !wasAlreadyBroken else {
+                            self.sendGroup.leave()
+                            return
+                        }
+                        diagLog(.network,
+                                "LocalHLSProxyServer downstream send error",
+                                details: [
+                                    "conn": self.connID,
+                                    "mode": self.mode,
+                                    "error": errorDescription
+                                ])
                     }
-                    diagLog(.network,
-                            "LocalHLSProxyServer downstream send error",
-                            details: [
-                                "conn": self.connID,
-                                "mode": self.mode,
-                                "error": error.localizedDescription
-                            ])
+                    self.sendGroup.leave()
                 }
-                self.sendGroup.leave()
             }
         )
     }
