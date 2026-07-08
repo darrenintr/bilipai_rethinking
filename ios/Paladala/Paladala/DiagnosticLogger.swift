@@ -117,7 +117,11 @@ final class DiagnosticLogger: ObservableObject {
         )
         return dir.appendingPathComponent("log.jsonl").path
     }()
-    private static let retentionInterval: TimeInterval = 24 * 3600
+    /// `TimeInterval` is a `Double` — a Sendable value
+    /// type.  Marked `nonisolated` so the
+    /// `loadEventsFromDisk()` (also nonisolated) can read
+    /// it from the rehydration background Task.
+    nonisolated private static let retentionInterval: TimeInterval = 24 * 3600
 
     /// `nonisolated` so the singleton's `static let shared`
     /// initialiser can run from any isolation domain.  The

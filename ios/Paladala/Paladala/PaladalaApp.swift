@@ -186,20 +186,28 @@ final class Logger: ObservableObject {
     /// `ISO8601DateFormatter` is expensive to instantiate
     /// (CFDateFormatter + locale resolution under the hood)
     /// and `Logger.log(...)` is on the launch hot path via
-    /// `bpLog`.  One per process — `DateFormatter` instances
-    /// are documented as thread-safe for `string(from:)`.
-    /// Marked `nonisolated` so the singleton's MainActor
-    /// isolation does not force every caller onto MainActor
-    /// just to read the formatter.
-    nonisolated private static let timestampFormatter: ISO8601DateFormatter = {
+    /// `bpLog`.  `ISO8601DateFormatter` is **not**
+    /// `Sendable` under Swift 6 (the underlying
+    /// `NSISO8601DateFormatter` carries an `NSDateFormatter`
+    /// sub-formatter that can be mutated), so we cannot
+    /// cache a single instance in a `static let` reachable
+    /// from any isolation domain.  Instead, build a fresh
+    /// formatter on every call from a stored
+    /// `formatOptions` bitmask.  The cost of constructing
+    /// an `ISO8601DateFormatter` (one CFDateFormatter + a
+    /// locale lookup) is dwarfed by the cost of the
+    /// surrounding `@Published` mutation in the launch
+    /// hot path, so this is not a regression.
+    private static let timestampFormatOptions: ISO8601DateFormatter.Options = [.withInternetDateTime]
+    private static func formatTimestamp(_ date: Date) -> String {
         let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
+        f.formatOptions = Self.timestampFormatOptions
+        return f.string(from: date)
+    }
 
     func log(_ message: String, file: String = #file, line: Int = #line) {
         let fileName = (file as NSString).lastPathComponent
-        let timestamp = Self.timestampFormatter.string(from: Date())
+        let timestamp = Self.formatTimestamp(Date())
         let logEntry = "[\(timestamp)] [\(fileName):\(line)] \(message)"
 
         // `Logger` is @MainActor; the @Published mutation

@@ -4095,9 +4095,9 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         // requests from concurrent AVPlayer tasks can be caught.
         if let rs = rangeStart, let re = rangeEnd {
             let key = upstream.absoluteString
-            server?.lock.lock()
-            server?.inFlightRanges[key] = (rs, re, id)
-            server?.lock.unlock()
+            server.lock.lock()
+            server.inFlightRanges[key] = (rs, re, id)
+            server.lock.unlock()
         }
         startUpstreamTask(attempt: 0)
     }
@@ -4134,13 +4134,13 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
     private func unregisterRange() {
         guard let rs = rangeStart, let re = rangeEnd else { return }
         let key = upstream.absoluteString
-        server?.lock.lock()
-        if let existing = server?.inFlightRanges[key],
+        server.lock.lock()
+        if let existing = server.inFlightRanges[key],
            existing.streamID == id,
            existing.start == rs, existing.end == re {
-            server?.inFlightRanges.removeValue(forKey: key)
+            server.inFlightRanges.removeValue(forKey: key)
         }
-        server?.lock.unlock()
+        server.lock.unlock()
     }
 
     /// Mark the downstream socket as gone and stop pulling
@@ -4638,11 +4638,11 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             // check (queue race), don't synthesise a 200
             // header for a socket that just died.
             if downstreamBroken { return }
-            server?.sendHeader(
+            server.sendHeader(
                 connection: connection,
                 sendGroup: sendGroup,
                 status: 200,
-                contentType: server?.mimeType(
+                contentType: server.mimeType(
                     for: upstream.pathExtension
                 ) ?? "application/octet-stream",
                 contentLength: nil,
@@ -4684,7 +4684,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                         ])
             }
         }
-        server?.addStreamedBytes(data.count)
+        server.addStreamedBytes(data.count)
         sendGroup.enter()
         connection.send(
             content: data,
@@ -4779,7 +4779,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                         "error": nsError.localizedDescription
                     ])
             if !didSendHeader {
-                server?.sendHeader(
+                server.sendHeader(
                     connection: connection,
                     sendGroup: sendGroup,
                     status: 502,
@@ -4822,7 +4822,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     "reason": reason
                 ])
         if !didSendHeader {
-            server?.sendHeader(
+            server.sendHeader(
                 connection: connection,
                 sendGroup: sendGroup,
                 status: 502,
@@ -4852,7 +4852,7 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
             guard let self else { return }
             self.connection.cancel()
             self.session?.finishTasksAndInvalidate()
-            self.server?.finishStream(id: self.id)
+            self.server.finishStream(id: self.id)
         }
     }
 }
