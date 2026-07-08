@@ -99,7 +99,14 @@ final class ICloudSync: ObservableObject {
     }
 
     @objc private func handleIdentityChange(_ note: Notification) {
-        Task { @MainActor in
+        // PR-C Task 4: explicit `[weak self]` so the
+        // @Sendable Task closure doesn't capture a strong
+        // reference to this non-MainActor final class.
+        // `@objc` handlers can be invoked from arbitrary
+        // threads; the Task hops to MainActor to call
+        // self.refreshAvailability() and self.store.synchronize().
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             self.refreshAvailability()
             // Re-sync the store on identity change so a freshly
             // signed-in user gets the latest values from their

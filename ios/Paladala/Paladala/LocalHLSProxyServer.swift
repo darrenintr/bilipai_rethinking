@@ -237,8 +237,17 @@ final class LocalHLSProxyServer {
     ) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
-            Task { @MainActor in
+            // PR-C Task 4: explicit `[weak self]` so the
+            // @Sendable Task closure doesn't capture a strong
+            // reference to this non-MainActor final class.
+            // `cont` is the Continuation, captured strongly on
+            // purpose so the Task can resume it; the listener
+            // check is the only self access.
+            Task { @MainActor [weak self] in
                 while Date() < deadline {
+                    guard let self else {
+                        cont.resume(throwing: CancellationError()); return
+                    }
                     if let listener = self.listener, listener.state == .ready {
                         cont.resume(); return
                     }
@@ -3193,7 +3202,14 @@ fileprivate func proxySegmentRange(
         // Walk the candidates in order.  Each fetch is async; the
         // first one that produces a 200 OK text body wins and we
         // rewrite the manifest to point at the proxy.
-        Task {
+        // PR-C Task 4: explicit `[weak self]` so the @Sendable
+        // Task closure doesn't capture a strong reference to
+        // this non-MainActor final class.  Captures of
+        // `candidates` / `referer` / `connID` / `connection`
+        // are Sendable values (URL, String, NWConnection) so
+        // they cross the closure boundary cleanly.
+        Task { [weak self] in
+            guard let self else { return }
             for (idx, candidate) in candidates.enumerated() {
                 do {
                     let body = try await fetchLiveManifestBody(
@@ -3398,7 +3414,13 @@ fileprivate func proxySegmentRange(
             upstreamReq.setValue(range, forHTTPHeaderField: "Range")
         }
         let session = prepSession ?? Self.makePrepSession()
-        Task {
+        // PR-C Task 4: explicit `[weak self]` so the @Sendable
+        // Task closure doesn't capture a strong reference to
+        // this non-MainActor final class.  `upstreamReq`,
+        // `session`, `connection`, and `connID` are Sendable
+        // values (URLRequest, URLSession, NWConnection, String).
+        Task { [weak self] in
+            guard let self else { return }
             do {
                 let (data, response) = try await raceWithDeadline(
                     seconds: 8.0,
