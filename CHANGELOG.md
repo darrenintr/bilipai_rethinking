@@ -1,5 +1,25 @@
 # Changelog
 
+## v9.1.0 (2026-07-08) — Swift 6 语言模式升级 (PR-C)
+
+### 版本信息
+- iOS 工程 `SWIFT_VERSION` 从 `5.0` 切换到 `6.0`，正式启用 Swift 6 严格并发检查。
+- 配套完成 PR-C 4 个前置提交：数据模型 `Sendable` 一致性 (8f6e6037)、`ObservableObject` `@MainActor` 审计 (5e8d9369)、`DispatchQueue` 替换为结构化并发 (688bc3d2)、闭包捕获与协议 Sendable 修正 (a5a7c072)。
+- 全程未引入任何逃生口（`@preconcurrency`、`@unchecked Sendable`、`nonisolated(unsafe)` 均未使用）。
+
+### 更新内容
+- **Swift 6 语言模式**：iOS App / Widget / Tests 三个 target 的 Debug + Release 共 6 个 build configuration 全部升级到 `SWIFT_VERSION = 6.0`。
+- **数据模型 Sendable**：`Track`、`Video`、`Playlist`、`LiveStream`、`HomeFeedSection` 等值类型加 `: Sendable`，确保跨 actor 边界安全传递。
+- **结构化并发替代 DispatchQueue**：`LocalHLSProxyServer` 等长生命周期服务改用 `actor` 隔离共享可变状态，`Task` / `TaskGroup` 替换 `DispatchQueue.async`，取消语义与父任务绑定。
+- **@MainActor 一致性**：`Logger` / `DiagnosticLogger` 等带 `@Published` 状态的类统一 `@MainActor` 隔离，全局 `bpLog` 通过 `Task { @MainActor in … }` 路由。
+
+### 已知问题
+- `PaladalaWidget` 与 `PaladalaTests` target 的 Swift 6 编译验证需在 macOS 本地完成（CI 仅覆盖主 App 打包）。
+- 严格并发下任何仍以 background context 写 `@MainActor` 状态的遗留调用会在编译期被拒绝，后续按需增量修。
+
+### 验证
+- `ios-unsigned-ipa.yml` 在 `working` 分支运行通过。
+
 ## v9.0.0 (2026-06-01)
 
 ### 版本信息
