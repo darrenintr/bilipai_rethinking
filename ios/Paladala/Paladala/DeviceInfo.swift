@@ -74,8 +74,17 @@ final class DeviceInfo: ObservableObject {
             default:
                 type = "Offline"
             }
-            DispatchQueue.main.async {
-                guard let self = self, self.networkType != type else { return }
+            // PR-C Task 3: hop to the main actor with structured
+            // concurrency instead of DispatchQueue.main.async. The
+            // class is @MainActor so the mutation must run on the
+            // main actor; the path monitor delivers callbacks on
+            // its private dispatch queue. [weak self] keeps the
+            // Task from retaining the singleton past deinit (a
+            // no-op today since DeviceInfo is a singleton, but
+            // cheap insurance for any future refactor that makes
+            // the lifecycle shorter).
+            Task { @MainActor [weak self] in
+                guard let self, self.networkType != type else { return }
                 self.networkType = type
                 diagLog(.session, "network.changed", details: ["type": type])
             }

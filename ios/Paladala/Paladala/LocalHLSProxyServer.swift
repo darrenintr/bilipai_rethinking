@@ -4262,8 +4262,17 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
                     "backoffMs": Int(backoff * 1000),
                     "reason": reason
                 ])
-        // `delegateQueue` is an `OperationQueue`, so we
-        // schedule the retry on a global dispatch queue.
+        // PR-C Task 3: `DispatchQueue.global().asyncAfter` is
+        // replaced with a detached Task that sleeps for the
+        // backoff and then re-enters the same code path. The
+        // Task is fire-and-forget — it is intentionally not
+        // cancellable because the previous DispatchQueue site
+        // wasn't either (URLSession's delegate queue handles
+        // the rest of the lifecycle). `startUpstreamTask` is
+        // synchronous and dispatches onto the URLSession
+        // delegate queue internally, so the Task body can
+        // return immediately after it.
+        //
         // The new task's `URLSessionDataDelegate` callbacks
         // still arrive on the serial `delegateQueue`, so the
         // retry does not race with any in-flight callbacks
@@ -4271,9 +4280,9 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate {
         // here `didCompleteWithError` has already returned
         // and URLSession will not send more events for the
         // old task.
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(
-            deadline: .now() + backoff
-        ) { [weak self] in
+        let backoffNanos = UInt64(backoff * 1_000_000_000)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            try? await Task.sleep(nanoseconds: backoffNanos)
             self?.startUpstreamTask(attempt: attempt)
         }
     }

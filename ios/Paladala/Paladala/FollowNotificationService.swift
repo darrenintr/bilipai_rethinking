@@ -166,12 +166,19 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
         // explicitly so a slow network call doesn't burn
         // the entire budget. 30 s is the documented
         // BGAppRefreshTask limit.
-        let timeoutTask = DispatchWorkItem {
+        //
+        // PR-C Task 3: the original implementation used a
+        // `DispatchWorkItem` scheduled via
+        // `DispatchQueue.main.asyncAfter`. Task.sleep is
+        // cancellable, so we hold a handle to the Task and
+        // cancel it from `expirationHandler` and from the
+        // `runPoll` defer block — preserving the same
+        // cancellation contract the work item had.
+        let timeoutTask = Task {
+            try? await Task.sleep(nanoseconds: 25_000_000_000)
+            if Task.isCancelled { return }
             refreshTask.setTaskCompleted(success: false)
         }
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + 25, execute: timeoutTask
-        )
 
         refreshTask.expirationHandler = { [weak self] in
             timeoutTask.cancel()
@@ -187,7 +194,12 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
     @MainActor
     private func runPoll(
         refreshTask: BGAppRefreshTask,
-        timeoutTask: DispatchWorkItem
+        // PR-C Task 3: timeout is now a cancellable `Task`
+        // (see `handle(refreshTask:)`) so the type changed
+        // from `DispatchWorkItem` to `Task<Void, Never>`. The
+        // cancellation contract is identical — `.cancel()`
+        // stops the body before it touches `refreshTask`.
+        timeoutTask: Task<Void, Never>
     ) async {
         defer {
             timeoutTask.cancel()

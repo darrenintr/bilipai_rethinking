@@ -707,7 +707,13 @@ private struct MusicProgressBar: View {
                         // Hold the drag value for a tick so the
                         // slider doesn't snap to 0 before the
                         // `currentTime` publisher catches up.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        // PR-C Task 3: 200 ms hop via structured
+                        // sleep. The view is a struct so there is
+                        // no `self` to retain; SwiftUI will
+                        // discard the @State mutation if the
+                        // view is torn down in the meantime.
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 200_000_000)
                             dragging = false
                         }
                     }

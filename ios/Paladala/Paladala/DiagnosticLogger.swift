@@ -110,12 +110,28 @@ final class DiagnosticLogger: ObservableObject {
         // Defer disk read to avoid blocking init (which may be on the
         // main thread).  Events start empty; the background read
         // populates them once it finishes.
-        diskQueue.async { [weak self] in
-            let rehydrated = self?.loadEventsFromDisk() ?? []
-            DispatchQueue.main.async {
-                self?.events = rehydrated
-            }
+        //
+        // PR-C Task 3: detached read on a background priority,
+        // then `applyRehydrated` (a @MainActor helper) for the
+        // @Published assignment. The `diskQueue` is no longer
+        // needed for this one call site, but the disk-append
+        // path still uses it — see `appendToDisk(event:)` —
+        // so we keep the queue for that until task 4 retires
+        // the last reference.
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let rehydrated = self.loadEventsFromDisk()
+            await self.applyRehydrated(rehydrated)
         }
+    }
+
+    /// Main-actor helper for the rehydration completion. Split out
+    /// so the `Task.detached` body in `init()` can `await` a typed
+    /// actor-isolated method instead of building a `MainActor.run`
+    /// closure inline. Called exactly once during `init()`.
+    @MainActor
+    private func applyRehydrated(_ rehydrated: [Event]) {
+        self.events = rehydrated
     }
 
     /// Load events from the on-disk JSONL.  Runs on `diskQueue`.
@@ -151,7 +167,9 @@ final class DiagnosticLogger: ObservableObject {
 
         // Always forward to bpLog so the simple log buffer
         // (which is exported via the existing "运行日志"
-        // path) gets a copy of every diag event.
+        // path) gets a copy of every diag event. (PR-D will
+        // re-route bpLog via structured concurrency; this
+        // callsite is intentionally unchanged here.)
         bpLog("[\(category.rawValue)] \(message) \(details ?? [:])")
 
         // All @Published mutations must happen on main.  Many
@@ -161,17 +179,33 @@ final class DiagnosticLogger: ObservableObject {
         // touching the @Published var directly.  The
         // `objectWillChange` fire is automatic when the
         // setter runs.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.lock.lock()
-            self.events.append(event)
-            if self.events.count > self.maxEvents {
-                self.events.removeFirst(self.events.count - self.maxEvents)
-            }
-            self.lock.unlock()
+        //
+        // PR-C Task 3: replace `DispatchQueue.main.async` with
+        // a `Task { @MainActor in … }` hop. The lock is kept
+        // even though every access is now on the main actor —
+        // removing it would touch `generateReport` and
+        // `clearHistory`, which is scope creep. The @MainActor
+        // helper also documents the intent: this method
+        // dispatches the mutation, the helper performs it.
+        Task { @MainActor [weak self] in
+            self?.appendEventOnMain(event)
         }
 
         appendToDisk(event: event)
+    }
+
+    /// Main-actor helper for `log(_:_:details:)`. Splits the
+    /// append-and-trim mutation out of the Task closure so the
+    /// `Task { @MainActor … }` body stays minimal and the
+    /// mutation has an explicit isolation boundary.
+    @MainActor
+    private func appendEventOnMain(_ event: Event) {
+        lock.lock()
+        events.append(event)
+        if events.count > maxEvents {
+            events.removeFirst(events.count - maxEvents)
+        }
+        lock.unlock()
     }
 
     /// Build the deep diagnostic report.  MUST be called from the

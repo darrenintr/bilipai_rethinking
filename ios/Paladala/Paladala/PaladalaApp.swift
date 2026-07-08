@@ -69,7 +69,11 @@ struct PaladalaApp: App {
         // on a background queue. The dump is opt-in so production
         // devices never accumulate the file.
         if ProcessInfo.processInfo.environment["PALADALA_COLD_START_DUMP"] == "1" {
-            DispatchQueue.global(qos: .utility).async {
+            // PR-C Task 3: background JSONL dump via
+            // Task.detached(priority: .utility). The dump is
+            // fire-and-forget so we do not hold a handle;
+            // it writes to Application Support and exits.
+            Task.detached(priority: .utility) {
                 LaunchMetrics.shared.dumpColdStartReport()
             }
         }
@@ -194,7 +198,15 @@ final class Logger: ObservableObject {
         let timestamp = Self.timestampFormatter.string(from: Date())
         let logEntry = "[\(timestamp)] [\(fileName):\(line)] \(message)"
 
-        DispatchQueue.main.async {
+        // PR-C Task 3: hop to the main actor with structured
+        // concurrency. `bpLog(...)` (the callsite deferred to
+        // PR-D) is called from every thread on the planet,
+        // including URLSession and AVPlayer background
+        // callbacks, so the @Published mutation must run on
+        // the main actor. `Logger` is a singleton, so we
+        // capture `self` strongly (no retain risk) and the
+        // Task is bounded by the append/trim/print work.
+        Task { @MainActor in
             if self.logs.isEmpty {
                 self.logs.append("[Paladala Session Start]")
             }
@@ -245,7 +257,10 @@ final class Logger: ObservableObject {
     }
 
     func clear() {
-        DispatchQueue.main.async {
+        // PR-C Task 3: same structured-concurrency hop as
+        // `log(...)` above. Singleton lifetime means we can
+        // capture `self` strongly.
+        Task { @MainActor in
             self.logs.removeAll()
         }
     }
