@@ -48,6 +48,12 @@ final class DiagnosticLogger: ObservableObject {
         case music = "MUSIC"    // MusicHomeView / MusicPlayerView
         case notification = "NOTI"  // FollowNotificationService / BG-task lifecycle
         case feed = "FEED"      // FeedCacheWarmer seed-cache lifecycle
+        case proxy = "PROXY"    // LocalHLSProxyServer — stop logs, range
+                                // requests, Content-Range responses,
+                                // 5xx cleanup, lifecycle.
+                                // (PR-B Commit 6 build fix — Commit 1
+                                // added diagLog(.proxy, ...) in 8 sites
+                                // without declaring the category)
         case audio = "AUDIO"    // AVAudioSession setCategory / setActive
                                 // failures (PR-B Commit 5 build fix —
                                 // B15 added diagLog(.audio, ...) without
