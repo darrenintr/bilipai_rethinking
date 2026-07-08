@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Signal extracted from the comment-list `ScrollView`'s geometry.
 /// The auto-load trigger cares about two facts: has the user scrolled
@@ -9,6 +10,22 @@ import SwiftUI
 private struct CommentScrollSignal: Equatable {
     let hasScrolled: Bool
     let isNearBottom: Bool
+}
+
+private struct LANShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+    let title: String
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 struct VideoDetailView: View {
@@ -65,6 +82,9 @@ struct VideoDetailView: View {
     /// take 20%, giving a more immersive video-watching experience.
     /// Toggled by the "immersive" button in the nav bar.
     @State private var isImmersiveMode = false
+    @State private var isPreparingLANShare = false
+    @State private var lanShareItem: LANShareItem?
+    @State private var lanShareError: String?
     /// YouTube-style next-up overlay state. Shown briefly
     /// when the current item reaches its end (we listen for
     /// `.paladalaVideoDidPlayToEnd`). The overlay either
@@ -186,6 +206,21 @@ struct VideoDetailView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    prepareLANShare()
+                } label: {
+                    if isPreparingLANShare {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "network")
+                            .font(.body.weight(.medium))
+                    }
+                }
+                .disabled(model.playback == nil || isPreparingLANShare)
+                .accessibilityLabel(L10n.video.shareLANStream)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 // ShareLink with the canonical Bilibili URL. The
                 // `subject:` populates the Mail subject line and
                 // Twitter/X title; the URL itself is what gets
@@ -219,6 +254,25 @@ struct VideoDetailView: View {
             }
         }
         .modifier(VideoDetailToolbarGlassModifier(materialDesign: materialDesign))
+        .sheet(item: $lanShareItem) { item in
+            ActivityShareSheet(items: [
+                item.url,
+                "\(item.title)\n\(item.url.absoluteString)"
+            ])
+        }
+        .alert(
+            L10n.video.shareLANStreamFailed,
+            isPresented: Binding(
+                get: { lanShareError != nil },
+                set: { if !$0 { lanShareError = nil } }
+            )
+        ) {
+            Button(L10n.common.done, role: .cancel) {
+                lanShareError = nil
+            }
+        } message: {
+            Text(lanShareError ?? "")
+        }
         .task {
             // Hydrate the model from the persisted sort before the
             // first fetch — otherwise the in-memory `commentSort`
@@ -487,6 +541,30 @@ struct VideoDetailView: View {
         if model.aiSummary != nil { return true }
         if model.aiSummaryLoading { return true }
         return false
+    }
+
+    private func prepareLANShare() {
+        guard let playback = model.playback else { return }
+        isPreparingLANShare = true
+        lanShareError = nil
+        Task { @MainActor in
+            do {
+                let url = try await LocalHLSProxyServer.shared
+                    .lanShareURL(for: playback)
+                lanShareItem = LANShareItem(
+                    url: url,
+                    title: model.detail.title
+                )
+                diagLog(.proxy, "LAN stream share URL issued",
+                        details: [
+                            "bvid": model.detail.bvid,
+                            "url": url.absoluteString
+                        ])
+            } catch {
+                lanShareError = error.localizedDescription
+            }
+            isPreparingLANShare = false
+        }
     }
 
     @ViewBuilder

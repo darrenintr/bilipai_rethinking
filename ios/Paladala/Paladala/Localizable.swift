@@ -116,6 +116,8 @@ enum L10n {
         static let pip = String(localized: "video.pip", defaultValue: "画中画")
         static let airplay = String(localized: "video.airplay", defaultValue: "隔空播放")
         /// Sleep timer menu: "15 / 30 / 60 / 关闭" minutes.
+        static let shareLANStream = String(localized: "video.shareLANStream", defaultValue: "LAN stream")
+        static let shareLANStreamFailed = String(localized: "video.shareLANStreamFailed", defaultValue: "LAN sharing failed")
         enum sleepTimer {
             static let title = String(localized: "video.sleepTimer.title", defaultValue: "定时关闭")
             static let off = String(localized: "video.sleepTimer.off", defaultValue: "关闭")

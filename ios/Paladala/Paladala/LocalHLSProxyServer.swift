@@ -47,6 +47,7 @@
 //
 
 import Foundation
+import Darwin
 import Network
 
 // MARK: - errors
@@ -60,6 +61,18 @@ import Network
 /// type.
 enum ProxyServerError: Error {
     case listenerTimeout
+    case lanShareUnavailable(String)
+}
+
+extension ProxyServerError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .listenerTimeout:
+            return "Timed out while starting the local stream server."
+        case .lanShareUnavailable(let reason):
+            return reason
+        }
+    }
 }
 
 // MARK: - public surface
@@ -141,6 +154,16 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         return baseURL.appendingPathComponent("playlist.m3u8")
     }
 
+    var currentLANPlaylistURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let lanBaseURL else { return nil }
+        if currentLivePlayback != nil {
+            return lanBaseURL.appendingPathComponent("live/manifest.m3u8")
+        }
+        return lanBaseURL.appendingPathComponent("playlist.m3u8")
+    }
+
     enum PlaybackPreparationError: Error, CustomStringConvertible {
         case noDash
         case missingSIDXRange(host: String)
@@ -203,12 +226,18 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// **All reads and writes must hold `lock`.**  Use
     /// `safeBaseURL` for safe reads from any queue.
     private(set) var baseURL: URL?
+    private var lanBaseURL: URL?
 
     /// Thread-safe read of `baseURL`.  Holds `lock` for the
     /// duration of the read so it is safe to call from any queue.
     var safeBaseURL: URL? {
         lock.lock(); defer { lock.unlock() }
         return baseURL
+    }
+
+    var safeLANBaseURL: URL? {
+        lock.lock(); defer { lock.unlock() }
+        return lanBaseURL
     }
 
     /// Async waiter for the listener to bind a port.  Resolves
@@ -467,6 +496,78 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         state = .manifestReady(prepared)
         lock.unlock()
         return (videoURL, audioURL)
+    }
+
+    private func isServing(playback: BiliPlayback) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard currentPlayback == playback, baseURL != nil else { return false }
+        if case .manifestReady = state { return true }
+        return false
+    }
+
+    private func ensureShareablePlaybackState() throws {
+        lock.lock()
+        let hasLive = currentLivePlayback != nil
+        let hasVOD: Bool = {
+            guard currentPlayback != nil, baseURL != nil else { return false }
+            if case .manifestReady = state { return true }
+            return false
+        }()
+        lock.unlock()
+        guard hasLive || hasVOD else {
+            throw ProxyServerError.lanShareUnavailable("No prepared playback to share")
+        }
+    }
+
+    private static func primaryLANIPv4Address() -> String? {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else {
+            return nil
+        }
+        defer { freeifaddrs(ifaddr) }
+
+        var candidates: [(score: Int, address: String)] = []
+        var ptr: UnsafeMutablePointer<ifaddrs>? = first
+        while let interface = ptr {
+            defer { ptr = interface.pointee.ifa_next }
+            let flags = Int32(interface.pointee.ifa_flags)
+            guard (flags & IFF_UP) != 0,
+                  (flags & IFF_LOOPBACK) == 0,
+                  let addr = interface.pointee.ifa_addr,
+                  addr.pointee.sa_family == UInt8(AF_INET) else {
+                continue
+            }
+
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let result = getnameinfo(
+                addr,
+                socklen_t(MemoryLayout<sockaddr_in>.size),
+                &host,
+                socklen_t(host.count),
+                nil,
+                0,
+                NI_NUMERICHOST
+            )
+            guard result == 0 else { continue }
+            let name = String(cString: interface.pointee.ifa_name)
+            let address = String(cString: host)
+            let score: Int
+            if name == "en0" {
+                score = 0
+            } else if name.hasPrefix("en") {
+                score = 1
+            } else if name.hasPrefix("bridge") || name.hasPrefix("utun") {
+                score = 10
+            } else {
+                score = 5
+            }
+            candidates.append((score, address))
+        }
+        return candidates.sorted { lhs, rhs in
+            if lhs.score == rhs.score { return lhs.address < rhs.address }
+            return lhs.score < rhs.score
+        }.first?.address
     }
 
     /// Serve a Bilibili live HLS stream.
@@ -764,9 +865,12 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 details: ["hadListener": hadListener])
         listener?.cancel()
         listener = nil
+        lanListener?.cancel()
+        lanListener = nil
         lock.lock()
         currentPlayback = nil
         localContext = nil
+        currentLivePlayback = nil
         // Drop cached upstream probes too — after a long
         // background the cached byte sizes may belong to a
         // CDN file that has since been re-ranged.
@@ -799,6 +903,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         activeStreams.removeAll()
         port = 0
         baseURL = nil
+        lanBaseURL = nil
         state = .idle
         lock.unlock()
         diagLog(.playback, "LocalHLSProxyServer stopped")
@@ -841,6 +946,23 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// without inspecting `localContext`.
     func serveLocal(playback: BiliPlayback) async throws -> URL {
         return try await serve(playback: playback)
+    }
+
+    /// Start a second listener bound to all local interfaces and
+    /// return a shareable HLS URL for devices on the same LAN.
+    /// The normal player keeps using the loopback listener; this
+    /// method only exposes the already-prepared manifest/cache.
+    func lanShareURL(for playback: BiliPlayback) async throws -> URL {
+        if !isServing(playback: playback) {
+            _ = try await serve(playback: playback)
+        }
+        try ensureShareablePlaybackState()
+        try await ensureLANListenerAsync()
+        try await waitForLANListener()
+        guard let url = currentLANPlaylistURL else {
+            throw ProxyServerError.lanShareUnavailable("LAN listener has no URL")
+        }
+        return url
     }
 
     /// Idempotent listener bootstrap.  Pulled out of
@@ -930,6 +1052,79 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         listener.start(queue: queue)
     }
 
+    private func ensureLANListenerAsync() async throws {
+        if lanListener != nil, lanBaseURL != nil { return }
+        try ensureLANListener()
+    }
+
+    private func ensureLANListener() throws {
+        if lanListener != nil { return }
+        guard let lanAddress = Self.primaryLANIPv4Address() else {
+            throw ProxyServerError.lanShareUnavailable("No Wi-Fi or LAN IPv4 address")
+        }
+        let params = NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(
+            host: .ipv4(.any),
+            port: .any
+        )
+        let listener = try NWListener(using: params)
+        lanListener = listener
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                if let p = listener.port {
+                    self.lock.lock()
+                    self.lanBaseURL = URL(
+                        string: "http://\(lanAddress):\(p.rawValue)"
+                    )
+                    let issuedURL = self.lanBaseURL?.absoluteString ?? "nil"
+                    self.lock.unlock()
+                    diagLog(.proxy, "LAN stream listener ready",
+                            details: ["url": issuedURL])
+                }
+            case .failed(let error):
+                self.lock.lock()
+                self.lanBaseURL = nil
+                self.lock.unlock()
+                diagLog(.proxy, "LAN stream listener failed",
+                        details: ["error": error.localizedDescription])
+            case .cancelled:
+                self.lock.lock()
+                self.lanBaseURL = nil
+                self.lock.unlock()
+            default:
+                break
+            }
+        }
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.accept(connection: connection)
+        }
+        listener.start(queue: queue)
+    }
+
+    private func waitForLANListener(
+        timeoutMs: Int = 500,
+        pollIntervalMs: Int = 5
+    ) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
+            Task { [weak self] in
+                while Date() < deadline {
+                    guard let self else {
+                        cont.resume(throwing: CancellationError()); return
+                    }
+                    if self.currentLANPlaylistURL != nil {
+                        cont.resume(); return
+                    }
+                    try? await Task.sleep(nanoseconds: UInt64(pollIntervalMs) * 1_000_000)
+                }
+                cont.resume(throwing: ProxyServerError.listenerTimeout)
+            }
+        }
+    }
+
     /// Stat the on-disk m4s file for `track` and seed the
     /// probe cache with the byte count.  `track.baseURL` is
     /// the upstream CDN URL — we still key the cache by
@@ -982,6 +1177,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "Paladala.LocalHLSProxy")
     fileprivate let lock = NSRecursiveLock()
     private var listener: NWListener?
+    private var lanListener: NWListener?
     /// Test seam — exposes the listener's current state for XCTest assertions.
     /// Mirrors the `private(set) var baseURL: URL?` access pattern used elsewhere.
     internal var listenerState: NWListener.State? { listener?.state }
