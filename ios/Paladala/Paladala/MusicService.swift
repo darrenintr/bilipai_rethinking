@@ -194,11 +194,11 @@ enum BiliLyricParser {
 // in its `subtitle_url` JSON files; the rest of the app does not
 // need to see it.
 
-private struct LyricJSONEnvelope: Decodable {
+private struct LyricJSONEnvelope: Decodable, Sendable {
     let body: [LyricJSONEntry]
 }
 
-private struct LyricJSONEntry: Decodable {
+private struct LyricJSONEntry: Decodable, Sendable {
     let from: Double
     let to: Double
     let content: String

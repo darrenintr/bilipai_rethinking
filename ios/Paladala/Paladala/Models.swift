@@ -1,6 +1,6 @@
 import Foundation
 
-enum HomeCategory: String, CaseIterable, Identifiable {
+enum HomeCategory: String, CaseIterable, Identifiable, Sendable {
     case recommend
     case follow
     case popular
@@ -49,7 +49,7 @@ enum HomeCategory: String, CaseIterable, Identifiable {
     }
 }
 
-enum PopularSubCategory: String, CaseIterable, Identifiable {
+enum PopularSubCategory: String, CaseIterable, Identifiable, Sendable {
     case comprehensive
     case ranking
     case weekly
@@ -67,7 +67,7 @@ enum PopularSubCategory: String, CaseIterable, Identifiable {
     }
 }
 
-struct BiliVideo: Identifiable, Hashable, Codable {
+struct BiliVideo: Identifiable, Hashable, Codable, Sendable {
     var id: String { bvid.isEmpty ? "\(aid)" : bvid }
 
     let bvid: String
@@ -118,7 +118,7 @@ extension BiliVideo {
 /// is the legacy VIP type code (0 = none). All optional fields
 /// default to safe placeholders so a partial upstream response
 /// (e.g. a banned or shadow-banned user) still renders.
-struct BiliUserCard: Codable, Hashable {
+struct BiliUserCard: Codable, Hashable, Sendable {
     let mid: Int64
     let name: String
     let faceURL: URL?
@@ -141,7 +141,7 @@ struct BiliUserCard: Codable, Hashable {
 /// It is intentionally smaller than `BiliUserCard`: search rows need
 /// avatar, name, follower count, and video count, while the full profile
 /// screen still fetches the richer card once the user opens it.
-struct BiliUserSearchResult: Identifiable, Hashable, Codable {
+struct BiliUserSearchResult: Identifiable, Hashable, Codable, Sendable {
     var id: Int64 { mid }
 
     let mid: Int64
@@ -157,7 +157,7 @@ struct BiliUserSearchResult: Identifiable, Hashable, Codable {
 /// the matched substring in `<em class="suggest_high_light">…</em>`
 /// so the view can render the highlight as part of the row.
 /// `displayName` strips those tags for plain-text contexts.
-struct BiliSearchSuggestion: Identifiable, Hashable, Decodable {
+struct BiliSearchSuggestion: Identifiable, Hashable, Decodable, Sendable {
     var id: String { name }
 
     /// Raw upstream value — keeps the `<em>` highlight spans
@@ -197,7 +197,7 @@ struct BiliSearchSuggestion: Identifiable, Hashable, Decodable {
 /// `searchAll(keyword:page:)` on `BilibiliAPIClient` returns
 /// this so the iOS app can render a merged result page in one
 /// shot instead of running five separate `search-type` calls.
-struct BiliAllSearchResults {
+struct BiliAllSearchResults: Sendable {
     var videos: [BiliVideo] = []
     var users: [BiliUserSearchResult] = []
     var bangumi: [VideoDTO] = []    // raw DTOs; the UI can re-decode via BangumiCard
@@ -217,7 +217,7 @@ struct BiliAllSearchResults {
 /// the endpoint refuses to answer) collapses to `.notRelated`
 /// so the ViewModel can decide whether to show a "Follow" CTA
 /// or skip the button entirely.
-enum BiliRelation: Int, Codable, Hashable {
+enum BiliRelation: Int, Codable, Hashable, Sendable {
     case notRelated = 0
     case followed = 1
     case silentFollow = 2
@@ -256,7 +256,7 @@ enum BiliRelation: Int, Codable, Hashable {
 /// invent fields: this endpoint is not backwards-compatible and
 /// B站 has previously broken downstream clients when they
 /// relied on undocumented shapes.
-struct BiliAISummary: Codable, Hashable {
+struct BiliAISummary: Codable, Hashable, Sendable {
     /// One-paragraph summary of the whole video. Markdown
     /// formatted by B站's NLP pipeline. May be empty when
     /// `resultType == 0`.
@@ -342,7 +342,7 @@ struct BiliAISummary: Codable, Hashable {
 /// to that bullet's start. Earlier Paladala builds decoded
 /// `outline[i].content` directly, which is null on the wire —
 /// the chapter body was rendering empty as a result.
-struct BiliAISummaryChapter: Codable, Hashable, Identifiable {
+struct BiliAISummaryChapter: Codable, Hashable, Identifiable, Sendable {
     let title: String
     /// Bullet points elaborating this chapter. Each bullet has
     /// its own seek-to timestamp; tapping one seeks the player
@@ -392,7 +392,7 @@ struct BiliAISummaryChapter: Codable, Hashable, Identifiable {
 /// One bullet inside an AI summary chapter. Each bullet has
 /// its own timestamp the player can seek to; `content` is a
 /// one-line description of the bullet.
-struct BiliAISummaryBullet: Codable, Hashable, Identifiable {
+struct BiliAISummaryBullet: Codable, Hashable, Identifiable, Sendable {
     let content: String
     let timestamp: Int
 
@@ -423,7 +423,7 @@ struct BiliAISummaryBullet: Codable, Hashable, Identifiable {
 /// subtitle line list lives inside `partSubtitle`. Decoded
 /// today so the data is on hand when we want to surface an
 /// auto-generated transcript.
-struct BiliAISummarySubtitle: Codable, Hashable, Identifiable {
+struct BiliAISummarySubtitle: Codable, Hashable, Identifiable, Sendable {
     let partSubtitle: [BiliAISummarySubtitleLine]
     let timestamp: Int
     let title: String
@@ -449,7 +449,7 @@ struct BiliAISummarySubtitle: Codable, Hashable, Identifiable {
     }
 }
 
-struct BiliAISummarySubtitleLine: Codable, Hashable, Identifiable {
+struct BiliAISummarySubtitleLine: Codable, Hashable, Identifiable, Sendable {
     let content: String
     let startTimestamp: Double
     let endTimestamp: Double
@@ -484,7 +484,7 @@ struct BiliAISummarySubtitleLine: Codable, Hashable, Identifiable {
 /// this into an HLS manifest on a 127.0.0.1 loopback HTTP
 /// server (`LocalHLSProxyServer`), so a single `BiliPlayback`
 /// is enough to start a video.
-struct BiliPlayback: Hashable {
+struct BiliPlayback: Hashable, Sendable {
     /// `nil` for the rare legacy `durl` MP4 case; populated for
     /// the much-more-common DASH case (the case the proxy exists
     /// for).
@@ -536,7 +536,7 @@ struct BiliPlayback: Hashable {
 /// download before the merge step landed, or Caches purge) —
 /// callers should fall back to the proxy path with the 4-file
 /// layout under `directory`.
-struct LocalPlaybackContext: Hashable {
+struct LocalPlaybackContext: Hashable, Sendable {
     /// `Caches/Paladala/Downloads/ready/{bvid}/`.  The init and
     /// media m4s files for the video and audio tracks live
     /// directly under this directory.
@@ -567,7 +567,7 @@ struct LocalPlaybackContext: Hashable {
 /// silently rot on the next build and the player would 404
 /// on every segment.  Only `bvid` is treated as a stable
 /// identity; the directory URL is always derived at runtime.
-struct DownloadRecord: Codable, Identifiable, Hashable {
+struct DownloadRecord: Codable, Identifiable, Hashable, Sendable {
     /// `bvid` doubles as the primary key (`BiliVideo.id` is
     /// `bvid ?? "\(aid)"`), and the on-disk directory name.
     var id: String { bvid }
@@ -625,8 +625,8 @@ struct DownloadRecord: Codable, Identifiable, Hashable {
 /// single `EXTINF` entry whose duration is the track's
 /// `totalDuration`, and lets AVPlayer stream the file via HTTP
 /// `Range` requests through the proxy.
-struct BiliDashSource: Hashable, Codable {
-    struct ByteRange: Hashable, Codable {
+struct BiliDashSource: Hashable, Codable, Sendable {
+    struct ByteRange: Hashable, Codable, Sendable {
         let offset: Int64
         let length: Int64
 
@@ -639,7 +639,7 @@ struct BiliDashSource: Hashable, Codable {
     /// We flatten audio + video variants into this struct
     /// because B站's DASH responses are simple enough that we
     /// can skip the full MPD Period/AdaptationSet tree.
-    struct Track: Hashable, Codable {
+    struct Track: Hashable, Codable, Sendable {
         let baseURL: URL
         /// CDN failover URLs B站 ships alongside `baseUrl` in
         /// the playurl response (per
@@ -716,7 +716,7 @@ struct BiliDashSource: Hashable, Codable {
     let audio: Track?
 }
 
-struct BiliLiveRoom: Identifiable, Hashable {
+struct BiliLiveRoom: Identifiable, Hashable, Sendable {
     let id: Int
     let title: String
     let hostName: String
@@ -738,7 +738,7 @@ struct BiliLiveRoom: Identifiable, Hashable {
 /// `mid` is the active user's Bilibili ID. Sending it triggers the
 /// personalised re-ranking; omitting it keeps the request valid but
 /// downgrades the response to the anonymous flavour.
-struct BiliAppConfig: Hashable {
+struct BiliAppConfig: Hashable, Sendable {
     let buvid3: String?
     let mid: Int64
     let csrf: String?
@@ -753,7 +753,7 @@ struct BiliAppConfig: Hashable {
 /// (lowest latency, FFmpeg friendly) and an HLS stream (works with
 /// stock players). The player toggle in `LivePlayerView` flips
 /// between them.
-enum BiliLiveStreamFormat: String, Codable, CaseIterable, Identifiable {
+enum BiliLiveStreamFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     case hls
     case flv
 
@@ -770,7 +770,7 @@ enum BiliLiveStreamFormat: String, Codable, CaseIterable, Identifiable {
 /// Stream URLs for a single live room, keyed by format. The HLS slot
 /// may be absent on rooms whose CDN only exposes FLV, in which case
 /// the player disables the toggle for that format.
-struct BiliLivePlayback: Hashable {
+struct BiliLivePlayback: Hashable, Sendable {
     let roomID: Int
     let title: String
     let hostName: String
@@ -795,7 +795,7 @@ struct BiliLivePlayback: Hashable {
 /// module the upstream populates. The UI uses this enum to pick the
 /// right card chrome (video card vs. 专栏 text vs. live-started banner
 /// vs.转发 reposting the original post).
-enum DynamicPostKind: String, Codable, Hashable {
+enum DynamicPostKind: String, Codable, Hashable, Sendable {
     case video
     case article
     case bangumi
@@ -812,7 +812,7 @@ enum DynamicPostKind: String, Codable, Hashable {
     }
 }
 
-struct BiliComment: Identifiable, Hashable {
+struct BiliComment: Identifiable, Hashable, Sendable {
     let id: Int
     let authorName: String
     let avatarURL: URL?
@@ -822,14 +822,14 @@ struct BiliComment: Identifiable, Hashable {
     let replies: [BiliComment]
 }
 
-struct CommentPage: Hashable {
+struct CommentPage: Hashable, Sendable {
     let items: [BiliComment]
     let next: Int?
     let isEnd: Bool
     let totalCount: Int
 }
 
-struct DynamicPost: Identifiable, Hashable {
+struct DynamicPost: Identifiable, Hashable, Sendable {
     let id: String
     let author: String
     let authorAvatarURL: URL?
@@ -850,7 +850,7 @@ struct DynamicPost: Identifiable, Hashable {
     }
 }
 
-struct DynamicFeedPage: Hashable {
+struct DynamicFeedPage: Hashable, Sendable {
     let items: [DynamicPost]
     let nextOffset: String
     let hasMore: Bool
@@ -868,25 +868,25 @@ struct DynamicFeedPage: Hashable {
     }
 }
 
-struct HistoryCursorState: Hashable {
+struct HistoryCursorState: Hashable, Sendable {
     let max: Int64
     let viewAt: Int64
     let business: String
 }
 
-struct HistoryEntry: Identifiable, Hashable {
+struct HistoryEntry: Identifiable, Hashable, Sendable {
     let id: String
     let video: BiliVideo
     let viewedAt: Int64
     let progress: Int
 }
 
-struct HistoryPageResult: Hashable {
+struct HistoryPageResult: Hashable, Sendable {
     let items: [HistoryEntry]
     let nextCursor: HistoryCursorState?
 }
 
-struct FavoriteFolderSummary: Identifiable, Hashable {
+struct FavoriteFolderSummary: Identifiable, Hashable, Sendable {
     let id: Int64
     let title: String
     let coverURL: URL?
@@ -894,13 +894,13 @@ struct FavoriteFolderSummary: Identifiable, Hashable {
     let ownerName: String
 }
 
-struct FavoriteFolderVideosPage: Hashable {
+struct FavoriteFolderVideosPage: Hashable, Sendable {
     let title: String
     let videos: [BiliVideo]
     let hasMore: Bool
 }
 
-struct ReplyRoute: Hashable {
+struct ReplyRoute: Hashable, Sendable {
     let video: BiliVideo
     let rootComment: BiliComment
 }
@@ -911,7 +911,7 @@ struct ReplyRoute: Hashable {
 /// into `UPProfileView`. Lives here (not in `AppRouter.swift`)
 /// so it can be `Hashable` alongside the other route values
 /// without a circular import.
-enum UPProfileRoute: Hashable {
+enum UPProfileRoute: Hashable, Sendable {
     case up(mid: Int64)
 }
 
@@ -921,7 +921,7 @@ enum UPProfileRoute: Hashable {
 /// ("热门"), `2` is chronological ("最新"). The reply-detail endpoint
 /// (`/x/v2/reply/reply`) does not accept a `mode` parameter, so the
 /// picker is gated to the main comment list.
-enum CommentSort: String, CaseIterable, Identifiable, Codable {
+enum CommentSort: String, CaseIterable, Identifiable, Codable, Sendable {
     case hot
     case newest
 
@@ -956,7 +956,7 @@ enum CommentSort: String, CaseIterable, Identifiable, Codable {
 /// One lyric track published by the player endpoint. The
 /// `subtitle_url` is a protocol-relative URL — callers must
 /// resolve it against `https:` before fetching.
-struct BiliLyricInfo: Hashable, Codable {
+struct BiliLyricInfo: Hashable, Codable, Sendable {
     let id: Int64
     let lan: String
     let lanDoc: String
@@ -989,7 +989,7 @@ struct BiliLyricInfo: Hashable, Codable {
 /// The fully-parsed lyric track the Music view scrolls. Stores
 /// the per-line timings as an array of `BiliLyricLine` so the
 /// player can binary-search for the active line in O(log n).
-struct BiliLyricTrack: Hashable, Codable {
+struct BiliLyricTrack: Hashable, Codable, Sendable {
     let lines: [BiliLyricLine]
     let language: String
 
@@ -1023,7 +1023,7 @@ struct BiliLyricTrack: Hashable, Codable {
 }
 
 /// One line of timed lyrics.
-struct BiliLyricLine: Hashable, Codable, Identifiable {
+struct BiliLyricLine: Hashable, Codable, Identifiable, Sendable {
     /// Position in the parent `BiliLyricTrack.lines` array. The
     /// line is `Identifiable` so a `ForEach` over the track can
     /// drive `ScrollViewReader` lookups.
@@ -1052,7 +1052,7 @@ struct BiliLyricLine: Hashable, Codable, Identifiable {
 /// One timed danmaku entry from `https://comment.bilibili.com/{cid}.xml`.
 /// The first field in `p` is the start time in seconds; the second is
 /// Bilibili's display mode (`1` scrolling, `4` bottom, `5` top, etc.).
-struct BiliDanmakuItem: Hashable, Codable, Identifiable {
+struct BiliDanmakuItem: Hashable, Codable, Identifiable, Sendable {
     let id: Int
     let time: Double
     let mode: Int
@@ -1066,7 +1066,7 @@ struct BiliDanmakuItem: Hashable, Codable, Identifiable {
 /// Navigation routes for the Music tab. Pushed onto the router's
 /// `path` so the existing `.navigationDestination(for:)` machinery
 /// resolves them into the right view.
-enum MusicRoute: Hashable {
+enum MusicRoute: Hashable, Sendable {
     /// Open the fullscreen music player for `video`. The view
     /// resolves the playback URL + lyric track on appear.
     case player(BiliVideo)

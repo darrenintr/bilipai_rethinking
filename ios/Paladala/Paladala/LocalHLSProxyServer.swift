@@ -1277,7 +1277,7 @@ final class LocalHLSProxyServer {
     // `EXT-X-BYTERANGE` per validated sidx reference against
     // the real `/media` resource.
 
-    private struct RangeFetchOutcome {
+    private struct RangeFetchOutcome: Sendable {
         let data: Data
         let status: Int
         let contentRange: String?

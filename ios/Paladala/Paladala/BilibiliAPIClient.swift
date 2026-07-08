@@ -1996,7 +1996,7 @@ private actor WbiSigner {
     }
 }
 
-enum BilibiliAPIError: Error {
+enum BilibiliAPIError: Error, Sendable {
     case invalidURL
     case http
     case api(String)
@@ -2019,14 +2019,14 @@ enum BilibiliAPIError: Error {
     case sessionExpired
 }
 
-struct EmptyPayload: Codable {}
+struct EmptyPayload: Codable, Sendable {}
 
 /// `data.money` from `/site/getCoin` — the signed-in user's coin balance.
-private struct CoinWalletPayload: Decodable {
+private struct CoinWalletPayload: Decodable, Sendable {
     let money: Double
 }
 
-struct APIResponse<T: Decodable>: Decodable {
+struct APIResponse<T: Decodable & Sendable>: Decodable, Sendable {
     let code: Int?
     let message: String?
     let data: T?
@@ -2043,11 +2043,11 @@ struct APIResponse<T: Decodable>: Decodable {
     }
 }
 
-private struct WbiNavResponse: Decodable {
+private struct WbiNavResponse: Decodable, Sendable {
     let data: WbiNavData
 }
 
-private struct WbiNavData: Decodable {
+private struct WbiNavData: Decodable, Sendable {
     let wbiImg: WbiImage
 
     enum CodingKeys: String, CodingKey {
@@ -2055,7 +2055,7 @@ private struct WbiNavData: Decodable {
     }
 }
 
-private struct WbiImage: Decodable {
+private struct WbiImage: Decodable, Sendable {
     let imgURL: URL
     let subURL: URL
 
@@ -2065,7 +2065,7 @@ private struct WbiImage: Decodable {
     }
 }
 
-private struct VideoListPayload: Decodable {
+private struct VideoListPayload: Decodable, Sendable {
     let item: [VideoDTO]?
     let list: [VideoDTO]?
     let result: [VideoDTO]?
@@ -2130,19 +2130,19 @@ private struct VideoListPayload: Decodable {
     }
 }
 
-private struct WeeklySeriesListPayload: Decodable {
+private struct WeeklySeriesListPayload: Decodable, Sendable {
     let list: [WeeklySeriesPeriod]
 }
 
-private struct WeeklySeriesPeriod: Decodable {
+private struct WeeklySeriesPeriod: Decodable, Sendable {
     let number: Int
 }
 
-private struct AppFeedPayload: Decodable {
+private struct AppFeedPayload: Decodable, Sendable {
     let items: [AppFeedItemDTO]
 }
 
-private struct AppFeedItemDTO: Decodable {
+private struct AppFeedItemDTO: Decodable, Sendable {
     let cardType: String
     let cardGoto: String
     let param: String
@@ -2204,7 +2204,7 @@ private struct AppFeedItemDTO: Decodable {
     }
 }
 
-struct VideoDTO: Decodable {
+struct VideoDTO: Decodable, Sendable {
     let bvid: String
     let aid: Int
     let cid: Int
@@ -2286,11 +2286,11 @@ struct VideoDTO: Decodable {
 /// level, and the upstream omits `result` entirely when no
 /// matches exist.  Both shapes decode cleanly because
 /// `SuggestResult` makes `tag` optional.
-private struct SuggestPayload: Decodable {
+private struct SuggestPayload: Decodable, Sendable {
     let result: SuggestResult?
 }
 
-private struct SuggestResult: Decodable {
+private struct SuggestResult: Decodable, Sendable {
     let tag: [BiliSearchSuggestion]?
 }
 
@@ -2298,7 +2298,7 @@ private struct SuggestResult: Decodable {
 /// The `result` array shape varies per slot (bangumi returns
 /// season cards, live returns room cards, etc.) — we keep the
 /// raw array and let the view layer decode per-slot.
-private struct SearchSlotPayload: Decodable {
+private struct SearchSlotPayload: Decodable, Sendable {
     let result: [VideoDTO]?
 }
 
@@ -2309,7 +2309,7 @@ private struct SearchSlotPayload: Decodable {
 /// legacy VIP code. We pull the four fields the header needs
 /// (name, face, sign, level, vipType) via a hand-rolled
 /// `init(from:)` so a partial response still decodes.
-private struct UserCardInfoPayload: Decodable {
+private struct UserCardInfoPayload: Decodable, Sendable {
     let mid: Int64
     let name: String
     let face: String
@@ -2342,7 +2342,7 @@ private struct UserCardInfoPayload: Decodable {
     }
 }
 
-private struct UserSearchPayload: Decodable {
+private struct UserSearchPayload: Decodable, Sendable {
     let users: [UserSearchDTO]
 
     init(from decoder: Decoder) throws {
@@ -2351,7 +2351,7 @@ private struct UserSearchPayload: Decodable {
     }
 }
 
-private struct UserSearchDTO: Decodable {
+private struct UserSearchDTO: Decodable, Sendable {
     let mid: Int64
     let name: String
     let faceURL: URL?
@@ -2389,7 +2389,7 @@ private struct UserSearchDTO: Decodable {
 /// seconds), `author` carries the owner name (not `owner.name`),
 /// and `like` is absent — so we project through a separate
 /// `UserVideoDTO` and convert on the way to `BiliVideo`.
-private struct UserVideosPayload: Decodable {
+private struct UserVideosPayload: Decodable, Sendable {
     let vlist: [UserVideoDTO]
 
     init(from decoder: Decoder) throws {
@@ -2399,7 +2399,7 @@ private struct UserVideosPayload: Decodable {
     }
 }
 
-private struct UserVideoDTO: Decodable {
+private struct UserVideoDTO: Decodable, Sendable {
     let bvid: String
     let aid: Int
     let title: String
@@ -2469,7 +2469,7 @@ private struct UserVideoDTO: Decodable {
 /// entirely. Both decode paths default to an empty array so
 /// downstream consumers can rely on `outline` / `subtitle` never
 /// being `nil`.
-private struct BiliAISummaryPayload: Decodable {
+private struct BiliAISummaryPayload: Decodable, Sendable {
     let modelResult: BiliAISummary?
 
     init(from decoder: Decoder) throws {
@@ -2478,7 +2478,7 @@ private struct BiliAISummaryPayload: Decodable {
     }
 }
 
-private struct PlayURLPayload: Decodable {
+private struct PlayURLPayload: Decodable, Sendable {
     let durl: [DURL]?
     let dash: Dash?
     /// Native HLS slot surfaced when the request used `fnval &
@@ -3023,11 +3023,11 @@ private struct PlayURLPayload: Decodable {
     }
 }
 
-private struct LiveRoomPayload: Decodable {
+private struct LiveRoomPayload: Decodable, Sendable {
     let list: [LiveRoomDTO]
 }
 
-private struct LivePlayInfoPayload: Decodable {
+private struct LivePlayInfoPayload: Decodable, Sendable {
     let roomInfo: LivePlayRoomInfo?
     let playurlInfo: LivePlayURLInfo?
 
@@ -3037,7 +3037,7 @@ private struct LivePlayInfoPayload: Decodable {
     }
 }
 
-private struct LivePlayRoomInfo: Decodable {
+private struct LivePlayRoomInfo: Decodable, Sendable {
     let roomID: Int64
     let title: String?
     /// `area_name` is the live-room's section ("唱见", "游戏", etc.).
@@ -3052,15 +3052,15 @@ private struct LivePlayRoomInfo: Decodable {
     }
 }
 
-private struct LivePlayURLInfo: Decodable {
+private struct LivePlayURLInfo: Decodable, Sendable {
     let playurl: LivePlayURLContainer
 }
 
-private struct LivePlayURLContainer: Decodable {
+private struct LivePlayURLContainer: Decodable, Sendable {
     let stream: [LivePlayStream]
 }
 
-private struct LivePlayStream: Decodable {
+private struct LivePlayStream: Decodable, Sendable {
     let protocolName: String
     let format: [LivePlayFormat]
 
@@ -3070,7 +3070,7 @@ private struct LivePlayStream: Decodable {
     }
 }
 
-private struct LivePlayFormat: Decodable {
+private struct LivePlayFormat: Decodable, Sendable {
     let formatName: String
     let codec: [LivePlayCodec]
 
@@ -3080,7 +3080,7 @@ private struct LivePlayFormat: Decodable {
     }
 }
 
-private struct LivePlayCodec: Decodable {
+private struct LivePlayCodec: Decodable, Sendable {
     let codecName: String
     let currentQPS: Int?
     let baseURL: String
@@ -3094,7 +3094,7 @@ private struct LivePlayCodec: Decodable {
     }
 }
 
-private struct LivePlayURLHost: Decodable {
+private struct LivePlayURLHost: Decodable, Sendable {
     let host: String
     let extra: String
     let streamTtl: Int?
@@ -3106,7 +3106,7 @@ private struct LivePlayURLHost: Decodable {
     }
 }
 
-private struct LiveRoomDTO: Decodable {
+private struct LiveRoomDTO: Decodable, Sendable {
     let roomid: Int
     let title: String
     let uname: String
@@ -3136,7 +3136,7 @@ private struct LiveRoomDTO: Decodable {
     }
 }
 
-private struct DynamicFeedPayload: Decodable {
+private struct DynamicFeedPayload: Decodable, Sendable {
     let items: [DynamicCardDTO]
     let offset: String
     let hasMore: Bool
@@ -3149,7 +3149,7 @@ private struct DynamicFeedPayload: Decodable {
     }
 }
 
-private struct DynamicCardDTO: Decodable {
+private struct DynamicCardDTO: Decodable, Sendable {
     let id: String
     let visible: Bool
     let authorName: String
@@ -3241,7 +3241,7 @@ private struct DynamicCardDTO: Decodable {
     }
 }
 
-private struct FollowingsPayload: Decodable {
+private struct FollowingsPayload: Decodable, Sendable {
     let list: [FollowingEntry]
     let total: Int?
 
@@ -3252,7 +3252,7 @@ private struct FollowingsPayload: Decodable {
     }
 }
 
-private struct FollowingEntry: Decodable {
+private struct FollowingEntry: Decodable, Sendable {
     let mid: Int64
     let uname: String?
     let attribute: Int?
@@ -3265,7 +3265,7 @@ private struct FollowingEntry: Decodable {
     }
 }
 
-private struct HistoryPayload: Decodable {
+private struct HistoryPayload: Decodable, Sendable {
     let items: [HistoryItemDTO]
     let cursor: HistoryCursorDTO?
 
@@ -3276,7 +3276,7 @@ private struct HistoryPayload: Decodable {
     }
 }
 
-private struct HistoryCursorDTO: Decodable {
+private struct HistoryCursorDTO: Decodable, Sendable {
     let max: Int64
     let viewAt: Int64
     let business: String
@@ -3293,7 +3293,7 @@ private struct HistoryCursorDTO: Decodable {
     }
 }
 
-private struct HistoryItemDTO: Decodable {
+private struct HistoryItemDTO: Decodable, Sendable {
     let title: String
     let coverURL: URL?
     let ownerName: String
@@ -3348,7 +3348,7 @@ private struct HistoryItemDTO: Decodable {
     }
 }
 
-private struct FavoriteFoldersPayload: Decodable {
+private struct FavoriteFoldersPayload: Decodable, Sendable {
     let list: [FavoriteFolderDTO]
 
     init(from decoder: Decoder) throws {
@@ -3357,7 +3357,7 @@ private struct FavoriteFoldersPayload: Decodable {
     }
 }
 
-private struct FavoriteFolderDTO: Decodable {
+private struct FavoriteFolderDTO: Decodable, Sendable {
     let id: Int64
     let title: String
     let coverURL: URL?
@@ -3394,7 +3394,7 @@ private struct FavoriteFolderDTO: Decodable {
     }
 }
 
-private struct FavoriteResourcesPayload: Decodable {
+private struct FavoriteResourcesPayload: Decodable, Sendable {
     let info: FavoriteInfoDTO?
     let medias: [FavoriteMediaDTO]
     let hasMore: Bool
@@ -3407,7 +3407,7 @@ private struct FavoriteResourcesPayload: Decodable {
     }
 }
 
-private struct RelationStatPayload: Decodable {
+private struct RelationStatPayload: Decodable, Sendable {
     let following: Int
     let follower: Int
 }
@@ -3416,7 +3416,7 @@ private struct RelationStatPayload: Decodable {
 /// return `{ attribute: 1, mtime: ... }` for "followed" but in
 /// practice also returns `0` for "not related" without
 /// `mtime`. We decode both defensively.
-private struct RelationAttributePayload: Decodable {
+private struct RelationAttributePayload: Decodable, Sendable {
     let attribute: Int
 }
 
@@ -3426,11 +3426,11 @@ private struct RelationAttributePayload: Decodable {
 /// "未登录", 22001 for "关注失败，请重试") and `message` carries
 /// the i18n string. We only consume `code` here — the surface
 /// error message comes from the ViewModel's localisable copy.
-private struct ModifyRelationPayload: Decodable {
+private struct ModifyRelationPayload: Decodable, Sendable {
     // No fields — the success body is mostly housekeeping.
 }
 
-private struct SpaceNavNumPayload: Decodable {
+private struct SpaceNavNumPayload: Decodable, Sendable {
     let dynamicCount: Int
 
     enum CodingKeys: String, CodingKey {
@@ -3444,7 +3444,7 @@ private struct SpaceNavNumPayload: Decodable {
 /// upstream. The `count` field on each folder is the live
 /// number of videos in it; the UI uses it for the row
 /// subtitle.
-private struct UserFavoriteFoldersPayload: Decodable {
+private struct UserFavoriteFoldersPayload: Decodable, Sendable {
     let folders: [UserFavoriteFolderDTO]
 
     init(from decoder: Decoder) throws {
@@ -3462,7 +3462,7 @@ private struct UserFavoriteFoldersPayload: Decodable {
     }
 }
 
-private struct UserFavoriteFolderDTO: Decodable {
+private struct UserFavoriteFolderDTO: Decodable, Sendable {
     let id: Int64
     let title: String
     let cover: String
@@ -3504,11 +3504,11 @@ private struct UserFavoriteFolderDTO: Decodable {
     }
 }
 
-private struct FavoriteInfoDTO: Decodable {
+private struct FavoriteInfoDTO: Decodable, Sendable {
     let title: String
 }
 
-private struct FavoriteMediaDTO: Decodable {
+private struct FavoriteMediaDTO: Decodable, Sendable {
     let id: Int64
     let bvid: String
     let title: String
@@ -3561,11 +3561,11 @@ private struct FavoriteMediaDTO: Decodable {
     }
 }
 
-private struct WatchLaterPayload: Decodable {
+private struct WatchLaterPayload: Decodable, Sendable {
     let list: [WatchLaterItemDTO]
 }
 
-private struct WatchLaterItemDTO: Decodable {
+private struct WatchLaterItemDTO: Decodable, Sendable {
     let aid: Int64
     let bvid: String
     let cid: Int
@@ -3606,7 +3606,7 @@ private struct WatchLaterItemDTO: Decodable {
     }
 }
 
-private struct VideoStatsDTO: Decodable {
+private struct VideoStatsDTO: Decodable, Sendable {
     let view: Int
     let danmaku: Int
     let like: Int
@@ -3625,7 +3625,7 @@ private struct VideoStatsDTO: Decodable {
     }
 }
 
-private struct CommentPayload: Decodable {
+private struct CommentPayload: Decodable, Sendable {
     let replies: LenientCommentArray?
     /// Legacy field — kept for the occasional cache that still serves
     /// the old `top_replies` array shape. New WBI responses deliver
@@ -3656,7 +3656,7 @@ private struct CommentPayload: Decodable {
     }
 }
 
-private struct CommentCursorDTO: Decodable {
+private struct CommentCursorDTO: Decodable, Sendable {
     let next: Int?
     let isEnd: Bool
     let allCount: Int
@@ -3671,7 +3671,7 @@ private struct CommentCursorDTO: Decodable {
 
 /// `data.upper.top` is a dict keyed by `rpid` on the WBI endpoint, not
 /// an array. Each value is a full `CommentDTO`.
-private struct PinnedCommentDict: Decodable {
+private struct PinnedCommentDict: Decodable, Sendable {
     let values: [CommentDTO]
 
     init(from decoder: Decoder) throws {
@@ -3686,7 +3686,7 @@ private struct PinnedCommentDict: Decodable {
 /// whole comment thread down with it. Bilibili mixes reply types in the
 /// same array and the per-reply shape is not consistent enough to be
 /// decoded all-or-nothing.
-private struct LenientCommentArray: Decodable {
+private struct LenientCommentArray: Decodable, Sendable {
     let items: [CommentDTO]
 
     init(from decoder: Decoder) throws {
@@ -3710,7 +3710,9 @@ private struct FailableDecodable<T: Decodable>: Decodable {
     }
 }
 
-private struct CommentDTO: Decodable {
+extension FailableDecodable: Sendable where T: Sendable {}
+
+private struct CommentDTO: Decodable, Sendable {
     let rpid: Int
     let member: Member
     let content: Content
@@ -3935,7 +3937,7 @@ private extension String {
 // missing. The shape of interest is just the per-track metadata
 // (lan / lan_doc / subtitle_url / id) — we discard the rest.
 
-private struct LyricInfoPayload: Decodable {
+private struct LyricInfoPayload: Decodable, Sendable {
     let subtitle: LyricSubtitleEnvelope?
 
     init(from decoder: Decoder) throws {
@@ -3944,11 +3946,11 @@ private struct LyricInfoPayload: Decodable {
     }
 }
 
-private struct LyricSubtitleEnvelope: Decodable {
+private struct LyricSubtitleEnvelope: Decodable, Sendable {
     let subtitles: [LyricTrackDTO]
 }
 
-private struct LyricTrackDTO: Decodable {
+private struct LyricTrackDTO: Decodable, Sendable {
     let id: Int64
     let lan: String
     let lanDoc: String
@@ -3983,7 +3985,7 @@ private struct LyricTrackDTO: Decodable {
     }
 }
 
-private struct LyricAuthorDTO: Decodable {
+private struct LyricAuthorDTO: Decodable, Sendable {
     let name: String?
 }
 

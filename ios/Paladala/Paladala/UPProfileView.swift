@@ -6,7 +6,7 @@ import SwiftUI
 /// relaunch — most users default to `.posts` but power users
 /// who drop into the "动态" / "收藏" tabs regularly get the
 /// tab they were on last.
-enum UPProfileTab: String, CaseIterable, Identifiable, Codable {
+enum UPProfileTab: String, CaseIterable, Identifiable, Codable, Sendable {
     case posts
     case dynamics
     case favorites

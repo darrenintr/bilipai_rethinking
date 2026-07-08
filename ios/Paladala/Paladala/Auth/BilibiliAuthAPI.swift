@@ -109,10 +109,10 @@ struct BilibiliAuthAPI {
 
 // MARK: - SPI DTOs
 
-private struct SpiResponse: Decodable {
+private struct SpiResponse: Decodable, Sendable {
     let code: Int
     let data: SpiData
-    struct SpiData: Decodable {
+    struct SpiData: Decodable, Sendable {
         let b3: String
         let b4: String
     }
@@ -125,9 +125,9 @@ struct WebQrcodeToken: Hashable {
     let url: String
 }
 
-private struct WebQrcodeGenerateResponse: Decodable {
+private struct WebQrcodeGenerateResponse: Decodable, Sendable {
     let data: WebQrcodeGenerateData
-    struct WebQrcodeGenerateData: Decodable {
+    struct WebQrcodeGenerateData: Decodable, Sendable {
         let qrcodeKey: String
         let url: String
         enum CodingKeys: String, CodingKey {
@@ -208,9 +208,9 @@ enum WebQrcodeState {
     case error(String)
 }
 
-private struct WebQrcodePollResponse: Decodable {
+private struct WebQrcodePollResponse: Decodable, Sendable {
     let data: WebQrcodePollData
-    struct WebQrcodePollData: Decodable {
+    struct WebQrcodePollData: Decodable, Sendable {
         let code: Int
         let message: String
         let url: String
@@ -226,9 +226,9 @@ struct WebQrcodeNavInfo {
     let faceURL: URL?
 }
 
-private struct WebNavResponse: Decodable {
+private struct WebNavResponse: Decodable, Sendable {
     let data: WebNavData
-    struct WebNavData: Decodable {
+    struct WebNavData: Decodable, Sendable {
         let mid: Int64
         let uname: String?
         let face: String?

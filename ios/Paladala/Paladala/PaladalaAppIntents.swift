@@ -254,14 +254,14 @@ enum IntentRouteStore {
     }
 }
 
-private struct IntentRoutePayload: Codable {
+private struct IntentRoutePayload: Codable, Sendable {
     let kind: String
     let tab: MainTab?
     let query: String?
     let video: PaladalaVideoRecord?
 }
 
-private struct PaladalaVideoRecord: Codable {
+private struct PaladalaVideoRecord: Codable, Sendable {
     let id: String
     let title: String
     let ownerName: String

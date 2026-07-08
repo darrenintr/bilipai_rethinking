@@ -1,6 +1,6 @@
 import Foundation
 
-enum SponsorCategory: String, CaseIterable, Codable, Identifiable {
+enum SponsorCategory: String, CaseIterable, Codable, Identifiable, Sendable {
     case sponsor = "sponsor"
     case intro = "intro"
     case outro = "outro"
@@ -26,7 +26,7 @@ enum SponsorCategory: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-enum SponsorActionType: String, Codable {
+enum SponsorActionType: String, Codable, Sendable {
     case skip = "skip"
     case mute = "mute"
     case full = "full"
@@ -34,7 +34,7 @@ enum SponsorActionType: String, Codable {
     case chapter = "chapter"
 }
 
-struct SponsorSegment: Codable, Identifiable {
+struct SponsorSegment: Codable, Identifiable, Sendable {
     let uuid: String
     let videoID: String
     let cid: String?
@@ -55,11 +55,11 @@ struct SponsorSegment: Codable, Identifiable {
     var duration: Double { endTime - startTime }
 }
 
-struct SponsorSkipSegmentsResponse: Codable {
+struct SponsorSkipSegmentsResponse: Codable, Sendable {
     let segments: [SponsorSegment]
 }
 
-struct SponsorConfig: Codable, Equatable {
+struct SponsorConfig: Codable, Equatable, Sendable {
     var serverURL: String
     var categories: [SponsorCategory]
     var minVotes: Int

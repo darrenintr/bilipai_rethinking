@@ -112,7 +112,7 @@ final class SponsorBlockService {
     }
 }
 
-enum SponsorError: LocalizedError {
+enum SponsorError: LocalizedError, Sendable {
     case invalidURL
     case networkError
     case httpError(Int, String?)

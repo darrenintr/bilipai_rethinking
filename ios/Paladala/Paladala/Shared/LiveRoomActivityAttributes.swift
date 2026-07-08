@@ -13,7 +13,7 @@ import Foundation
 /// The `ContentState` is the only field that changes during
 /// the lifetime of the activity; the static fields are set
 /// once at `Activity.request(_:)` time.
-public struct LiveRoomActivityAttributes: ActivityAttributes {
+public struct LiveRoomActivityAttributes: ActivityAttributes, Sendable {
     public typealias ContentState = LiveRoomActivityState
 
     /// Stable metadata captured when the live room first
@@ -37,7 +37,7 @@ public struct LiveRoomActivityAttributes: ActivityAttributes {
 /// room is open. The widget extension renders `viewerCount`
 /// + `isLive` from this struct; the static metadata comes
 /// from `LiveRoomActivityAttributes` itself.
-public struct LiveRoomActivityState: Codable, Hashable {
+public struct LiveRoomActivityState: Codable, Hashable, Sendable {
     public var viewerCount: Int
     public var isLive: Bool
 
