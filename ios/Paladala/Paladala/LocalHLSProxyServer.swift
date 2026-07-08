@@ -3277,12 +3277,13 @@ fileprivate func proxySegmentRange(
         guard let host = url.host, isAllowedUpstreamHost(host) else {
             throw URLError(.badURL)
         }
+        let manifestRequest = req
         let session = prepSession ?? Self.makePrepSession()
         let (data, response) = try await raceWithDeadline(
             seconds: 5.0,
             label: "live-manifest"
         ) {
-            try await session.data(for: req)
+            try await session.data(for: manifestRequest)
         }
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode) else {
@@ -3424,6 +3425,7 @@ fileprivate func proxySegmentRange(
         if let range = req.headers["range"] {
             upstreamReq.setValue(range, forHTTPHeaderField: "Range")
         }
+        let liveSegmentRequest = upstreamReq
         let session = prepSession ?? Self.makePrepSession()
         // PR-C Task 4: explicit `[weak self]` so the @Sendable
         // Task closure doesn't capture a strong reference to
@@ -3437,7 +3439,7 @@ fileprivate func proxySegmentRange(
                     seconds: 8.0,
                     label: "live-seg"
                 ) {
-                    try await session.data(for: upstreamReq)
+                    try await session.data(for: liveSegmentRequest)
                 }
                 guard let http = response as? HTTPURLResponse else {
                     respondError(connection: connection, status: 502,

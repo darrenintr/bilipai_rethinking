@@ -468,7 +468,9 @@ final class InlinePiPHolder: ObservableObject {
                     object: nil,
                     queue: .main
                 ) { [weak self] _ in
-                    self?.refreshPiPPossible()
+                    Task { @MainActor in
+                        self?.refreshPiPPossible()
+                    }
                 }
             )
         }
