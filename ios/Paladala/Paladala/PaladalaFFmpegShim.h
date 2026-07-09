@@ -56,7 +56,13 @@ AVRational paladala_format_stream_time_base(const AVFormatContext *ctx,
 // MARK: AVCodecParameters accessors
 
 /// `par->codec_id` (AV_CODEC_ID_H264 / AV_CODEC_ID_HEVC / …).
-AVCodecID paladala_codecpar_codec_id(const AVCodecParameters *par);
+/// NOTE: FFmpeg 7.x does NOT typedef `AVCodecID` — it's a bare
+/// `enum AVCodecID` tag (see /usr/include/libavcodec/codec_id.h
+/// in the FFmpeg 7.1.1 install).  Clang rejects the bare name in
+/// a C function signature with "must use 'enum' tag to refer to
+/// type 'AVCodecID'"; Swift still sees the imported type as
+/// `AVCodecID` regardless of the spelling here.
+enum AVCodecID paladala_codecpar_codec_id(const AVCodecParameters *par);
 
 /// `par->codec_tag` — the FourCC-style codec tag.  Often 0 for
 /// MP4 but populated by MPEG-TS / FLV demuxers; preserved for

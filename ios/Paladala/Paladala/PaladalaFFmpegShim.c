@@ -49,7 +49,10 @@ AVRational paladala_format_stream_time_base(const AVFormatContext *ctx,
 
 // MARK: AVCodecParameters
 
-AVCodecID paladala_codecpar_codec_id(const AVCodecParameters *par) {
+// FFmpeg 7.x has no `typedef enum AVCodecID AVCodecID` — see
+// PaladalaFFmpegShim.h for the rationale.  Use the full enum tag
+// in the definition to match the declaration.
+enum AVCodecID paladala_codecpar_codec_id(const AVCodecParameters *par) {
     if (!par) return AV_CODEC_ID_NONE;
     return par->codec_id;
 }
