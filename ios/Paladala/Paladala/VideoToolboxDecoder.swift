@@ -179,26 +179,33 @@ final class VideoToolboxDecoder {
                 // `nalUnitHeaderLength` is 4 for AVCC (MP4) containers.
                 // HLS / Annex B streams use 3-byte start codes; we'd
                 // need to convert.  Phase 1 keeps MP4-only so 4 is fine.
-                // `extensions:` is a new required parameter in the
-                // Xcode 16 / iOS 18 SDK; pass nil (no extra format
-                // description extensions like colour space tags).
+                // NOTE: the H.264 variant does NOT take an `extensions:`
+                // parameter in any current SDK — only the HEVC variant
+                // gained one in Xcode 16 / iOS 18.
                 return CMVideoFormatDescriptionCreateFromH264ParameterSets(
                     allocator: kCFAllocatorDefault,
                     parameterSetCount: cfSets.count,
                     parameterSetPointers: rawPointers,
                     parameterSetSizes: sizes,
                     nalUnitHeaderLength: 4,
-                    extensions: nil,
                     formatDescriptionOut: &description
                 )
             case AV_CODEC_ID_HEVC:
+                // The HEVC variant gained a new `extensions:`
+                // parameter in Xcode 16 / iOS 18 — it expects a
+                // CFDictionary of additional format description
+                // tags (colour space, transfer function, etc.).
+                // Phase 0 doesn't need any, so pass an empty
+                // dictionary cast to CFDictionary.  Plain `nil`
+                // doesn't compile because the parameter type
+                // isn't inferred from the call site alone.
                 return CMVideoFormatDescriptionCreateFromHEVCParameterSets(
                     allocator: kCFAllocatorDefault,
                     parameterSetCount: cfSets.count,
                     parameterSetPointers: rawPointers,
                     parameterSetSizes: sizes,
                     nalUnitHeaderLength: 4,
-                    extensions: nil,
+                    extensions: nil as CFDictionary?,
                     formatDescriptionOut: &description
                 )
             default:
