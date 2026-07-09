@@ -121,42 +121,75 @@ final class VideoToolboxDecoder {
     /// Must be called once after init and before `decode(packet:)`.
     func configure(parameterSets: [Data]) throws {
         // CMVideoFormatDescriptionCreate*ParameterSets takes a
-        // CFArray of CFData, not a Swift [Data].  Build the array
-        // explicitly so the C side can consume the buffers without
-        // copies.
+        // C array of `const uint8_t *` pointers (one per parameter
+        // set), not a CFArray.  We pull each CFData's raw byte
+        // pointer with `CFDataGetBytePtr` and pass Swift arrays
+        // by `withUnsafeBufferPointer` — direct Swift arrays
+        // would be copied by the C importer; this avoids the copy
+        // and keeps the byte pointers valid for the duration of
+        // the call.
         let cfSets: [CFData] = parameterSets.map { Data($0) as CFData }
-        let array = cfSets as CFArray
+        var bytePointers = [UnsafePointer<UInt8>?](
+            repeating: nil, count: cfSets.count
+        )
+        var sizes: [Int] = []
+        sizes.reserveCapacity(cfSets.count)
+        for cfData in cfSets {
+            // `CFDataGetBytePtr` returns the raw pointer; we cast
+            // to `UnsafePointer<UInt8>?` because the C importer
+            // represents CFData byte pointers as optional.  The
+            // pointer is owned by the CFData so it stays valid
+            // for the duration of this function (and we keep
+            // `cfSets` alive until after the CMVideoFormatDescription
+            // is constructed).
+            bytePointers.append(
+                UnsafePointer<UInt8>(CFDataGetBytePtr(cfData))
+            )
+            sizes.append(CFDataGetLength(cfData))
+        }
 
         var description: CMVideoFormatDescription?
-        let status: OSStatus
-        switch codecID {
-        case AV_CODEC_ID_H264:
-            // `nalUnitHeaderLength` is 4 for AVCC (MP4) containers.
-            // HLS / Annex B streams use 3-byte start codes; we'd
-            // need to convert.  Phase 1 keeps MP4-only so 4 is fine.
-            status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
-                allocator: kCFAllocatorDefault,
-                parameterSetCount: cfSets.count,
-                parameterSetPointers: unsafeBitCast(
-                    CFArrayGetValueAtIndex(array, 0),
-                    to: UnsafePointer<UnsafePointer<UInt8>>.self
-                ),
-                parameterSetSizes: parameterSets.map { $0.count },
-                nalUnitHeaderLength: 4,
-                formatDescriptionOut: &description
-            )
-        case AV_CODEC_ID_HEVC:
-            status = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
-                allocator: kCFAllocatorDefault,
-                parameterSetCount: cfSets.count,
-                parameterSetPointers: unsafeBitCast(
-                    CFArrayGetValueAtIndex(array, 0),
-                    to: UnsafePointer<UnsafePointer<UInt8>>.self
-                ),
-                parameterSetSizes: parameterSets.map { $0.count },
-                nalUnitHeaderLength: 4,
-                formatDescriptionOut: &description
-            )
+        let status: OSStatus = bytePointers.withUnsafeBufferPointer { ptr -> OSStatus in
+            // `bytePointers` is guaranteed non-empty (we threw
+            // earlier if it was), so `baseAddress` is non-nil.
+            // The C importer wants `UnsafePointer<UnsafePointer<UInt8>?>`
+            // here, which is exactly the element type of our
+            // `[UnsafePointer<UInt8>?]` buffer.
+            let rawPointers = ptr.baseAddress!
+            switch codecID {
+            case AV_CODEC_ID_H264:
+                // `nalUnitHeaderLength` is 4 for AVCC (MP4) containers.
+                // HLS / Annex B streams use 3-byte start codes; we'd
+                // need to convert.  Phase 1 keeps MP4-only so 4 is fine.
+                return CMVideoFormatDescriptionCreateFromH264ParameterSets(
+                    allocator: kCFAllocatorDefault,
+                    parameterSetCount: cfSets.count,
+                    parameterSetPointers: rawPointers,
+                    parameterSetSizes: sizes,
+                    nalUnitHeaderLength: 4,
+                    formatDescriptionOut: &description
+                )
+            case AV_CODEC_ID_HEVC:
+                return CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                    allocator: kCFAllocatorDefault,
+                    parameterSetCount: cfSets.count,
+                    parameterSetPointers: rawPointers,
+                    parameterSetSizes: sizes,
+                    nalUnitHeaderLength: 4,
+                    formatDescriptionOut: &description
+                )
+            default:
+                return -1  // Unreachable; guarded by `init`.
+            }
+        }
+
+        guard status == noErr, let createdDescription = description else {
+            throw VideoToolboxDecoderError.formatDescriptionCreationFailed(status: status)
+        }
+        self.formatDescription = createdDescription
+
+        try createSession(formatDescription: createdDescription)
+    }
         default:
             throw VideoToolboxDecoderError.unsupportedCodec
         }
