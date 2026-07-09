@@ -1608,12 +1608,30 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         }
         let sidxRange = indexRange.offset ..< (indexRange.offset + indexRange.length)
         let initRange = playlistInitializationRange(for: track)
+
+        // Guard: if the SIDX offset from the API exceeds the CDN file size
+        // (schema drift / CDN file was replaced since the API response), the
+        // resulting inverted range would crash `fetchExactRange`'s
+        // `precondition(!range.isEmpty)`.  Surface as a clean preparation
+        // failure instead.
+        let sidxUpperBound = Int64(fileSize)
+        guard sidxRange.lowerBound < sidxUpperBound else {
+            throw PlaybackPreparationError.sidxFetchFailed(
+                host: sourceURL.host ?? "",
+                reason: "sidx offset \(sidxRange.lowerBound) >= fileSize \(fileSize)"
+            )
+        }
+
         let prefixLength: Int64 = 64 * 1024
         let combinedEnd = min(
-            Int64(fileSize),
+            sidxUpperBound,
             max(sidxRange.upperBound, sidxRange.upperBound + prefixLength)
         )
-        let combinedRange = sidxRange.lowerBound..<combinedEnd
+        // Defensive: ensure the range is valid even when the SIDX upper bound
+        // and prefix produce a value ≤ sidxRange.lowerBound.
+        let combinedRange = combinedEnd > sidxRange.lowerBound
+            ? sidxRange.lowerBound..<combinedEnd
+            : sidxRange.lowerBound..<sidxUpperBound
 
         let combined: RangeFetchOutcome
         do {

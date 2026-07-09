@@ -2087,6 +2087,16 @@ final class PlayerController: ObservableObject {
         // deallocates — no action needed.  The time observer and
         // NotificationCenter observers must be removed explicitly
         // because they hold a strong reference to self.
+        //
+        // Safety: `MainActor.assumeIsolated` crashes with SIGTRAP if
+        // called on a non-main thread.  With Swift's @MainActor model,
+        // deinit *should* run on the main actor, but if the last
+        // strong reference is released from a background context the
+        // runtime can deallocate on an arbitrary thread.  Guard so a
+        // controller that escaped `tearDown()` on a background queue
+        // doesn't crash the process — the observers are already
+        // released at this point so skipping cleanup here is safe.
+        guard Thread.isMainThread else { return }
         MainActor.assumeIsolated {
             if let token = timeObserver {
                 player.removeTimeObserver(token)
