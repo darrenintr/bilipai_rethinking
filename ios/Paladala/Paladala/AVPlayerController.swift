@@ -643,6 +643,17 @@ final class PlayerController: ObservableObject {
         self.playerError = initialPlayerError
 
         let item = AVPlayerItem(asset: asset)
+        // iOS 26 Beta workaround: cap preferredMaximumResolution
+        // to skip the AVPlayer AI-upscaler pipeline that traps
+        // inside MetalPerformanceShadersGraph on 26.6 Beta.
+        // The crash frame sits in MPSGraph's MLIR matcher,
+        // called from the post-decode upscaler; forcing the
+        // max resolution below typical source dimensions
+        // forces AVPlayer to decode at source rate and skip
+        // the post-process entirely.  (1280x720) covers B 站
+        // 720p sources losslessly; 1080p sources degrade
+        // visibly but the upside is unblocking the Beta.
+        item.preferredMaximumResolution = CGSize(width: 1280, height: 720)
 
         // Build 182: the seek-to-resume-time call moved
         // into `startPlaybackSession(item:)`.  See the
@@ -987,6 +998,10 @@ final class PlayerController: ObservableObject {
             try Task.checkCancellation()
 
             let item = AVPlayerItem(url: url)
+            // iOS 26 Beta workaround: same MPSGraph cap as init().
+            // See the matching comment above the placeholder item
+            // in `init()` for the rationale.
+            item.preferredMaximumResolution = CGSize(width: 1280, height: 720)
             replaceCurrentItemForPlayback(item)
             startPlaybackSession(item: item)
 
