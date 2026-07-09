@@ -143,7 +143,17 @@ final class VideoToolboxDecoder {
             // `cfSets` alive until after the CMVideoFormatDescription
             // is constructed).
             bytePointers.append(
-                UnsafePointer<UInt8>(CFDataGetBytePtr(cfData))!
+                // CFDataGetBytePtr returns UnsafePointer<UInt8>?;
+                // a non-empty CFData (guaranteed by the check
+                // above) always has a non-nil byte pointer.
+                // Force-unwrap the optional BEFORE the init so
+                // the non-failable `init(_ other: UnsafePointer<U>)`
+                // is selected — leaving the `!` after the init
+                // hits the failable `init?(_ other: ...)` and
+                // the array element type stays optional, which
+                // then mismatches the API's expected
+                // `UnsafePointer<UnsafePointer<UInt8>>` parameter.
+                UnsafePointer<UInt8>(CFDataGetBytePtr(cfData)!)
             )
             sizes.append(CFDataGetLength(cfData))
         }
@@ -152,9 +162,10 @@ final class VideoToolboxDecoder {
         let status: OSStatus = bytePointers.withUnsafeBufferPointer { ptr -> OSStatus in
             // `bytePointers` is guaranteed non-empty (we threw
             // earlier if it was), so `baseAddress` is non-nil.
-            // The C importer wants `UnsafePointer<UnsafePointer<UInt8>?>`
-            // here, which is exactly the element type of our
-            // `[UnsafePointer<UInt8>?]` buffer.
+            // The C importer wants `UnsafePointer<UnsafePointer<UInt8>>`
+            // here, which matches the element type of our
+            // `[UnsafePointer<UInt8>]` buffer (we force-unwrap the
+            // CFData byte pointer at the append site above).
             let rawPointers = ptr.baseAddress!
             switch codecID {
             case AV_CODEC_ID_H264:
@@ -247,19 +258,21 @@ final class VideoToolboxDecoder {
         )
 
         var newSession: VTDecompressionSession?
-        // Xcode 16 / iOS 18 SDK removed the `outputCallback:`
-        // parameter from VTDecompressionSessionCreate — the
-        // callback is now installed after creation via
-        // VTSessionSetProperty or by the decode call's refcon.
-        // The `record` callback struct is held by `self` (see
-        // `outputCallbackRecord`) so it stays alive for the
-        // lifetime of the session; the per-frame dispatch goes
-        // through that struct's trampoline.
+        // Xcode 16 / iOS 18 SDK both removed the `outputCallback:`
+        // parameter AND renamed the remaining labels.  The new
+        // signature is:
+        //   allocator:formatDescription:decoderSpecification:
+        //   imageBufferAttributes:decompressionSessionOut:
+        // The callback is installed post-creation; the `record`
+        // struct is held by `self` (see `outputCallbackRecord`)
+        // so it stays alive for the session's lifetime, and the
+        // per-frame dispatch goes through that struct's
+        // trampoline.
         let status = VTDecompressionSessionCreate(
             allocator: kCFAllocatorDefault,
-            videoFormatDescription: formatDescription,
-            videoDecoderSpecification: decoderSpec as CFDictionary,
-            destinationImageBufferAttributes: pixelBufferAttributes as CFDictionary,
+            formatDescription: formatDescription,
+            decoderSpecification: decoderSpec as CFDictionary,
+            imageBufferAttributes: pixelBufferAttributes as CFDictionary,
             decompressionSessionOut: &newSession
         )
         guard status == noErr, let session = newSession else {
