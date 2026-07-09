@@ -297,87 +297,44 @@ jobs:
           if-no-files-found: error
 
       # ------------------------------------------------------------------
-      # Mirror the build log to a public GitHub Issue so an unauth'd
+      # Mirror the build log to a public orphan branch so an unauth'd
       # agent (or anyone) can read it without a GitHub login.  The
       # web UI requires login to view step logs and download
-      # artifacts, but Issues + their comments are public on a
-      # public repo.  We:
-      #   1. find-or-create an issue labelled "ci-build-log" titled
-      #      "iOS CI build logs" (a long-lived sink we keep open)
-      #   2. append a comment per failed run with run id, head sha,
-      #      exit code, and the build log
+      # artifacts, but git refs on a public repo are anonymous-
+      # fetchable.  We:
+      #   1. ensure the orphan branch `ci-logs` exists (create it
+      #      on first run, switch into it on every run)
+      #   2. write the build log to `logs/ci-{run}-{shortSha}.log`
+      #   3. commit + push back to origin/ci-logs
       # This step runs `if: failure()` and `continue-on-error: true`
-      # so an issue-API hiccup never poisons the run summary.
+      # so a git hiccup never poisons the run summary.
       # ------------------------------------------------------------------
-      - name: Mirror build log to public Issue
+      - name: Mirror build log to ci-logs branch
         if: failure()
         continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const logPath = '${{ github.workspace }}/build_log.txt';
-            let log = '';
-            try {
-              log = fs.readFileSync(logPath, 'utf8');
-            } catch (e) {
-              log = '(failed to read build_log.txt: ' + e.message + ')';
-            }
-            // Truncate to stay under GitHub's 65535-char comment cap.
-            const MAX = 60000;
-            const truncatedNote = log.length > MAX
-              ? `\n\n_(truncated: log was ${log.length} chars, kept last ${MAX})_\n`
-              : '';
-            const tail = log.length > MAX ? log.slice(-MAX) : log;
-            // Extract just the `error:` lines for the comment body
-            // so reviewers don't have to scroll through 11 KB of
-            // xcodebuild chatter.  Full log is the issue attachment
-            // (uploaded above) and in the run's step log.
-            const errorLines = log
-              .split('\n')
-              .filter(l => /(^|\s)error:/.test(l))
-              .slice(0, 30)
-              .join('\n');
-            const head = `${context.repo.repo} iOS CI run #${context.runNumber} failed\n\n` +
-                         `commit: ${context.sha.slice(0, 7)}\n` +
-                         `exit code: 65 (xcodebuild)\n` +
-                         `workflow: ${context.workflow}\n\n` +
-                         `### Swift \`error:\` lines (first 30)\n\n` +
-                         '```\n' + (errorLines || '(no `error:` lines found — check the full log below)') + '\n```\n\n' +
-                         `### Full log (last ${MAX} chars)\n\n` +
-                         '```\n' + tail + truncatedNote + '\n```\n\n' +
-                         `[Open the run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
-            // Find or create the sink issue.
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'ci-build-log',
-              per_page: 1,
-            });
-            let sink = issues.find(i => i.title === 'iOS CI build logs');
-            if (!sink) {
-              const { data: created } = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: 'iOS CI build logs',
-                body: 'Auto-populated by `.github/workflows/ios-unsigned-ipa.yml`.\n\n' +
-                      'Each failed run adds a comment with the Swift `error:` lines and the tail of the xcodebuild log.\n\n' +
-                      'The full log is also uploaded as a workflow artifact (7-day retention).',
-                labels: ['ci-build-log'],
-              });
-              sink = created;
-            }
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: sink.number,
-              body: head,
-            });
-            core.setOutput('sink_issue', sink.html_url);
-            core.info('Build log mirrored to ' + sink.html_url);
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "ci-log-bot"
+          git config user.email "ci-log-bot@users.noreply.github.com"
+          # Fetch + create-or-switch the ci-logs branch as an
+          # orphan (no shared history with `working`, so it
+          # can't pollute the main line).
+          git fetch origin ci-logs 2>/dev/null || true
+          if git rev-parse --verify origin/ci-logs >/dev/null 2>&1; then
+            git checkout -B ci-logs origin/ci-logs
+          else
+            git checkout --orphan ci-logs
+            git rm -rf . 2>/dev/null || true
+          fi
+          mkdir -p logs
+          SLUG="ci-${GITHUB_RUN_NUMBER}-$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)"
+          cp "$GITHUB_WORKSPACE/build_log.txt" "logs/${SLUG}.log"
+          git add "logs/${SLUG}.log"
+          git commit -m "ci: xcodebuild log for run #${GITHUB_RUN_NUMBER} (commit ${GITHUB_SHA:0:7})" || echo "nothing to commit"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-logs
+          echo "Mirrored log to ci-logs branch: logs/${SLUG}.log"
 
       # ------------------------------------------------------------------
       # Derive a release tag from the build number we just bumped.
