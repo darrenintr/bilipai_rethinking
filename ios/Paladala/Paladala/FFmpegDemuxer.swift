@@ -171,7 +171,7 @@ final class FFmpegDemuxer: @unchecked Sendable {
         let dur = paladala_format_duration(
             ctxPtr as UnsafeMutablePointer<AVFormatContext>?
         )
-        self.durationUs = (dur == Int64(AV_NOPTS_VALUE)) ? 0 : dur
+        self.durationUs = (dur == paladala_av_nopts_value()) ? 0 : dur
     }
 
     /// Release the AVFormatContext.  Safe to call multiple times.
@@ -252,8 +252,11 @@ final class FFmpegDemuxer: @unchecked Sendable {
         // Copy the bytes into Swift-managed storage immediately —
         // `extradataRaw` is borrowed from the format context and we
         // don't want to keep it pinned across `readPacket()` calls.
+        // `paladala_codecpar_extradata_size` returns C `int` (Int32
+        // in Swift); `UnsafeBufferPointer.count` wants Int.
         let buffer = UnsafeBufferPointer(
-            start: extradataRaw, count: extradataSize
+            start: UnsafePointer<UInt8>(extradataRaw),
+            count: Int(extradataSize)
         )
         let bytes = Data(buffer: buffer)
 
@@ -302,7 +305,7 @@ final class FFmpegDemuxer: @unchecked Sendable {
         var packet = AVPacket()
         let result = av_read_frame(ctxPtr, &packet)
         if result < 0 {
-            if result == AVERROR_EOF {
+            if result == paladala_averror_eof() {
                 throw FFmpegDemuxerError.endOfStream
             }
             throw FFmpegDemuxerError.readFailed(code: result)

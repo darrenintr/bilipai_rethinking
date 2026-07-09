@@ -238,9 +238,9 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$DERIVED_DATA" \
-            HEADER_SEARCH_PATHS="${FFMPEG_INCLUDE} $(inherited)" \
-            LIBRARY_SEARCH_PATHS="${FFMPEG_LIB} $(inherited)" \
-            OTHER_LDFLAGS="-lavformat -lavcodec -lavutil -lswresample $(inherited)" \
+            HEADER_SEARCH_PATHS="${FFMPEG_INCLUDE} \$(inherited)" \
+            LIBRARY_SEARCH_PATHS="${FFMPEG_LIB} \$(inherited)" \
+            OTHER_LDFLAGS="-lavformat -lavcodec -lavutil -lswresample -liconv -lz \$(inherited)" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \

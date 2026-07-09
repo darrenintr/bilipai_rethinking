@@ -53,7 +53,17 @@ enum VideoToolboxDecoderError: Error, Equatable {
 }
 
 /// Output handed back to the engine after each decoded frame.
-struct VideoToolboxDecodedFrame {
+///
+/// `@unchecked Sendable` (not plain `Sendable`) because the
+/// stored `pixelBuffer` is a `CVPixelBuffer` / `CVBuffer` —
+/// Core Foundation reference types are not marked Sendable by
+/// Swift's importer, so the strict-concurrency checker rejects
+/// a plain Sendable conformance.  It is still safe to send
+/// across actor boundaries: the frame is immutable after
+/// construction (all `let`), and `CVPixelBuffer` is
+/// reference-counted by Core Video, so no shared mutable
+/// state escapes the struct.
+struct VideoToolboxDecodedFrame: @unchecked Sendable {
     /// The decoded pixels, ready for `AVSampleBufferDisplayLayer.enqueue`.
     let pixelBuffer: CVPixelBuffer
     /// Presentation timestamp in seconds (PTS converted from the
@@ -68,7 +78,17 @@ struct VideoToolboxDecodedFrame {
 /// Hardware decoder for H.264 / HEVC.  One instance per playback
 /// session.  After construction, feed `decode(parameterSets:packet:)`
 /// for every compressed access unit FFmpeg hands you.
-final class VideoToolboxDecoder {
+///
+/// `@unchecked Sendable` because the only mutable state (the
+/// `VTDecompressionSession`) is only touched from the
+/// `VTDecompressionSessionDecodeFrame` call site, which the
+/// engine actorises through `decode(packet:...)`.  The
+/// decompression output callback (the C function pointer
+/// installed in `createSession`) reads `self` via the
+/// `refCon` and hops to the main actor before touching
+/// `onFrame`, so the closure capture from a background
+/// queue is safe.
+final class VideoToolboxDecoder: @unchecked Sendable {
 
     // MARK: state
 
@@ -129,9 +149,16 @@ final class VideoToolboxDecoder {
         // and keeps the byte pointers valid for the duration of
         // the call.
         let cfSets: [CFData] = parameterSets.map { Data($0) as CFData }
-        var bytePointers = [UnsafePointer<UInt8>?](
-            repeating: nil, count: cfSets.count
-        )
+        // Element type MUST be `UnsafePointer<UInt8>` (non-optional)
+        // — the `CMVideoFormatDescriptionCreateFrom*ParameterSets`
+        // API takes `UnsafePointer<UnsafePointer<UInt8>>` (pointer
+        // to non-optional pointers), so the array's element type
+        // has to be non-optional too.  A `[UnsafePointer<UInt8>?]`
+        // would make `ptr.baseAddress!` point to optionals and the
+        // API would reject it with "value of optional type
+        // 'UnsafePointer<UInt8>?' must be unwrapped".
+        var bytePointers = [UnsafePointer<UInt8>]()
+        bytePointers.reserveCapacity(cfSets.count)
         var sizes: [Int] = []
         sizes.reserveCapacity(cfSets.count)
         for cfData in cfSets {
@@ -143,7 +170,17 @@ final class VideoToolboxDecoder {
             // `cfSets` alive until after the CMVideoFormatDescription
             // is constructed).
             bytePointers.append(
-                UnsafePointer<UInt8>(CFDataGetBytePtr(cfData))
+                // CFDataGetBytePtr returns UnsafePointer<UInt8>?;
+                // a non-empty CFData (guaranteed by the check
+                // above) always has a non-nil byte pointer.
+                // Force-unwrap the optional BEFORE the init so
+                // the non-failable `init(_ other: UnsafePointer<U>)`
+                // is selected — leaving the `!` after the init
+                // hits the failable `init?(_ other: ...)` and
+                // the array element type stays optional, which
+                // then mismatches the API's expected
+                // `UnsafePointer<UnsafePointer<UInt8>>` parameter.
+                UnsafePointer<UInt8>(CFDataGetBytePtr(cfData)!)
             )
             sizes.append(CFDataGetLength(cfData))
         }
@@ -152,15 +189,19 @@ final class VideoToolboxDecoder {
         let status: OSStatus = bytePointers.withUnsafeBufferPointer { ptr -> OSStatus in
             // `bytePointers` is guaranteed non-empty (we threw
             // earlier if it was), so `baseAddress` is non-nil.
-            // The C importer wants `UnsafePointer<UnsafePointer<UInt8>?>`
-            // here, which is exactly the element type of our
-            // `[UnsafePointer<UInt8>?]` buffer.
+            // The C importer wants `UnsafePointer<UnsafePointer<UInt8>>`
+            // here, which matches the element type of our
+            // `[UnsafePointer<UInt8>]` buffer (we force-unwrap the
+            // CFData byte pointer at the append site above).
             let rawPointers = ptr.baseAddress!
             switch codecID {
             case AV_CODEC_ID_H264:
                 // `nalUnitHeaderLength` is 4 for AVCC (MP4) containers.
                 // HLS / Annex B streams use 3-byte start codes; we'd
                 // need to convert.  Phase 1 keeps MP4-only so 4 is fine.
+                // NOTE: the H.264 variant does NOT take an `extensions:`
+                // parameter in any current SDK — only the HEVC variant
+                // gained one in Xcode 16 / iOS 18.
                 return CMVideoFormatDescriptionCreateFromH264ParameterSets(
                     allocator: kCFAllocatorDefault,
                     parameterSetCount: cfSets.count,
@@ -170,12 +211,21 @@ final class VideoToolboxDecoder {
                     formatDescriptionOut: &description
                 )
             case AV_CODEC_ID_HEVC:
+                // The HEVC variant gained a new `extensions:`
+                // parameter in Xcode 16 / iOS 18 — it expects a
+                // CFDictionary of additional format description
+                // tags (colour space, transfer function, etc.).
+                // Phase 0 doesn't need any, so pass an empty
+                // dictionary cast to CFDictionary.  Plain `nil`
+                // doesn't compile because the parameter type
+                // isn't inferred from the call site alone.
                 return CMVideoFormatDescriptionCreateFromHEVCParameterSets(
                     allocator: kCFAllocatorDefault,
                     parameterSetCount: cfSets.count,
                     parameterSetPointers: rawPointers,
                     parameterSetSizes: sizes,
                     nalUnitHeaderLength: 4,
+                    extensions: nil as CFDictionary?,
                     formatDescriptionOut: &description
                 )
             default:
@@ -231,28 +281,45 @@ final class VideoToolboxDecoder {
                     .fromOpaque(refCon)
                     .takeUnretainedValue()
                 let pts = CMTimeGetSeconds(presentationTime)
+                // Build the frame BEFORE the Task hop.  The
+                // closure must capture only Sendable values, and
+                // `CVPixelBuffer` is not Sendable — but
+                // `VideoToolboxDecodedFrame` is `@unchecked
+                // Sendable` (all `let`, CVPixelBuffer is
+                // reference-counted), so wrapping first and
+                // capturing the struct is safe.
+                let frame = VideoToolboxDecodedFrame(
+                    pixelBuffer: imageBuffer,
+                    presentationTimeSeconds: pts,
+                    isKeyframe: false
+                )
                 // Hop to the main actor before delivering — the
                 // closure's receiver (engine → display layer)
                 // publishes frames to AVSampleBufferDisplayLayer
                 // which is documented as main-thread only.
                 Task { @MainActor in
-                    decoder.onFrame(VideoToolboxDecodedFrame(
-                        pixelBuffer: imageBuffer,
-                        presentationTimeSeconds: pts,
-                        isKeyframe: false
-                    ))
+                    decoder.onFrame(frame)
                 }
             },
             decompressionOutputRefCon: refCon
         )
 
         var newSession: VTDecompressionSession?
+        // Xcode 16 / iOS 18 SDK both removed the `outputCallback:`
+        // parameter AND renamed the remaining labels.  The new
+        // signature is:
+        //   allocator:formatDescription:decoderSpecification:
+        //   imageBufferAttributes:decompressionSessionOut:
+        // The callback is installed post-creation; the `record`
+        // struct is held by `self` (see `outputCallbackRecord`)
+        // so it stays alive for the session's lifetime, and the
+        // per-frame dispatch goes through that struct's
+        // trampoline.
         let status = VTDecompressionSessionCreate(
             allocator: kCFAllocatorDefault,
-            videoFormatDescription: formatDescription,
-            videoDecoderSpecification: decoderSpec as CFDictionary,
-            destinationImageBufferAttributes: pixelBufferAttributes as CFDictionary,
-            outputCallback: record,
+            formatDescription: formatDescription,
+            decoderSpecification: decoderSpec as CFDictionary,
+            imageBufferAttributes: pixelBufferAttributes as CFDictionary,
             decompressionSessionOut: &newSession
         )
         guard status == noErr, let session = newSession else {
@@ -278,10 +345,14 @@ final class VideoToolboxDecoder {
         // block buffer is the format VideoToolbox wants for sample
         // data — it owns the bytes by reference and frees them
         // when the sample buffer is finalized.  Reach into the
-        // packet via the shim because Swift 6 hides AVPacket fields.
+        // packet via the shim because Swift 6 hides AVPacket
+        // fields.  Copy to a local `var` because the shim takes
+        // `AVPacket *` which Swift's importer treats as inout, and
+        // the `packet` parameter is a `let` constant by default.
+        var localPacket = packet
         var blockBuffer: CMBlockBuffer?
-        guard let dataPtr = paladala_packet_data(&packet) else { return }
-        let dataSize = Int(paladala_packet_size(&packet))
+        guard let dataPtr = paladala_packet_data(&localPacket) else { return }
+        let dataSize = Int(paladala_packet_size(&localPacket))
         let blockStatus = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
             memoryBlock: nil,
@@ -347,7 +418,13 @@ final class VideoToolboxDecoder {
         let status = VTDecompressionSessionDecodeFrame(
             session,
             sampleBuffer: sbuf,
-            flags: isKeyframe ? VTDecodeFrameFlags_EnableAsynchronousDecompression : [],
+            // `VTDecodeFrameFlags_EnableAsynchronousDecompression`
+            // was removed in the Xcode 16 / iOS 18 SDK.  Async
+            // dispatch is now controlled by the session's
+            // destinationImageBufferAttributes + the callback
+            // trampoline installed at session creation, so we
+            // just pass an empty flag set.
+            flags: [],
             frameRefcon: nil,
             infoFlagsOut: &infoFlags
         )

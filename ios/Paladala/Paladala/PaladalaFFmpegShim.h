@@ -98,6 +98,21 @@ int      paladala_packet_size(const AVPacket *pkt);
 /// frame (IDR or equivalent).
 int      paladala_packet_is_key(const AVPacket *pkt);
 
+// MARK: FFmpeg macro constants (Swift can't see C `#define`s)
+//
+// `AV_NOPTS_VALUE` and `AVERROR_EOF` are C preprocessor macros
+// in FFmpeg's headers; Swift's importer does not bridge `#define`
+// numeric macros, so the bare names fail with "cannot find 'X'
+// in scope" from Swift call sites.  Exposing them as C function
+// returns is the cheapest workaround: Swift calls the function
+// and gets the same integer value the macro would have inlined.
+
+/// `AV_NOPTS_VALUE` — the "no PTS" sentinel (0x8000000000000000).
+int64_t  paladala_av_nopts_value(void);
+
+/// `AVERROR_EOF` — the negative FFERRTAG-encoded "EOF " value.
+int      paladala_averror_eof(void);
+
 #ifdef __cplusplus
 }
 #endif
