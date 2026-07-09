@@ -188,9 +188,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/ffmpeg-build/arm64
-          key: ffmpeg-n7.1.1-arm64-v1
+          key: ffmpeg-7.1.1-arm64-v1
           restore-keys: |
-            ffmpeg-n7.1.1-arm64-
+            ffmpeg-7.1.1-arm64-
 
       - name: Build FFmpeg (skipped on cache hit)
         run: |
@@ -204,8 +204,8 @@ jobs:
             exit 0
           fi
           export OUTPUT_DIR="${{ runner.temp }}/ffmpeg-build"
-          export FFMPEG_VERSION="n7.1.1"
-          export PLATFORM_MIN_VERSION="15.0"
+          export FFMPEG_VERSION="7.1.1"
+          export PLATFORM_MIN_VERSION="18.0"
           bash scripts/build-ffmpeg.sh
         env:
           # actions/cache saves under $RUNNER_TEMP which maps to a
