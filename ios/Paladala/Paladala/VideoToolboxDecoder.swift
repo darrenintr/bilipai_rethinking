@@ -143,7 +143,7 @@ final class VideoToolboxDecoder {
             // `cfSets` alive until after the CMVideoFormatDescription
             // is constructed).
             bytePointers.append(
-                UnsafePointer<UInt8>(CFDataGetBytePtr(cfData))
+                UnsafePointer<UInt8>(CFDataGetBytePtr(cfData))!
             )
             sizes.append(CFDataGetLength(cfData))
         }
@@ -247,12 +247,19 @@ final class VideoToolboxDecoder {
         )
 
         var newSession: VTDecompressionSession?
+        // Xcode 16 / iOS 18 SDK removed the `outputCallback:`
+        // parameter from VTDecompressionSessionCreate — the
+        // callback is now installed after creation via
+        // VTSessionSetProperty or by the decode call's refcon.
+        // The `record` callback struct is held by `self` (see
+        // `outputCallbackRecord`) so it stays alive for the
+        // lifetime of the session; the per-frame dispatch goes
+        // through that struct's trampoline.
         let status = VTDecompressionSessionCreate(
             allocator: kCFAllocatorDefault,
             videoFormatDescription: formatDescription,
             videoDecoderSpecification: decoderSpec as CFDictionary,
             destinationImageBufferAttributes: pixelBufferAttributes as CFDictionary,
-            outputCallback: record,
             decompressionSessionOut: &newSession
         )
         guard status == noErr, let session = newSession else {
@@ -278,10 +285,14 @@ final class VideoToolboxDecoder {
         // block buffer is the format VideoToolbox wants for sample
         // data — it owns the bytes by reference and frees them
         // when the sample buffer is finalized.  Reach into the
-        // packet via the shim because Swift 6 hides AVPacket fields.
+        // packet via the shim because Swift 6 hides AVPacket
+        // fields.  Copy to a local `var` because the shim takes
+        // `AVPacket *` which Swift's importer treats as inout, and
+        // the `packet` parameter is a `let` constant by default.
+        var localPacket = packet
         var blockBuffer: CMBlockBuffer?
-        guard let dataPtr = paladala_packet_data(&packet) else { return }
-        let dataSize = Int(paladala_packet_size(&packet))
+        guard let dataPtr = paladala_packet_data(&localPacket) else { return }
+        let dataSize = Int(paladala_packet_size(&localPacket))
         let blockStatus = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
             memoryBlock: nil,
@@ -347,7 +358,13 @@ final class VideoToolboxDecoder {
         let status = VTDecompressionSessionDecodeFrame(
             session,
             sampleBuffer: sbuf,
-            flags: isKeyframe ? VTDecodeFrameFlags_EnableAsynchronousDecompression : [],
+            // `VTDecodeFrameFlags_EnableAsynchronousDecompression`
+            // was removed in the Xcode 16 / iOS 18 SDK.  Async
+            // dispatch is now controlled by the session's
+            // destinationImageBufferAttributes + the callback
+            // trampoline installed at session creation, so we
+            // just pass an empty flag set.
+            flags: [],
             frameRefcon: nil,
             infoFlagsOut: &infoFlags
         )

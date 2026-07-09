@@ -15,6 +15,7 @@
 #include "PaladalaFFmpegShim.h"
 
 #include <string.h> // for memset/return-zero on invalid input
+#include <libavutil/error.h> // for AVERROR_EOF (AV_NOPTS_VALUE comes from <libavutil/avutil.h> via the .h)
 
 // MARK: AVFormatContext
 
@@ -102,4 +103,14 @@ int paladala_packet_size(const AVPacket *pkt) {
 int paladala_packet_is_key(const AVPacket *pkt) {
     if (!pkt) return 0;
     return (pkt->flags & AV_PKT_FLAG_KEY) ? 1 : 0;
+}
+
+// MARK: macro wrappers (see header for rationale)
+
+int64_t paladala_av_nopts_value(void) {
+    return AV_NOPTS_VALUE;
+}
+
+int paladala_averror_eof(void) {
+    return AVERROR_EOF;
 }

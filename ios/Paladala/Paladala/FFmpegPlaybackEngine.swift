@@ -205,7 +205,11 @@ actor FFmpegPlaybackEngine {
             // non-video packets, so audio packets are silently
             // skipped in Phase 0 — we'll route them to the audio
             // path in Phase 2.
-            let packet: AVPacket
+            // `var` (not `let`): the C shim takes `AVPacket *`
+            // which Swift's importer surfaces as an inout-ish
+            // pointer, so the binding must be mutable for
+            // `paladala_packet_*(&packet)` to type-check.
+            var packet: AVPacket
             do {
                 packet = try demuxer.readPacket()
             } catch FFmpegDemuxerError.endOfStream {
@@ -271,9 +275,13 @@ actor FFmpegPlaybackEngine {
     /// of byte[4] for HEVC.
     private func isKeyframePacket(packet: AVPacket) -> Bool {
         // AVPacket fields reach us through the shim so Swift 6's
-        // zero-field struct import doesn't hide them.
-        guard let data = paladala_packet_data(&packet) else { return false }
-        let size = paladala_packet_size(&packet)
+        // zero-field struct import doesn't hide them.  Copy to a
+        // local `var` because the shim takes `AVPacket *` which
+        // Swift's importer treats as inout, and the parameter
+        // itself is a `let` constant by default.
+        var localPacket = packet
+        guard let data = paladala_packet_data(&localPacket) else { return false }
+        let size = paladala_packet_size(&localPacket)
         guard size >= 5 else { return false }
         let nalType = (data[4] & 0x1F)
         // H.264 NAL type 5 = IDR; HEVC NAL type 19 = IDR_W_RADL,

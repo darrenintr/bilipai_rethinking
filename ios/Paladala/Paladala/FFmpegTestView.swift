@@ -215,7 +215,13 @@ final class FFmpegTestBridge: ObservableObject {
                 let engine = FFmpegPlaybackEngine()
                 self.engine = engine
                 await engine.load(url: url) { [weak self] frame in
-                    self?.handleDecodedFrame(frame)
+                    // The engine's decode trampoline runs on a
+                    // background thread; hop to the main actor
+                    // before touching `self` (a SwiftUI View, which
+                    // is @MainActor-isolated in Swift 6).
+                    Task { @MainActor in
+                        self?.handleDecodedFrame(frame)
+                    }
                 }
                 if case .failed = await engine.state {
                     stateKind = .failed
