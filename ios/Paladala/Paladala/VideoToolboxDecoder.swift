@@ -281,16 +281,24 @@ final class VideoToolboxDecoder: @unchecked Sendable {
                     .fromOpaque(refCon)
                     .takeUnretainedValue()
                 let pts = CMTimeGetSeconds(presentationTime)
+                // Build the frame BEFORE the Task hop.  The
+                // closure must capture only Sendable values, and
+                // `CVPixelBuffer` is not Sendable — but
+                // `VideoToolboxDecodedFrame` is `@unchecked
+                // Sendable` (all `let`, CVPixelBuffer is
+                // reference-counted), so wrapping first and
+                // capturing the struct is safe.
+                let frame = VideoToolboxDecodedFrame(
+                    pixelBuffer: imageBuffer,
+                    presentationTimeSeconds: pts,
+                    isKeyframe: false
+                )
                 // Hop to the main actor before delivering — the
                 // closure's receiver (engine → display layer)
                 // publishes frames to AVSampleBufferDisplayLayer
                 // which is documented as main-thread only.
                 Task { @MainActor in
-                    decoder.onFrame(VideoToolboxDecodedFrame(
-                        pixelBuffer: imageBuffer,
-                        presentationTimeSeconds: pts,
-                        isKeyframe: false
-                    ))
+                    decoder.onFrame(frame)
                 }
             },
             decompressionOutputRefCon: refCon
