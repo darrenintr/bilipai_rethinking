@@ -1407,10 +1407,9 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         defer { lock.unlock() }
         let idx = failoverIndex[track.baseURL] ?? 0
         let candidates = [track.baseURL] + track.backupURLs
-        guard idx >= 0, idx < candidates.count else {
-            return track.baseURL
-        }
-        return candidates[idx]
+        guard !candidates.isEmpty else { return track.baseURL }
+        let safeIndex = min(max(idx, 0), candidates.count - 1)
+        return candidates[safeIndex]
     }
 
     /// Advance the failover cursor for `primaryURL` to the
@@ -1422,20 +1421,26 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// surface the underlying error to the user).
     fileprivate func markUpstreamFailed(primaryURL: URL) {
         lock.lock()
+        guard let dash = currentPlayback?.dash else {
+            lock.unlock()
+            return
+        }
+        let tracks = [dash.video, dash.audio].compactMap { $0 }
+        guard let track = tracks.first(where: { $0.baseURL == primaryURL }) else {
+            lock.unlock()
+            return
+        }
+        let maxIndex = track.backupURLs.count
         let current = failoverIndex[primaryURL] ?? 0
-        // We don't know the track's full backup list here
-        // (only the primary URL is keyed), so we cap at a
-        // reasonable ceiling.  Real caps come from the track
-        // DTO in `respondMediaPlaylist`; this helper is
-        // intentionally conservative so a stale cursor can't
-        // chase a phantom host forever.
-        let next = min(current + 1, 8)
+        let next = min(current + 1, maxIndex)
         failoverIndex[primaryURL] = next
         lock.unlock()
         diagLog(.playback, "LocalHLSProxyServer failover",
                 details: [
                     "primary": primaryURL.host ?? "",
-                    "newIndex": next
+                    "newIndex": next,
+                    "maxIndex": maxIndex,
+                    "exhausted": next == current && current == maxIndex
                 ])
     }
 
@@ -1448,7 +1453,11 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// synchronous.  Fires at most once per failed segment —
     /// not hot enough to warrant a URL→primary hash.
     fileprivate func markUpstreamFailed(url: URL) {
-        guard let dash = currentPlayback?.dash else { return }
+        let dash: BiliDashSource? = {
+            lock.lock(); defer { lock.unlock() }
+            return currentPlayback?.dash
+        }()
+        guard let dash else { return }
         for track in [dash.video, dash.audio].compactMap({ $0 }) {
             let candidates = [track.baseURL] + track.backupURLs
             if candidates.contains(url) {
@@ -1458,6 +1467,25 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 return
             }
         }
+    }
+
+    internal func setCurrentPlaybackForTest(_ playback: BiliPlayback) {
+        setCurrentPlayback(playback)
+    }
+
+    internal func activeUpstreamForTest(
+        for track: BiliDashSource.Track
+    ) -> URL {
+        activeUpstream(for: track)
+    }
+
+    internal func markUpstreamFailedForTest(url: URL) {
+        markUpstreamFailed(url: url)
+    }
+
+    internal func failoverIndexForTest(primaryURL: URL) -> Int? {
+        lock.lock(); defer { lock.unlock() }
+        return failoverIndex[primaryURL]
     }
 
     /// Probe completion: cache the size.
@@ -2440,7 +2468,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     private func respondMasterPlaylist(connection: NWConnection,
                                       connID: String) {
         guard let (source, _) = snapshot(),
-              safeBaseURL != nil else {
+              let baseURL = safeBaseURL else {
             respondError(connection: connection, status: 503,
                          reason: "no playback", connID: connID)
             return
@@ -2457,7 +2485,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             lines.append(
                 "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\","
                 + "NAME=\"default\",DEFAULT=YES,AUTOSELECT=YES,"
-                + "URI=\"\(localURL(path: "audio.m3u8"))\""
+                + "URI=\"\(localURL(baseURL: baseURL, path: "audio.m3u8"))\""
             )
         }
         var streamInf = "#EXT-X-STREAM-INF:"
@@ -2473,7 +2501,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             streamInf += ",AUDIO=\"aac\""
         }
         lines.append(streamInf)
-        lines.append(localURL(path: "video.m3u8"))
+        lines.append(localURL(baseURL: baseURL, path: "video.m3u8"))
         lines.append("")
         respondText(connection: connection, connID: connID,
                     body: lines.joined(separator: "\n"))
@@ -2485,7 +2513,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         connID: String
     ) {
         guard let (source, _) = snapshot(),
-              safeBaseURL != nil else {
+              let baseURL = safeBaseURL else {
             respondError(connection: connection, status: 503,
                          reason: "no playback", connID: connID)
             return
@@ -2500,13 +2528,39 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                          reason: "no track", connID: connID)
             return
         }
+        // Track label used only for diagnostics.
+        let trackLabel = (kind == .video) ? "video" : "audio"
+        diagLog(.playback,
+                "LocalHLSProxyServer media playlist build started",
+                details: [
+                    "conn": connID,
+                    "kind": trackLabel,
+                    "host": track.baseURL.host ?? ""
+                ])
+
         // Encode the upstream URL as a base64url query parameter.
         // The init/media endpoints then apply absolute upstream
         // byte ranges, so AVPlayer sees normal HLS resources while
         // Bili's CDN receives the Range requests it expects.
         let encoded = base64urlEncode(activeUpstream(for: track).absoluteString)
         let initRange = playlistInitializationRange(for: track)
+        guard initRange.lowerBound < initRange.upperBound else {
+            diagLog(.playback,
+                    "LocalHLSProxyServer invalid init range",
+                    details: [
+                        "conn": connID,
+                        "kind": trackLabel,
+                        "lower": initRange.lowerBound,
+                        "upper": initRange.upperBound
+                    ])
+            respondError(connection: connection, status: 503,
+                         reason: "invalid init range",
+                         extraHeaders: ["Retry-After": "0"],
+                         connID: connID)
+            return
+        }
         let initURL = localURL(
+            baseURL: baseURL,
             path: "init",
             queryItems: [
                 URLQueryItem(name: "u", value: encoded),
@@ -2517,17 +2571,6 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 )
             ]
         )
-
-        let fullMediaURL = localURL(
-            path: "media",
-            queryItems: [
-                URLQueryItem(name: "u", value: encoded),
-                URLQueryItem(name: "from", value: "0")
-            ]
-        )
-
-        // Track label used only for diagnostics.
-        let trackLabel = (kind == .video) ? "video" : "audio"
 
         // Resolve the segmentation mode once per session.
         // On first call: SIDX if already cached and validated,
@@ -2581,16 +2624,20 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 "#EXT-X-MEDIA-SEQUENCE:0",
                 "#EXT-X-MAP:URI=\"\(initURL)\"",
             ]
-            for frag in index.fragments {
-                let referencedSize = frag.byteRange.upperBound
-                    - frag.byteRange.lowerBound
+            for (idx, frag) in index.fragments.enumerated() {
+                let segmentURL = localURL(
+                    baseURL: baseURL,
+                    path: "segment",
+                    queryItems: [
+                        URLQueryItem(name: "u", value: encoded),
+                        URLQueryItem(name: "k", value: trackLabel),
+                        URLQueryItem(name: "n", value: "\(idx)")
+                    ]
+                )
                 lines.append(
                     "#EXTINF:\(String(format: "%.3f", frag.duration)),"
                 )
-                lines.append(
-                    "#EXT-X-BYTERANGE:\(referencedSize)@\(frag.byteRange.lowerBound)"
-                )
-                lines.append(fullMediaURL)
+                lines.append(segmentURL)
             }
             lines.append("#EXT-X-ENDLIST")
             lines.append("")
@@ -3962,7 +4009,15 @@ fileprivate func proxySegmentRange(
         path: String,
         queryItems: [URLQueryItem] = []
     ) -> String {
-        guard let baseURL else { return "" }
+        guard let baseURL = safeBaseURL else { return "" }
+        return localURL(baseURL: baseURL, path: path, queryItems: queryItems)
+    }
+
+    private func localURL(
+        baseURL: URL,
+        path: String,
+        queryItems: [URLQueryItem] = []
+    ) -> String {
         let url = baseURL.appendingPathComponent(path)
         guard !queryItems.isEmpty else {
             return url.absoluteString
@@ -4977,6 +5032,9 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
                     attempt: upstreamAttempt + 1
                 )
                 return
+            }
+            if isRetryable(nsError), !downstreamBroken {
+                server.markUpstreamFailed(url: upstream)
             }
             // 4. Non-retryable error or retries exhausted —
             //    surface it as the final upstream failure.

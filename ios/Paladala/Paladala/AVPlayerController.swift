@@ -46,7 +46,7 @@ import UIKit
 /// Plain value type — no MainActor, no UIKit dependencies — so
 /// it can be declared at file scope under Swift 5.0 without
 /// triggering concurrency checks.
-enum PlayerPlaybackError: Equatable, Error {
+enum PlayerPlaybackError: Equatable, Error, Sendable {
     /// AVPlayer gave up on the item (codec rejection,
     /// unsupported container, etc.).  `detail` is the
     /// `AVPlayerItemErrorLogEntry.errorComment` text when available.
@@ -131,7 +131,7 @@ enum PlayerPlaybackError: Equatable, Error {
     }
 }
 
-enum RecoveryAction {
+enum RecoveryAction: Sendable {
     case retryPlayback   // full playback re-init (DASH re-fetch)
     case retrySeek       // seek to current time (buffer refetch)
     /// Live CDN returned 403 — SESSDATA is invalid or the
@@ -155,16 +155,16 @@ final class PlayerController: ObservableObject {
 
     /// **Build 182 state machine.**  Replaces the implicit
     /// `playerError`-only state model with an explicit
-    /// lifecycle.  AVPlayer binding (`replaceCurrentItem`)
-    /// only happens in `.ready`; `retryPlayback()` only
-    /// runs from `.ready`; the loadTask can be cancelled
-    /// safely while in `.preparing`.
+    /// lifecycle. AVPlayer binding (`replaceCurrentItem`)
+    /// only happens outside `.preparing`; retry is allowed
+    /// from `.ready` and `.failed`, while `.preparing` stays
+    /// owned by `loadTask`.
     ///
     /// `playerError` (the existing `@Published`) is still
     /// the rich-error payload shown by the overlay — it's
     /// set when `playbackState` becomes `.failed(...)` and
     /// cleared when `playbackState` becomes `.preparing`.
-    enum PlaybackState: Equatable {
+    enum PlaybackState: Equatable, Sendable {
         case idle
         case preparing
         case ready
@@ -180,6 +180,11 @@ final class PlayerController: ObservableObject {
                 return false
             }
         }
+    }
+
+    private enum RecoveryStage: String, Sendable {
+        case seekRefresh
+        case sessionRestart
     }
 
     // MARK: published state
@@ -349,6 +354,19 @@ final class PlayerController: ObservableObject {
     /// controller would still fire a `.prolongedStall` write
     /// against the next one's state.
     private var stallTimerTask: Task<Void, Never>?
+    /// Automatic playback recovery task.  It is intentionally
+    /// separate from `loadTask`: `loadTask` owns proxy
+    /// preparation, while this task owns the tiny delay between
+    /// detecting a runtime failure and applying a staged recovery
+    /// action.
+    private var recoveryTask: Task<Void, Never>?
+    private var recoverySequence: UInt64 = 0
+    private var recoveryAttempts: [String: Int] = [:]
+    private static let recoveryDelaysNs: [UInt64] = [
+        80_000_000,
+        160_000_000,
+        320_000_000
+    ]
     /// **Build 182**: the orchestration task that drives
     /// `LocalHLSProxyServer.serve(playback:) async throws ->
     /// URL` → endpoint self-test → `replaceCurrentItem` →
@@ -745,14 +763,17 @@ final class PlayerController: ObservableObject {
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled, let self else { return }
             if self.isBuffering && !self.isSeeking && self.playerError == nil {
-                self.playerError = .prolongedStall
-                diagLog(.playback, "PlayerController.playerError assigned", details: [
-                    "case": "prolongedStall",
-                    "isSeeking": self.isSeeking,
-                    "isBuffering": self.isBuffering,
-                    "seekGeneration": self.seekGeneration,
-                    "stalledFor": Date().timeIntervalSince(startedAt)
-                ])
+                self.publishPlaybackError(
+                    .prolongedStall,
+                    source: "initialStallWatchdog"
+                )
+                diagLog(.playback, "PlayerController stall watchdog fired",
+                        details: [
+                            "isSeeking": self.isSeeking,
+                            "isBuffering": self.isBuffering,
+                            "seekGeneration": self.seekGeneration,
+                            "stalledFor": Date().timeIntervalSince(startedAt)
+                        ])
             }
         }
 
@@ -764,7 +785,13 @@ final class PlayerController: ObservableObject {
         // loadTask; it will call `startPlaybackSession`
         // after binding the real item.
         if !usesProxy {
-            startPlaybackSession(item: item)
+            if let initialPlayerError {
+                isPlaying = false
+                playbackState = .failed(initialPlayerError)
+            } else {
+                playbackState = .ready
+                startPlaybackSession(item: item)
+            }
         } else {
             // **Build 182 orchestration.**  Start the
             // async loadTask.  `init` returns immediately;
@@ -960,31 +987,7 @@ final class PlayerController: ObservableObject {
             try Task.checkCancellation()
 
             let item = AVPlayerItem(url: url)
-            // Detach observers attached to the previous
-            // (placeholder) item, swap the item in, then
-            // re-attach observers on the new item.  Order
-            // matters: `replaceCurrentItem` must run before
-            // `installObservers` so the new observers' guard
-            // (`self.player.currentItem === item`) sees the
-            // new item as current.
-            observers.forEach { $0.invalidate() }
-            observers.removeAll()
-            if let token = statusObserver {
-                NotificationCenter.default.removeObserver(token)
-                statusObserver = nil
-            }
-            if let token = errorObserver {
-                NotificationCenter.default.removeObserver(token)
-                errorObserver = nil
-            }
-            if let token = errorLogObserver {
-                NotificationCenter.default.removeObserver(token)
-                errorLogObserver = nil
-            }
-            player.replaceCurrentItem(with: item)
-            self.playerItem = item
-            installObservers(on: item)
-            installNotificationObservers(on: item)
+            replaceCurrentItemForPlayback(item)
             startPlaybackSession(item: item)
 
             playbackState = .ready
@@ -1022,11 +1025,213 @@ final class PlayerController: ObservableObject {
             } else {
                 pbError = .itemFailed(detail: "\(error)")
             }
-            playerError = pbError
-            playbackState = .failed(pbError)
+            publishPlaybackError(pbError, source: "loadPlayback")
             diagLog(.playback,
                     "AVPlayerController loadPlayback failed",
                     details: ["error": "\(error)"])
+        }
+    }
+
+    private func detachCurrentItemObservers() {
+        observers.forEach { $0.invalidate() }
+        observers.removeAll()
+        if let token = statusObserver {
+            NotificationCenter.default.removeObserver(token)
+            statusObserver = nil
+        }
+        if let token = errorObserver {
+            NotificationCenter.default.removeObserver(token)
+            errorObserver = nil
+        }
+        if let token = errorLogObserver {
+            NotificationCenter.default.removeObserver(token)
+            errorLogObserver = nil
+        }
+    }
+
+    /// Swap the AVPlayer item and re-arm every observer against
+    /// the new item.  Both proxy reloads and direct-asset reloads
+    /// use this helper so recovery never leaves KVO attached to a
+    /// dead item.
+    private func replaceCurrentItemForPlayback(_ item: AVPlayerItem) {
+        detachCurrentItemObservers()
+        player.replaceCurrentItem(with: item)
+        playerItem = item
+        installObservers(on: item)
+        installNotificationObservers(on: item)
+    }
+
+    private func cancelScheduledRecovery() {
+        recoverySequence &+= 1
+        recoveryTask?.cancel()
+        recoveryTask = nil
+    }
+
+    private func resetRecoveryAttempts(reason: String) {
+        guard !recoveryAttempts.isEmpty else { return }
+        recoveryAttempts.removeAll()
+        diagLog(.playback, "PlayerController recovery attempts reset",
+                details: ["reason": reason])
+    }
+
+    private func recoveryKey(for error: PlayerPlaybackError) -> String {
+        switch error {
+        case .itemFailed:
+            return "itemFailed"
+        case .stoppedMidStream:
+            return "stoppedMidStream"
+        case .proxyFailed(let code):
+            return "proxyFailed:\(code)"
+        case .prolongedStall:
+            return "prolongedStall"
+        case .playbackSourceUnavailable:
+            return "playbackSourceUnavailable"
+        }
+    }
+
+    private func automaticRecoveryStage(
+        for error: PlayerPlaybackError,
+        attempt: Int
+    ) -> RecoveryStage? {
+        switch error {
+        case .prolongedStall:
+            if attempt < 2 { return .seekRefresh }
+            if attempt == 2 { return .sessionRestart }
+            return nil
+        case .itemFailed, .stoppedMidStream:
+            return attempt < 2 ? .sessionRestart : nil
+        case .proxyFailed(let code):
+            if code == 403 || code == 404 { return nil }
+            if (400..<500).contains(code),
+               code != 408, code != 425, code != 429 {
+                return nil
+            }
+            return attempt < 3 ? .sessionRestart : nil
+        case .playbackSourceUnavailable:
+            return nil
+        }
+    }
+
+    @discardableResult
+    private func scheduleAutomaticRecovery(
+        for error: PlayerPlaybackError,
+        source: String
+    ) -> Bool {
+        let key = recoveryKey(for: error)
+        let attempt = recoveryAttempts[key] ?? 0
+        guard let stage = automaticRecoveryStage(for: error, attempt: attempt) else {
+            return false
+        }
+        recoveryAttempts[key] = attempt + 1
+        let delay = Self.recoveryDelaysNs[min(attempt, Self.recoveryDelaysNs.count - 1)]
+        recoverySequence &+= 1
+        let sequence = recoverySequence
+        recoveryTask?.cancel()
+        diagLog(.playback, "PlayerController automatic recovery scheduled",
+                details: [
+                    "source": source,
+                    "error": key,
+                    "stage": stage.rawValue,
+                    "attempt": attempt + 1,
+                    "delayMs": Int(delay / 1_000_000)
+                ])
+        recoveryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self else { return }
+            guard self.recoverySequence == sequence else { return }
+            self.recoveryTask = nil
+            self.runRecoveryStage(stage, error: error, trigger: "automatic")
+        }
+        return true
+    }
+
+    private func publishPlaybackError(
+        _ error: PlayerPlaybackError,
+        source: String,
+        allowAutomaticRecovery: Bool = true
+    ) {
+        if playbackState == .preparing, source != "loadPlayback" {
+            diagLog(.playback, "PlayerController.playerError ignored",
+                    details: [
+                        "source": source,
+                        "error": recoveryKey(for: error),
+                        "state": "\(playbackState)"
+                    ])
+            return
+        }
+        playerError = error
+        playbackState = .failed(error)
+        diagLog(.playback, "PlayerController.playerError assigned",
+                details: [
+                    "source": source,
+                    "error": recoveryKey(for: error),
+                    "title": error.title
+                ])
+        if allowAutomaticRecovery {
+            _ = scheduleAutomaticRecovery(for: error, source: source)
+        }
+    }
+
+    private func runRecoveryStage(
+        _ stage: RecoveryStage,
+        error: PlayerPlaybackError,
+        trigger: String
+    ) {
+        diagLog(.playback, "PlayerController recovery stage started",
+                details: [
+                    "trigger": trigger,
+                    "stage": stage.rawValue,
+                    "error": recoveryKey(for: error)
+                ])
+        switch stage {
+        case .seekRefresh:
+            playerError = nil
+            if case .failed = playbackState {
+                playbackState = .ready
+            }
+            isBuffering = true
+            let target = CMTimeGetSeconds(player.currentTime())
+            performSeek(target.isFinite ? target : currentTime, fromRestore: true)
+            isPlaying = true
+            player.play()
+        case .sessionRestart:
+            restartPlaybackSession(trigger: trigger, resetAttempts: false)
+        }
+    }
+
+    private func restartPlaybackSession(
+        trigger: String,
+        resetAttempts: Bool
+    ) {
+        guard playbackState != .preparing else {
+            diagLog(.playback, "PlayerController restart ignored",
+                    details: ["trigger": trigger, "state": "\(playbackState)"])
+            return
+        }
+        if resetAttempts {
+            recoveryAttempts.removeAll()
+        }
+        cancelScheduledRecovery()
+        diagLog(.playback, "PlayerController restartPlaybackSession",
+                details: ["trigger": trigger, "usesProxy": usesProxy])
+
+        if usesProxy {
+            let snapshot = CMTimeGetSeconds(player.currentTime())
+            retryRestoreTime = (snapshot.isFinite && snapshot > 0) ? snapshot : nil
+            diagLog(.playback, "retry_begin", details: [
+                "path": "proxy", "restoreTo": retryRestoreTime ?? "nil"
+            ])
+            loadPlayback(originalPlayback)
+        } else {
+            retryRestoreTime = nil
+            playerError = nil
+            isBuffering = false
+            isPlaying = true
+            playbackState = .preparing
+            let item = AVPlayerItem(asset: asset)
+            replaceCurrentItemForPlayback(item)
+            startPlaybackSession(item: item)
+            playbackState = .ready
         }
     }
 
@@ -1054,7 +1259,12 @@ final class PlayerController: ObservableObject {
                 Task { @MainActor in
                     guard let self, let item else { return }
                     guard self.player.currentItem === item else { return }
-                    if change.newValue == true { self.isBuffering = false }
+                    if change.newValue == true {
+                        self.isBuffering = false
+                        if self.playerError == nil {
+                            self.resetRecoveryAttempts(reason: "likelyToKeepUp")
+                        }
+                    }
                 }
             }
         )
@@ -1114,13 +1324,10 @@ final class PlayerController: ObservableObject {
                     diagLog(.playback, "AVPlayerItem status changed", details: details)
                     if currentStatus == .failed {
                         let detail = err.map { String(describing: $0) }
-                        self.playerError = .itemFailed(detail: detail)
-                        diagLog(.playback,
-                                "PlayerController.playerError assigned",
-                                details: [
-                                    "case": "itemFailed",
-                                    "detail": detail ?? ""
-                                ])
+                        self.publishPlaybackError(
+                            .itemFailed(detail: detail),
+                            source: "itemStatusFailed"
+                        )
                     }
                 }
             }
@@ -1176,11 +1383,10 @@ final class PlayerController: ObservableObject {
                 self.isPlaying = false
                 self.isBuffering = false
                 let detail = err.map { String(describing: $0) }
-                self.playerError = .stoppedMidStream(detail: detail)
-                diagLog(.playback, "PlayerController.playerError assigned", details: [
-                    "case": "stoppedMidStream",
-                    "detail": detail ?? ""
-                ])
+                self.publishPlaybackError(
+                    .stoppedMidStream(detail: detail),
+                    source: "failedToPlayToEnd"
+                )
             }
         }
         errorLogObserver = NotificationCenter.default.addObserver(
@@ -1215,11 +1421,10 @@ final class PlayerController: ObservableObject {
                     Task { @MainActor in
                         guard let self else { return }
                         guard self.player.currentItem === item else { return }
-                        self.playerError = .proxyFailed(code: code)
-                        diagLog(.playback, "PlayerController.playerError assigned", details: [
-                            "case": "proxyFailed",
-                            "code": code
-                        ])
+                        self.publishPlaybackError(
+                            .proxyFailed(code: code),
+                            source: "errorLogEntry"
+                        )
                     }
                 }
             }
@@ -1555,14 +1760,17 @@ final class PlayerController: ObservableObject {
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled, let self else { return }
             if self.isBuffering && !self.isSeeking && self.playerError == nil {
-                self.playerError = .prolongedStall
-                diagLog(.playback, "PlayerController.playerError assigned", details: [
-                    "case": "prolongedStall",
-                    "isSeeking": self.isSeeking,
-                    "isBuffering": self.isBuffering,
-                    "seekGeneration": self.seekGeneration,
-                    "stalledFor": Date().timeIntervalSince(startedAt)
-                ])
+                self.publishPlaybackError(
+                    .prolongedStall,
+                    source: "stallWatchdog"
+                )
+                diagLog(.playback, "PlayerController stall watchdog fired",
+                        details: [
+                            "isSeeking": self.isSeeking,
+                            "isBuffering": self.isBuffering,
+                            "seekGeneration": self.seekGeneration,
+                            "stalledFor": Date().timeIntervalSince(startedAt)
+                        ])
             }
         }
     }
@@ -1586,62 +1794,35 @@ final class PlayerController: ObservableObject {
     ///    still valid; only the AVPlayer-level state needed
     ///    a reset.
     ///
-    /// **Build 182 guard**: only runs from
-    /// `playbackState == .ready`.  Critically, never runs
-    /// while `playbackState == .preparing` — that was the
-    /// Build 181 bug where the AVPlayerItem's transient 503
-    /// triggered a retry that wiped the freshly-completed
-    /// preparation.
+    /// Guard: never runs while `playbackState == .preparing`;
+    /// `.ready` and `.failed` are both retryable. Stall errors
+    /// get a lightweight seek refresh first; source and item
+    /// failures rebuild the session.
     func retryPlayback() {
-        // Build 182: only retry from `.ready`.  During
-        // `.preparing` the loadTask is the source of truth
-        // and a retry would race it; during `.idle` or
-        // `.failed` the recovery button shouldn't trigger
-        // a duplicate load.
-        guard case .ready = playbackState else {
+        guard playbackState != .preparing else {
             diagLog(.playback, "PlayerController.retryPlayback ignored",
                     details: ["state": "\(playbackState)"])
             return
         }
-        diagLog(.playback, "PlayerController.retryPlayback", details: [
-            "usesProxy": usesProxy
-        ])
-
-        if usesProxy {
-            // **PR-A Group 4 (item 9, D4)**: on the proxy
-            // path, snapshot the playhead before reloading so
-            // `startPlaybackSession(item:)` can restore it
-            // once the new item is bound.  This avoids
-            // bouncing the user back to 0:00 every time the
-            // proxy recovers from a transient upstream
-            // failure mid-video.
-            let snapshot = CMTimeGetSeconds(player.currentTime())
-            retryRestoreTime = (snapshot.isFinite && snapshot > 0) ? snapshot : nil
-            diagLog(.playback, "retry_begin", details: [
-                "path": "proxy", "restoreTo": retryRestoreTime ?? "nil"
-            ])
-            // VOD DASH: kick the async loadTask.  It will
-            // bump `currentPrepGeneration` inside the
-            // proxy via `beginServing()`, run prepare +
-            // publish, swap the item, and only then flip
-            // `playbackState = .ready` again.
-            loadPlayback(originalPlayback)
-        } else {
-            // **PR-A Group 4 (item 9, D4)**: non-proxy path
-            // (live / legacy MP4).  The asset is the same;
-            // only the error + buffering flags need clearing.
-            // Snapshotting here would be misleading because
-            // the same player item keeps playing — so we
-            // explicitly do NOT seek on restore.
-            retryRestoreTime = nil
-            diagLog(.playback, "retry_begin", details: ["path": "direct"])
-            playerError = nil
-            isBuffering = false
-            isPlaying = true
-            let item = AVPlayerItem(asset: asset)
-            player.replaceCurrentItem(with: item)
-            player.play()
+        if let currentError = playerError,
+           case .playbackSourceUnavailable = currentError {
+            diagLog(.playback, "PlayerController.retryPlayback ignored",
+                    details: [
+                        "state": "\(playbackState)",
+                        "reason": "no source"
+                    ])
+            return
         }
+        if let currentError = playerError,
+           case .prolongedStall = currentError {
+            runRecoveryStage(
+                .seekRefresh,
+                error: .prolongedStall,
+                trigger: "manual"
+            )
+            return
+        }
+        restartPlaybackSession(trigger: "manual", resetAttempts: true)
     }
 
     // MARK: teardown
@@ -1663,6 +1844,9 @@ final class PlayerController: ObservableObject {
         }
         stallTimerTask?.cancel()
         stallTimerTask = nil
+        cancelScheduledRecovery()
+        loadTask?.cancel()
+        loadTask = nil
         // **PR-A Group 4 (item 9)**: clear any pending retry
         // snapshot so a teardown mid-recovery doesn't leak
         // the restore target into a future playback.
@@ -1693,6 +1877,7 @@ final class PlayerController: ObservableObject {
             NotificationCenter.default.removeObserver($0)
         }
         pipObservers.removeAll()
+        observers.forEach { $0.invalidate() }
         observers.removeAll()
         clearNowPlaying()
         diagLog(.playback, "AVPlayerController teardown complete")
@@ -1856,6 +2041,9 @@ final class PlayerController: ObservableObject {
             diagLog(.playback, "AVPlayer timeControlStatus changed",
                     details: ["isPlaying": playing])
         }
+        if playing && !isBuffering && playerError == nil {
+            resetRecoveryAttempts(reason: "playing")
+        }
         // Network speed.  For the proxy path we have a real
         // byte counter on `LocalHLSProxyServer`; for the direct
         // URL path the counter is always zero, so the loading
@@ -1913,6 +2101,8 @@ final class PlayerController: ObservableObject {
             if let token = errorLogObserver {
                 NotificationCenter.default.removeObserver(token)
             }
+            recoveryTask?.cancel()
+            loadTask?.cancel()
             pipObservers.forEach {
                 NotificationCenter.default.removeObserver($0)
             }

@@ -59,10 +59,13 @@ final class LocalHLSProxyServerTests: XCTestCase {
     /// `resolveSegmentationMode`.  All non-baseURL fields are
     /// placeholders — the function under test only reads
     /// `track.baseURL`.
-    private func makeTrack(baseURL: URL) -> BiliDashSource.Track {
+    private func makeTrack(
+        baseURL: URL,
+        backupURLs: [URL] = []
+    ) -> BiliDashSource.Track {
         BiliDashSource.Track(
             baseURL: baseURL,
-            backupURLs: [],
+            backupURLs: backupURLs,
             codecs: "avc1.640028",
             bandwidth: 1_000_000,
             mimeType: "video/mp4",
@@ -72,6 +75,42 @@ final class LocalHLSProxyServerTests: XCTestCase {
             totalDuration: 60.0,
             width: 1920,
             height: 1080
+        )
+    }
+
+    func test_failover_clampsAtLastBackupInsteadOfReturningToPrimary() {
+        let proxy = LocalHLSProxyServer(port: 0)
+        let primary = URL(string: "https://primary.example/v.m4s")!
+        let backup1 = URL(string: "https://backup1.example/v.m4s")!
+        let backup2 = URL(string: "https://backup2.example/v.m4s")!
+        let track = makeTrack(
+            baseURL: primary,
+            backupURLs: [backup1, backup2]
+        )
+        let playback = BiliPlayback(
+            dash: BiliDashSource(video: track, audio: nil),
+            fallbackURL: nil,
+            referer: URL(string: "https://www.bilibili.com/")!
+        )
+        proxy.setCurrentPlaybackForTest(playback)
+
+        XCTAssertEqual(proxy.activeUpstreamForTest(for: track), primary)
+
+        proxy.markUpstreamFailedForTest(url: primary)
+        XCTAssertEqual(proxy.failoverIndexForTest(primaryURL: primary), 1)
+        XCTAssertEqual(proxy.activeUpstreamForTest(for: track), backup1)
+
+        proxy.markUpstreamFailedForTest(url: backup1)
+        XCTAssertEqual(proxy.failoverIndexForTest(primaryURL: primary), 2)
+        XCTAssertEqual(proxy.activeUpstreamForTest(for: track), backup2)
+
+        proxy.markUpstreamFailedForTest(url: backup2)
+        proxy.markUpstreamFailedForTest(url: backup2)
+        XCTAssertEqual(proxy.failoverIndexForTest(primaryURL: primary), 2)
+        XCTAssertEqual(
+            proxy.activeUpstreamForTest(for: track),
+            backup2,
+            "exhausted failover must stay on the last backup, not loop to primary"
         )
     }
 
@@ -111,7 +150,11 @@ final class LocalHLSProxyServerTests: XCTestCase {
         // only the `!= nil` check in resolveSegmentationMode.
         proxy.trackSegmentIndex[track.baseURL] = TrackSegmentIndex(
             initializationRange: 0..<1024,
-            fragments: []
+            fragments: [],
+            timescale: 1,
+            firstMediaOffset: 0,
+            sidxRange: nil,
+            totalDuration: 0
         )
 
         let (mode1, _) = proxy.resolveSegmentationModeForTest(for: track)
