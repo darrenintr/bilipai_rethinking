@@ -54,13 +54,16 @@ enum VideoToolboxDecoderError: Error, Equatable {
 
 /// Output handed back to the engine after each decoded frame.
 ///
-/// `Sendable` because the frame is immutable after construction
-/// (all stored properties are `let`) and the `CVPixelBuffer` it
-/// carries is reference-counted by Core Video, so handing it
-/// across actor boundaries (e.g. from the decode callback's
-/// background queue to the main-actor `onFrame` closure) is
-/// safe — no shared mutable state.
-struct VideoToolboxDecodedFrame: Sendable {
+/// `@unchecked Sendable` (not plain `Sendable`) because the
+/// stored `pixelBuffer` is a `CVPixelBuffer` / `CVBuffer` —
+/// Core Foundation reference types are not marked Sendable by
+/// Swift's importer, so the strict-concurrency checker rejects
+/// a plain Sendable conformance.  It is still safe to send
+/// across actor boundaries: the frame is immutable after
+/// construction (all `let`), and `CVPixelBuffer` is
+/// reference-counted by Core Video, so no shared mutable
+/// state escapes the struct.
+struct VideoToolboxDecodedFrame: @unchecked Sendable {
     /// The decoded pixels, ready for `AVSampleBufferDisplayLayer.enqueue`.
     let pixelBuffer: CVPixelBuffer
     /// Presentation timestamp in seconds (PTS converted from the
