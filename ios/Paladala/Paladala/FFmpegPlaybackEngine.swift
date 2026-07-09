@@ -30,6 +30,19 @@ import Foundation
 import CoreMedia
 import AVFoundation
 
+// `AVPacket` is imported from FFmpeg's C headers via the bridging
+// header.  It is a plain C struct (no reference semantics, no
+// shared mutable state — the data pointer it carries is borrowed
+// from the format context), so it is safe to hand across actor
+// boundaries.  Mark it `@retroactive Sendable` so the Swift 6
+// strict-concurrency checker stops flagging every `packet:`
+// argument that flows through the decode loop.
+//
+// `@retroactive` is required because the conformance is added in
+// a downstream module (this app target) to a type from an
+// upstream module (FFmpeg via the bridging header).
+extension AVPacket: @retroactive @unchecked Sendable {}
+
 /// Engine state.  Mirrors AVPlayer's `timeControlStatus` semantics
 /// so the controller can translate without branching.
 enum FFmpegPlaybackState: Equatable {

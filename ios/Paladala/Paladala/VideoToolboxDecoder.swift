@@ -53,7 +53,14 @@ enum VideoToolboxDecoderError: Error, Equatable {
 }
 
 /// Output handed back to the engine after each decoded frame.
-struct VideoToolboxDecodedFrame {
+///
+/// `Sendable` because the frame is immutable after construction
+/// (all stored properties are `let`) and the `CVPixelBuffer` it
+/// carries is reference-counted by Core Video, so handing it
+/// across actor boundaries (e.g. from the decode callback's
+/// background queue to the main-actor `onFrame` closure) is
+/// safe — no shared mutable state.
+struct VideoToolboxDecodedFrame: Sendable {
     /// The decoded pixels, ready for `AVSampleBufferDisplayLayer.enqueue`.
     let pixelBuffer: CVPixelBuffer
     /// Presentation timestamp in seconds (PTS converted from the
@@ -68,7 +75,17 @@ struct VideoToolboxDecodedFrame {
 /// Hardware decoder for H.264 / HEVC.  One instance per playback
 /// session.  After construction, feed `decode(parameterSets:packet:)`
 /// for every compressed access unit FFmpeg hands you.
-final class VideoToolboxDecoder {
+///
+/// `@unchecked Sendable` because the only mutable state (the
+/// `VTDecompressionSession`) is only touched from the
+/// `VTDecompressionSessionDecodeFrame` call site, which the
+/// engine actorises through `decode(packet:...)`.  The
+/// decompression output callback (the C function pointer
+/// installed in `createSession`) reads `self` via the
+/// `refCon` and hops to the main actor before touching
+/// `onFrame`, so the closure capture from a background
+/// queue is safe.
+final class VideoToolboxDecoder: @unchecked Sendable {
 
     // MARK: state
 
