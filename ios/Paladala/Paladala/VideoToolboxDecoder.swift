@@ -129,9 +129,16 @@ final class VideoToolboxDecoder {
         // and keeps the byte pointers valid for the duration of
         // the call.
         let cfSets: [CFData] = parameterSets.map { Data($0) as CFData }
-        var bytePointers = [UnsafePointer<UInt8>?](
-            repeating: nil, count: cfSets.count
-        )
+        // Element type MUST be `UnsafePointer<UInt8>` (non-optional)
+        // — the `CMVideoFormatDescriptionCreateFrom*ParameterSets`
+        // API takes `UnsafePointer<UnsafePointer<UInt8>>` (pointer
+        // to non-optional pointers), so the array's element type
+        // has to be non-optional too.  A `[UnsafePointer<UInt8>?]`
+        // would make `ptr.baseAddress!` point to optionals and the
+        // API would reject it with "value of optional type
+        // 'UnsafePointer<UInt8>?' must be unwrapped".
+        var bytePointers = [UnsafePointer<UInt8>]()
+        bytePointers.reserveCapacity(cfSets.count)
         var sizes: [Int] = []
         sizes.reserveCapacity(cfSets.count)
         for cfData in cfSets {
