@@ -190,17 +190,6 @@ final class VideoToolboxDecoder {
 
         try createSession(formatDescription: createdDescription)
     }
-        default:
-            throw VideoToolboxDecoderError.unsupportedCodec
-        }
-
-        guard status == noErr, let createdDescription = description else {
-            throw VideoToolboxDecoderError.formatDescriptionCreationFailed(status: status)
-        }
-        self.formatDescription = createdDescription
-
-        try createSession(formatDescription: createdDescription)
-    }
 
     private func createSession(formatDescription: CMVideoFormatDescription) throws {
         // Use the system-default decoder for this format.  Asking
@@ -288,10 +277,11 @@ final class VideoToolboxDecoder {
         // Wrap the FFmpeg packet data in a CMBlockBuffer.  The
         // block buffer is the format VideoToolbox wants for sample
         // data — it owns the bytes by reference and frees them
-        // when the sample buffer is finalized.
+        // when the sample buffer is finalized.  Reach into the
+        // packet via the shim because Swift 6 hides AVPacket fields.
         var blockBuffer: CMBlockBuffer?
-        let dataPtr = packet.pointee.data
-        let dataSize = Int(packet.pointee.size)
+        guard let dataPtr = paladala_packet_data(&packet) else { return }
+        let dataSize = Int(paladala_packet_size(&packet))
         let blockStatus = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
             memoryBlock: nil,

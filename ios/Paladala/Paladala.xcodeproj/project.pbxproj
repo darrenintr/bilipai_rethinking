@@ -86,6 +86,7 @@
 		A1FF00000000000000FF02D1 /* VideoToolboxDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1FF00000000000000FF02F1 /* VideoToolboxDecoder.swift */; };
 		A1FF00000000000000FF03D1 /* FFmpegPlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1FF00000000000000FF03F1 /* FFmpegPlaybackEngine.swift */; };
 		A1FF00000000000000FF04D1 /* FFmpegTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1FF00000000000000FF04F1 /* FFmpegTestView.swift */; };
+		A1FF00000000000000FF06D1 /* PaladalaFFmpegShim.c in Sources */ = {isa = PBXBuildFile; fileRef = A1FF00000000000000FF06F1 /* PaladalaFFmpegShim.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -174,6 +175,8 @@
 		A1FF00000000000000FF03F1 /* FFmpegPlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegPlaybackEngine.swift; sourceTree = "<group>"; };
 		A1FF00000000000000FF04F1 /* FFmpegTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegTestView.swift; sourceTree = "<group>"; };
 		A1FF00000000000000FF05F1 /* Paladala-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Paladala-Bridging-Header.h"; sourceTree = "<group>"; };
+		A1FF00000000000000FF06F1 /* PaladalaFFmpegShim.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = PaladalaFFmpegShim.c; sourceTree = "<group>"; };
+		A1FF00000000000000FF06E1 /* PaladalaFFmpegShim.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PaladalaFFmpegShim.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -280,6 +283,8 @@
 				A1FF00000000000000FF03F1 /* FFmpegPlaybackEngine.swift */,
 				A1FF00000000000000FF04F1 /* FFmpegTestView.swift */,
 				A1FF00000000000000FF05F1 /* Paladala-Bridging-Header.h */,
+				A1FF00000000000000FF06F1 /* PaladalaFFmpegShim.c */,
+				A1FF00000000000000FF06E1 /* PaladalaFFmpegShim.h */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -591,6 +596,7 @@
 				A1FF00000000000000FF02D1 /* VideoToolboxDecoder.swift in Sources */,
 				A1FF00000000000000FF03D1 /* FFmpegPlaybackEngine.swift in Sources */,
 				A1FF00000000000000FF04D1 /* FFmpegTestView.swift in Sources */,
+				A1FF00000000000000FF06D1 /* PaladalaFFmpegShim.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

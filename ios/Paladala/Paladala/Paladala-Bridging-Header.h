@@ -33,4 +33,10 @@
 #include <libavutil/channel_layout.h>
 #include <libswresample/swresample.h>
 
+// Swift 6 compatibility shim — see PaladalaFFmpegShim.h for why
+// this layer is needed.  Without it, the Swift 6 importer hides
+// every FFmpeg forward-declared struct member, so we can't read
+// `ctx->duration` etc. from Swift at all.
+#include "PaladalaFFmpegShim.h"
+
 #endif /* Paladala_Bridging_Header_h */

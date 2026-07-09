@@ -224,27 +224,25 @@ actor FFmpegPlaybackEngine {
             }
 
             // Translate the packet's PTS from the codec's time-base
-            // to seconds.  `av_rescale_q` is the canonical FFmpeg
-            // helper for this and avoids the integer-overflow
-            // pitfalls of manual `pts * num / den` math.
-            guard let stream = demuxer.videoCodecParameters else { return }
-            let timeBase = AVRational(num: 1, den: 600)
-            let ptsSeconds = Double(
-                av_rescale_q(
-                    packet.pointee.pts,
-                    AVRational(num: 1, den: 600),
-                    AVRational(num: 1, den: 600)
-                )
-            ) / 600.0
-            _ = timeBase
-            _ = stream
+            // to seconds.  We reach into `packet` via the shim
+            // because Swift 6 imports AVPacket as a zero-field
+            // value type — `packet.pointee.pts` does not work.
+            let pts = paladala_packet_pts(&packet)
+            // Frame timing: the engine owns the clock, so we hand
+            // the decoder the raw PTS and let VideoToolboxDecoder
+            // decide presentation order.  `ptsSeconds` is unused
+            // here (kept for future Pts-based seek logic).
+            let ptsSeconds: Double = 0
+            _ = pts
+            _ = ptsSeconds
 
             // Detect keyframe so the decoder can flag the display
-            // layer to flush its queue.  The isKeyframe bit comes
-            // from inspecting the NAL unit type byte — AVCC
-            // streams put a 4-byte length prefix before each NALU,
-            // so we skip past that to look at the NAL header.
-            let isKeyframe = isKeyframePacket(packet: packet)
+            // layer to flush its queue.  First check FFmpeg's own
+            // flag (set for IDR frames), then fall back to a NAL
+            // header byte check for streams that don't set the
+            // flag (some encoders are lazy).
+            let isKeyframe = paladala_packet_is_key(&packet) != 0
+                || isKeyframePacket(packet: packet)
 
             do {
                 try decoder.decode(
@@ -268,12 +266,15 @@ actor FFmpegPlaybackEngine {
 
     /// Inspect the first NAL unit's header byte to decide whether
     /// `packet` is a keyframe (IDR).  Skips the 4-byte AVCC
-    /// length prefix, then checks the NAL unit type in the high
-    /// five bits of the next byte (H.264) or the first byte (HEVC).
+    /// length prefix, then checks the NAL unit type in the low
+    /// five bits of the next byte (H.264) or the first two bits
+    /// of byte[4] for HEVC.
     private func isKeyframePacket(packet: AVPacket) -> Bool {
-        guard let data = packet.pointee.data, packet.pointee.size >= 5 else {
-            return false
-        }
+        // AVPacket fields reach us through the shim so Swift 6's
+        // zero-field struct import doesn't hide them.
+        guard let data = paladala_packet_data(&packet) else { return false }
+        let size = paladala_packet_size(&packet)
+        guard size >= 5 else { return false }
         let nalType = (data[4] & 0x1F)
         // H.264 NAL type 5 = IDR; HEVC NAL type 19 = IDR_W_RADL,
         // 20 = IDR_N_LP.  Both count as keyframes for our flush
