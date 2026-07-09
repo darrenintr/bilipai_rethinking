@@ -238,9 +238,19 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$DERIVED_DATA" \
-            HEADER_SEARCH_PATHS="${FFMPEG_INCLUDE} $(inherited)" \
-            LIBRARY_SEARCH_PATHS="${FFMPEG_LIB} $(inherited)" \
-            OTHER_LDFLAGS="-lavformat -lavcodec -lavutil -lswresample $(inherited)" \
+            HEADER_SEARCH_PATHS="${FFMPEG_INCLUDE} \$(inherited)" \
+            LIBRARY_SEARCH_PATHS="${FFMPEG_LIB} \$(inherited)" \
+            # FFmpeg's libavformat pulls in zlib (HTTP deflate /
+            # ID3v2 uncompress / MOV cmov) and iconv (MPEG-TS
+            # getstr8 / subtitle decode) via system libraries;
+            # add them explicitly because the script-style
+            # OTHER_LDFLAGS override below replaces the
+            # project's inherited flags.  The `\$` escapes
+            # the `$(inherited)` literal so bash doesn't try
+            # to evaluate it as a command substitution (which
+            # would produce empty + a "inherited: command not
+            # found" stderr line).
+            OTHER_LDFLAGS="-lavformat -lavcodec -lavutil -lswresample -liconv -lz \$(inherited)" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
