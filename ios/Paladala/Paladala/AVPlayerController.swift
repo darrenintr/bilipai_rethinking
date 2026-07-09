@@ -830,10 +830,23 @@ final class PlayerController: ObservableObject {
                 guard let image = await Self.downloadCover(url: coverURL) else {
                     return
                 }
-                await MainActor.run {
-                    guard let self else { return }
-                    self.nowPlayingArtwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                    self.updateNowPlaying()
+                // Build the `MPMediaItemArtwork` *outside* the
+                // MainActor isolation domain.  Constructing it
+                // inside `MainActor.run` makes the Swift 6
+                // compiler infer the requestHandler closure as
+                // `@MainActor`; the system later invokes that
+                // closure asynchronously on its own dispatch
+                // lane (`MPNowPlayingInfoCenter`'s `*/accessQueue`)
+                // to render the Lock Screen / Control Center
+                // artwork, and a `@MainActor` closure invoked
+                // off-main trips `dispatch_assert_queue_fail` →
+                // BRK trap (SIGTRAP).  See build 225
+                // `Paladala-2026-07-10-111410.ips` for the
+                // matching crash trace.
+                let artwork = Self.makeNowPlayingArtwork(for: image)
+                await MainActor.run { [weak self] in
+                    self?.nowPlayingArtwork = artwork
+                    self?.updateNowPlaying()
                 }
             }
         }
@@ -882,6 +895,34 @@ final class PlayerController: ObservableObject {
                     ])
             return nil
         }
+    }
+
+    /// Wrap `image` in an `MPMediaItemArtwork` for the Lock
+    /// Screen / Control Center / CarPlay art.
+    ///
+    /// **Must be called from a non-MainActor context.**  The
+    /// `requestHandler` closure is stored by the system and
+    /// invoked asynchronously on a private dispatch queue
+    /// (`MPNowPlayingInfoCenter`'s `*/accessQueue`) whenever
+    /// Lock Screen / Now Playing needs to draw the artwork.
+    /// If the closure is constructed inside a `MainActor`
+    /// isolation domain, the Swift 6 compiler infers it as
+    /// `@MainActor` and the runtime trips a
+    /// `dispatch_assert_queue_fail` BRK trap the first time
+    /// the system calls it off-main — see build 225
+    /// `Paladala-2026-07-10-111410.ips`, faultingThread 9,
+    /// frames: `dispatch_assert_queue_fail` →
+    /// `swift_task_isCurrentExecutorWithFlagsImpl` →
+    /// `PlayerController.init(playback:video:)` closure #1.
+    ///
+    /// Keeping the construction in this `nonisolated static`
+    /// factory means the closure body has no inferred
+    /// isolation; it just returns the captured `UIImage`,
+    /// which is `@unchecked Sendable`.  The caller is then
+    /// free to assign the resulting artwork to a
+    /// MainActor-isolated property from any thread.
+    private static func makeNowPlayingArtwork(for image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     // MARK: playback orchestration
