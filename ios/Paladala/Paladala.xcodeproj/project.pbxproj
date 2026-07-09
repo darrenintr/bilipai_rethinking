@@ -82,6 +82,10 @@
 		7E5C0A000000000000000015 /* LazyTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000016 /* LazyTabTests.swift */; };
 		7E5C0A000000000000000017 /* PaladalaBackdropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */; };
 		7E5C0A000000000000000019 /* LaunchMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000020 /* LaunchMetricsTests.swift */; };
+		A1FF00000000000000FF01D1 /* FFmpegDemuxer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1FF00000000000000FF01F1 /* FFmpegDemuxer.swift */; };
+		A1FF00000000000000FF02D1 /* VideoToolboxDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1FF00000000000000FF02F1 /* VideoToolboxDecoder.swift */; };
+		A1FF00000000000000FF03D1 /* FFmpegPlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1FF00000000000000FF03F1 /* FFmpegPlaybackEngine.swift */; };
+		A1FF00000000000000FF04D1 /* FFmpegTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1FF00000000000000FF04F1 /* FFmpegTestView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -165,6 +169,11 @@
 		7E5C0A000000000000000016 /* LazyTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyTabTests.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaBackdropTests.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000020 /* LaunchMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetricsTests.swift; sourceTree = "<group>"; };
+		A1FF00000000000000FF01F1 /* FFmpegDemuxer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegDemuxer.swift; sourceTree = "<group>"; };
+		A1FF00000000000000FF02F1 /* VideoToolboxDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoToolboxDecoder.swift; sourceTree = "<group>"; };
+		A1FF00000000000000FF03F1 /* FFmpegPlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegPlaybackEngine.swift; sourceTree = "<group>"; };
+		A1FF00000000000000FF04F1 /* FFmpegTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegTestView.swift; sourceTree = "<group>"; };
+		A1FF00000000000000FF05F1 /* Paladala-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Paladala-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -266,6 +275,11 @@
 				600000000000000000000614 /* SponsorBlockSettingsView.swift */,
 				7E5C0A000000000000000010 /* FeedCacheWarmer.swift */,
 				7E5C0A000000000000000014 /* LazyTab.swift */,
+				A1FF00000000000000FF01F1 /* FFmpegDemuxer.swift */,
+				A1FF00000000000000FF02F1 /* VideoToolboxDecoder.swift */,
+				A1FF00000000000000FF03F1 /* FFmpegPlaybackEngine.swift */,
+				A1FF00000000000000FF04F1 /* FFmpegTestView.swift */,
+				A1FF00000000000000FF05F1 /* Paladala-Bridging-Header.h */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -573,6 +587,10 @@
 				600000000000000000000624 /* SponsorBlockSettingsView.swift in Sources */,
 				7E5C0A00000000000000000F /* FeedCacheWarmer.swift in Sources */,
 				7E5C0A000000000000000013 /* LazyTab.swift in Sources */,
+				A1FF00000000000000FF01D1 /* FFmpegDemuxer.swift in Sources */,
+				A1FF00000000000000FF02D1 /* VideoToolboxDecoder.swift in Sources */,
+				A1FF00000000000000FF03D1 /* FFmpegPlaybackEngine.swift in Sources */,
+				A1FF00000000000000FF04D1 /* FFmpegTestView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -742,6 +760,7 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Paladala/Paladala-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -772,6 +791,7 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Paladala/Paladala-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

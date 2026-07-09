@@ -172,6 +172,61 @@ jobs:
       # Settings → Secrets.
       # ------------------------------------------------------------------
 
+      # ------------------------------------------------------------------
+      # Build FFmpeg as a static library for arm64 iOS.  This is the
+      # demuxer backend for the FFmpegPlaybackEngine that replaces
+      # AVPlayer in iOS 26 Beta (which traps inside MetalPerformanceShadersGraph
+      # during decode).  Produces .a files consumed by the xcodebuild
+      # step below via OTHER_LDFLAGS="-lavformat -lavcodec ...".
+      #
+      # Cached across runs by `actions/cache` keyed on the build script
+      # content + FFmpeg version, so subsequent CI runs skip the
+      # ~20 minute compile and use the prebuilt archives directly.
+      # ------------------------------------------------------------------
+      - name: Cache FFmpeg build artifacts
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-build/arm64
+          key: ffmpeg-n7.1.1-arm64-v1
+          restore-keys: |
+            ffmpeg-n7.1.1-arm64-
+
+      - name: Build FFmpeg (skipped on cache hit)
+        run: |
+          set -uo pipefail
+          # Skip the slow build when `actions/cache` restored the
+          # archives; the post-restore smoke check verifies they're
+          # actually present.
+          if [ -f "${{ runner.temp }}/ffmpeg-build/arm64/lib/libavformat.a" ] \
+             && [ -f "${{ runner.temp }}/ffmpeg-build/arm64/lib/libavcodec.a" ]; then
+            echo "FFmpeg archives restored from cache — skipping build"
+            exit 0
+          fi
+          export OUTPUT_DIR="${{ runner.temp }}/ffmpeg-build"
+          export FFMPEG_VERSION="n7.1.1"
+          export PLATFORM_MIN_VERSION="15.0"
+          bash scripts/build-ffmpeg.sh
+        env:
+          # actions/cache saves under $RUNNER_TEMP which maps to a
+          # fresh path each run; the script's default OUTPUT_DIR
+          # resolves to $(pwd)/build/ffmpeg-build, but we want it
+          # under $RUNNER_TEMP so the cache key actually matches.
+          OUTPUT_DIR: ${{ runner.temp }}/ffmpeg-build
+
+      - name: Smoke-check FFmpeg artifacts
+        run: |
+          set -euo pipefail
+          FFMPEG_DIR="${{ runner.temp }}/ffmpeg-build/arm64"
+          for f in lib/libavformat.a lib/libavcodec.a lib/libavutil.a lib/libswresample.a; do
+            test -f "${FFMPEG_DIR}/${f}" || { echo "::error::Missing ${f}"; exit 1; }
+          done
+          # Surface header path / lib path as envvars so the
+          # xcodebuild step can pick them up.
+          echo "FFMPEG_INCLUDE=${FFMPEG_DIR}/include" >> "$GITHUB_ENV"
+          echo "FFMPEG_LIB=${FFMPEG_DIR}/lib" >> "$GITHUB_ENV"
+          echo "FFmpeg archives present at ${FFMPEG_DIR}/lib"
+
       - name: Build device app without signing
         run: |
           set -uo pipefail
@@ -183,6 +238,9 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$DERIVED_DATA" \
+            HEADER_SEARCH_PATHS="${FFMPEG_INCLUDE} $(inherited)" \
+            LIBRARY_SEARCH_PATHS="${FFMPEG_LIB} $(inherited)" \
+            OTHER_LDFLAGS="-lavformat -lavcodec -lavutil -lswresample $(inherited)" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
