@@ -179,12 +179,16 @@ final class VideoToolboxDecoder {
                 // `nalUnitHeaderLength` is 4 for AVCC (MP4) containers.
                 // HLS / Annex B streams use 3-byte start codes; we'd
                 // need to convert.  Phase 1 keeps MP4-only so 4 is fine.
+                // `extensions:` is a new required parameter in the
+                // Xcode 16 / iOS 18 SDK; pass nil (no extra format
+                // description extensions like colour space tags).
                 return CMVideoFormatDescriptionCreateFromH264ParameterSets(
                     allocator: kCFAllocatorDefault,
                     parameterSetCount: cfSets.count,
                     parameterSetPointers: rawPointers,
                     parameterSetSizes: sizes,
                     nalUnitHeaderLength: 4,
+                    extensions: nil,
                     formatDescriptionOut: &description
                 )
             case AV_CODEC_ID_HEVC:
@@ -194,6 +198,7 @@ final class VideoToolboxDecoder {
                     parameterSetPointers: rawPointers,
                     parameterSetSizes: sizes,
                     nalUnitHeaderLength: 4,
+                    extensions: nil,
                     formatDescriptionOut: &description
                 )
             default:
