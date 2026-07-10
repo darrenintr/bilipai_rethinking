@@ -125,17 +125,21 @@ struct VideoDetailView: View {
     var body: some View {
         GeometryReader { geo in
             let totalH = geo.size.height
-            // Immersive mode: fixed at 80% height (at rest), 90% when scrolled.
-            // Regular mode: 55% height (at rest), 50% when scrolled.
-            let maxPlayerHeight = totalH * (isImmersiveMode ? 0.8 : 0.55)
-            let minPlayerHeight = totalH * (isImmersiveMode ? 0.9 : 0.5)
+            // The reference surface is a full-width 16:9 editorial block.
+            // Immersive mode remains available, but the default no longer
+            // consumes over half of a portrait screen before metadata appears.
+            let mediaHeight = geo.size.width * 9 / 16
+            let maxPlayerHeight = isImmersiveMode ? totalH * 0.8 : mediaHeight
+            let minPlayerHeight = isImmersiveMode
+                ? totalH * 0.9
+                : max(150, mediaHeight * 0.82)
             let playerHeight = maxPlayerHeight
                 + (minPlayerHeight - maxPlayerHeight) * (1.0 - playerScale)
 
             VStack(spacing: 0) {
                 playerSurface
                     .frame(height: playerHeight)
-                    .frame(width: isImmersiveMode ? geo.size.width * 0.9 : nil, alignment: .center)
+                    .frame(maxWidth: .infinity)
                     .clipped()
                     // YouTube-style "next up" overlay sits over
                     // the player surface only — never over the
@@ -150,26 +154,6 @@ struct VideoDetailView: View {
                             nextUpOverlay
                         }
                     }
-
-                // Prominent UP entry point. Lives between the
-                // player surface and the comments scroll so it
-                // stays pinned in view as the user scrolls the
-                // comments — the toolbar principal slot is too
-                // small to be discoverable on its own. Uses
-                // Apple's `NavigationLink(value:)` idiom so the
-                // navigation is registered with the parent
-                // `NavigationStack` (state-restorable, deep-
-                // linkable, previewable). Hidden when
-                // `ownerMid == 0` because many `BiliVideo`s
-                // (history rows, search hits, dynamic-feed
-                // archive) are synthesised with `ownerMid = 0`.
-                if video.ownerMid > 0 {
-                    upEntryCard
-                        .transition(
-                            .move(edge: .top)
-                                .combined(with: .opacity)
-                        )
-                }
 
                 commentsScrollView
             }
@@ -466,50 +450,64 @@ struct VideoDetailView: View {
     private var upEntryCard: some View {
         NavigationLink(value: UPProfileRoute.up(mid: video.ownerMid)) {
             HStack(spacing: 12) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(PaladalaTheme.biliPink)
+                Image(systemName: "person.crop.square.fill")
+                    .font(.title2.weight(.black))
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .frame(width: 44, height: 44)
+                    .background(PaladalaTheme.coolGray)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.detail.ownerName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .font(PaladalaTheme.FontRole.cardTitle)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .textCase(.uppercase)
                         .lineLimit(1)
                     Text("查看 UP 主个人主页")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                Image(systemName: "arrow.up.right")
+                    .font(.body.weight(.black))
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .frame(width: 38, height: 38)
+                    .background(PaladalaTheme.biliPink)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(PaladalaTheme.Spacing.m)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius,
-                                 style: PaladalaTheme.cornerStyle)
-                    .fill(Color.primary.opacity(0.05))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius,
-                                           style: PaladalaTheme.cornerStyle))
+            .paladalaStreetPanel(fill: PaladalaTheme.paper, elevated: false)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PaladalaPressBounceButtonStyle())
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
         .accessibilityHint("打开 UP 主个人主页")
     }
 
     private var commentsScrollView: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: PaladalaTheme.Spacing.xxl) {
                 titleBlock
+                if video.ownerMid > 0 {
+                    upEntryCard
+                }
+                controlPanel
                 if aiSummaryShouldRender {
                     aiSummarySection
                 }
-                controlPanel
                 commentPreview
                 if !model.relatedVideos.isEmpty {
                     relatedVideosSection
@@ -523,7 +521,8 @@ struct VideoDetailView: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
-            .padding(16)
+            .padding(.horizontal, PaladalaTheme.Spacing.l)
+            .padding(.vertical, PaladalaTheme.Spacing.xxl)
         }
         .modifier(CommentScrollGeometryModifier(
             model: model,
@@ -622,12 +621,20 @@ struct VideoDetailView: View {
         // (play/pause, skip) sit in the centre of the view and
         // are not clipped by the rounded rectangle.
         .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+        .overlay {
+            Rectangle()
+                .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+        }
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: PaladalaTheme.Spacing.m) {
             Text(model.detail.title)
-                .font(.title2.weight(.bold))
+                .font(PaladalaTheme.FontRole.displayMedium)
+                .foregroundStyle(PaladalaTheme.ink)
+                .textCase(.uppercase)
+                .tracking(-0.6)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 MetricPill(systemImage: "play.fill", text: model.detail.viewCount.compactCount)
                 MetricPill(systemImage: "text.bubble.fill", text: model.detail.danmakuCount.compactCount)
@@ -641,16 +648,15 @@ struct VideoDetailView: View {
                         Task { await model.load(repository: repository) }
                     } label: {
                         Label("重试播放", systemImage: "arrow.clockwise")
-                            .font(.subheadline.weight(.semibold))
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(PaladalaGlassButtonStyle(materialDesign: materialDesign))
                 }
             }
             if !model.detail.description.isEmpty {
                 Text(model.detail.description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.bodySmall)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -662,16 +668,17 @@ struct VideoDetailView: View {
         // natively (long-press the play button → speed picker)
         // so keeping a duplicate here caused the two surfaces to
         // drift — clearing it lets the AVKit path own speed.
-        HStack(spacing: 8) {
-            subtitleChip
-            danmakuChip
-            qualityMenu
-            downloadButton
-            coinButton
+        HStack(spacing: 0) {
+            controlCell { subtitleChip }
+            controlCell { danmakuChip }
+            controlCell { qualityMenu }
+            controlCell { downloadButton }
+            controlCell(showsDivider: false) { coinButton }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .paladalaCardSurface(materialDesign)
+        .font(PaladalaTheme.FontRole.labelMono)
+        .foregroundStyle(PaladalaTheme.ink)
+        .frame(maxWidth: .infinity)
+        .paladalaStreetPanel(fill: PaladalaTheme.paper, elevated: false)
         // Coin-banner overlay anchored to the bottom of the
         // card.  Renders only while `model.coinToast` is set,
         // auto-dismisses via `Task.sleep` in the model so the
@@ -688,6 +695,22 @@ struct VideoDetailView: View {
                    value: model.coinToast)
     }
 
+    private func controlCell<Content: View>(
+        showsDivider: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, minHeight: 76)
+            .contentShape(Rectangle())
+            .overlay(alignment: .trailing) {
+                if showsDivider {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(width: PaladalaTheme.borderWidth)
+                }
+            }
+    }
+
     /// Subtitle toggle.  Disabled when the upstream didn't
     /// publish a timed-text track for the active video — the
     /// button dims and ignores taps in that case.
@@ -696,14 +719,19 @@ struct VideoDetailView: View {
             // Animated icon swap: outlined glyph when off, filled
             // when on, with a 220 ms crossfade + slight scale
             // so toggling feels deliberate rather than binary.
-            Image(systemName: model.subtitleEnabled
-                  ? "captions.bubble.fill"
-                  : "captions.bubble")
-                .contentTransition(.symbolEffect(.replace.downUp))
+            VStack(spacing: 6) {
+                Image(systemName: model.subtitleEnabled
+                      ? "captions.bubble.fill"
+                      : "captions.bubble")
+                    .font(.body.weight(.black))
+                    .contentTransition(.symbolEffect(.replace.downUp))
+                Text("字幕")
+                    .font(PaladalaTheme.FontRole.labelMono)
+            }
         }
         .toggleStyle(.button)
         .disabled(model.subtitleTrack == nil)
-        .buttonStyle(PaladalaActionPillStyle(accent: .blue))
+        .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
         .onChange(of: model.subtitleEnabled) { _, newValue in
             storedSubtitleEnabled = newValue
         }
@@ -713,10 +741,15 @@ struct VideoDetailView: View {
     /// `subtitleChip` so the two toggles feel like a pair.
     private var danmakuChip: some View {
         Toggle(isOn: $model.danmakuEnabled) {
-            Image(systemName: model.danmakuEnabled
-                  ? "text.bubble.fill"
-                  : "text.bubble")
-                .contentTransition(.symbolEffect(.replace.downUp))
+            VStack(spacing: 6) {
+                Image(systemName: model.danmakuEnabled
+                      ? "text.bubble.fill"
+                      : "text.bubble")
+                    .font(.body.weight(.black))
+                    .contentTransition(.symbolEffect(.replace.downUp))
+                Text("弹幕")
+                    .font(PaladalaTheme.FontRole.labelMono)
+            }
         }
         .toggleStyle(.button)
         .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
@@ -760,32 +793,36 @@ struct VideoDetailView: View {
     private var downloadButtonLabel: some View {
         switch model.downloadState {
         case .notDownloaded:
-            Label {
-                Text("下载")
-            } icon: {
+            VStack(spacing: 6) {
                 Image(systemName: "arrow.down.circle")
+                    .font(.body.weight(.black))
                     .contentTransition(.symbolEffect(.replace.downUp))
+                Text("下载")
+                    .font(PaladalaTheme.FontRole.labelMono)
             }
         case .downloading(let p):
-            Label {
-                Text("\(Int(p * 100))%")
-            } icon: {
+            VStack(spacing: 6) {
                 Image(systemName: "stop.fill")
+                    .font(.body.weight(.black))
                     .contentTransition(.symbolEffect(.replace.downUp))
+                Text("\(Int(p * 100))%")
+                    .font(PaladalaTheme.FontRole.labelMono)
             }
         case .downloaded:
-            Label {
-                Text("已下载")
-            } icon: {
+            VStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
+                    .font(.body.weight(.black))
                     .contentTransition(.symbolEffect(.replace.downUp))
+                Text("已下载")
+                    .font(PaladalaTheme.FontRole.labelMono)
             }
         case .failed:
-            Label {
-                Text("重试下载")
-            } icon: {
+            VStack(spacing: 6) {
                 Image(systemName: "exclamationmark.arrow.circlepath")
+                    .font(.body.weight(.black))
                     .contentTransition(.symbolEffect(.replace.downUp))
+                Text("重试")
+                    .font(PaladalaTheme.FontRole.labelMono)
             }
         }
     }
@@ -828,7 +865,7 @@ struct VideoDetailView: View {
             //   given (≥ 1)          — filled glyph + count chip
             // `.contentTransition` crossfades the icon swap so
             // the state change reads as motion, not a blink.
-            HStack(spacing: 4) {
+            VStack(spacing: 6) {
                 if model.coinInFlight {
                     ProgressView()
                         .controlSize(.small)
@@ -836,14 +873,15 @@ struct VideoDetailView: View {
                     Image(systemName: model.coinGiven > 0
                           ? "bitcoinsign.circle.fill"
                           : "bitcoinsign.circle")
+                        .font(.body.weight(.black))
                         .contentTransition(.symbolEffect(.replace.downUp))
                 }
                 Text(model.coinGiven > 0 ? "已投 \(model.coinGiven)" : "投币")
+                    .font(PaladalaTheme.FontRole.labelMono)
                     .contentTransition(.numericText(value: Double(model.coinGiven)))
             }
-            .font(.subheadline.weight(.semibold))
         }
-        .buttonStyle(PaladalaActionPillStyle(accent: .orange))
+        .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
         .disabled(model.coinInFlight)
     }
 
@@ -875,18 +913,27 @@ struct VideoDetailView: View {
                     Image(systemName: "sparkles")
                         .foregroundStyle(PaladalaTheme.biliPink)
                     Text(L10n.aiSummary.title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .textCase(.uppercase)
                     Spacer()
                     if model.aiSummaryLoading {
                         ProgressView()
                             .controlSize(.mini)
                     } else if let summary = model.aiSummary {
                         Text("\(summary.outline.count)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .font(PaladalaTheme.FontRole.labelMono)
+                            .foregroundStyle(PaladalaTheme.ink)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(.quaternary, in: Capsule())
+                            .background(PaladalaTheme.coolGray)
+                            .overlay {
+                                Rectangle()
+                                    .strokeBorder(
+                                        PaladalaTheme.ink,
+                                        lineWidth: PaladalaTheme.hairlineWidth
+                                    )
+                            }
                         Image(systemName: model.aiSummaryExpanded
                               ? "chevron.up" : "chevron.down")
                             .font(.caption.weight(.semibold))
@@ -903,7 +950,7 @@ struct VideoDetailView: View {
                 aiSummaryExpandedBody(summary)
             }
         }
-        .padding(14)
+        .padding(PaladalaTheme.Spacing.l)
         .paladalaCardSurface(materialDesign)
     }
 
@@ -917,8 +964,8 @@ struct VideoDetailView: View {
     private func aiSummaryExpandedBody(_ summary: BiliAISummary) -> some View {
         if !summary.summary.isEmpty {
             Text(.init(summary.summary))
-                .font(.subheadline)
-                .foregroundStyle(.primary)
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
@@ -1039,7 +1086,14 @@ struct VideoDetailView: View {
                 }
             }
         } label: {
-            Label(qnLabel(model.preferredQn), systemImage: "rectangle.stack.badge.play")
+            VStack(spacing: 6) {
+                Image(systemName: "rectangle.stack.badge.play")
+                    .font(.body.weight(.black))
+                Text(qnLabel(model.preferredQn))
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
         .accessibilityLabel(L10n.player.quality)
     }
@@ -1063,7 +1117,9 @@ struct VideoDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Comments")
-                    .font(.headline)
+                    .font(PaladalaTheme.FontRole.sectionHeader)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
                 Spacer()
                 if model.commentsLoading {
                     ProgressView()
@@ -1071,7 +1127,7 @@ struct VideoDetailView: View {
                 } else if !model.comments.isEmpty {
                     Text("\(max(model.comments.count, model.commentsTotalCount))")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
                         // The count flips from "—" (loading) to a
                         // real number on first paint. The
                         // spring-in transition makes the badge
@@ -1106,8 +1162,7 @@ struct VideoDetailView: View {
                 loadMoreFooter
             }
         }
-        .padding(14)
-        .paladalaCardSurface(materialDesign)
+        .background(PaladalaTheme.paper)
     }
 
     @State private var newCommentText = ""
@@ -1122,19 +1177,35 @@ struct VideoDetailView: View {
     /// auto-load hits a network error and stops firing.
     @ViewBuilder
     private var commentSortPicker: some View {
-        Picker("Comment sort", selection: Binding(
-            get: { CommentSort(rawValue: storedCommentSort) ?? .hot },
-            set: { newValue in
-                storedCommentSort = newValue.rawValue
-                Task { await model.setCommentSort(newValue, repository: repository) }
-            }
-        )) {
+        let selected = CommentSort(rawValue: storedCommentSort) ?? .hot
+        Menu {
             ForEach(CommentSort.allCases) { sort in
-                Text(sort.title).tag(sort)
+                Button {
+                    storedCommentSort = sort.rawValue
+                    Task { await model.setCommentSort(sort, repository: repository) }
+                } label: {
+                    if selected == sort {
+                        Label(sort.title, systemImage: "checkmark")
+                    } else {
+                        Text(sort.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(selected.title)
+                Image(systemName: "chevron.down")
+            }
+            .font(PaladalaTheme.FontRole.labelMono)
+            .foregroundStyle(PaladalaTheme.ink)
+            .textCase(.uppercase)
+            .padding(.vertical, 4)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(PaladalaTheme.ink)
+                    .frame(height: 1)
             }
         }
-        .pickerStyle(.segmented)
-        .fixedSize()
         .accessibilityLabel("Comment sort order")
     }
 
@@ -1154,9 +1225,8 @@ struct VideoDetailView: View {
                             Task { await model.loadMoreComments(repository: repository) }
                         } label: {
                             Label("加载更多评论", systemImage: "arrow.down.circle")
-                                .font(.subheadline.weight(.semibold))
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(PaladalaGlassButtonStyle(materialDesign: materialDesign))
                     }
                     Spacer()
                 }
@@ -1174,7 +1244,18 @@ struct VideoDetailView: View {
     private var commentInputField: some View {
         HStack(spacing: 12) {
             TextField("说点什么…", text: $newCommentText)
-                .textFieldStyle(.roundedBorder)
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(PaladalaTheme.paper)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
                 .disabled(isSubmittingComment)
 
             Button {
@@ -1197,10 +1278,20 @@ struct VideoDetailView: View {
                     // the comment-publish button was reading
                     // 繁體 against the rest.  Use the localized key.
                     Text(L10n.video.publish)
-                        .font(.subheadline.weight(.semibold))
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .frame(minWidth: 52, minHeight: 44)
+                        .background(PaladalaTheme.biliPink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PaladalaPressBounceButtonStyle())
             .disabled(newCommentText.isEmpty || isSubmittingComment)
         }
     }
@@ -1214,7 +1305,9 @@ struct VideoDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("相关推荐")
-                    .font(.headline)
+                    .font(PaladalaTheme.FontRole.sectionHeader)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
                 Spacer()
                 if UserDefaults.standard.bool(forKey: "paladala.autoPlayNext") {
                     Label("自动播放下一集", systemImage: "play.circle.fill")
@@ -1222,10 +1315,15 @@ struct VideoDetailView: View {
                         .foregroundStyle(PaladalaTheme.biliPink)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(
-                            PaladalaTheme.biliPink.opacity(0.12),
-                            in: Capsule()
-                        )
+                        .background(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.hairlineWidth
+                                )
+                        }
                 }
             }
             ScrollView(.horizontal, showsIndicators: false) {
@@ -1241,8 +1339,7 @@ struct VideoDetailView: View {
                 .padding(.horizontal, 2)
             }
         }
-        .padding(14)
-        .paladalaCardSurface(materialDesign)
+        .padding(.top, PaladalaTheme.Spacing.s)
     }
 
     /// YouTube-style "next up" overlay shown briefly when the
@@ -1422,25 +1519,23 @@ private struct CommentRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            AsyncImage(url: comment.avatarURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                default:
-                    Circle()
-                        .fill(PaladalaTheme.biliPink.opacity(0.18))
-                        .overlay(Image(systemName: "person.fill").foregroundStyle(PaladalaTheme.biliPink))
-                }
-            }
+            ResilientImage(url: comment.avatarURL)
             .frame(width: 36, height: 36)
-            .clipShape(Circle())
+            .clipShape(Rectangle())
+            .overlay {
+                Rectangle()
+                    .strokeBorder(
+                        PaladalaTheme.ink,
+                        lineWidth: PaladalaTheme.borderWidth
+                    )
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(comment.authorName)
-                        .font(.subheadline.weight(.semibold))
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .textCase(.uppercase)
                         .lineLimit(1)
                     Spacer()
                     Button {
@@ -1464,8 +1559,8 @@ private struct CommentRow: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(comment.message)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
+                            .font(PaladalaTheme.FontRole.bodySmall)
+                            .foregroundStyle(PaladalaTheme.ink)
                             .fixedSize(horizontal: false, vertical: true)
                             .multilineTextAlignment(.leading)
                         if !comment.replies.isEmpty {
@@ -1491,6 +1586,7 @@ private struct CommentRow: View {
                 .buttonStyle(.plain)
             }
         }
+        .padding(.vertical, PaladalaTheme.Spacing.m)
         .accessibilityElement(children: .combine)
     }
 }
@@ -1516,10 +1612,11 @@ private struct NestedReplyRow: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
-        .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
-        )
+        .background(PaladalaTheme.coolGray)
+        .overlay {
+            Rectangle()
+                .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.hairlineWidth)
+        }
     }
 }
 
@@ -1528,18 +1625,18 @@ private struct CommentSkeletonRows: View {
         VStack(spacing: 12) {
             ForEach(0..<3, id: \.self) { _ in
                 HStack(alignment: .top, spacing: 10) {
-                    Circle()
-                        .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                    Rectangle()
+                        .fill(PaladalaTheme.coolGray)
                         .frame(width: 36, height: 36)
                     VStack(alignment: .leading, spacing: 8) {
-                        RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle)
-                            .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                        Rectangle()
+                            .fill(PaladalaTheme.coolGray)
                             .frame(width: 120, height: 12)
-                        RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle)
-                            .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                        Rectangle()
+                            .fill(PaladalaTheme.coolGray)
                             .frame(height: 12)
-                        RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle)
-                            .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                        Rectangle()
+                            .fill(PaladalaTheme.coolGray)
                             .frame(width: 210, height: 12)
                     }
                 }
@@ -1651,14 +1748,14 @@ private struct RelatedVideoCard: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     )
                     .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+                    .clipShape(Rectangle())
                 if video.duration > 0 {
                     Text(video.duration.mmss)
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
-                        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle))
+                        .background(.black.opacity(0.72))
                         .padding(6)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
@@ -1668,7 +1765,14 @@ private struct RelatedVideoCard: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(PaladalaTheme.biliPink, in: Capsule())
+                        .background(PaladalaTheme.biliPink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.hairlineWidth
+                                )
+                        }
                         .padding(6)
                 }
             }
@@ -1706,7 +1810,7 @@ private struct CoinToastBanner: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "bitcoinsign.circle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(PaladalaTheme.biliPink)
             Text(text)
                 .font(.footnote.weight(.semibold))
                 .lineLimit(2)
@@ -1715,22 +1819,19 @@ private struct CoinToastBanner: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(
-                cornerRadius: PaladalaTheme.cardRadius,
-                style: PaladalaTheme.cornerStyle
-            )
-            .fill(.thinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: PaladalaTheme.cardRadius,
-                style: PaladalaTheme.cornerStyle
-            )
-            .strokeBorder(PaladalaTheme.biliPink.opacity(0.3), lineWidth: 0.75)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
-        .paladalaCardSurface(materialDesign)
+        .background(PaladalaTheme.biliPink)
+        .overlay {
+            Rectangle()
+                .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+        }
+        .background {
+            Rectangle()
+                .fill(PaladalaTheme.ink)
+                .offset(
+                    x: PaladalaTheme.hardShadowOffset,
+                    y: PaladalaTheme.hardShadowOffset
+                )
+        }
     }
 }
 
@@ -1765,8 +1866,8 @@ private struct ResumePromptSheet: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Capsule()
-                .fill(Color.secondary.opacity(0.18))
+            Rectangle()
+                .fill(PaladalaTheme.ink)
                 .frame(width: 36, height: 5)
                 .padding(.top, 8)
             Text("继续观看 \(mmss)？")
@@ -1827,6 +1928,7 @@ private struct ResumePromptSheetModifier: ViewModifier {
             )
             .presentationDetents([.height(220)])
             .presentationDragIndicator(.visible)
+            .paladalaSheetGlass()
         }
     }
 }

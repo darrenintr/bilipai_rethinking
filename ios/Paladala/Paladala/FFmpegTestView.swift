@@ -33,7 +33,13 @@ struct FFmpegTestView: View {
                 FFmpegVideoSurface(bridge: bridge)
                     .background(Color.black)
                     .aspectRatio(16.0/9.0, contentMode: .fit)
-                    .cornerRadius(12)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
 
                 stateRow
                 transportRow
@@ -41,7 +47,7 @@ struct FFmpegTestView: View {
                 if let error = bridge.errorText {
                     Text(error)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(PaladalaTheme.biliPink)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -49,6 +55,7 @@ struct FFmpegTestView: View {
                 Spacer()
             }
             .padding()
+            .background(PaladalaTheme.canvas)
             .navigationTitle("FFmpeg Test")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -72,7 +79,7 @@ struct FFmpegTestView: View {
 
     private var stateRow: some View {
         HStack {
-            Circle()
+            Rectangle()
                 .fill(stateColor)
                 .frame(width: 10, height: 10)
             Text(bridge.stateLabel)
@@ -95,7 +102,7 @@ struct FFmpegTestView: View {
             } label: {
                 Label("Open file", systemImage: "folder")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(PaladalaGlassButtonStyle(materialDesign: .liquidGlass))
 
             Button {
                 bridge.togglePlay()
@@ -103,7 +110,16 @@ struct FFmpegTestView: View {
                 Image(systemName: bridge.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title2)
             }
-            .buttonStyle(.borderedProminent)
+            .frame(width: 52, height: 52)
+            .background(PaladalaTheme.biliPink)
+            .overlay {
+                Rectangle()
+                    .strokeBorder(
+                        PaladalaTheme.ink,
+                        lineWidth: PaladalaTheme.borderWidth
+                    )
+            }
+            .buttonStyle(PaladalaPressBounceButtonStyle())
             .disabled(!bridge.canTogglePlay)
 
             Spacer()
@@ -112,11 +128,11 @@ struct FFmpegTestView: View {
 
     private var stateColor: Color {
         switch bridge.stateKind {
-        case .idle: return .gray
-        case .preparing: return .yellow
-        case .playing: return .green
-        case .paused: return .blue
-        case .failed: return .red
+        case .idle: return PaladalaTheme.mutedInk
+        case .preparing: return PaladalaTheme.biliPink
+        case .playing: return PaladalaTheme.ink
+        case .paused: return PaladalaTheme.mutedInk
+        case .failed: return PaladalaTheme.biliPink
         }
     }
 }

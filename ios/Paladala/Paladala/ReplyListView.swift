@@ -25,11 +25,18 @@ struct ReplyListView: View {
                             .environmentObject(repository)
                         Divider()
                         Text("全部回复 (\(model.totalCount))")
-                            .font(.headline)
+                            .font(PaladalaTheme.FontRole.sectionHeader)
+                            .foregroundStyle(PaladalaTheme.ink)
+                            .textCase(.uppercase)
                             .padding(.top, 4)
                     }
                     .padding(16)
-                    .background(PaladalaTheme.cardBackground)
+                    .background(PaladalaTheme.paper)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .frame(height: PaladalaTheme.borderWidth)
+                    }
 
                     // Replies list
                     LazyVStack(spacing: 0) {
@@ -61,16 +68,16 @@ struct ReplyListView: View {
                                 .padding()
                         }
                     }
-                    .background(PaladalaTheme.cardBackground)
+                    .background(PaladalaTheme.paper)
                 }
             }
             
             commentInputField
                 .padding()
-                .background(PaladalaTheme.cardBackground)
+                .background(PaladalaTheme.paper)
                 .overlay(Divider(), alignment: .top)
         }
-        .background(Color.clear)
+        .background(PaladalaTheme.canvas)
         .navigationTitle("回复详情")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -84,7 +91,18 @@ struct ReplyListView: View {
     private var commentInputField: some View {
         HStack(spacing: 12) {
             TextField("发表你的回复…", text: $newReplyText)
-                .textFieldStyle(.roundedBorder)
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(PaladalaTheme.paper)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
                 .disabled(isSubmitting)
 
             Button {
@@ -100,10 +118,20 @@ struct ReplyListView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Text("回复")
-                        .font(.subheadline.weight(.semibold))
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .frame(minWidth: 52, minHeight: 44)
+            .background(PaladalaTheme.biliPink)
+            .overlay {
+                Rectangle()
+                    .strokeBorder(
+                        PaladalaTheme.ink,
+                        lineWidth: PaladalaTheme.borderWidth
+                    )
+            }
+            .buttonStyle(PaladalaPressBounceButtonStyle())
             .disabled(newReplyText.isEmpty || isSubmitting)
         }
     }
@@ -122,7 +150,9 @@ private struct CommentHeader: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(comment.authorName)
-                        .font(.subheadline.weight(.bold))
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .textCase(.uppercase)
                     Spacer()
                     Button {
                         Task { await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like") }
@@ -134,7 +164,8 @@ private struct CommentHeader: View {
                     .buttonStyle(.plain)
                 }
                 Text(comment.message)
-                    .font(.body)
+                    .font(PaladalaTheme.FontRole.body)
+                    .foregroundStyle(PaladalaTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -154,7 +185,8 @@ private struct ReplyItemRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(comment.authorName)
-                        .font(.caption.weight(.bold))
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
                     Spacer()
                     Button {
                         Task { await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like") }
@@ -166,7 +198,8 @@ private struct ReplyItemRow: View {
                     .buttonStyle(.plain)
                 }
                 Text(comment.message)
-                    .font(.subheadline)
+                    .font(PaladalaTheme.FontRole.bodySmall)
+                    .foregroundStyle(PaladalaTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -179,7 +212,14 @@ private struct AvatarImage: View {
     let url: URL?
 
     var body: some View {
-        ResilientImage(url: url)
-            .clipShape(Circle())
+        ResilientImage(url: url, maximumPixelSize: 160)
+            .clipShape(Rectangle())
+            .overlay {
+                Rectangle()
+                    .strokeBorder(
+                        PaladalaTheme.ink,
+                        lineWidth: PaladalaTheme.borderWidth
+                    )
+            }
     }
 }

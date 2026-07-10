@@ -34,17 +34,18 @@ struct HomeView: View {
     private var accountMid: Int64 { authStore.activeAccount?.mid ?? 0 }
 
     private var columns: [GridItem] {
-        // Card-to-card gap tuned for a clear "distinct container"
-        // read; minimum column width 146 keeps 2 columns on
-        // iPhone SE with the 28 pt inter-column gap.
-        let minimumWidth: CGFloat = horizontalSizeClass == .regular ? 220 : 146
-        return [
-            GridItem(
-                .adaptive(minimum: minimumWidth),
-                spacing: 28,
-                alignment: .top
+        // Street Minimal keeps the phone feed editorial and linear:
+        // one full-width card at a time. Regular-width layouts retain
+        // a two-column spread, with the same generous zine gutter used
+        // between rows. Keeping the decision at the grid boundary also
+        // makes loading skeletons and live cards follow the exact layout.
+        if horizontalSizeClass == .regular {
+            return Array(
+                repeating: GridItem(.flexible(), spacing: 32, alignment: .top),
+                count: 2
             )
-        ]
+        }
+        return [GridItem(.flexible(), alignment: .top)]
     }
 
     var body: some View {
@@ -57,7 +58,7 @@ struct HomeView: View {
                 // chrome on scroll and re-expands when the
                 // scroll returns to top. The system handles
                 // the animation; we just enable the mode.
-                .navigationBarTitleDisplayMode(.large)
+                .navigationBarTitleDisplayMode(.inline)
                 // System-provided search bar. Replaces the
                 // hand-rolled pill surface in `feedContent` —
                 // gets the magnifying-glass icon, clear
@@ -230,21 +231,18 @@ struct HomeView: View {
                     // `dynamicItems` we let the user see what we have
                     // and use the inline "加载更多" spinner at the
                     // bottom for paginated loads.
-                    SkeletonGrid()
+                    SkeletonGrid(
+                        columns: horizontalSizeClass == .regular ? 2 : 1,
+                        columnSpacing: 32,
+                        rowSpacing: 32
+                    )
                         .padding(.top, 4)
                 } else if model.category == .live && !model.liveRooms.isEmpty {
-                    LazyVGrid(columns: columns, spacing: 22) {
+                    LazyVGrid(columns: columns, spacing: 32) {
                         ForEach(model.liveRooms) { room in
                             LiveRoomCard(room: room)
                         }
                     }
-                    // Extra outer horizontal margin so the card grid
-                    // breathes more than the rest of the feed
-                    // (search bar / category strip / banners). 8pt
-                    // per side on top of the feed's 16pt container
-                    // padding — enough to read at a glance without
-                    // collapsing the column count on iPhone.
-                    .padding(.horizontal, 8)
                 } else if model.category == .follow {
                     DynamicFeedList(model: model, repository: repository)
                 } else if model.videos.isEmpty && !(model.category == .search && !model.searchUsers.isEmpty) {
@@ -261,7 +259,7 @@ struct HomeView: View {
                         SearchUserResultsStrip(users: model.searchUsers)
                             .padding(.bottom, 2)
                     }
-                    LazyVGrid(columns: columns, spacing: 22) {
+                    LazyVGrid(columns: columns, spacing: 32) {
                         ForEach(Array(model.videos.enumerated()), id: \.element.id) { index, video in
                             VideoCard(
                                 video: video,
@@ -286,11 +284,6 @@ struct HomeView: View {
                             }
                         }
                     }
-                    // Extra outer horizontal margin so the video
-                    // cards sit further from the screen edges than
-                    // the rest of the feed chrome. Mirrors the
-                    // live-room grid above for a consistent feel.
-                    .padding(.horizontal, 8)
                     paginationFooter
                 }
             }
@@ -318,7 +311,7 @@ struct HomeView: View {
                             Haptics.selection()
                         } label: {
                             Text(category.title)
-                                .font(.subheadline.weight(.semibold))
+                                .font(PaladalaTheme.FontRole.labelMono)
                                 .padding(.horizontal, 13)
                                 .padding(.vertical, 9)
                                 .paladalaSelectionChip(
@@ -345,7 +338,7 @@ struct HomeView: View {
                             Haptics.selection()
                         } label: {
                             Text(subCategory.title)
-                                .font(.caption.weight(.semibold))
+                                .font(PaladalaTheme.FontRole.labelMono)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
                                 .paladalaSelectionChip(
@@ -474,9 +467,19 @@ private struct SearchUserResultsStrip: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack(spacing: 8) {
-                                    CoverImage(url: user.faceURL)
+                                    ResilientImage(
+                                        url: user.faceURL,
+                                        maximumPixelSize: 160
+                                    )
                                         .frame(width: 42, height: 42)
-                                        .clipShape(Circle())
+                                        .clipShape(Rectangle())
+                                        .overlay {
+                                            Rectangle()
+                                                .strokeBorder(
+                                                    PaladalaTheme.ink,
+                                                    lineWidth: PaladalaTheme.borderWidth
+                                                )
+                                        }
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(user.name)
                                             .font(.subheadline.weight(.semibold))
@@ -587,7 +590,10 @@ private struct ShortVideoFeedView: View {
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(12)
-                    .background(.black.opacity(0.45), in: Circle())
+                    .background(.black.opacity(0.72))
+                    .overlay {
+                        Rectangle().strokeBorder(.white, lineWidth: 1)
+                    }
             }
             .padding(.top, 18)
             .padding(.trailing, 16)
@@ -632,7 +638,10 @@ private struct ShortVideoPage: View {
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
-                        .background(PaladalaTheme.biliPink, in: Capsule())
+                        .background(PaladalaTheme.biliPink)
+                        .overlay {
+                            Rectangle().strokeBorder(.black, lineWidth: 1)
+                        }
                     Text(video.duration.mmss)
                         .font(.caption.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.white.opacity(0.82))
@@ -851,14 +860,32 @@ private struct DynamicPostCard: View {
     @ViewBuilder
     private var avatar: some View {
         if let url = post.authorAvatarURL {
-            CoverImage(url: url)
+            ResilientImage(url: url, maximumPixelSize: 160)
                 .frame(width: 42, height: 42)
-                .clipShape(Circle())
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         } else {
-            Circle()
-                .fill(PaladalaTheme.biliPink.opacity(0.18))
+            Rectangle()
+                .fill(PaladalaTheme.biliPink)
                 .frame(width: 42, height: 42)
-                .overlay(Text(String(post.author.prefix(1))).font(.headline))
+                .overlay(
+                    Text(String(post.author.prefix(1)))
+                        .font(PaladalaTheme.FontRole.cardTitle)
+                        .foregroundStyle(PaladalaTheme.ink)
+                )
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         }
     }
 }

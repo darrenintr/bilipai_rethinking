@@ -129,7 +129,7 @@ struct PlayerView: View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.title)
-                .foregroundStyle(.yellow)
+                .foregroundStyle(PaladalaTheme.biliPink)
             Text(error.title)
                 .font(.headline)
                 .foregroundStyle(.white)
@@ -184,14 +184,19 @@ private struct SponsorSkipToast: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(
-                    PaladalaTheme.biliPink.opacity(0.85),
-                    in: Capsule()
-                )
-                .overlay(
-                    Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
+                .background(PaladalaTheme.biliPink)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(.black, lineWidth: PaladalaTheme.borderWidth)
+                }
+                .background {
+                    Rectangle()
+                        .fill(.black)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                }
                 .scaleEffect(show ? 1 : 0.5, anchor: .top)
                 .opacity(show ? 1 : 0)
                 .offset(y: show ? 0 : -20)
@@ -326,10 +331,11 @@ struct FullscreenPlayerView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(8)
-                                .background(
-                                    .black.opacity(0.55),
-                                    in: Circle()
-                                )
+                                .background(.black.opacity(0.72))
+                                .overlay {
+                                    Rectangle()
+                                        .strokeBorder(.white, lineWidth: 1)
+                                }
                         }
                     )
                     .accessibilityLabel(L10n.common.share)
@@ -631,9 +637,41 @@ private struct PlayerTimedTextOverlay: View {
     private var activeDanmaku: [BiliDanmakuItem] {
         guard !danmakuItems.isEmpty, currentTime.isFinite else { return [] }
         let lower = max(0, currentTime - 4.5)
-        return Array(danmakuItems
-            .filter { $0.time >= lower && $0.time <= currentTime }
-            .suffix(3))
+        let lowerIndex = firstIndex(atLeast: lower)
+        let upperIndex = firstIndex(greaterThan: currentTime)
+        guard lowerIndex < upperIndex else { return [] }
+        return Array(danmakuItems[lowerIndex..<upperIndex].suffix(3))
+    }
+
+    /// Danmaku arrives sorted by timestamp from the XML parser. Binary
+    /// boundaries keep the 1 Hz overlay update O(log n) instead of filtering
+    /// the complete (often thousands-item) array on every tick.
+    private func firstIndex(atLeast value: Double) -> Int {
+        var low = 0
+        var high = danmakuItems.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if danmakuItems[mid].time < value {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    private func firstIndex(greaterThan value: Double) -> Int {
+        var low = 0
+        var high = danmakuItems.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if danmakuItems[mid].time <= value {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
     }
 
     var body: some View {
@@ -676,8 +714,10 @@ private struct PlayerTimedTextOverlay: View {
                     .multilineTextAlignment(mode == .fullscreen ? .center : .leading)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(.black.opacity(0.36), in: Capsule())
-                    .shadow(color: .black.opacity(0.75), radius: 2, x: 0, y: 1)
+                    .background(.black.opacity(0.68))
+                    .overlay {
+                        Rectangle().strokeBorder(.white.opacity(0.8), lineWidth: 1)
+                    }
             }
         }
     }
@@ -690,8 +730,10 @@ private struct PlayerTimedTextOverlay: View {
             .lineLimit(2)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(.black.opacity(0.42), in: Capsule())
-            .shadow(color: .black.opacity(0.85), radius: 2, x: 0, y: 1)
+            .background(.black.opacity(0.72))
+            .overlay {
+                Rectangle().strokeBorder(.white.opacity(0.85), lineWidth: 1)
+            }
     }
 }
 
@@ -938,8 +980,11 @@ private struct DoubleTapBadge: View {
         Image(systemName: symbol)
             .font(.system(size: 88, weight: .bold))
             .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.55), radius: 12, y: 2)
             .padding(20)
+            .background(.black.opacity(0.66))
+            .overlay {
+                Rectangle().strokeBorder(.white, lineWidth: 1)
+            }
     }
 }
 

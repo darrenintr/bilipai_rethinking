@@ -44,7 +44,9 @@ struct DownloadedVideosView: View {
                         } label: {
                             DownloadedVideoRow(record: record)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PaladalaPressBounceButtonStyle())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 Haptics.tap()
@@ -56,6 +58,8 @@ struct DownloadedVideosView: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(PaladalaTheme.canvas)
             }
         }
         .navigationTitle("离线缓存")
@@ -109,9 +113,16 @@ struct DownloadedVideosView: View {
                                 cornerRadius: PaladalaTheme.cardRadius,
                                 style: PaladalaTheme.cornerStyle
                             )
-                            .fill(PaladalaTheme.biliPink.opacity(0.14))
+                            .fill(PaladalaTheme.biliPink)
                         )
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("下载卡住时把日志发给开发者")
@@ -129,9 +140,16 @@ struct DownloadedVideosView: View {
                                 cornerRadius: PaladalaTheme.cardRadius,
                                 style: PaladalaTheme.cornerStyle
                             )
-                            .fill(PaladalaTheme.biliPink.opacity(0.14))
+                            .fill(PaladalaTheme.biliPink)
                         )
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("下载卡住时把日志发给开发者")
@@ -179,16 +197,25 @@ private struct DownloadedVideoRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ResilientImage(url: record.coverURL)
+            ResilientImage(url: record.coverURL, maximumPixelSize: 480)
                 .frame(width: 120, height: 68)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
             VStack(alignment: .leading, spacing: 4) {
                 Text(record.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(PaladalaTheme.FontRole.cardTitle)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
                     .lineLimit(2)
                 Text(record.ownerName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
                     .lineLimit(1)
                 HStack(spacing: 8) {
                     Label(durationLabel, systemImage: "clock")
@@ -202,7 +229,8 @@ private struct DownloadedVideoRow: View {
                 .foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 4)
+        .padding(PaladalaTheme.Spacing.m)
+        .paladalaStreetPanel(fill: PaladalaTheme.paper)
     }
 
     /// `BiliVideo.duration` is in seconds.  Format as

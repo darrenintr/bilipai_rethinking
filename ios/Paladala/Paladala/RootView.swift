@@ -8,7 +8,6 @@ struct RootView: View {
     @EnvironmentObject private var miniPlayerStore: MiniPlayerStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @AppStorage("paladala.didOnboard") private var didOnboard: Bool = false
     /// Timestamp of the most recent transition out of `.active`
     /// (i.e. when the user locked the screen or switched apps).
@@ -50,7 +49,8 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            PaladalaBackdrop()
+            PaladalaTheme.canvas
+                .ignoresSafeArea()
 
             Group {
                 if horizontalSizeClass == .regular {
@@ -132,9 +132,11 @@ struct RootView: View {
             // secondary gesture affordance.
             LoginSheet()
                 .presentationDragIndicator(.visible)
-                .paladalaSheetGlass()
+                .presentationBackground(PaladalaTheme.paper)
+                .presentationCornerRadius(0)
         }
-        .modifier(LiquidGlassTabBarModifier(materialDesign: materialDesign))
+        .toggleStyle(PaladalaStreetToggleStyle())
+        .modifier(StreetTabBarModifier())
         .fullScreenCover(isPresented: Binding(
             get: { hasPresentedFirstFrame && !didOnboard },
             set: { newValue in
@@ -145,7 +147,7 @@ struct RootView: View {
         }
         .overlay(alignment: .top) {
             OfflineBanner()
-                .animation(.spring(response: 0.35, dampingFraction: 0.85),
+                .animation(.easeOut(duration: 0.18),
                            value: networkMonitorIsOnline)
         }
         .overlay(alignment: .bottomTrailing) {
@@ -161,7 +163,7 @@ struct RootView: View {
             }
             .padding(.trailing, horizontalSizeClass == .regular ? 32 : 16)
             .padding(.bottom, horizontalSizeClass == .regular ? 32 : 80)
-            .animation(.spring(response: 0.35, dampingFraction: 0.85),
+            .animation(.easeOut(duration: 0.18),
                        value: miniPlayerIsShowing)
         }
         .overlay {
@@ -222,16 +224,14 @@ private struct OpeningScreenAnimation: View {
     let onFinished: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var tileScale: CGFloat = 0.78
-    @State private var tileRotation: Double = -8
+    @State private var tileScale: CGFloat = 0.88
+    @State private var tileOffset: CGFloat = 18
     @State private var tileOpacity: Double = 0
-    @State private var playScale: CGFloat = 0.72
+    @State private var playScale: CGFloat = 0.8
     @State private var playOpacity: Double = 0
     @State private var titleOffset: CGFloat = 14
     @State private var titleOpacity: Double = 0
     @State private var accentProgress: CGFloat = 0
-    @State private var shimmerOffset: CGFloat = -150
     @State private var screenOpacity: Double = 1
 
     var body: some View {
@@ -239,69 +239,77 @@ private struct OpeningScreenAnimation: View {
             ZStack {
                 background
 
-                VStack(spacing: 22) {
+                VStack(alignment: .leading, spacing: PaladalaTheme.Spacing.xxl) {
                     ZStack {
-                        RoundedRectangle(
-                            cornerRadius: 32,
-                            style: PaladalaTheme.cornerStyle
-                        )
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 118, height: 118)
-                        .overlay {
-                            RoundedRectangle(
-                                cornerRadius: 32,
-                                style: PaladalaTheme.cornerStyle
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .frame(width: 118, height: 118)
+                            .offset(
+                                x: PaladalaTheme.hardShadowOffset,
+                                y: PaladalaTheme.hardShadowOffset
                             )
-                            .strokeBorder(Color.primary.opacity(0.16), lineWidth: 0.8)
-                        }
-                        .shadow(
-                            color: Color.black.opacity(colorScheme == .dark ? 0.34 : 0.12),
-                            radius: 34,
-                            y: 20
-                        )
 
-                        RoundedRectangle(
-                            cornerRadius: 25,
-                            style: PaladalaTheme.cornerStyle
-                        )
-                        .fill(PaladalaTheme.biliPink)
-                        .frame(width: 82, height: 82)
-                        .overlay(alignment: .topLeading) {
-                            highlightSweep
-                                .frame(width: 70, height: 120)
-                                .offset(x: shimmerOffset)
-                                .clipShape(
-                                    RoundedRectangle(
-                                        cornerRadius: 25,
-                                        style: PaladalaTheme.cornerStyle
+                        Rectangle()
+                            .fill(PaladalaTheme.biliPink)
+                            .frame(width: 118, height: 118)
+                            .overlay {
+                                Rectangle()
+                                    .strokeBorder(
+                                        PaladalaTheme.ink,
+                                        lineWidth: PaladalaTheme.borderWidth
                                     )
-                                )
-                        }
+                            }
 
                         Image(systemName: "play.fill")
-                            .font(.system(size: 36, weight: .bold))
-                            .foregroundStyle(.white)
+                            .font(.system(size: 42, weight: .black))
+                            .foregroundStyle(PaladalaTheme.ink)
                             .offset(x: 3)
                             .scaleEffect(playScale)
                             .opacity(playOpacity)
+
+                        Text("PLAY")
+                            .font(PaladalaTheme.FontRole.labelMono)
+                            .foregroundStyle(PaladalaTheme.paper)
+                            .padding(.horizontal, PaladalaTheme.Spacing.s)
+                            .padding(.vertical, PaladalaTheme.Spacing.xs)
+                            .background(PaladalaTheme.ink)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .padding(PaladalaTheme.Spacing.s)
                     }
+                    .frame(width: 118, height: 118)
                     .scaleEffect(tileScale)
-                    .rotationEffect(.degrees(tileRotation))
+                    .offset(y: tileOffset)
                     .opacity(tileOpacity)
 
-                    VStack(spacing: 9) {
-                        Text("Paladala")
-                            .font(.system(.title2, design: .rounded).weight(.bold))
-                            .foregroundStyle(.primary)
-                        premiumAccent
-                            .frame(width: 86, height: 3)
-                            .scaleEffect(x: accentProgress, anchor: .leading)
+                    VStack(alignment: .leading, spacing: PaladalaTheme.Spacing.s) {
+                        Text("PALADALA")
+                            .font(PaladalaTheme.FontRole.displayMedium)
+                            .foregroundStyle(PaladalaTheme.ink)
+                            .tracking(-1)
+
+                        Text("PURE BILIBILI // NATIVE IOS")
+                            .font(PaladalaTheme.FontRole.labelMono)
+                            .foregroundStyle(PaladalaTheme.paper)
+                            .padding(.horizontal, PaladalaTheme.Spacing.s)
+                            .padding(.vertical, PaladalaTheme.Spacing.xs)
+                            .background(PaladalaTheme.ink)
+
+                        HStack(spacing: 0) {
+                            Rectangle()
+                                .fill(PaladalaTheme.biliPink)
+                                .frame(width: 74, height: 7)
+                            Rectangle()
+                                .fill(PaladalaTheme.ink)
+                                .frame(width: 32, height: 7)
+                        }
+                        .scaleEffect(x: accentProgress, anchor: .leading)
                     }
                     .opacity(titleOpacity)
                     .offset(y: titleOffset)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.bottom, geo.safeAreaInsets.bottom + 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.horizontal, PaladalaTheme.Spacing.xxxl)
+                .padding(.bottom, geo.safeAreaInsets.bottom + PaladalaTheme.Spacing.xxl)
             }
             .opacity(screenOpacity)
             .ignoresSafeArea()
@@ -311,55 +319,38 @@ private struct OpeningScreenAnimation: View {
 
     private var background: some View {
         ZStack {
-            Color(uiColor: .systemBackground)
+            PaladalaTheme.canvas
+
             VStack(spacing: 0) {
-                Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.05)
-                    .frame(height: 1)
+                HStack {
+                    Text("/// SIGNAL_01")
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.paper)
+                    Spacer()
+                    Text("PALADALA")
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.paper)
+                }
+                .padding(.horizontal, PaladalaTheme.Spacing.l)
+                .frame(height: 34)
+                .background(PaladalaTheme.ink)
+
                 Spacer()
-                Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.04)
-                    .frame(height: 1)
-            }
-            VStack {
-                Spacer()
-                premiumAccent
-                    .frame(height: 2)
-                    .opacity(0.42)
-                    .padding(.horizontal, 72)
-                    .padding(.bottom, 118)
-                    .scaleEffect(x: accentProgress, anchor: .center)
+
+                HStack(spacing: PaladalaTheme.Spacing.s) {
+                    Rectangle()
+                        .fill(PaladalaTheme.biliPink)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 7)
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(width: 46, height: 7)
+                }
+                .padding(.horizontal, PaladalaTheme.Spacing.l)
+                .padding(.bottom, PaladalaTheme.Spacing.l)
+                .scaleEffect(x: accentProgress, anchor: .leading)
             }
         }
-    }
-
-    private var premiumAccent: some View {
-        Capsule()
-            .fill(
-                LinearGradient(
-                    colors: [
-                        PaladalaTheme.cyan,
-                        PaladalaTheme.biliPink,
-                        PaladalaTheme.violet
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-    }
-
-    private var highlightSweep: some View {
-        Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [
-                        .white.opacity(0),
-                        .white.opacity(0.42),
-                        .white.opacity(0)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .rotationEffect(.degrees(18))
     }
 
     private func run() {
@@ -370,7 +361,7 @@ private struct OpeningScreenAnimation: View {
                 titleOpacity = 1
                 titleOffset = 0
                 tileScale = 1
-                tileRotation = 0
+                tileOffset = 0
                 playScale = 1
                 accentProgress = 1
             }
@@ -385,10 +376,10 @@ private struct OpeningScreenAnimation: View {
             return
         }
 
-        withAnimation(.spring(response: 0.58, dampingFraction: 0.76)) {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
             tileOpacity = 1
             tileScale = 1
-            tileRotation = 0
+            tileOffset = 0
         }
         withAnimation(.spring(response: 0.36, dampingFraction: 0.68).delay(0.12)) {
             playOpacity = 1
@@ -400,9 +391,6 @@ private struct OpeningScreenAnimation: View {
         }
         withAnimation(.easeInOut(duration: 0.42).delay(0.24)) {
             accentProgress = 1
-        }
-        withAnimation(.easeInOut(duration: 0.76).delay(0.28)) {
-            shimmerOffset = 110
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_250_000_000)
@@ -585,6 +573,17 @@ private struct PadRootView: View {
                     .navigationDestination(for: ReplyRoute.self) { route in
                         ReplyListView(video: route.video, rootComment: route.rootComment, repository: repository)
                     }
+                    .navigationDestination(for: LocalVideoRoute.self) { route in
+                        switch route {
+                        case .local(let record):
+                            VideoDetailView(
+                                video: record.video,
+                                repository: repository,
+                                heroNamespace: heroNamespace,
+                                localRecord: record
+                            )
+                        }
+                    }
                     .navigationDestination(for: MusicRoute.self) { route in
                         switch route {
                         case .player(let video):
@@ -693,21 +692,27 @@ private struct PadSidebar: View {
     @EnvironmentObject private var authStore: AuthStore
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: PaladalaTheme.Spacing.xl) {
             tabList
             Spacer(minLength: 0)
             userCard
             collapseButton
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 24)
-        .padding(.bottom, 20)
+        .padding(.horizontal, PaladalaTheme.Spacing.xl)
+        .padding(.top, PaladalaTheme.Spacing.xxl)
+        .padding(.bottom, PaladalaTheme.Spacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(PaladalaBackdrop())
+        .background(PaladalaTheme.canvas)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(PaladalaTheme.ink)
+                .frame(width: PaladalaTheme.borderWidth)
+                .accessibilityHidden(true)
+        }
     }
 
     private var tabList: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: PaladalaTheme.Spacing.m) {
             ForEach(tabs) { tab in
                 SidebarRow(
                     tab: tab,
@@ -724,32 +729,31 @@ private struct PadSidebar: View {
         Button {
             router.open(.profile)
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: PaladalaTheme.Spacing.m) {
                 sidebarAvatar
                     .frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: PaladalaTheme.Spacing.xs) {
                     Text(usernameText)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .font(PaladalaTheme.FontRole.headline)
+                        .foregroundStyle(PaladalaTheme.ink)
                         .lineLimit(1)
                     Text("我的")
-                        .font(.subheadline)
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
                 }
                 Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(PaladalaTheme.ink)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius,
-                                 style: PaladalaTheme.cornerStyle)
-                    .fill(Color.primary.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius,
-                                 style: PaladalaTheme.cornerStyle)
-                    .stroke(PaladalaTheme.biliPink.opacity(0.35), lineWidth: 1)
-            )
+            .padding(.horizontal, PaladalaTheme.Spacing.m)
+            .padding(.vertical, PaladalaTheme.Spacing.s)
+            .modifier(StreetSidebarSurface(
+                fill: router.selectedTab == .profile
+                    ? PaladalaTheme.biliPink
+                    : PaladalaTheme.paper
+            ))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -760,18 +764,19 @@ private struct PadSidebar: View {
                 columnVisibility = .detailOnly
             }
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: PaladalaTheme.Spacing.m) {
                 Image(systemName: "line.3.horizontal.decrease.circle")
                     .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PaladalaTheme.ink)
                     .frame(width: 24)
                 Text("收合")
-                    .font(.body)
-                    .foregroundStyle(.primary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.ink)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, PaladalaTheme.Spacing.m)
+            .padding(.vertical, PaladalaTheme.Spacing.m)
+            .modifier(StreetSidebarSurface(fill: PaladalaTheme.paper))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -785,22 +790,35 @@ private struct PadSidebar: View {
     private var sidebarAvatar: some View {
         if let url = authStore.activeAccount?.faceURL {
             ResilientImage(url: url)
-                .clipShape(Circle())
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         } else {
-            Circle()
-                .fill(PaladalaTheme.biliPink.opacity(0.18))
+            Rectangle()
+                .fill(PaladalaTheme.biliPink)
                 .overlay(
                     Image(systemName: "person.fill")
                         .font(.body)
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.ink)
                 )
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         }
     }
 }
 
-/// One row in the iPad sidebar. Active row gets a rounded pink
-/// pill background plus a pink-tinted icon and label; inactive
-/// rows use a muted label so the active tab stands out.
+/// One row in the iPad sidebar. Every row uses the same hard-edged
+/// paper surface; the active destination switches to signal pink.
 private struct SidebarRow: View {
     let tab: MainTab
     let isActive: Bool
@@ -808,33 +826,57 @@ private struct SidebarRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 14) {
+            HStack(spacing: PaladalaTheme.Spacing.m) {
                 Image(systemName: tab.sidebarSymbolName)
-                    .font(.body.weight(.semibold))
+                    .font(.body.weight(.black))
                     .frame(width: 24)
-                    .foregroundStyle(isActive ? PaladalaTheme.biliPink : .secondary)
+                    .foregroundStyle(PaladalaTheme.ink)
                 Text(tab.title)
-                    .font(.body.weight(isActive ? .semibold : .regular))
-                    .foregroundStyle(isActive ? PaladalaTheme.biliPink : .primary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.ink)
                 Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                Group {
-                    if isActive {
-                        RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius,
-                                         style: PaladalaTheme.cornerStyle)
-                            .fill(PaladalaTheme.biliPink.opacity(0.18))
-                    } else {
-                        Color.clear
-                    }
+                if isActive {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
                 }
-            )
-            .contentShape(RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius,
-                                           style: PaladalaTheme.cornerStyle))
+            }
+            .padding(.horizontal, PaladalaTheme.Spacing.l)
+            .padding(.vertical, PaladalaTheme.Spacing.m)
+            .modifier(StreetSidebarSurface(
+                fill: isActive ? PaladalaTheme.biliPink : PaladalaTheme.paper
+            ))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct StreetSidebarSurface: ViewModifier {
+    let fill: Color
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                ZStack {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                    Rectangle()
+                        .fill(fill)
+                }
+            }
+            .overlay {
+                Rectangle()
+                    .strokeBorder(
+                        PaladalaTheme.ink,
+                        lineWidth: PaladalaTheme.borderWidth
+                    )
+            }
     }
 }
 
@@ -855,22 +897,14 @@ private func profileRouteView(_ route: ProfileRoute, repository: PaladalaReposit
     }
 }
 
-/// Liquid Glass material for the tab bar.
-///
-/// Uses `.ultraThinMaterial` as the fallback for the iOS 18.5 SDK.
-/// When the iOS 26 SDK ships, replace with `.toolbarBackground(.glass,
-/// for: .tabBar)` which picks up the underlying content and renders a
-/// proper Liquid Glass surface.
-private struct LiquidGlassTabBarModifier: ViewModifier {
-    let materialDesign: MaterialDesign
-
-    @ViewBuilder
+/// Keep the native tab bar semantics while forcing an opaque paper
+/// background and signal-pink selection. This avoids translucent
+/// material without replacing the accessible system `TabView`.
+private struct StreetTabBarModifier: ViewModifier {
     func body(content: Content) -> some View {
-        switch materialDesign {
-        case .material3:
-            content
-        case .liquidGlass:
-            content.paladalaToolbarGlass(.liquidGlass)
-        }
+        content
+            .toolbarBackground(PaladalaTheme.paper, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
+            .tint(PaladalaTheme.biliPink)
     }
 }

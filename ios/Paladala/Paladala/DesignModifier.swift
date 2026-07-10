@@ -2,27 +2,36 @@ import SwiftUI
 
 struct PaladalaGlassButtonStyle: ButtonStyle {
     let materialDesign: MaterialDesign
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .modifier(PaladalaInteractiveGlassModifier(
-                design: materialDesign,
-                shape: RoundedRectangle(
-                    cornerRadius: PaladalaTheme.cornerRadius,
-                    style: PaladalaTheme.cornerStyle
-                ),
-                tint: nil
-            ))
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            // Springified from `.easeInOut(0.12)` so the press matches
-            // the `PaladalaPressBounceButtonStyle` / `PaladalaActionPillStyle`
-            // family (Polish audit notes).
+            .font(PaladalaTheme.FontRole.labelMono)
+            .textCase(.uppercase)
+            .foregroundStyle(PaladalaTheme.ink)
+            .padding(.horizontal, PaladalaTheme.Spacing.l)
+            .padding(.vertical, PaladalaTheme.Spacing.m)
+            .background(PaladalaTheme.paper)
+            .overlay {
+                Rectangle()
+                    .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+            }
+            .background {
+                if !configuration.isPressed {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                }
+            }
+            .offset(
+                x: configuration.isPressed ? PaladalaTheme.pressedOffset : 0,
+                y: configuration.isPressed ? PaladalaTheme.pressedOffset : 0
+            )
             .animation(
-                configuration.isPressed
-                    ? .spring(response: 0.18, dampingFraction: 0.7)
-                    : .spring(response: 0.26, dampingFraction: 0.78),
+                reduceMotion ? nil : .easeOut(duration: 0.08),
                 value: configuration.isPressed
             )
     }
@@ -37,13 +46,16 @@ struct PaladalaGlassButtonStyle: ButtonStyle {
 /// Reduce Motion short-circuits the scale so accessibility users
 /// still get the press state through the visual highlight only.
 struct PaladalaPressBounceButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .offset(
+                x: configuration.isPressed ? PaladalaTheme.pressedOffset : 0,
+                y: configuration.isPressed ? PaladalaTheme.pressedOffset : 0
+            )
             .animation(
-                configuration.isPressed
-                    ? .spring(response: 0.18, dampingFraction: 0.6)
-                    : .spring(response: 0.32, dampingFraction: 0.7),
+                reduceMotion ? nil : .easeOut(duration: 0.08),
                 value: configuration.isPressed
             )
     }
@@ -71,36 +83,68 @@ struct PaladalaPressBounceButtonStyle: ButtonStyle {
 /// that lives inside the player's control panel.
 struct PaladalaActionPillStyle: ButtonStyle {
     var accent: Color = PaladalaTheme.biliPink
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.93 : 1.0)
-            .background(
-                // Press-glow halo.  Uses an animated radial
-                // gradient so the chip "breathes" outward when
-                // touched, then collapses back.  Layered behind
-                // the label so it never interferes with text
-                // legibility.
-                RadialGradient(
-                    colors: [
-                        accent.opacity(configuration.isPressed ? 0.45 : 0),
-                        accent.opacity(0)
-                    ],
-                    center: .center,
-                    startRadius: 4,
-                    endRadius: 36
-                )
-                .animation(
-                    .easeOut(duration: configuration.isPressed ? 0.12 : 0.32),
-                    value: configuration.isPressed
-                )
+            .background(configuration.isPressed ? accent : Color.clear)
+            .offset(
+                x: configuration.isPressed ? 2 : 0,
+                y: configuration.isPressed ? 2 : 0
             )
             .animation(
-                configuration.isPressed
-                    ? .spring(response: 0.18, dampingFraction: 0.6)
-                    : .spring(response: 0.34, dampingFraction: 0.74),
+                reduceMotion ? nil : .easeOut(duration: 0.08),
                 value: configuration.isPressed
             )
+    }
+}
+/// App-wide hard-edged toggle. Applying this at `RootView` keeps settings,
+/// onboarding, SponsorBlock, and diagnostics in one shape language while
+/// preserving SwiftUI's Toggle semantics and Dynamic Type label layout.
+struct PaladalaStreetToggleStyle: ToggleStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            guard isEnabled else { return }
+            Haptics.selection()
+            configuration.isOn.toggle()
+        } label: {
+            HStack(spacing: PaladalaTheme.Spacing.m) {
+                configuration.label
+                    .foregroundStyle(PaladalaTheme.ink)
+                Spacer(minLength: PaladalaTheme.Spacing.s)
+                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                    Rectangle()
+                        .fill(
+                            configuration.isOn
+                                ? PaladalaTheme.biliPink
+                                : PaladalaTheme.coolGray
+                        )
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(width: 18, height: 18)
+                        .padding(4)
+                }
+                .frame(width: 48, height: 28)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
+                .animation(
+                    reduceMotion ? nil : .easeOut(duration: 0.1),
+                    value: configuration.isOn
+                )
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.45)
+        .accessibilityValue(configuration.isOn ? "开启" : "关闭")
     }
 }
 
@@ -111,30 +155,26 @@ private struct PaladalaInteractiveGlassModifier<S: InsettableShape>: ViewModifie
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        switch design {
-        case .material3:
-            fallback(content)
-        case .liquidGlass:
-            #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                if let tint {
-                    content.glassEffect(.regular.tint(tint).interactive(), in: shape)
-                } else {
-                    content.glassEffect(.regular.interactive(), in: shape)
-                }
-            } else {
-                fallback(content)
-            }
-            #else
-            fallback(content)
-            #endif
-        }
+        fallback(content)
     }
 
     private func fallback(_ content: Content) -> some View {
         content
-            .background(.thinMaterial, in: shape)
-            .overlay(shape.strokeBorder(PaladalaTheme.glassStroke, lineWidth: 0.75))
+            .background(tint ?? PaladalaTheme.paper, in: shape)
+            .overlay(
+                shape.strokeBorder(
+                    PaladalaTheme.ink,
+                    lineWidth: PaladalaTheme.borderWidth
+                )
+            )
+            .background {
+                shape
+                    .fill(PaladalaTheme.ink)
+                    .offset(
+                        x: PaladalaTheme.hardShadowOffset,
+                        y: PaladalaTheme.hardShadowOffset
+                    )
+            }
     }
 }
 
@@ -144,17 +184,7 @@ struct PaladalaGlassContainer<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) {
-                content
-            }
-        } else {
-            content
-        }
-        #else
         content
-        #endif
     }
 }
 
@@ -205,60 +235,10 @@ struct PaladalaBackdrop: View, Equatable {
     }
 
     var body: some View {
-        ZStack {
-            Color(uiColor: .systemBackground)
-            colorScheme == .dark ? Self.darkStyle : Self.lightStyle
-        }
+        PaladalaTheme.canvas
         .ignoresSafeArea()
         .accessibilityHidden(true)
     }
-
-    // MARK: - Static gradient cache
-
-    /// The 3-layer gradient ZStack, cached per color scheme so
-    /// `RootView.body` re-evaluations don't rebuild the gradients.
-    private static let lightStyle: AnyView = AnyView(
-        ZStack {
-            LinearGradient(
-                colors: [Color.white, PaladalaTheme.cyan.opacity(0.18), PaladalaTheme.biliPink.opacity(0.14)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            RadialGradient(
-                colors: [PaladalaTheme.biliPink.opacity(0.18), .clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 320
-            )
-            RadialGradient(
-                colors: [PaladalaTheme.cyan.opacity(0.14), .clear],
-                center: .bottomLeading,
-                startRadius: 30,
-                endRadius: 360
-            )
-        }
-    )
-    private static let darkStyle: AnyView = AnyView(
-        ZStack {
-            LinearGradient(
-                colors: [Color.black, PaladalaTheme.violet.opacity(0.22), Color.black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            RadialGradient(
-                colors: [PaladalaTheme.biliPink.opacity(0.22), .clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 320
-            )
-            RadialGradient(
-                colors: [PaladalaTheme.cyan.opacity(0.16), .clear],
-                center: .bottomLeading,
-                startRadius: 30,
-                endRadius: 360
-            )
-        }
-    )
 }
 
 extension View {
@@ -270,89 +250,50 @@ extension View {
         stroke: Color? = nil,
         strokeWidth: CGFloat = 0.5
     ) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: PaladalaTheme.cornerStyle)
+        let shape = Rectangle()
 
-        switch design {
-        case .material3:
-            self
-                .background(tint ?? PaladalaTheme.cardBackground, in: shape)
-                .overlay(
-                    shape.strokeBorder(stroke ?? Color.clear, lineWidth: strokeWidth)
+        self
+            .background(tint ?? PaladalaTheme.cardBackground, in: shape)
+            .overlay(
+                shape.strokeBorder(
+                    stroke ?? PaladalaTheme.ink,
+                    lineWidth: stroke == nil ? PaladalaTheme.borderWidth : strokeWidth
                 )
-        case .liquidGlass:
-            // Keep feed cards in the content layer. Apple recommends
-            // reserving Liquid Glass for floating navigation and controls.
-            self
-                .background(tint ?? Color.primary.opacity(0.06), in: shape)
-                .overlay(
-                    shape.strokeBorder(
-                        stroke ?? Color.primary.opacity(0.08),
-                        lineWidth: stroke == nil ? 0.5 : strokeWidth
+            )
+            .background {
+                shape
+                    .fill(PaladalaTheme.ink)
+                    .offset(
+                        x: PaladalaTheme.hardShadowOffset,
+                        y: PaladalaTheme.hardShadowOffset
                     )
-                )
-        }
+            }
     }
 
     @ViewBuilder
     func paladalaPillSurface(
         _ design: MaterialDesign
     ) -> some View {
-        switch design {
-        case .material3:
-            self.background(
-                .thinMaterial,
-                in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle)
-            )
-        case .liquidGlass:
-            self.modifier(PaladalaInteractiveGlassModifier(
-                design: design,
-                shape: RoundedRectangle(
-                    cornerRadius: PaladalaTheme.pillRadius,
-                    style: PaladalaTheme.cornerStyle
-                ),
-                tint: nil
-            ))
-        }
+        self
+            .background(PaladalaTheme.paper)
+            .overlay {
+                Rectangle()
+                    .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+            }
     }
 
     @ViewBuilder
     func paladalaNavBarGlass(_ design: MaterialDesign = .liquidGlass) -> some View {
-        switch design {
-        case .material3:
-            self
-        case .liquidGlass:
-            #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                self
-            } else {
-                self.toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-                    .toolbarBackground(.visible, for: .navigationBar)
-            }
-            #else
-            self.toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
-            #endif
-        }
+        self
+            .toolbarBackground(PaladalaTheme.paper, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
     }
 
     @ViewBuilder
     func paladalaToolbarGlass(_ design: MaterialDesign = .liquidGlass) -> some View {
-        switch design {
-        case .material3:
-            self
-        case .liquidGlass:
-            #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                self
-            } else {
-                self.toolbarBackground(.ultraThinMaterial, for: .tabBar)
-                    .toolbarBackground(.visible, for: .tabBar)
-            }
-            #else
-            self.toolbarBackground(.ultraThinMaterial, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
-            #endif
-        }
+        self
+            .toolbarBackground(PaladalaTheme.paper, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
     }
 
     @ViewBuilder
@@ -373,24 +314,15 @@ extension View {
         isSelected: Bool,
         design: MaterialDesign
     ) -> some View {
-        if isSelected {
-            self.modifier(PaladalaInteractiveGlassModifier(
-                design: design,
-                shape: RoundedRectangle(
-                    cornerRadius: PaladalaTheme.cornerRadius,
-                    style: PaladalaTheme.cornerStyle
-                ),
-                tint: PaladalaTheme.biliPink.opacity(0.22)
-            ))
-        } else {
-            self.background(
-                Color.primary.opacity(0.055),
-                in: RoundedRectangle(
-                    cornerRadius: PaladalaTheme.cornerRadius,
-                    style: PaladalaTheme.cornerStyle
-                )
-            )
-        }
+        self
+            .font(PaladalaTheme.FontRole.labelMono)
+            .textCase(.uppercase)
+            .foregroundStyle(isSelected ? PaladalaTheme.paper : PaladalaTheme.ink)
+            .background(isSelected ? PaladalaTheme.ink : PaladalaTheme.paper)
+            .overlay {
+                Rectangle()
+                    .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+            }
     }
 
     /// Picker-style chip. Tap to set `selection` to `value`. Renders
@@ -447,18 +379,7 @@ extension View {
         cornerRadius: CGFloat = PaladalaTheme.cardRadius,
         tint: Color = PaladalaTheme.biliPink.opacity(0.06)
     ) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            self.glassEffect(
-                .regular.tint(tint),
-                in: .rect(cornerRadius: cornerRadius)
-            )
-        } else {
-            self.paladalaGlassFallback(cornerRadius: cornerRadius, tint: tint)
-        }
-        #else
         self.paladalaGlassFallback(cornerRadius: cornerRadius, tint: tint)
-        #endif
     }
 
     @ViewBuilder
@@ -466,22 +387,24 @@ extension View {
         cornerRadius: CGFloat,
         tint: Color
     ) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: PaladalaTheme.cornerStyle)
+        let shape = Rectangle()
 
         self
-            .background(.thinMaterial, in: shape)
-            .background(tint, in: shape)
+            .background(PaladalaTheme.paper, in: shape)
             .overlay {
                 shape.strokeBorder(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.42), PaladalaTheme.glassStroke.opacity(0.35)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 0.75
+                    PaladalaTheme.ink,
+                    lineWidth: PaladalaTheme.borderWidth
                 )
             }
-            .shadow(color: PaladalaTheme.glassShadow, radius: 12, y: 5)
+            .background {
+                shape
+                    .fill(PaladalaTheme.ink)
+                    .offset(
+                        x: PaladalaTheme.hardShadowOffset,
+                        y: PaladalaTheme.hardShadowOffset
+                    )
+            }
     }
 
     func paladalaBackdrop() -> some View {
@@ -490,50 +413,53 @@ extension View {
         }
     }
 
-    /// Liquid Glass presentation background for sheets. On iOS 26+
-    /// uses `.glassEffect(.regular)` for the live refraction; on
-    /// iOS 17 / 18 falls back to `.regularMaterial` with a matching
-    /// `presentationCornerRadius`. Apply to the *sheet content*
-    /// (not the `.sheet(isPresented:)` modifier), so the system
-    /// applies it to the host that wraps the body.
+    /// Opaque paper presentation background for sheets. Apply to the sheet
+    /// content so system presentation chrome cannot reintroduce blur.
     @ViewBuilder
     func paladalaSheetGlass() -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            self
-                .presentationBackground(.regularMaterial)
-                .presentationCornerRadius(28)
-        } else {
-            self
-                .presentationBackground(.regularMaterial)
-                .presentationCornerRadius(28)
-        }
-        #else
         self
-            .presentationBackground(.regularMaterial)
-            .presentationCornerRadius(28)
-        #endif
+            .presentationBackground(PaladalaTheme.paper)
+            .presentationCornerRadius(0)
     }
 
-    /// Sweeping shimmer overlay used by skeleton placeholders while
-    /// the first feed / profile / comments page is loading. A
-    /// translucent `LinearGradient` slides across the content shape
-    /// in a 1.4 s loop, masked to the underlying view so the
-    /// gradient only paints inside the rounded rectangles / circles.
-    /// `redacted(reason: .placeholder)` is intentionally NOT used
-    /// here — the system redaction mask conflicts with the manual
-    /// overlay, and you end up with no shimmer at all.
+    /// Street Minimal uses a static skeleton. Besides matching the dry,
+    /// print-like direction, this removes one infinite animation and one
+    /// GeometryReader/mask stack per visible placeholder cell.
     @ViewBuilder
     func paladalaShimmer(active: Bool = true) -> some View {
-        if active {
-            modifier(PaladalaShimmerModifier())
-        } else {
-            // No-op: lets call sites write a single modifier chain
-            // and disable the shimmer (e.g. during Reduce Motion).
-            // SwiftUI skips the modifier entirely so the static
-            // placeholder paints as-is.
-            self
-        }
+        self.opacity(active ? 0.72 : 1)
+    }
+
+    /// Opaque Street-Minimal panel for screens that do not need to preserve
+    /// the legacy `paladalaCardSurface` signature.
+    func paladalaStreetPanel(
+        fill: Color = PaladalaTheme.paper,
+        elevated: Bool = true
+    ) -> some View {
+        self
+            .background(fill)
+            .overlay {
+                Rectangle()
+                    .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+            }
+            .background {
+                if elevated {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                }
+            }
+    }
+
+    func paladalaSectionHeader() -> some View {
+        self
+            .font(PaladalaTheme.FontRole.sectionHeader)
+            .textCase(.uppercase)
+            .foregroundStyle(PaladalaTheme.ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -555,66 +481,8 @@ private struct PaladalaChip: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
         }
-        .foregroundStyle(isSelected ? PaladalaTheme.biliPink : .primary)
+        .foregroundStyle(isSelected ? PaladalaTheme.paper : PaladalaTheme.ink)
         .frame(maxWidth: .infinity, minHeight: 44)
         .padding(.horizontal, 8)
-    }
-}
-
-/// Sweeping shimmer animation. A 90 pt translucent white gradient
-/// slides left-to-right across the masked content in a 1.4 s loop,
-/// `repeatForever(autoreverses: false)`. The host view is duplicated
-/// as the `mask` so the gradient only paints inside the rounded
-/// rectangles / circles the placeholder already draws — the
-/// surrounding card padding stays clear.
-///
-/// Reduce Motion (`@Environment(\.accessibilityReduceMotion)`)
-/// short-circuits the animation entirely; the placeholder still
-/// paints but with no sweeping highlight.
-private struct PaladalaShimmerModifier: ViewModifier {
-    @State private var phase: CGFloat = -1
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        if reduceMotion {
-            content
-        } else {
-            content
-                .overlay {
-                    GeometryReader { geo in
-                        // Width of the sweeping band — kept narrow so
-                        // a single shimmer reads as a "highlight
-                        // passing through" rather than a wash.
-                        LinearGradient(
-                            stops: [
-                                .init(color: .white.opacity(0), location: 0),
-                                .init(color: .white.opacity(0.45), location: 0.5),
-                                .init(color: .white.opacity(0), location: 1)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: 90)
-                        // Translate the band across the full width
-                        // plus its own width so it fully enters and
-                        // exits the visible rect on every cycle.
-                        .offset(x: phase * (geo.size.width + 90))
-                        .blendMode(.plusLighter)
-                    }
-                    // Clip the band to the placeholder rects so the
-                    // shimmer does not bleed across card padding.
-                    .mask(content)
-                }
-                .onAppear {
-                    // Single one-shot kick — `repeatForever` keeps
-                    // driving `phase` from the new resting state.
-                    withAnimation(
-                        .linear(duration: 1.4)
-                            .repeatForever(autoreverses: false)
-                    ) {
-                        phase = 1
-                    }
-                }
-        }
     }
 }

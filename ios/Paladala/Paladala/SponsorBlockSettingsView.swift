@@ -21,7 +21,8 @@ struct SponsorBlockSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color.clear)
+        .listStyle(.plain)
+        .background(PaladalaTheme.canvas)
         .navigationTitle("拦截恰饭")
         .sheet(isPresented: $showSubmitReport) { submitReportSheet }
     }
@@ -145,7 +146,17 @@ struct SponsorBlockSettingsView: View {
                     .font(.subheadline)
                 Spacer()
                 TextField("服务器地址", text: $manager.config.serverURL)
-                    .font(.caption2.monospacedDigit())
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 36)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.hairlineWidth
+                            )
+                    }
                     .multilineTextAlignment(.trailing)
                     .foregroundStyle(.secondary)
                     .autocapitalization(.none)
@@ -166,8 +177,26 @@ struct SponsorBlockSettingsView: View {
                 Section {
                     TextField("开始时间（秒）", text: $reportStartTime)
                         .keyboardType(.decimalPad)
+                        .textFieldStyle(.plain)
+                        .padding(10)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
                     TextField("结束时间（秒）", text: $reportEndTime)
                         .keyboardType(.decimalPad)
+                        .textFieldStyle(.plain)
+                        .padding(10)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
                 } header: {
                     Label("时间范围", systemImage: "timer")
                 } footer: {
@@ -197,18 +226,23 @@ struct SponsorBlockSettingsView: View {
                             Spacer()
                         }
                     }
+                    .listRowBackground(PaladalaTheme.biliPink)
                     .disabled(isSubmitting || !reportValid)
                 }
 
                 if let msg = submitMessage {
                     Section {
                         Label(msg, systemImage: msg.contains("成功") ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(msg.contains("成功") ? .green : .red)
+                            .foregroundStyle(
+                                msg.contains("成功")
+                                    ? PaladalaTheme.ink
+                                    : PaladalaTheme.biliPink
+                            )
                     }
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Color.clear)
+            .background(PaladalaTheme.canvas)
             .navigationTitle("上报恰饭片段")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -218,6 +252,7 @@ struct SponsorBlockSettingsView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .paladalaSheetGlass()
     }
 
     private var reportValid: Bool {

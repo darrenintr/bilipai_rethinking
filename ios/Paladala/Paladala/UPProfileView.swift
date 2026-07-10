@@ -337,7 +337,9 @@ struct UPProfileView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 6) {
                             Text(card.name)
-                                .font(.title2.weight(.bold))
+                                .font(PaladalaTheme.FontRole.headline)
+                                .foregroundStyle(PaladalaTheme.ink)
+                                .textCase(.uppercase)
                             if card.vipType > 0 {
                                 Image(systemName: "crown.fill")
                                     .foregroundStyle(PaladalaTheme.biliPink)
@@ -345,18 +347,25 @@ struct UPProfileView: View {
                             }
                         }
                         Text("UID: \(card.mid)")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(PaladalaTheme.FontRole.labelMono)
+                            .foregroundStyle(PaladalaTheme.mutedInk)
                         if card.level > 0 {
                             // Render the level as a small capsule so
                             // it's easy to scan. Bilibili's level is
                             // 0-6; we map it to LV1..LV6 verbatim.
                             Text("LV\(card.level)")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white)
+                                .font(PaladalaTheme.FontRole.labelMono)
+                                .foregroundStyle(PaladalaTheme.ink)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
-                                .background(PaladalaTheme.biliPink, in: Capsule())
+                                .background(PaladalaTheme.biliPink)
+                                .overlay {
+                                    Rectangle()
+                                        .strokeBorder(
+                                            PaladalaTheme.ink,
+                                            lineWidth: PaladalaTheme.hairlineWidth
+                                        )
+                                }
                         }
                     }
                     Spacer()
@@ -364,8 +373,8 @@ struct UPProfileView: View {
                 }
                 if !card.sign.isEmpty {
                     Text(card.sign)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(PaladalaTheme.FontRole.bodySmall)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 4)
                 }
@@ -374,15 +383,15 @@ struct UPProfileView: View {
             .paladalaCardSurface(materialDesign)
         } else if model.isLoading {
             HStack(spacing: 14) {
-                Circle()
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(width: 64, height: 64)
                 VStack(alignment: .leading, spacing: 8) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                    Rectangle()
+                        .fill(PaladalaTheme.coolGray)
                         .frame(width: 120, height: 16)
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                    Rectangle()
+                        .fill(PaladalaTheme.coolGray)
                         .frame(width: 80, height: 12)
                 }
                 Spacer()
@@ -405,11 +414,14 @@ struct UPProfileView: View {
         // itself after 1.6s via a Task spawned by the model.
         if let toast = model.relationToast {
             Text(toast)
-                .font(.caption.weight(.semibold))
+                .font(PaladalaTheme.FontRole.labelMono)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(.black.opacity(0.78), in: Capsule())
+                .background(.black.opacity(0.84))
+                .overlay {
+                    Rectangle().strokeBorder(.white, lineWidth: 1)
+                }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 .task(id: toast) {
                     try? await Task.sleep(nanoseconds: 1_600_000_000)
@@ -425,18 +437,32 @@ struct UPProfileView: View {
     @ViewBuilder
     private func avatar(for card: BiliUserCard) -> some View {
         if let url = card.faceURL {
-            ResilientImage(url: url)
+            ResilientImage(url: url, maximumPixelSize: 192)
                 .frame(width: 64, height: 64)
-                .clipShape(Circle())
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         } else {
-            Circle()
-                .fill(PaladalaTheme.biliPink.opacity(0.18))
+            Rectangle()
+                .fill(PaladalaTheme.biliPink)
                 .frame(width: 64, height: 64)
                 .overlay(
                     Image(systemName: "person.fill")
                         .font(.title)
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.ink)
                 )
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         }
     }
 
@@ -481,26 +507,29 @@ struct UPProfileView: View {
                 Image(systemName: symbol)
                     .font(.caption.weight(.bold))
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(PaladalaTheme.FontRole.labelMono)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .foregroundStyle(
                 isBlocked
-                    ? Color.secondary
-                    : (isFollowing ? PaladalaTheme.biliPink : .white)
+                    ? PaladalaTheme.mutedInk
+                    : PaladalaTheme.ink
             )
             .background {
-                if isBlocked {
-                    Capsule()
-                        .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
-                } else if isFollowing {
-                    Capsule()
-                        .stroke(PaladalaTheme.biliPink, lineWidth: 1)
-                } else {
-                    Capsule()
-                        .fill(PaladalaTheme.biliPink)
-                }
+                Rectangle()
+                    .fill(
+                        isBlocked
+                            ? PaladalaTheme.coolGray
+                            : (isFollowing ? PaladalaTheme.paper : PaladalaTheme.biliPink)
+                    )
+            }
+            .overlay {
+                Rectangle()
+                    .strokeBorder(
+                        PaladalaTheme.ink,
+                        lineWidth: PaladalaTheme.borderWidth
+                    )
             }
         }
         .buttonStyle(PaladalaPressBounceButtonStyle())
@@ -550,18 +579,18 @@ struct UPProfileView: View {
     ) -> some View {
         let content = HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(PaladalaTheme.biliPink)
+                .font(.caption.weight(.black))
+                .foregroundStyle(PaladalaTheme.ink)
                 .frame(width: 18, height: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(value)
-                    .font(.headline.weight(.semibold))
+                    .font(PaladalaTheme.FontRole.cardTitle)
                     .monospacedDigit()
                     .foregroundStyle(.primary)
                     .contentTransition(.numericText())
                 Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
             }
             Spacer(minLength: 0)
             if interactive {
@@ -573,7 +602,11 @@ struct UPProfileView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: PaladalaTheme.cornerStyle))
+        .background(PaladalaTheme.coolGray)
+        .overlay {
+            Rectangle()
+                .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.hairlineWidth)
+        }
         // Tappable pills wrap in a Button so the user gets a
         // built-in hit target + accessibility affordance;
         // non-interactive pills render as plain VStack to
@@ -617,15 +650,22 @@ struct UPProfileView: View {
     // MARK: - Tab picker
 
     private var tabPicker: some View {
-        Picker("UP 主页分页", selection: Binding(
-            get: { storedTab },
-            set: { newValue in switchTab(newValue) }
-        )) {
+        HStack(spacing: 8) {
             ForEach(UPProfileTab.allCases) { tab in
-                Text(tab.title).tag(tab)
+                Button {
+                    switchTab(tab)
+                } label: {
+                    Text(tab.title)
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .frame(maxWidth: .infinity, minHeight: 42)
+                }
+                .buttonStyle(.plain)
+                .paladalaSelectionChip(
+                    isSelected: storedTab == tab,
+                    design: materialDesign
+                )
             }
         }
-        .pickerStyle(.segmented)
         .accessibilityLabel("UP 主页分页")
     }
 
@@ -636,7 +676,8 @@ struct UPProfileView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("投稿")
-                    .font(.headline)
+                    .font(PaladalaTheme.FontRole.sectionHeader)
+                    .textCase(.uppercase)
                 Spacer()
                 if model.isLoadingMore {
                     ProgressView().controlSize(.small)
@@ -694,8 +735,7 @@ struct UPProfileView: View {
                 Label("加载更多视频", systemImage: "arrow.down.circle")
                     .font(.caption.weight(.semibold))
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(PaladalaGlassButtonStyle(materialDesign: materialDesign))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .onAppear {
@@ -717,18 +757,18 @@ struct UPProfileView: View {
 
     private var rowSkeleton: some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle)
-                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+            Rectangle()
+                .fill(PaladalaTheme.coolGray)
                 .frame(width: 112, height: 70)
             VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(height: 12)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(width: 180, height: 12)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(width: 90, height: 10)
             }
         }
@@ -742,7 +782,8 @@ struct UPProfileView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("动态")
-                    .font(.headline)
+                    .font(PaladalaTheme.FontRole.sectionHeader)
+                    .textCase(.uppercase)
                 Spacer()
                 if model.isLoadingDynamics {
                     ProgressView().controlSize(.small)
@@ -801,15 +842,15 @@ struct UPProfileView: View {
 
     private var dynamicRowSkeleton: some View {
         HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+            Rectangle()
+                .fill(PaladalaTheme.coolGray)
                 .frame(width: 36, height: 36)
             VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(width: 120, height: 12)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(maxWidth: .infinity)
                     .frame(height: 12)
             }
@@ -824,7 +865,8 @@ struct UPProfileView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("收藏")
-                    .font(.headline)
+                    .font(PaladalaTheme.FontRole.sectionHeader)
+                    .textCase(.uppercase)
                 Spacer()
                 if model.isLoadingFavorites {
                     ProgressView().controlSize(.small)
@@ -860,9 +902,16 @@ struct UPProfileView: View {
     @ViewBuilder
     private func folderRow(_ folder: FavoriteFolderSummary) -> some View {
         HStack(spacing: 12) {
-            ResilientImage(url: folder.coverURL)
+            ResilientImage(url: folder.coverURL, maximumPixelSize: 256)
                 .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
             VStack(alignment: .leading, spacing: 4) {
                 Text(folder.title)
                     .font(.subheadline.weight(.semibold))
@@ -889,15 +938,15 @@ struct UPProfileView: View {
 
     private var folderSkeleton: some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle)
-                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+            Rectangle()
+                .fill(PaladalaTheme.coolGray)
                 .frame(width: 64, height: 64)
             VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(width: 140, height: 14)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(width: 80, height: 10)
             }
         }
@@ -946,18 +995,32 @@ private struct DynamicCardRow: View {
     @ViewBuilder
     private var avatar: some View {
         if let url = post.authorAvatarURL {
-            ResilientImage(url: url)
+            ResilientImage(url: url, maximumPixelSize: 144)
                 .frame(width: 36, height: 36)
-                .clipShape(Circle())
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         } else {
-            Circle()
-                .fill(PaladalaTheme.biliPink.opacity(0.18))
+            Rectangle()
+                .fill(PaladalaTheme.biliPink)
                 .frame(width: 36, height: 36)
                 .overlay(
                     Image(systemName: "person.fill")
                         .font(.caption)
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.ink)
                 )
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         }
     }
 }
@@ -975,9 +1038,16 @@ private struct UPVideoListRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            CoverImage(url: video.coverURL)
+            ResilientImage(url: video.coverURL, maximumPixelSize: 480)
                 .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
-                .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
             VStack(alignment: .leading, spacing: 6) {
                 Text(video.title)
                     .font(.subheadline.weight(.semibold))

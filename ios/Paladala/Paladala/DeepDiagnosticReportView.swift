@@ -109,6 +109,9 @@ struct DeepDiagnosticReportView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .scrollContentBackground(.hidden)
+        .listStyle(.plain)
+        .background(PaladalaTheme.canvas)
         .navigationTitle("深度诊断报告")
         .navigationBarTitleDisplayMode(.inline)
         .overlay(alignment: .bottom) {
@@ -125,6 +128,9 @@ struct DeepDiagnosticReportView: View {
                         )
                         .fill(Color.black.opacity(0.78))
                     )
+                    .overlay {
+                        Rectangle().strokeBorder(.white, lineWidth: 1)
+                    }
                     .padding(.bottom, 24)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -175,25 +181,20 @@ struct DeepDiagnosticReportView: View {
     private func summaryRow(icon: String, title: String, value: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(PaladalaTheme.biliPink)
+                .font(.title3.weight(.black))
+                .foregroundStyle(PaladalaTheme.ink)
                 .frame(width: 28)
             Text(title)
-                .font(.subheadline)
+                .font(PaladalaTheme.FontRole.cardTitle)
+                .foregroundStyle(PaladalaTheme.ink)
             Spacer()
             Text(value)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.mutedInk)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(
-                cornerRadius: PaladalaTheme.cardRadius,
-                style: PaladalaTheme.cornerStyle
-            )
-        )
+        .paladalaStreetPanel(fill: PaladalaTheme.paper)
     }
 
     // MARK: - actions

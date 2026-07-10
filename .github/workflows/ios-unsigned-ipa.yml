@@ -12,6 +12,14 @@ on:
       - 'docs/**'
       - '.gemini/**'
 
+# Release tags are derived from the highest existing prerelease. Queue
+# every invocation so two close pushes cannot both select the same next
+# build number and race while publishing that tag. Never cancel an active
+# package: an already-started run should be allowed to finish its release.
+concurrency:
+  group: ios-unsigned-ipa-publish
+  cancel-in-progress: false
+
 permissions:
   contents: write
 

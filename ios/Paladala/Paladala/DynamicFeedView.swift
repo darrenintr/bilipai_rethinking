@@ -41,9 +41,8 @@ struct DynamicFeedView: View {
                         Task { await model.load(repository: repository) }
                     } label: {
                         Label("重试", systemImage: "arrow.clockwise")
-                            .font(.subheadline.weight(.semibold))
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(PaladalaGlassButtonStyle(materialDesign: materialDesign))
                     .padding(.bottom, 24)
                 }
             } else {
@@ -53,15 +52,18 @@ struct DynamicFeedView: View {
                             avatar(post)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(post.author)
-                                    .font(.headline)
+                                    .font(PaladalaTheme.FontRole.cardTitle)
+                                    .foregroundStyle(PaladalaTheme.ink)
+                                    .textCase(.uppercase)
                                 Text(post.timeLabel)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(PaladalaTheme.FontRole.labelMono)
+                                    .foregroundStyle(PaladalaTheme.mutedInk)
                             }
                         }
                         if !post.text.isEmpty {
                             Text(post.text)
-                                .font(.subheadline)
+                                .font(PaladalaTheme.FontRole.bodySmall)
+                                .foregroundStyle(PaladalaTheme.ink)
                         }
                         if let video = post.attachedVideo {
                             VideoCard(
@@ -73,8 +75,18 @@ struct DynamicFeedView: View {
                             .frame(maxWidth: 360)
                         }
                     }
-                    .padding(.vertical, 8)
-                    .listRowSeparator(index == model.posts.count - 1 ? .hidden : .visible)
+                    .padding(PaladalaTheme.Spacing.l)
+                    .paladalaCardSurface(materialDesign)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: PaladalaTheme.Spacing.m,
+                            leading: PaladalaTheme.Spacing.l,
+                            bottom: PaladalaTheme.Spacing.m,
+                            trailing: PaladalaTheme.Spacing.l
+                        )
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                     .onAppear {
                         if index >= max(0, model.posts.count - 5) {
                             Task { await model.loadMore(repository: repository) }
@@ -94,7 +106,7 @@ struct DynamicFeedView: View {
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .navigationTitle("动态")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(repository: repository) }
         .refreshable {
             Haptics.medium()
@@ -117,14 +129,32 @@ struct DynamicFeedView: View {
     @ViewBuilder
     private func avatar(_ post: DynamicPost) -> some View {
         if let url = post.authorAvatarURL {
-            ResilientImage(url: url)
+            ResilientImage(url: url, maximumPixelSize: 160)
                 .frame(width: 42, height: 42)
-                .clipShape(Circle())
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         } else {
-            Circle()
-                .fill(PaladalaTheme.biliPink.opacity(0.18))
+            Rectangle()
+                .fill(PaladalaTheme.biliPink)
                 .frame(width: 42, height: 42)
-                .overlay(Text(String(post.author.prefix(1))).font(.headline))
+                .overlay(
+                    Text(String(post.author.prefix(1)))
+                        .font(PaladalaTheme.FontRole.cardTitle)
+                        .foregroundStyle(PaladalaTheme.ink)
+                )
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         }
     }
 }
@@ -133,21 +163,21 @@ struct DynamicFeedView: View {
 private struct DynamicFeedSkeletonRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+            Rectangle()
+                .fill(PaladalaTheme.coolGray)
                 .frame(width: 42, height: 42)
             VStack(alignment: .leading, spacing: 8) {
-                RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(width: 120, height: 12)
-                RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
-                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
                     .frame(maxWidth: .infinity)
                     .frame(height: 12)
             }
         }
-        .padding(.vertical, 8)
-        .paladalaShimmer()
+        .padding(PaladalaTheme.Spacing.l)
+        .paladalaStreetPanel(fill: PaladalaTheme.paper)
     }
 }
 

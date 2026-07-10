@@ -47,6 +47,7 @@ struct LogViewerView: View {
             filterChipsBar
             eventList
         }
+        .background(PaladalaTheme.canvas)
         .navigationTitle("诊断日志")
         .navigationBarTitleDisplayMode(.inline)
         // System-provided search bar. Replaces the hand-rolled
@@ -145,20 +146,12 @@ struct LogViewerView: View {
                         }
                     } label: {
                         Text(cat.rawValue)
-                            .font(.caption.weight(.semibold))
+                            .font(PaladalaTheme.FontRole.labelMono)
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                isOn
-                                    ? PaladalaTheme.biliPink.opacity(0.18)
-                                    : Color(uiColor: .tertiarySystemFill),
-                                in: RoundedRectangle(
-                                    cornerRadius: PaladalaTheme.cornerRadius,
-                                    style: PaladalaTheme.cornerStyle
-                                )
-                            )
-                            .foregroundStyle(
-                                isOn ? PaladalaTheme.biliPink : .secondary
+                            .padding(.vertical, 7)
+                            .paladalaSelectionChip(
+                                isSelected: isOn,
+                                design: .liquidGlass
                             )
                     }
                     .buttonStyle(.plain)
@@ -166,6 +159,12 @@ struct LogViewerView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+        }
+        .background(PaladalaTheme.paper)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(PaladalaTheme.ink)
+                .frame(height: PaladalaTheme.borderWidth)
         }
     }
 
@@ -203,8 +202,11 @@ struct LogViewerView: View {
                         .listRowInsets(
                             EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12)
                         )
+                        .listRowBackground(PaladalaTheme.paper)
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(PaladalaTheme.canvas)
             }
         }
     }
@@ -259,18 +261,25 @@ struct LogViewerView: View {
 private struct EventRow: View {
     let event: DiagnosticLogger.Event
 
+    @MainActor
+    private static let timestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter
+    }()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(timestampString(event.timestamp))
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
                 Text("[\(event.category.rawValue)]")
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(categoryColor(event.category))
                 Text(event.message)
                     .font(.system(.footnote, design: .monospaced))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(PaladalaTheme.ink)
             }
             if let d = event.details, !d.isEmpty {
                 Text(String(describing: d))
@@ -283,28 +292,16 @@ private struct EventRow: View {
     }
 
     private func timestampString(_ date: Date) -> String {
-        let df = DateFormatter()
-        df.dateFormat = "HH:mm:ss.SSS"
-        return df.string(from: date)
+        Self.timestampFormatter.string(from: date)
     }
 
     private func categoryColor(_ c: DiagnosticLogger.Category) -> Color {
-        // System colors adapt to dark mode + Increase Contrast
-        // automatically; raw `Color.blue/orange/...` literals
-        // stay locked to a single fixed value.
         switch c {
-        case .playback, .fullscreen: return PaladalaTheme.biliPink
-        case .network, .session:     return Color(uiColor: .systemBlue)
-        case .auth:                  return Color(uiColor: .systemOrange)
-        case .recommendation:        return Color(uiColor: .systemGreen)
-        case .app, .lifecycle:       return Color(uiColor: .systemPurple)
-        case .system:                return Color(uiColor: .systemGray)
-        case .download:              return Color(uiColor: .systemIndigo)
-        case .music:                 return Color(uiColor: .systemYellow)
-        case .notification:         return Color(uiColor: .systemTeal)
-        case .feed:                 return Color(uiColor: .systemBrown)
-        case .proxy:                return Color(uiColor: .systemBlue)
-        case .audio:                return Color(uiColor: .systemMint)
+        case .playback, .fullscreen, .download, .network, .proxy:
+            return PaladalaTheme.biliPink
+        case .auth, .recommendation, .app, .lifecycle, .system,
+             .session, .music, .notification, .feed, .audio:
+            return PaladalaTheme.mutedInk
         }
     }
 }

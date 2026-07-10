@@ -24,6 +24,7 @@ struct LoginSheet: View {
                 footer
             }
             .padding(20)
+            .background(PaladalaTheme.canvas)
             .navigationTitle("登录 Bilibili")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -58,23 +59,40 @@ struct LoginSheet: View {
     }
 
     private var explanation: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("扫码登录 Paladala")
-                .font(.title3.weight(.bold))
+                .font(PaladalaTheme.FontRole.displayMedium)
+                .foregroundStyle(PaladalaTheme.ink)
+                .textCase(.uppercase)
             Text("打开手机 Bilibili App，扫一扫下方二维码即可登录。\n登录后可查看评论、关注动态与个性化首页。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+                .multilineTextAlignment(.leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private var qrCard: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: PaladalaTheme.heroRadius, style: PaladalaTheme.cornerStyle)
-                .fill(PaladalaTheme.cardBackground)
+            Rectangle()
+                .fill(PaladalaTheme.paper)
                 .frame(width: 240, height: 240)
-                .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 6)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
+                .background {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                }
             switch model.state {
             case .generating:
                 ProgressView()
@@ -97,7 +115,7 @@ struct LoginSheet: View {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 32))
-                        .foregroundStyle(Color(uiColor: .systemOrange))
+                        .foregroundStyle(PaladalaTheme.biliPink)
                     Text(message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -119,8 +137,8 @@ struct LoginSheet: View {
     private var footer: some View {
         VStack(spacing: 12) {
             Text(model.statusText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.mutedInk)
                 .multilineTextAlignment(.center)
             HStack(spacing: 12) {
                 Button {
@@ -128,7 +146,7 @@ struct LoginSheet: View {
                 } label: {
                     Label("刷新二维码", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(PaladalaGlassButtonStyle(materialDesign: .liquidGlass))
             }
         }
     }

@@ -79,9 +79,9 @@ final class NetworkMonitor: ObservableObject {
 }
 
 /// Slim offline banner shown at the top of `RootView` when the
-/// `NetworkMonitor` reports `isOnline == false`. Uses
-/// `.ultraThinMaterial` so the banner reads as glass on top of the
-/// content. The banner is for *display only* — tapping it is a no-op
+/// `NetworkMonitor` reports `isOnline == false`. The opaque signal-pink
+/// strip remains readable above every screen without a blur pass. The
+/// banner is for *display only* — tapping it is a no-op
 /// for now; the user can pull-to-refresh on the feed tabs to retry.
 struct OfflineBanner: View {
     @EnvironmentObject private var monitor: NetworkMonitor
@@ -91,26 +91,27 @@ struct OfflineBanner: View {
             HStack(spacing: 8) {
                 Image(systemName: "wifi.slash")
                 Text("当前离线 · 显示缓存内容")
-                    .font(.footnote.weight(.semibold))
+                    .font(PaladalaTheme.FontRole.labelMono)
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(PaladalaTheme.ink)
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(
-                .ultraThinMaterial,
-                in: RoundedRectangle(
-                    cornerRadius: PaladalaTheme.cornerRadius,
-                    style: PaladalaTheme.cornerStyle
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: PaladalaTheme.cornerRadius,
-                    style: PaladalaTheme.cornerStyle
-                )
-                    .strokeBorder(Color.primary.opacity(0.3), lineWidth: 0.5)
-            )
-            .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+            .padding(.vertical, 10)
+            .background(PaladalaTheme.biliPink)
+            .overlay {
+                Rectangle()
+                    .strokeBorder(
+                        PaladalaTheme.ink,
+                        lineWidth: PaladalaTheme.borderWidth
+                    )
+            }
+            .background {
+                Rectangle()
+                    .fill(PaladalaTheme.ink)
+                    .offset(
+                        x: PaladalaTheme.hardShadowOffset,
+                        y: PaladalaTheme.hardShadowOffset
+                    )
+            }
             .padding(.top, 8)
             .transition(.move(edge: .top).combined(with: .opacity))
             .accessibilityElement(children: .combine)

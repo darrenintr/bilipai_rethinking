@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import UIKit
 
 @main
 struct PaladalaApp: App {
@@ -11,9 +12,10 @@ struct PaladalaApp: App {
     @StateObject private var miniPlayerStore = MiniPlayerStore()
     @AppStorage("paladala.themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
-    @AppStorage("paladala.glassMigrationVersion") private var glassMigrationVersion = 0
+    @AppStorage("paladala.streetMigrationVersion") private var streetMigrationVersion = 0
 
     init() {
+        Self.configureStreetAppearance()
         LaunchMetrics.shared.mark(.appInitStart)
         // Audio session activation moved out of `init()` —
         // it now happens lazily inside `PlayerController.init`
@@ -87,12 +89,17 @@ struct PaladalaApp: App {
                 .environmentObject(repository)
                 .environmentObject(networkMonitor)
                 .environmentObject(miniPlayerStore)
+                .font(PaladalaTheme.FontRole.body)
                 .tint(PaladalaTheme.biliPink)
                 .preferredColorScheme(themeMode.colorScheme)
                 .onAppear {
-                    if glassMigrationVersion < 1 {
+                    // Preserve the stored enum/raw-value contract while moving
+                    // existing installs onto the elevated hard-shadow variant.
+                    // Both variants now use the same Street Minimal language;
+                    // `.material3` is the flatter print treatment.
+                    if streetMigrationVersion < 1 {
                         materialDesign = .liquidGlass
-                        glassMigrationVersion = 1
+                        streetMigrationVersion = 1
                     }
 
                     // Defensive re-hydration: in case the first render
@@ -169,6 +176,67 @@ struct PaladalaApp: App {
                     router.openLogin()
                 }
         }
+    }
+
+    /// Configure system-owned navigation and tab chrome with opaque paper
+    /// surfaces. Search, share, document picker, and AVPlayer remain native
+    /// controls for accessibility, but their surrounding bars no longer
+    /// reintroduce translucent material into the Street Minimal hierarchy.
+    private static func configureStreetAppearance() {
+        let ink = UIColor { traits in
+            traits.userInterfaceStyle == .dark ? .white : .black
+        }
+        let paper = UIColor { traits in
+            traits.userInterfaceStyle == .dark ? .black : .white
+        }
+        let coolGray = UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.11, green: 0.11, blue: 0.11, alpha: 1)
+                : UIColor(red: 0.957, green: 0.957, blue: 0.957, alpha: 1)
+        }
+        let pink = UIColor(red: 1, green: 0.38, blue: 0.58, alpha: 1)
+
+        let navigation = UINavigationBarAppearance()
+        navigation.configureWithOpaqueBackground()
+        navigation.backgroundColor = paper
+        navigation.shadowColor = ink
+        navigation.titleTextAttributes = [
+            .foregroundColor: ink,
+            .font: UIFont.systemFont(ofSize: 17, weight: .black)
+        ]
+        navigation.largeTitleTextAttributes = [
+            .foregroundColor: ink,
+            .font: UIFont.systemFont(ofSize: 34, weight: .black)
+        ]
+        UINavigationBar.appearance().standardAppearance = navigation
+        UINavigationBar.appearance().compactAppearance = navigation
+        UINavigationBar.appearance().scrollEdgeAppearance = navigation
+
+        let tab = UITabBarAppearance()
+        tab.configureWithOpaqueBackground()
+        tab.backgroundColor = paper
+        tab.shadowColor = ink
+        for itemAppearance in [
+            tab.stackedLayoutAppearance,
+            tab.inlineLayoutAppearance,
+            tab.compactInlineLayoutAppearance
+        ] {
+            itemAppearance.selected.iconColor = pink
+            itemAppearance.selected.titleTextAttributes = [.foregroundColor: pink]
+            itemAppearance.normal.iconColor = ink
+            itemAppearance.normal.titleTextAttributes = [.foregroundColor: ink]
+        }
+        UITabBar.appearance().standardAppearance = tab
+        UITabBar.appearance().scrollEdgeAppearance = tab
+
+        let segmented = UISegmentedControl.appearance()
+        segmented.backgroundColor = coolGray
+        segmented.selectedSegmentTintColor = pink
+        segmented.setTitleTextAttributes([.foregroundColor: ink], for: .normal)
+        segmented.setTitleTextAttributes([.foregroundColor: UIColor.black], for: .selected)
+
+        UIPageControl.appearance().currentPageIndicatorTintColor = pink
+        UIPageControl.appearance().pageIndicatorTintColor = ink.withAlphaComponent(0.28)
     }
 }
 

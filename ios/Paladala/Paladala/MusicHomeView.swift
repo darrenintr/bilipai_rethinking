@@ -23,10 +23,18 @@ struct MusicHomeView: View {
     let repository: PaladalaRepository
 
     @StateObject private var model = MusicViewModel()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
-    private let columns = [
-        GridItem(.adaptive(minimum: 168), spacing: 12, alignment: .top)
-    ]
+
+    private var columns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            return Array(
+                repeating: GridItem(.flexible(), spacing: 32, alignment: .top),
+                count: 2
+            )
+        }
+        return [GridItem(.flexible(), alignment: .top)]
+    }
 
     @EnvironmentObject private var router: AppRouter
 
@@ -37,12 +45,16 @@ struct MusicHomeView: View {
                     ErrorBanner(message: error)
                 }
                 if model.isLoading && model.videos.isEmpty {
-                    SkeletonGrid()
+                    SkeletonGrid(
+                        columns: horizontalSizeClass == .regular ? 2 : 1,
+                        columnSpacing: 32,
+                        rowSpacing: 32
+                    )
                         .padding(.top, 4)
                 } else if model.videos.isEmpty {
                     emptyState
                 } else {
-                    LazyVGrid(columns: columns, spacing: 12) {
+                    LazyVGrid(columns: columns, spacing: 32) {
                         ForEach(model.videos) { video in
                             Button {
                                 Haptics.tap()
@@ -118,9 +130,8 @@ struct MusicHomeView: View {
                 Task { await model.refresh(repository: repository) }
             } label: {
                 Label(L10n.common.retry, systemImage: "arrow.clockwise")
-                    .font(.subheadline.weight(.semibold))
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(PaladalaGlassButtonStyle(materialDesign: materialDesign))
             .padding(.bottom, 24)
         }
     }
@@ -139,49 +150,59 @@ private struct MusicCard: View {
 
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
-    /// Pinned title-block height (two lines of `.subheadline`).
-    /// See `VideoCard.titleBlockHeight` for the rationale.
-    private static let titleBlockHeight: CGFloat = 40
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
                 cover
                 Text(video.duration.mmss)
-                    .font(.caption2.weight(.bold))
+                    .font(PaladalaTheme.FontRole.labelMono)
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle))
-                    .padding(8)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.74))
+                    .padding(12)
             }
-            Text(video.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(minHeight: Self.titleBlockHeight, alignment: .topLeading)
-            Text(video.ownerName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            HStack(spacing: 8) {
-                Label(video.viewCount.compactCount, systemImage: "play.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Text(L10n.music.audioOnly)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(PaladalaTheme.biliPink.opacity(0.18), in: Capsule())
-                    .foregroundStyle(PaladalaTheme.biliPink)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(PaladalaTheme.ink)
+                    .frame(height: PaladalaTheme.borderWidth)
             }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(video.title)
+                    .font(PaladalaTheme.FontRole.headline)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                Text(video.ownerName)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Label(video.viewCount.compactCount, systemImage: "play.fill")
+                    Spacer(minLength: 0)
+                    Text(L10n.music.audioOnly)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.hairlineWidth
+                                )
+                        }
+                }
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+            }
+            .padding(PaladalaTheme.Spacing.l)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(10)
         .paladalaCardSurface(materialDesign)
-        .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -207,13 +228,12 @@ private struct MusicCard: View {
             // height = width.  This matches how `VideoCard` and
             // `LiveRoomCard` render their covers (both use
             // `.fit`).
-            ResilientImage(url: url)
+            ResilientImage(url: url, maximumPixelSize: 720)
                 .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
         } else {
-            RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle)
-                .fill(PaladalaTheme.biliPink.opacity(0.18))
+            Rectangle()
+                .fill(PaladalaTheme.coolGray)
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(
                     Image(systemName: "music.note")
@@ -251,7 +271,7 @@ struct MusicPlayerView: View {
 
     var body: some View {
         ZStack {
-            backgroundGradient
+            streetBackground
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
                 artworkSection
@@ -288,13 +308,20 @@ struct MusicPlayerView: View {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
                     Text(L10n.music.audioOnly)
-                        .font(.caption2.weight(.bold))
+                        .font(PaladalaTheme.FontRole.labelMono)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(PaladalaTheme.biliPink.opacity(0.18), in: Capsule())
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                        .background(PaladalaTheme.biliPink)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.hairlineWidth
+                                )
+                        }
                     Text(video.title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(PaladalaTheme.FontRole.cardTitle)
                         .lineLimit(1)
                 }
             }
@@ -334,17 +361,9 @@ struct MusicPlayerView: View {
 
     // MARK: - View sections
 
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [
-                PaladalaTheme.biliPink.opacity(0.18),
-                Color.clear,
-                Color.black.opacity(0.32)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+    private var streetBackground: some View {
+        PaladalaTheme.canvas
+            .ignoresSafeArea()
     }
 
     private var artworkSection: some View {
@@ -368,18 +387,46 @@ struct MusicPlayerView: View {
                         ResilientImage(url: url)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle))
-                    .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
+                    .clipShape(Rectangle())
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
+                    .background {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .offset(
+                                x: PaladalaTheme.hardShadowOffset,
+                                y: PaladalaTheme.hardShadowOffset
+                            )
+                    }
             } else {
-                RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
-                    .fill(PaladalaTheme.biliPink.opacity(0.4))
+                Rectangle()
+                    .fill(PaladalaTheme.biliPink)
                     .aspectRatio(1, contentMode: .fit)
                     .overlay(
                         Image(systemName: "music.note")
                             .font(.system(size: 80, weight: .light))
                             .foregroundStyle(.white)
                     )
-                    .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
+                    .background {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .offset(
+                                x: PaladalaTheme.hardShadowOffset,
+                                y: PaladalaTheme.hardShadowOffset
+                            )
+                    }
             }
         }
         .padding(.horizontal, 36)
@@ -389,11 +436,13 @@ struct MusicPlayerView: View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(video.title)
-                    .font(.headline)
+                    .font(PaladalaTheme.FontRole.headline)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
                     .lineLimit(2)
                 Text(video.ownerName)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -404,23 +453,53 @@ struct MusicPlayerView: View {
                     seek(by: -10)
                 } label: {
                     Image(systemName: "gobackward.10")
-                        .font(.title)
+                        .font(.title2.weight(.black))
+                        .frame(width: 52, height: 52)
+                        .background(PaladalaTheme.paper)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
                 }
+                .buttonStyle(PaladalaPressBounceButtonStyle())
                 Button {
                     Haptics.tap()
                     togglePlay()
                 } label: {
-                    Image(systemName: (controller?.isPlaying ?? false) ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 60, weight: .regular))
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                    Image(systemName: (controller?.isPlaying ?? false) ? "pause.fill" : "play.fill")
+                        .font(.system(size: 38, weight: .black))
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .frame(width: 64, height: 64)
+                        .background(PaladalaTheme.biliPink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
                 }
+                .buttonStyle(PaladalaPressBounceButtonStyle())
                 Button {
                     Haptics.tap()
                     seek(by: 10)
                 } label: {
                     Image(systemName: "goforward.10")
-                        .font(.title)
+                        .font(.title2.weight(.black))
+                        .frame(width: 52, height: 52)
+                        .background(PaladalaTheme.paper)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
                 }
+                .buttonStyle(PaladalaPressBounceButtonStyle())
             }
             .foregroundStyle(.primary)
 
@@ -445,10 +524,10 @@ struct MusicPlayerView: View {
             } label: {
                 Label(L10n.common.retry, systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(PaladalaGlassButtonStyle(materialDesign: .liquidGlass))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        .background(PaladalaTheme.paper)
     }
 
     // MARK: - Player lifecycle
@@ -579,7 +658,7 @@ private struct LyricScrollView: View {
             if let track, !track.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 14) {
                             // Top spacer pushes the first line down
                             // so the active line is vertically
                             // centred.
@@ -605,7 +684,7 @@ private struct LyricScrollView: View {
                             }
                             Color.clear.frame(height: 80)
                         }
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12)
                     }
                     .onChange(of: controller.currentTime) { _, newTime in
@@ -651,17 +730,26 @@ private struct LyricLineView: View {
 
     var body: some View {
         Text(line.text)
-            .font(isActive ? .title3.weight(.bold) : .body)
+            .font(isActive ? PaladalaTheme.FontRole.sectionHeader : PaladalaTheme.FontRole.body)
             .foregroundStyle(foreground)
-            .multilineTextAlignment(.center)
+            .multilineTextAlignment(.leading)
             .lineLimit(3)
-            .padding(.vertical, 2)
-            .scaleEffect(isActive ? 1.0 : 0.94, anchor: .center)
+            .padding(.horizontal, isActive ? 8 : 0)
+            .padding(.vertical, isActive ? 6 : 2)
+            .background(isActive ? PaladalaTheme.biliPink : Color.clear)
+            .overlay(alignment: .leading) {
+                if isActive {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(width: 3)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .animation(.easeInOut(duration: 0.24), value: isActive)
     }
 
     private var foreground: Color {
-        if isActive { return PaladalaTheme.biliPink }
+        if isActive { return PaladalaTheme.ink }
         if isSelected { return PaladalaTheme.biliPink.opacity(0.7) }
         if line.isMetadata { return .secondary.opacity(0.5) }
         return .secondary
@@ -726,8 +814,8 @@ private struct MusicProgressBar: View {
                 Spacer()
                 Text(formatDuration(controller.duration))
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            .font(PaladalaTheme.FontRole.labelMono)
+            .foregroundStyle(PaladalaTheme.mutedInk)
             .monospacedDigit()
         }
     }

@@ -20,29 +20,6 @@ struct VideoCard: View {
 
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
-    /// Reserved height for the title block (two lines of `.subheadline`).
-    /// Pinning this so all cards in the same grid row have an identical total
-    /// height — otherwise a card with a one-line title would render shorter
-    /// than its two-line neighbour, knocking the next row out of alignment.
-    private static let titleBlockHeight: CGFloat = 40
-
-    /// Reserved height for the UP-owner line (`.caption`, 1 line).
-    /// Pinned so cards don't grow / shrink based on whether the
-    /// owner name happens to include a Chinese full-width
-    /// character that affects line metrics.
-    private static let ownerLineHeight: CGFloat = 18
-
-    /// Reserved height for the play / danmaku count row (`.caption2`, 1 line).
-    /// Pinned to remove the remaining height variation between cards.
-    private static let countsLineHeight: CGFloat = 16
-
-    /// Total card height = cover (16:10 of card width) + spacing +
-    /// title + owner + counts + bottom padding.  We don't pin the
-    /// cover to a fixed height because it scales with the column
-    /// width; pinning the three text rows above makes the total
-    /// height deterministic per column width.
-    private static let textRowsVerticalPadding: CGFloat = 8
-
     /// Convenience init for call sites that don't need the
     /// context menu or hero transition. Matches the original
     /// `init(video:action:)` signature so the existing call sites
@@ -79,7 +56,7 @@ struct VideoCard: View {
             Haptics.tap()
             action()
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
                     // Register the cover image as a matched
                     // transition source so the system can zoom
@@ -90,57 +67,47 @@ struct VideoCard: View {
                     coverImage
                         .modifier(HeroSourceModifier(videoID: video.id, namespace: heroNamespace))
                     Text(video.duration.mmss)
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle))
-                        .padding(8)
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.paper)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(PaladalaTheme.ink)
+                        .padding(12)
                 }
-                Text(video.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .frame(height: Self.titleBlockHeight, alignment: .topLeading)
-                Text(video.ownerName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(height: PaladalaTheme.borderWidth)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(video.title)
+                        .font(PaladalaTheme.FontRole.headline)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                    Text(video.ownerName)
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    HStack(spacing: 12) {
+                        Label(video.viewCount.compactCount, systemImage: "play.fill")
+                        Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
+                    }
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .frame(height: Self.ownerLineHeight, alignment: .topLeading)
-                HStack(spacing: 10) {
-                    Label(video.viewCount.compactCount, systemImage: "play.fill")
-                    Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .frame(height: Self.countsLineHeight, alignment: .topLeading)
+                .padding(16)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            // Asymmetric padding: only horizontal + bottom.  The
-            // top of the cover image is flush with the card's
-            // top edge so the two share their top-left and
-            // top-right rounded corners.  Previously `.padding(10)`
-            // inset the cover by 10pt on every side, leaving a
-            // visible "frame" of card background around the
-            // cover — the cover's own rounded corners then
-            // nested inside the card's corners instead of
-            // aligning with them, which read as overlapping
-            // borders to the user.
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
             .paladalaCardSurface(materialDesign)
-            .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
-            .contentShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+            .contentShape(Rectangle())
         }
         .frame(maxWidth: .infinity)
-        .clipped()
         .buttonStyle(PaladalaPressBounceButtonStyle())
         .modifier(VideoContextMenuIfAvailable(video: video, repository: repository))
         // Impression fires once per card every time it enters
@@ -181,9 +148,8 @@ struct VideoCard: View {
     ///   `Image(uiImage:)` already does `.scaledToFill() + .clipped()`
     ///   so every source aspect ratio (16:9, 4:3, 1:1) gets
     ///   cropped to the 16:10 box.
-    /// - The outer `.clipShape(RoundedRectangle(cardRadius))`
-    ///   gives the cover the same 24 pt corner radius as the
-    ///   card.
+    /// - The image stays flush to the card border; Street Minimal
+    ///   deliberately avoids a nested image frame or corner mask.
     private var coverImage: some View {
         Rectangle()
             .fill(.clear)
@@ -194,7 +160,6 @@ struct VideoCard: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             )
             .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
     }
 }
 
@@ -238,15 +203,12 @@ struct LiveRoomCard: View {
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @EnvironmentObject private var router: AppRouter
 
-    /// See `VideoCard.titleBlockHeight` for why this is pinned.
-    private static let titleBlockHeight: CGFloat = 40
-
     var body: some View {
         Button {
             Haptics.tap()
             router.openLive(room)
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .topLeading) {
                     // See `VideoCard.coverImage` for the sizing story.
                     // Same Rectangle() + .aspectRatio(16/10, .fit)
@@ -266,14 +228,17 @@ struct LiveRoomCard: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         )
                         .clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
                     Text("LIVE")
-                        .font(.caption2.weight(.black))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.paper)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color(uiColor: .systemRed), in: RoundedRectangle(cornerRadius: PaladalaTheme.pillRadius, style: PaladalaTheme.cornerStyle))
-                        .padding(8)
+                        .background(PaladalaTheme.biliPink)
+                        .overlay {
+                            Rectangle()
+                                .stroke(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                        }
+                        .padding(12)
                         // Apple's recommended "live" affordance —
                         // the SF Symbol pulses on a continuous loop
                         // so the user can spot a live card at a
@@ -299,26 +264,33 @@ struct LiveRoomCard: View {
                                 .accessibilityHidden(true)
                         }
                 }
-                Text(room.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .frame(minHeight: Self.titleBlockHeight, alignment: .topLeading)
-                Text("\(room.hostName) - \(room.areaName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text("\(room.viewerCount.compactCount) watching")
-                    .font(.caption2)
-                    .foregroundStyle(PaladalaTheme.biliPink)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(height: PaladalaTheme.borderWidth)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(room.title)
+                        .font(PaladalaTheme.FontRole.headline)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                    Text("\(room.hostName) - \(room.areaName)")
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
+                        .lineLimit(1)
+                    Text("\(room.viewerCount.compactCount) watching")
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.biliPink)
+                }
+                .padding(16)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(10)
             .paladalaCardSurface(materialDesign)
-            .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+            .contentShape(Rectangle())
         }
         .frame(maxWidth: .infinity)
-        .clipped()
         .buttonStyle(PaladalaPressBounceButtonStyle())
     }
 }
@@ -333,17 +305,18 @@ struct CoverImage: View {
         // phase there is no way to retry, and the system image cache keeps
         // the broken placeholder around. The custom loader keeps trying
         // (with a short back-off) and refreshes when `url` changes.
-        // Note: no .clipped() here — the caller applies
-        // .clipShape(RoundedRectangle) to get rounded corners.
+        // Note: no `.clipped()` here — the caller owns the final crop.
         ResilientImage(url: url)
     }
 }
 
 struct ResilientImage: View {
     let url: URL?
+    var maximumPixelSize: Int = 720
 
     @State private var image: UIImage?
     @State private var attempts = 0
+    @State private var loadedURL: URL?
 
     private let maxAttempts = 3
 
@@ -387,11 +360,19 @@ struct ResilientImage: View {
             return
         }
 
+        if loadedURL != url {
+            loadedURL = url
+            attempts = 0
+        }
+
         while attempts < maxAttempts && !Task.isCancelled {
             attempts += 1
 
             do {
-                image = try await CoverImagePipeline.shared.image(for: url)
+                image = try await CoverImagePipeline.shared.image(
+                    for: url,
+                    maximumPixelSize: maximumPixelSize
+                )
                 return
             } catch is CancellationError {
                 return
@@ -406,12 +387,25 @@ struct ResilientImage: View {
 private actor CoverImagePipeline {
     static let shared = CoverImagePipeline()
 
-    private let memoryCache = NSCache<NSURL, UIImage>()
+    private struct RequestKey: Hashable {
+        let url: URL
+        let maximumPixelSize: Int
+
+        var cacheKey: NSString {
+            "\(url.absoluteString)#px=\(maximumPixelSize)" as NSString
+        }
+    }
+
+    private let memoryCache = NSCache<NSString, UIImage>()
     private let session: URLSession
+    private var inFlight: [RequestKey: Task<UIImage, Error>] = [:]
 
     private init() {
-        memoryCache.countLimit = 360
-        memoryCache.totalCostLimit = 192 * 1_024 * 1_024
+        // Street's single-column feed uses fewer simultaneous thumbnails.
+        // A 96 MB decoded-image budget avoids the former 192 MB peak while
+        // retaining roughly two to three screens of 720 px covers.
+        memoryCache.countLimit = 240
+        memoryCache.totalCostLimit = 96 * 1_024 * 1_024
 
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = URLCache(
@@ -429,11 +423,47 @@ private actor CoverImagePipeline {
         session = URLSession(configuration: configuration)
     }
 
-    func image(for url: URL) async throws -> UIImage {
-        if let cached = memoryCache.object(forKey: url as NSURL) {
+    func image(
+        for url: URL,
+        maximumPixelSize requestedPixelSize: Int
+    ) async throws -> UIImage {
+        let maximumPixelSize = min(1_200, max(96, requestedPixelSize))
+        let key = RequestKey(url: url, maximumPixelSize: maximumPixelSize)
+
+        if let cached = memoryCache.object(forKey: key.cacheKey) {
             return cached
         }
 
+        if let existing = inFlight[key] {
+            return try await existing.value
+        }
+
+        let task = Task<UIImage, Error> {
+            try await Self.fetchImage(
+                url: url,
+                maximumPixelSize: maximumPixelSize,
+                session: session
+            )
+        }
+        inFlight[key] = task
+
+        do {
+            let decoded = try await task.value
+            inFlight[key] = nil
+            let cost = decoded.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+            memoryCache.setObject(decoded, forKey: key.cacheKey, cost: cost)
+            return decoded
+        } catch {
+            inFlight[key] = nil
+            throw error
+        }
+    }
+
+    nonisolated private static func fetchImage(
+        url: URL,
+        maximumPixelSize: Int,
+        session: URLSession
+    ) async throws -> UIImage {
         var request = URLRequest(url: url)
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
         request.setValue(
@@ -447,12 +477,12 @@ private actor CoverImagePipeline {
             throw URLError(.badServerResponse)
         }
 
-        guard let decoded = Self.downsample(data: data, maximumPixelSize: 900) else {
+        guard let decoded = Self.downsample(
+            data: data,
+            maximumPixelSize: maximumPixelSize
+        ) else {
             throw URLError(.cannotDecodeContentData)
         }
-
-        let cost = decoded.cgImage.map { $0.bytesPerRow * $0.height } ?? data.count
-        memoryCache.setObject(decoded, forKey: url as NSURL, cost: cost)
         return decoded
     }
 
@@ -482,43 +512,17 @@ private actor CoverImagePipeline {
 struct MetricPill: View {
     let systemImage: String
     let text: String
-    @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         Label(text, systemImage: systemImage)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background {
-                if materialDesign == .liquidGlass {
-                    RoundedRectangle(
-                        cornerRadius: PaladalaTheme.cornerRadius,
-                        style: PaladalaTheme.cornerStyle
-                    )
-                        .fill(.ultraThinMaterial)
-                        .overlay(
-                            RoundedRectangle(
-                                cornerRadius: PaladalaTheme.cornerRadius,
-                                style: PaladalaTheme.cornerStyle
-                            )
-                                .strokeBorder(
-                                    LinearGradient(
-                                        colors: [Color.white.opacity(0.25), Color.white.opacity(0.05)],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    ),
-                                    lineWidth: 0.5
-                                )
-                        )
-                } else {
-                    Color(uiColor: .tertiarySystemGroupedBackground)
-                        .clipShape(
-                            RoundedRectangle(
-                                cornerRadius: PaladalaTheme.cornerRadius,
-                                style: PaladalaTheme.cornerStyle
-                            )
-                        )
-                }
+            .font(PaladalaTheme.FontRole.labelMono)
+            .foregroundStyle(PaladalaTheme.ink)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(PaladalaTheme.paper)
+            .overlay {
+                Rectangle()
+                    .stroke(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
             }
     }
 }
@@ -563,19 +567,28 @@ struct ErrorBanner: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.subheadline)
-                .foregroundStyle(Color(uiColor: .systemOrange))
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let primary {
-                Button(primary.label) {
+                Button {
                     Haptics.tap()
                     primary.action()
+                } label: {
+                    Text(primary.label)
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 36)
+                        .background(PaladalaTheme.biliPink)
+                        .overlay {
+                            Rectangle()
+                                .stroke(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                        }
                 }
-                .font(.subheadline.weight(.semibold))
-                .buttonStyle(.borderedProminent)
-                .tint(Color(uiColor: .systemOrange))
+                .buttonStyle(PaladalaPressBounceButtonStyle())
             }
             if retry != nil {
                 Button {
@@ -583,13 +596,38 @@ struct ErrorBanner: View {
                     retry?()
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .frame(width: 36, height: 36)
+                        .background(PaladalaTheme.paper)
+                        .overlay {
+                            Rectangle()
+                                .stroke(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                        }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(PaladalaPressBounceButtonStyle())
+                .accessibilityLabel("重试")
             }
         }
         .padding(12)
-        .background(Color(uiColor: .systemOrange).opacity(0.12), in: RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+        .background(PaladalaTheme.paper)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(PaladalaTheme.biliPink)
+                .frame(width: 6)
+        }
+        .overlay {
+            Rectangle()
+                .stroke(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+        }
+        .background {
+            Rectangle()
+                .fill(PaladalaTheme.ink)
+                .offset(
+                    x: PaladalaTheme.hardShadowOffset,
+                    y: PaladalaTheme.hardShadowOffset
+                )
+        }
     }
 }
 
@@ -783,15 +821,17 @@ private struct VideoContextMenuPreview: View {
             CoverImage(url: video.coverURL)
                 .aspectRatio(16 / 10, contentMode: .fill)
                 .frame(height: 180)
-                .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle))
+                .clipped()
             Text(video.title)
-                .font(.subheadline.weight(.semibold))
+                .font(PaladalaTheme.FontRole.headline)
+                .foregroundStyle(PaladalaTheme.ink)
                 .lineLimit(2)
             Text(video.ownerName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.mutedInk)
         }
         .padding(12)
+        .background(PaladalaTheme.paper)
         .frame(width: 320)
     }
 }
@@ -808,22 +848,24 @@ extension Notification.Name {
 // MARK: - Skeletons
 
 /// Grid of skeleton placeholders shown while the first feed page is
-/// loading. The shimmer is driven by a single `LinearGradient` overlay
-/// sliding across the cover rect — we avoid `redacted(reason:
-/// .placeholder)` because that interacts badly with the manual
-/// animation. Use the same `paladalaCardSurface` as `VideoCard` so the
-/// skeleton and the real content share the same outline shape and the
-/// cross-fade between them does not shift layout.
+/// loading. Street Minimal uses static solid blocks rather than a
+/// perpetual gradient shimmer. This removes an always-animating layer
+/// while keeping the placeholder geometry identical to the real card.
 struct SkeletonGrid: View {
     var columns: Int = 2
     var cardCount: Int = 6
+    var columnSpacing: CGFloat = 12
+    var rowSpacing: CGFloat = 12
 
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns),
-            spacing: 12
+            columns: Array(
+                repeating: GridItem(.flexible(), spacing: columnSpacing),
+                count: columns
+            ),
+            spacing: rowSpacing
         ) {
             ForEach(0..<cardCount, id: \.self) { _ in
                 SkeletonCard()
@@ -833,26 +875,29 @@ struct SkeletonGrid: View {
     }
 }
 
-/// Single skeleton card. Renders three `RoundedRectangle`s (cover +
-/// two text bars) with a horizontal shimmer that loops forever. The
-/// shimmer is wrapped in a `mask` so it only paints inside the
-/// placeholder shapes.
+/// Single skeleton card. Its square blocks mirror the cover and text
+/// regions without material, blur, gradient, or infinite animation.
 struct SkeletonCard: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
-                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle()
+                .fill(PaladalaTheme.coolGray)
                 .aspectRatio(16 / 10, contentMode: .fit)
-            RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
-                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
-                .frame(height: 12)
-            RoundedRectangle(cornerRadius: PaladalaTheme.cornerRadius, style: PaladalaTheme.cornerStyle)
-                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
-                .frame(height: 12)
-                .frame(maxWidth: 100)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(height: PaladalaTheme.borderWidth)
+                }
+            VStack(alignment: .leading, spacing: 10) {
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
+                    .frame(height: 14)
+                Rectangle()
+                    .fill(PaladalaTheme.coolGray)
+                    .frame(width: 112, height: 12)
+            }
+            .padding(16)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(10)
-        .paladalaShimmer()
     }
 }

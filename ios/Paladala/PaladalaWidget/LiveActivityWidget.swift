@@ -10,6 +10,8 @@ import WidgetKit
 /// extension process so the host app can stay in the
 /// background while the activity is updating.
 struct LiveActivityWidget: Widget {
+    private let signalPink = Color(red: 1, green: 0.38, blue: 0.58)
+
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LiveRoomActivityAttributes.self) { context in
             // Lock-screen / banner UI. Kept deliberately
@@ -23,7 +25,7 @@ struct LiveActivityWidget: Widget {
                 state: context.state
             )
             .padding(12)
-            .activityBackgroundTint(Color.black.opacity(0.85))
+            .activityBackgroundTint(Color.black)
             .activitySystemActionForegroundColor(Color.white)
         } dynamicIsland: { context in
             // Dynamic Island — leading + trailing + centre
@@ -34,7 +36,7 @@ struct LiveActivityWidget: Widget {
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     Image(systemName: "dot.radiowaves.left.and.right")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(signalPink)
                         .font(.title3)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -61,7 +63,7 @@ struct LiveActivityWidget: Widget {
                             .foregroundStyle(.secondary)
                         Spacer()
                         Link(destination: liveDeepLink(roomId: context.attributes.roomId)) {
-                            Image(systemName: "play.circle.fill")
+                            Image(systemName: "play.fill")
                                 .font(.title3)
                                 .foregroundStyle(.white)
                         }
@@ -69,13 +71,13 @@ struct LiveActivityWidget: Widget {
                 }
             } compactLeading: {
                 Image(systemName: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(signalPink)
             } compactTrailing: {
                 Text(context.state.viewerCount.compactCount)
                     .font(.caption.monospacedDigit())
             } minimal: {
                 Image(systemName: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(signalPink)
             }
         }
     }
@@ -92,6 +94,7 @@ struct LiveActivityWidget: Widget {
 private struct LockScreenLiveActivityView: View {
     let attributes: LiveRoomActivityAttributes
     let state: LiveRoomActivityState
+    private let signalPink = Color(red: 1, green: 0.38, blue: 0.58)
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -100,8 +103,8 @@ private struct LockScreenLiveActivityView: View {
             // is a live broadcast, not a regular playback
             // notification.
             HStack(spacing: 4) {
-                Circle()
-                    .fill(.red)
+                Rectangle()
+                    .fill(Color.black)
                     .frame(width: 6, height: 6)
                 Text("LIVE")
                     .font(.caption2.weight(.heavy))
@@ -109,9 +112,10 @@ private struct LockScreenLiveActivityView: View {
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(
-                Capsule().fill(.red.opacity(0.25))
-            )
+            .background(signalPink)
+            .overlay {
+                Rectangle().strokeBorder(.white, lineWidth: 1)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(attributes.title)
                     .font(.headline)
@@ -127,7 +131,7 @@ private struct LockScreenLiveActivityView: View {
                 .font(.subheadline.monospacedDigit().weight(.semibold))
                 .foregroundStyle(.white)
             Link(destination: URL(string: "paladala://live?roomId=\(attributes.roomId)")!) {
-                Image(systemName: "play.circle.fill")
+                Image(systemName: "play.fill")
                     .font(.title2)
                     .foregroundStyle(.white)
             }

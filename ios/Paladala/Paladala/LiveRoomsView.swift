@@ -5,10 +5,18 @@ struct LiveRoomsView: View {
     let repository: PaladalaRepository
 
     @StateObject private var model = LiveViewModel()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
-    private let columns = [
-        GridItem(.adaptive(minimum: 156), spacing: 12, alignment: .top)
-    ]
+
+    private var columns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            return Array(
+                repeating: GridItem(.flexible(), spacing: 32, alignment: .top),
+                count: 2
+            )
+        }
+        return [GridItem(.flexible(), alignment: .top)]
+    }
 
     var body: some View {
         ScrollView {
@@ -20,7 +28,11 @@ struct LiveRoomsView: View {
                     // Skeleton grid mirrors the live room card
                     // shape so the cross-fade from loading to
                     // loaded does not shift layout.
-                    SkeletonGrid()
+                    SkeletonGrid(
+                        columns: horizontalSizeClass == .regular ? 2 : 1,
+                        columnSpacing: 32,
+                        rowSpacing: 32
+                    )
                         .padding(.top, 4)
                 } else if model.rooms.isEmpty {
                     ContentUnavailableView(
@@ -37,13 +49,12 @@ struct LiveRoomsView: View {
                             Task { await model.load(repository: repository) }
                         } label: {
                             Label("重试", systemImage: "arrow.clockwise")
-                                .font(.subheadline.weight(.semibold))
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(PaladalaGlassButtonStyle(materialDesign: materialDesign))
                         .padding(.bottom, 24)
                     }
                 } else {
-                    LazyVGrid(columns: columns, spacing: 12) {
+                    LazyVGrid(columns: columns, spacing: 32) {
                         ForEach(model.rooms) { room in
                             LiveRoomCard(room: room)
                         }
@@ -112,7 +123,7 @@ private struct LivePlayerView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            PaladalaTheme.canvas.ignoresSafeArea()
             VStack(spacing: 0) {
                 playerSurface
                     .frame(maxWidth: .infinity)
@@ -206,7 +217,7 @@ private struct LivePlayerView: View {
                           systemImage: "arrow.clockwise")
                         .font(.subheadline.weight(.semibold))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(PaladalaGlassButtonStyle(materialDesign: .liquidGlass))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
@@ -223,14 +234,16 @@ private struct LivePlayerView: View {
     private var metadataPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(room.title)
-                .font(.headline)
+                .font(PaladalaTheme.FontRole.headline)
+                .foregroundStyle(PaladalaTheme.ink)
+                .textCase(.uppercase)
             HStack(spacing: 8) {
                 Text(room.hostName)
                 Text("·")
                 Text(room.areaName)
             }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .font(PaladalaTheme.FontRole.labelMono)
+            .foregroundStyle(PaladalaTheme.mutedInk)
             // Color-only status indicators must pair with an
             // icon + shape per HIG. We use both the brand-pink
             // "watching" label and a system-red dot to encode
@@ -238,18 +251,18 @@ private struct LivePlayerView: View {
             // the decorative dot from being read aloud so the
             // label is the single source of truth.
             HStack(spacing: 6) {
-                Circle()
-                    .fill(Color(uiColor: .systemRed))
+                Rectangle()
+                    .fill(PaladalaTheme.biliPink)
                     .frame(width: 8, height: 8)
                     .accessibilityHidden(true)
                 Text("\(room.viewerCount.compactCount) watching")
-                    .font(.caption.weight(.semibold))
+                    .font(PaladalaTheme.FontRole.labelMono)
                     .foregroundStyle(PaladalaTheme.biliPink)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color.clear)
+        .padding(PaladalaTheme.Spacing.l)
+        .paladalaStreetPanel(fill: PaladalaTheme.paper)
     }
 
     private func loadPlayback() async {

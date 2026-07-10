@@ -121,16 +121,22 @@ struct ProfileSettingsView: View {
                         value: newValue.rawValue
                     )
                 }
-                Picker("界面设计", selection: $materialDesign) {
-                    ForEach(MaterialDesign.allCases) { design in
-                        Text(design.title).tag(design)
-                    }
-                }
-                .onChange(of: materialDesign) { _, newValue in
-                    ICloudSync.shared.mirror(
-                        key: "paladala.materialDesign",
-                        value: newValue.rawValue
-                    )
+                HStack {
+                    Label("界面设计", systemImage: "square.grid.3x3.square")
+                    Spacer()
+                    Text("STREET MINIMAL")
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(PaladalaTheme.biliPink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.hairlineWidth
+                                )
+                        }
                 }
             }
 
@@ -318,8 +324,10 @@ struct ProfileSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color.clear)
+        .listStyle(.plain)
+        .background(PaladalaTheme.canvas)
         .navigationTitle("我的")
+        .navigationBarTitleDisplayMode(.inline)
         .task(id: authStore.activeAccount?.mid) {
             if let mid = authStore.activeAccount?.mid {
                 await profileModel.loadStats(mid: mid, repository: repository)
@@ -328,6 +336,7 @@ struct ProfileSettingsView: View {
         }
         .sheet(isPresented: $showingFFmpegTest) {
             FFmpegTestView()
+                .paladalaSheetGlass()
         }
     }
 
@@ -343,16 +352,28 @@ struct ProfileSettingsView: View {
     private var signedOutHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
-                Circle()
+                Rectangle()
                     .fill(PaladalaTheme.biliPink)
                     .frame(width: 62, height: 62)
-                    .overlay(Text("BP").font(.title3.weight(.black)).foregroundStyle(.white))
+                    .overlay(
+                        Text("BP")
+                            .font(PaladalaTheme.FontRole.cardTitle)
+                            .foregroundStyle(PaladalaTheme.ink)
+                    )
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
                 VStack(alignment: .leading, spacing: 5) {
                     Text("未登录")
-                        .font(.title2.weight(.bold))
+                        .font(PaladalaTheme.FontRole.headline)
+                        .textCase(.uppercase)
                     Text("登录后同步历史、收藏、关注和稍后再看")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(PaladalaTheme.FontRole.bodySmall)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
                 }
             }
             Button {
@@ -361,7 +382,7 @@ struct ProfileSettingsView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "qrcode.viewfinder")
                     Text("登录 Bilibili 账号")
-                        .fontWeight(.semibold)
+                        .font(PaladalaTheme.FontRole.labelMono)
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.footnote)
@@ -370,11 +391,23 @@ struct ProfileSettingsView: View {
                 .padding(.vertical, 12)
                 .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle)
-                        .fill(PaladalaTheme.biliPink.opacity(0.12))
-                )
-                .foregroundStyle(PaladalaTheme.biliPink)
+                .background(PaladalaTheme.biliPink)
+                .foregroundStyle(PaladalaTheme.ink)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
+                .background {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                }
             }
             .buttonStyle(.plain)
         }
@@ -386,10 +419,12 @@ struct ProfileSettingsView: View {
             avatar(for: account)
             VStack(alignment: .leading, spacing: 5) {
                 Text(account.name)
-                    .font(.title2.weight(.bold))
+                    .font(PaladalaTheme.FontRole.headline)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
                 Text("UID: \(account.mid)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
                 HStack(spacing: 16) {
                     ProfileStat(label: "关注", value: profileModel.followingCount)
                     ProfileStat(label: "粉丝", value: profileModel.followerCount)
@@ -421,18 +456,32 @@ struct ProfileSettingsView: View {
     @ViewBuilder
     private func avatar(for account: StoredAccount) -> some View {
         if let url = account.faceURL {
-            ResilientImage(url: url)
+            ResilientImage(url: url, maximumPixelSize: 192)
                 .frame(width: 62, height: 62)
-                .clipShape(Circle())
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         } else {
-            Circle()
+            Rectangle()
                 .fill(PaladalaTheme.biliPink)
                 .frame(width: 62, height: 62)
                 .overlay(
                     Text(String(account.name.prefix(1)))
                         .font(.title3.weight(.black))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(PaladalaTheme.ink)
                 )
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
         }
     }
 }
@@ -465,22 +514,20 @@ private struct ProfileQuickActionGrid: View {
     @EnvironmentObject private var authStore: AuthStore
     @EnvironmentObject private var router: AppRouter
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
-    private let columns = [GridItem(.adaptive(minimum: 96), spacing: 10)]
+    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 16)]
 
     var body: some View {
-        PaladalaGlassContainer(materialDesign: materialDesign, spacing: 10) {
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(items) { item in
-                    Button {
-                        guard let route = route(for: item) else { return }
-                        router.open(route)
-                    } label: {
-                        quickActionCard(item)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(route(for: item) == nil)
-                    .opacity(route(for: item) == nil ? 0.5 : 1)
+        LazyVGrid(columns: columns, spacing: 16) {
+            ForEach(items) { item in
+                Button {
+                    guard let route = route(for: item) else { return }
+                    router.open(route)
+                } label: {
+                    quickActionCard(item)
                 }
+                .buttonStyle(PaladalaPressBounceButtonStyle())
+                .disabled(route(for: item) == nil)
+                .opacity(route(for: item) == nil ? 0.5 : 1)
             }
         }
         .padding(.vertical, 4)
@@ -490,19 +537,21 @@ private struct ProfileQuickActionGrid: View {
     private func quickActionCard(_ item: ProfileQuickAction) -> some View {
         VStack(spacing: 8) {
             Image(systemName: item.symbol)
-                .font(.title3)
-                .foregroundStyle(PaladalaTheme.biliPink)
+                .font(.title3.weight(.black))
+                .foregroundStyle(PaladalaTheme.ink)
                 .frame(width: 32, height: 32)
             Text(item.title)
-                .font(.footnote.weight(.semibold))
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.ink)
                 .lineLimit(1)
             Text(item.subtitle)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(PaladalaTheme.mutedInk)
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, minHeight: 92)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+        .padding(.horizontal, 4)
+        .paladalaCardSurface(materialDesign)
     }
 
     private func route(for item: ProfileQuickAction) -> ProfileRoute? {
@@ -535,10 +584,11 @@ private struct ProfileStat: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(value)
-                .font(.caption.weight(.bold))
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.ink)
             Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(PaladalaTheme.mutedInk)
         }
     }
 }
@@ -551,13 +601,16 @@ private struct PluginRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .foregroundStyle(PaladalaTheme.biliPink)
+                .font(.body.weight(.black))
+                .foregroundStyle(PaladalaTheme.ink)
                 .frame(width: 28)
             VStack(alignment: .leading) {
                 Text(title)
+                    .font(PaladalaTheme.FontRole.cardTitle)
+                    .foregroundStyle(PaladalaTheme.ink)
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
             }
         }
     }

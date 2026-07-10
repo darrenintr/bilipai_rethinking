@@ -196,7 +196,9 @@ struct HistoryListView: View {
                 } label: {
                     VideoListRow(video: entry.video, subtitle: historySubtitle(entry))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PaladalaPressBounceButtonStyle())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
                 .videoContextMenu(for: entry.video, repository: repository, isHistoryRow: true)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
@@ -241,7 +243,8 @@ struct HistoryListView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color.clear)
+        .listStyle(.plain)
+        .background(PaladalaTheme.canvas)
         .navigationTitle("历史记录")
         .task { await model.load(repository: repository) }
         .refreshable { await model.load(repository: repository) }
@@ -290,7 +293,9 @@ struct WatchLaterListView: View {
                 } label: {
                     VideoListRow(video: video, subtitle: video.ownerName)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PaladalaPressBounceButtonStyle())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
                 .videoContextMenu(for: video, repository: repository, isWatchLaterRow: true)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
@@ -310,7 +315,8 @@ struct WatchLaterListView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color.clear)
+        .listStyle(.plain)
+        .background(PaladalaTheme.canvas)
         .navigationTitle("稍后再看")
         .task { await model.load(repository: repository) }
         .refreshable { await model.load(repository: repository) }
@@ -345,10 +351,14 @@ struct FavoriteFoldersView: View {
                 } label: {
                     FavoriteFolderRow(folder: folder)
                 }
+                .buttonStyle(PaladalaPressBounceButtonStyle())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color.clear)
+        .listStyle(.plain)
+        .background(PaladalaTheme.canvas)
         .navigationTitle("我的收藏")
         .task { await model.load(repository: repository, mid: mid) }
     }
@@ -380,7 +390,9 @@ struct FavoriteFolderVideosView: View {
                 } label: {
                     VideoListRow(video: video, subtitle: video.ownerName)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PaladalaPressBounceButtonStyle())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
                 .onAppear {
                     if index >= max(0, model.videos.count - 5) {
                         Task { await model.loadMore(repository: repository, mediaID: folder.id) }
@@ -397,7 +409,8 @@ struct FavoriteFolderVideosView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color.clear)
+        .listStyle(.plain)
+        .background(PaladalaTheme.canvas)
         .navigationTitle(model.title)
         .task { await model.load(repository: repository, mediaID: folder.id) }
         .refreshable { await model.load(repository: repository, mediaID: folder.id) }
@@ -409,12 +422,21 @@ private struct FavoriteFolderRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            CoverImage(url: folder.coverURL)
+            ResilientImage(url: folder.coverURL, maximumPixelSize: 360)
                 .frame(width: 88, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
             VStack(alignment: .leading, spacing: 4) {
                 Text(folder.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(PaladalaTheme.FontRole.cardTitle)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
                     .lineLimit(2)
                 Text("\(folder.mediaCount) 个内容")
                     .font(.caption)
@@ -426,7 +448,8 @@ private struct FavoriteFolderRow: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(PaladalaTheme.Spacing.m)
+        .paladalaStreetPanel(fill: PaladalaTheme.paper)
     }
 }
 
@@ -436,17 +459,25 @@ private struct VideoListRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            CoverImage(url: video.coverURL)
+            ResilientImage(url: video.coverURL, maximumPixelSize: 480)
                 .frame(width: 112, height: 70)
-                .clipShape(RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle))
+                .clipShape(Rectangle())
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
             VStack(alignment: .leading, spacing: 6) {
                 Text(video.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(PaladalaTheme.FontRole.cardTitle)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
                     .lineLimit(2)
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
                     .lineLimit(1)
                 HStack(spacing: 10) {
                     Label(video.viewCount.compactCount, systemImage: "play.fill")
@@ -456,6 +487,7 @@ private struct VideoListRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 2)
+        .padding(PaladalaTheme.Spacing.m)
+        .paladalaStreetPanel(fill: PaladalaTheme.paper)
     }
 }

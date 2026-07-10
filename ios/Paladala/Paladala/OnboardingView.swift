@@ -1,15 +1,17 @@
+import Foundation
 import SwiftUI
 
 struct OnboardingView: View {
     @AppStorage("paladala.didOnboard") private var didOnboard = false
     @State private var currentPage = 0
     @EnvironmentObject private var router: AppRouter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let pages: [OnboardingPage] = [
-        OnboardingPage(title: "为 B 站而生", subtitle: "首页 · 推荐 · 动态 · 直播，一个 App 走完", symbol: "play.rectangle.on.rectangle.fill", tint: .pink),
-        OnboardingPage(title: "顺手就走的播放", subtitle: "看到一半切走，视频缩成小窗继续放；想看再点开", symbol: "pip.exit", tint: .blue),
+        OnboardingPage(title: "为 B 站而生", subtitle: "首页 · 推荐 · 动态 · 直播，一个 App 走完", symbol: "play.rectangle.on.rectangle.fill", tint: PaladalaTheme.biliPink),
+        OnboardingPage(title: "顺手就走的播放", subtitle: "看到一半切走，视频缩成小窗继续放；想看再点开", symbol: "pip.exit", tint: PaladalaTheme.biliPink),
         OnboardingPage.preferences,
-        OnboardingPage(title: "登录后更强", subtitle: "同步历史、收藏、追番和稍后再看", symbol: "person.crop.circle.badge.checkmark", tint: .green),
+        OnboardingPage(title: "登录后更强", subtitle: "同步历史、收藏、追番和稍后再看", symbol: "person.crop.circle.badge.checkmark", tint: PaladalaTheme.biliPink),
     ]
 
     var body: some View {
@@ -31,7 +33,10 @@ struct OnboardingView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: currentPage)
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.2),
+                value: currentPage
+            )
 
             VStack {
                 skipButton
@@ -46,36 +51,54 @@ struct OnboardingView: View {
 
     private var skipButton: some View {
         Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                didOnboard = true
-            }
+            didOnboard = true
         } label: {
             Text(currentPage == Self.pages.count - 1 ? "开始" : "跳过")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.ink)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(
-                    .ultraThinMaterial,
-                    in: Capsule()
-                )
+                .padding(.vertical, 10)
+                .background(PaladalaTheme.paper)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
+                .background {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PaladalaPressBounceButtonStyle())
         .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 
     private var pageDot: some View {
         HStack(spacing: 8) {
             ForEach(0..<Self.pages.count, id: \.self) { i in
-                Circle()
+                Rectangle()
                     .fill(i == currentPage ? PaladalaTheme.biliPink : Color.primary.opacity(0.2))
                     .frame(width: i == currentPage ? 24 : 8, height: 8)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: currentPage)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(PaladalaTheme.ink, lineWidth: 1)
+                    }
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: currentPage)
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(PaladalaTheme.paper)
+        .overlay {
+            Rectangle()
+                .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+        }
     }
 }
 
@@ -83,37 +106,38 @@ struct OnboardingView: View {
 
 private struct OnboardingAnimatedBackground: View {
     let page: Int
-    @State private var animate = false
-
-    private var colors: [Color] {
-        switch page {
-        case 0: return [.pink.opacity(0.3), .purple.opacity(0.15)]
-        case 1: return [.blue.opacity(0.25), .cyan.opacity(0.15)]
-        case 2: return [PaladalaTheme.biliPink.opacity(0.2), .orange.opacity(0.1)]
-        case 3: return [.green.opacity(0.2), .mint.opacity(0.15)]
-        default: return [.pink.opacity(0.2), .purple.opacity(0.1)]
-        }
-    }
 
     var body: some View {
         ZStack {
-            Color(uiColor: .systemBackground).ignoresSafeArea()
+            PaladalaTheme.canvas.ignoresSafeArea()
 
-            Circle()
-                .fill(colors[0].gradient)
-                .frame(width: 300, height: 300)
-                .blur(radius: 80)
-                .offset(x: animate ? 100 : -100, y: animate ? -80 : 80)
+            VStack(spacing: 0) {
+                HStack {
+                    Text("PALADALA // START")
+                    Spacer()
+                    Text(String(format: "%02d", page + 1))
+                }
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.paper)
+                .padding(.horizontal, PaladalaTheme.Spacing.l)
+                .frame(height: 34)
+                .background(PaladalaTheme.ink)
 
-            Circle()
-                .fill(colors.count > 1 ? colors[1].gradient : colors[0].gradient)
-                .frame(width: 250, height: 250)
-                .blur(radius: 70)
-                .offset(x: animate ? -80 : 80, y: animate ? 100 : -60)
+                Spacer()
+
+                HStack(spacing: 8) {
+                    Rectangle()
+                        .fill(PaladalaTheme.biliPink)
+                        .frame(maxWidth: .infinity)
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .frame(width: 52)
+                }
+                .frame(height: 8)
+                .padding(.horizontal, PaladalaTheme.Spacing.l)
+                .padding(.bottom, PaladalaTheme.Spacing.l)
+            }
         }
-        .animation(.easeInOut(duration: 6).repeatForever(autoreverses: true), value: animate)
-        .onAppear { animate = true }
-        .animation(.easeInOut(duration: 1.5), value: page)
     }
 }
 
@@ -143,6 +167,7 @@ private struct OnboardingPageView: View {
     let isPreferencesPage: Bool
     let currentPageBinding: Binding<Int>
     @EnvironmentObject private var router: AppRouter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var appear = false
 
@@ -153,41 +178,62 @@ private struct OnboardingPageView: View {
         } else {
             marketingBody
                 .onAppear {
-                    withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) { appear = true }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) {
+                        appear = true
+                    }
                 }
                 .onDisappear { appear = false }
         }
     }
 
     private var marketingBody: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 60)
 
             Image(systemName: page.symbol)
-                .font(.system(size: 88, weight: .ultraLight))
-                .foregroundStyle(page.tint.gradient)
-                .symbolRenderingMode(.hierarchical)
-                .scaleEffect(appear ? 1 : 0.3)
+                .font(.system(size: 54, weight: .black))
+                .foregroundStyle(PaladalaTheme.ink)
+                .frame(width: 124, height: 124)
+                .background(PaladalaTheme.biliPink)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
+                .background {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                }
+                .scaleEffect(appear || reduceMotion ? 1 : 0.86)
                 .opacity(appear ? 1 : 0)
-                .rotationEffect(.degrees(appear ? 0 : -15))
-                .animation(.spring(response: 0.7, dampingFraction: 0.6).delay(0.1), value: appear)
+                .animation(
+                    reduceMotion ? nil : .easeOut(duration: 0.25).delay(0.1),
+                    value: appear
+                )
 
-            VStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text(page.title)
-                    .font(.title.weight(.bold))
-                    .multilineTextAlignment(.center)
+                    .font(PaladalaTheme.FontRole.displayLarge)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
+                    .multilineTextAlignment(.leading)
                     .opacity(appear ? 1 : 0)
                     .offset(y: appear ? 0 : 20)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.75).delay(0.25), value: appear)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.24).delay(0.12), value: appear)
 
                 Text(page.subtitle)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+                    .font(PaladalaTheme.FontRole.body)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+                    .multilineTextAlignment(.leading)
                     .opacity(appear ? 1 : 0)
                     .offset(y: appear ? 0 : 16)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.75).delay(0.35), value: appear)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.24).delay(0.18), value: appear)
             }
             .padding(.top, 28)
 
@@ -197,26 +243,37 @@ private struct OnboardingPageView: View {
                     router.openLogin()
                 } label: {
                     Text("立即登录")
-                        .font(.headline.weight(.semibold))
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(
-                            PaladalaTheme.biliPink.gradient,
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        )
-                        .foregroundStyle(.white)
+                        .background(PaladalaTheme.biliPink)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
+                        .background {
+                            Rectangle()
+                                .fill(PaladalaTheme.ink)
+                                .offset(
+                                    x: PaladalaTheme.hardShadowOffset,
+                                    y: PaladalaTheme.hardShadowOffset
+                                )
+                        }
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 32)
+                .buttonStyle(PaladalaPressBounceButtonStyle())
                 .padding(.top, 24)
                 .opacity(appear ? 1 : 0)
                 .offset(y: appear ? 0 : 20)
-                .animation(.spring(response: 0.6, dampingFraction: 0.75).delay(0.5), value: appear)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.24).delay(0.24), value: appear)
             }
 
             Spacer()
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, PaladalaTheme.Spacing.xxxl)
     }
 }
 
@@ -225,11 +282,11 @@ private struct OnboardingPageView: View {
 private struct OnboardingPreferencesPage: View {
     @Binding var currentPage: Int
     @AppStorage("paladala.themeMode") private var themeMode = ThemeMode.system
-    @AppStorage("paladala.materialDesign") private var materialDesign = MaterialDesign.liquidGlass
     @AppStorage("paladala.danmakuEnabled") private var danmakuEnabled = true
     @AppStorage("paladala.backgroundAudio") private var backgroundAudio = false
     @AppStorage("paladala.iCloudSync") private var iCloudSync = false
     @AppStorage("paladala.didOnboard") private var didOnboard = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var appear = false
 
@@ -237,36 +294,47 @@ private struct OnboardingPreferencesPage: View {
         VStack(spacing: 0) {
             Spacer(minLength: 40)
 
-            VStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 52, weight: .ultraLight))
-                    .foregroundStyle(PaladalaTheme.biliPink.gradient)
-                    .symbolRenderingMode(.hierarchical)
-                    .scaleEffect(appear ? 1 : 0.5)
+                    .font(.system(size: 36, weight: .black))
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .frame(width: 76, height: 76)
+                    .background(PaladalaTheme.biliPink)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
+                    .scaleEffect(appear || reduceMotion ? 1 : 0.86)
                     .opacity(appear ? 1 : 0)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.65).delay(0.1), value: appear)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.22).delay(0.1), value: appear)
 
                 Text("定制你的体验")
-                    .font(.title2.weight(.bold))
+                    .font(PaladalaTheme.FontRole.displayMedium)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .textCase(.uppercase)
                     .opacity(appear ? 1 : 0)
-                    .animation(.easeOut(duration: 0.4).delay(0.2), value: appear)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.22).delay(0.14), value: appear)
 
                 Text("挑你想用的功能，其余保持默认")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
+                    .font(PaladalaTheme.FontRole.bodySmall)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+                    .multilineTextAlignment(.leading)
                     .opacity(appear ? 1 : 0)
-                    .animation(.easeOut(duration: 0.4).delay(0.3), value: appear)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.22).delay(0.18), value: appear)
             }
             .padding(.top, 16)
+            .padding(.horizontal, PaladalaTheme.Spacing.xxxl)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             preferencesCard
                 .padding(.horizontal, 20)
                 .padding(.top, 24)
                 .opacity(appear ? 1 : 0)
                 .offset(y: appear ? 0 : 30)
-                .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.4), value: appear)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.22).delay(0.2), value: appear)
 
             Spacer()
 
@@ -274,7 +342,7 @@ private struct OnboardingPreferencesPage: View {
                 .padding(.horizontal, 32)
                 .padding(.bottom, 28)
                 .opacity(appear ? 1 : 0)
-                .animation(.easeOut(duration: 0.4).delay(0.6), value: appear)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.22).delay(0.24), value: appear)
         }
         .onAppear { appear = true }
         .padding(.horizontal, 0)
@@ -285,42 +353,115 @@ private struct OnboardingPreferencesPage: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 Label("主题", systemImage: themeIcon(themeMode))
-                    .font(.subheadline.weight(.semibold))
-                Picker("主题", selection: $themeMode) {
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.ink)
+                HStack(spacing: 8) {
                     ForEach(ThemeMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
+                        Button {
+                            Haptics.selection()
+                            themeMode = mode
+                        } label: {
+                            Text(mode.title)
+                                .font(PaladalaTheme.FontRole.labelMono)
+                                .frame(maxWidth: .infinity, minHeight: 40)
+                                .padding(.horizontal, 6)
+                        }
+                        .buttonStyle(.plain)
+                        .paladalaSelectionChip(
+                            isSelected: themeMode == mode,
+                            design: .liquidGlass
+                        )
                     }
                 }
-                .pickerStyle(.segmented)
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Label("界面设计", systemImage: materialDesign == .liquidGlass ? "sparkles" : "rectangle.3.group")
-                    .font(.subheadline.weight(.semibold))
-                Picker("界面设计", selection: $materialDesign) {
-                    ForEach(MaterialDesign.allCases) { design in
-                        Text(design.title).tag(design)
-                    }
+                Label("界面设计", systemImage: "square.grid.3x3.square")
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.ink)
+                HStack {
+                    Text("STREET MINIMAL")
+                        .font(PaladalaTheme.FontRole.labelMono)
+                    Spacer()
+                    Text("01")
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.paper)
+                        .padding(6)
+                        .background(PaladalaTheme.ink)
                 }
-                .pickerStyle(.segmented)
+                .padding(10)
+                .background(PaladalaTheme.biliPink)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
             }
 
             Divider().padding(.vertical, 4)
 
             VStack(alignment: .leading, spacing: 12) {
                 Label("功能开关", systemImage: "switch.2")
-                    .font(.subheadline.weight(.semibold))
-                Toggle(isOn: $danmakuEnabled) { Label("弹幕", systemImage: "text.bubble.fill") }
-                Toggle(isOn: $backgroundAudio) { Label("后台音频", systemImage: "speaker.wave.2.fill") }
-                Toggle(isOn: $iCloudSync) { Label("iCloud 同步", systemImage: "icloud.fill") }
-                    .disabled(!ICloudSync.shared.isAvailable)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                featureToggle(
+                    title: "弹幕",
+                    symbol: "text.bubble.fill",
+                    isOn: $danmakuEnabled
+                )
+                featureToggle(
+                    title: "后台音频",
+                    symbol: "speaker.wave.2.fill",
+                    isOn: $backgroundAudio
+                )
+                featureToggle(
+                    title: "iCloud 同步",
+                    symbol: "icloud.fill",
+                    isOn: $iCloudSync,
+                    disabled: !ICloudSync.shared.isAvailable
+                )
             }
         }
         .padding(PaladalaTheme.Spacing.content)
-        .background(
-            PaladalaTheme.SemanticColor.card,
-            in: RoundedRectangle(cornerRadius: PaladalaTheme.cardRadius, style: PaladalaTheme.cornerStyle)
-        )
+        .paladalaStreetPanel(fill: PaladalaTheme.paper)
+    }
+
+    private func featureToggle(
+        title: String,
+        symbol: String,
+        isOn: Binding<Bool>,
+        disabled: Bool = false
+    ) -> some View {
+        Button {
+            guard !disabled else { return }
+            Haptics.selection()
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.body.weight(.black))
+                Text(title)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                Spacer()
+                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
+                    .font(.body.weight(.black))
+            }
+            .foregroundStyle(PaladalaTheme.ink)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(isOn.wrappedValue ? PaladalaTheme.biliPink : PaladalaTheme.coolGray)
+            .overlay {
+                Rectangle()
+                    .strokeBorder(
+                        PaladalaTheme.ink,
+                        lineWidth: PaladalaTheme.borderWidth
+                    )
+            }
+        }
+        .buttonStyle(PaladalaPressBounceButtonStyle())
+        .opacity(disabled ? 0.45 : 1)
+        .accessibilityValue(isOn.wrappedValue ? "开启" : "关闭")
     }
 
     private func themeIcon(_ mode: ThemeMode) -> String {
@@ -336,31 +477,43 @@ private struct OnboardingPreferencesPage: View {
         VStack(spacing: 10) {
             Button {
                 Haptics.tap()
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                     currentPage += 1
                 }
             } label: {
                 Text("下一步")
-                    .font(.headline.weight(.semibold))
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.ink)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(
-                        PaladalaTheme.biliPink.gradient,
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    )
-                    .foregroundStyle(.white)
+                    .background(PaladalaTheme.biliPink)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
+                    .background {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .offset(
+                                x: PaladalaTheme.hardShadowOffset,
+                                y: PaladalaTheme.hardShadowOffset
+                            )
+                    }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PaladalaPressBounceButtonStyle())
 
             Button {
                 Haptics.tap()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                     didOnboard = true
                 }
             } label: {
                 Text("跳过，使用默认")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
             }
             .buttonStyle(.plain)
         }
