@@ -19,9 +19,17 @@ struct PaladalaApp: App {
         Self.configureStreetAppearance()
         // PR-fix-2026-07-10: apply the persisted design variant
         // before any view renders so the very first paint
-        // already uses the right token values.  `RootView`
-        // also reapplies on `onChange` to cover runtime toggles.
-        PaladalaTheme.apply(designVariant)
+        // already uses the right token values.  Can't read
+        // the `@AppStorage` wrapper here — those properties
+        // aren't populated until SwiftUI sets them up at the
+        // first body render, so referencing `designVariant`
+        // in `init` trips "used before being initialized".
+        // Read the raw UserDefaults string instead.
+        if let raw = UserDefaults.standard.string(
+            forKey: "paladala.designVariant"
+        ), let variant = DesignVariant(rawValue: raw) {
+            PaladalaTheme.apply(variant)
+        }
         // PR-fix-2026-07-10: register the BG task handler during
         // the launch window.  Previously this happened in
         // `body.onAppear`, but iOS 26 Beta aborts when
