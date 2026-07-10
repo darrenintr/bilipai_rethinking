@@ -16,6 +16,16 @@ struct PaladalaApp: App {
 
     init() {
         Self.configureStreetAppearance()
+        // PR-fix-2026-07-10: register the BG task handler during
+        // the launch window.  Previously this happened in
+        // `body.onAppear`, but iOS 26 Beta aborts when
+        // `BGTaskScheduler.register` runs after the launch window
+        // closes, and also rejects `using: nil` outright.  Doing
+        // it here — before any `@StateObject` initialisers fire —
+        // keeps the call inside the window.  `wireRepository`
+        // is still called from `onAppear` because the repository
+        // is not yet constructed at this point.
+        FollowNotificationService.shared.registerBackgroundHandler()
         LaunchMetrics.shared.mark(.appInitStart)
         // Audio session activation moved out of `init()` —
         // it now happens lazily inside `PlayerController.init`
@@ -125,12 +135,14 @@ struct PaladalaApp: App {
                         return BiliAppConfig(buvid3: account.buvid3, mid: account.mid, csrf: account.csrf)
                     }
                     // Hook the follow-notification BG-task handler.
-                    // Must happen after the cookieProvider is
-                    // installed so the BG poll can decide whether
-                    // the user is signed in. Idempotent — calling
-                    // twice just re-registers the same handler.
-                    FollowNotificationService.shared.bootstrap(
-                        repository: repository,
+                    // The OS-level register was already done in
+                    // `init()` (it must run inside the launch
+                    // window); here we only wire the repository
+                    // and account mid.  Safe to call again on
+                    // account switch — `wireRepository` just
+                    // updates the stored handles.
+                    FollowNotificationService.shared.wireRepository(
+                        repository,
                         accountMid: authStore.activeAccount?.mid ?? 0
                     )
                     // When the upstream API returns 401 the user is

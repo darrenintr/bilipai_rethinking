@@ -93,24 +93,35 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
     /// the first completes (rare but observed when the OS
     /// re-fires after a crash mid-tick).
     private var pollInFlight = false
+    /// One-shot guard for the OS-level `register` call.
+    /// Re-registering the same identifier aborts, so we
+    /// gate the call behind this flag and let late callers
+    /// (`wireRepository` from `onAppear`) skip it.
+    private var didRegisterBackgroundHandler = false
 
     nonisolated private override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
     }
 
-    /// Bootstrap from the app on launch.  Registers the
-    /// background task handler *before* the app finishes
-    /// launching so the OS can deliver a queued wake event
-    /// (the doc says register in `application(_:didFinishLaunching…)`
-    /// or earlier).  Also kicks off the permission request
-    /// once the user enables the feature in settings.
-    func bootstrap(repository: PaladalaRepository, accountMid: Int64) {
-        self.repository = repository
-        self.activeAccountMid = accountMid
+    /// Register the BG task handler with the OS.  Must be
+    /// called **before** `application(_:didFinishLaunching…)`
+    /// returns — calling it later (e.g. from a SwiftUI
+    /// `onAppear`) puts the registration outside the launch
+    /// window and the scheduler aborts on iOS 26 Beta.  Also:
+    /// `using:` must be a real queue, not `nil`.
+    ///
+    /// Idempotent: subsequent calls are no-ops. The OS
+    /// refuses duplicate registrations of the same identifier
+    /// with `NSInternalInconsistencyException`, so we guard
+    /// the call here rather than relying on the app to call
+    /// it exactly once.
+    func registerBackgroundHandler() {
+        guard !didRegisterBackgroundHandler else { return }
+        didRegisterBackgroundHandler = true
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: Self.backgroundTaskIdentifier,
-            using: nil
+            using: DispatchQueue.global(qos: .utility)
         ) { [weak self] task in
             guard let refresh = task as? BGAppRefreshTask else {
                 task.setTaskCompleted(success: false)
@@ -118,6 +129,17 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
             }
             self?.handle(refreshTask: refresh)
         }
+    }
+
+    /// Wire the repository + active account.  Called from the
+    /// app's `onAppear` (or whenever the active account
+    /// changes).  The BG task handler resolves the repository
+    /// lazily on every wake, so it's safe to call this after
+    /// `registerBackgroundHandler` and to call it again later
+    /// with a different account.
+    func wireRepository(_ repository: PaladalaRepository, accountMid: Int64) {
+        self.repository = repository
+        self.activeAccountMid = accountMid
     }
 
     // MARK: permission + scheduling
