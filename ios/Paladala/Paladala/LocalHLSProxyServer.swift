@@ -1755,6 +1755,18 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             // deadline race above can pick it up cleanly.
             throw RangeFetchError.timedOut
         }
+        // PR-C: diagnostic — confirms whether the await on
+        // `prepSession.data(...)` is the hang point in the
+        // Swift 6 regression where the AVPlayer never reaches
+        // .playing.  Pair with the "returned" log below; if
+        // "entered" fires but "returned" never does, the
+        // URLSession continuation is starved.
+        diagLog(.proxy, "fetchExactRange entered",
+                details: [
+                    "purpose": purpose,
+                    "url": url.absoluteString,
+                    "requestedRange": requestedRange
+                ])
         let data: Data
         let response: URLResponse
         do {
@@ -1789,6 +1801,17 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             )
             throw wrapped
         }
+        // PR-C: diagnostic — partner of "fetchExactRange entered"
+        // above.  Emitted only on the success path; the catch
+        // blocks above own the failure paths and already log
+        // via `logRangeFetchFailure`.
+        diagLog(.proxy, "fetchExactRange returned",
+                details: [
+                    "purpose": purpose,
+                    "url": url.absoluteString,
+                    "bytes": data.count,
+                    "elapsedMs": elapsedMilliseconds(since: startTime)
+                ])
         try Task.checkCancellation()
 
         let elapsed = elapsedMilliseconds(since: startTime)
