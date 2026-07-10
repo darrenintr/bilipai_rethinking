@@ -74,6 +74,41 @@ struct HomeView: View {
         .background(PaladalaTheme.paper)
     }
 
+    /// Search bar plus a live keystroke-rate suggestions
+    /// dropdown.  Wrapped in a VStack so the dropdown sits
+    /// flush under the bridge and the whole stack is one
+    /// `safeAreaInset` insertion.  The dropdown is empty
+    /// (and therefore zero-height) when the user hasn't
+    /// typed yet, so it doesn't push the feed content
+    /// down at idle.
+    private var searchBarSection: some View {
+        VStack(spacing: 0) {
+            searchBar
+            if !model.searchQuery.isEmpty && !model.searchSuggestions.isEmpty {
+                SuggestionList(
+                    suggestions: model.searchSuggestions,
+                    onSelect: { suggestion in
+                        // Tap-to-fill: mirror the old
+                        // `.searchCompletion` behaviour.  The
+                        // bridge updates its text via the
+                        // binding, then we run the same
+                        // submit path so the feed jumps to
+                        // the chosen result without waiting
+                        // for the user to hit the keyboard's
+                        // search button.
+                        model.searchQuery = suggestion.displayName
+                        model.clearSuggestions()
+                        model.category = .search
+                        Task {
+                            await model.load(repository: repository, accountMid: accountMid)
+                            await model.runAllSearch(repository: repository)
+                        }
+                    }
+                )
+            }
+        }
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             feedContent(scrollProxy: proxy)
@@ -96,14 +131,31 @@ struct HomeView: View {
                 // longer wires up automatically — see the
                 // bridge's doc-comment for follow-up.
                 //
-                // Extracted into `searchBar` (private computed
-                // property) so the body expression stays
-                // readable for the Swift type-checker.  The
-                // previous in-place chain timed out at
-                // `HomeView.swift:51: the compiler is unable
-                // to type-check this expression in reasonable
-                // time` (build #451).
-                .safeAreaInset(edge: .top, spacing: 0) { searchBar }
+                // Extracted into `searchBarSection` (private
+                // computed property) so the body expression
+                // stays readable for the Swift type-checker
+                // and so the live keystroke suggestions have
+                // somewhere to live under the bridge.
+                .safeAreaInset(edge: .top, spacing: 0) { searchBarSection }
+                // PR-fix-2026-07-10: the trailing toolbar
+                // column (5 icons on the right of the nav
+                // bar) was rendering with the iOS 26 Liquid
+                // Glass material on top of the paper nav bar,
+                // making the icons look like they were
+                // floating on a separate tinted surface.  The
+                // right SwiftUI hook for this is
+                // `.toolbarBackground(_:for: .navigationBar)`
+                // — earlier I tried a UIKit
+                // `UIBarButtonItemAppearance` route that
+                // doesn't exist on iOS 26, but the SwiftUI
+                // modifier does.  Pair with
+                // `.toolbarBackground(.visible, ...)` so the
+                // paper background stays visible during
+                // scroll, otherwise the system re-introduces
+                // the glass material when the user scrolls
+                // the feed.
+                .toolbarBackground(PaladalaTheme.paper, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         // 离线缓存 quick access. Lives in the top
@@ -986,6 +1038,51 @@ private struct SuggestionRow: View {
             attributed[range].font = .body.weight(.semibold)
         }
         return attributed
+    }
+}
+
+/// Live keystroke-rate suggestions dropdown.  Re-introduced
+/// 2026-07-10 after the `.searchable` swap dropped the
+/// system `.searchSuggestions` pipeline.  Each row is a
+/// `Button` so the whole row is tappable; tapping fills the
+/// search field with the suggestion's `displayName` and
+/// runs the same submit path the keyboard's search button
+/// would have triggered.
+///
+/// Visual: 1.5pt ink borders + dividers + paper background,
+/// matching the rest of the Street chrome.  Sits flush
+/// under `UISearchFieldBridge` because both are children of
+/// the same `VStack` in `searchBarSection`.
+private struct SuggestionList: View {
+    let suggestions: [BiliSearchSuggestion]
+    let onSelect: (BiliSearchSuggestion) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(suggestions) { suggestion in
+                Button {
+                    onSelect(suggestion)
+                } label: {
+                    SuggestionRow(suggestion: suggestion)
+                        .padding(.horizontal, PaladalaTheme.Spacing.l)
+                        .padding(.vertical, PaladalaTheme.Spacing.s)
+                }
+                .buttonStyle(.plain)
+                if suggestion.id != suggestions.last?.id {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink.opacity(0.12))
+                        .frame(height: PaladalaTheme.hairlineWidth)
+                }
+            }
+        }
+        .background(PaladalaTheme.paper)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .strokeBorder(
+                    PaladalaTheme.ink,
+                    lineWidth: PaladalaTheme.borderWidth
+                )
+        }
     }
 }
 
