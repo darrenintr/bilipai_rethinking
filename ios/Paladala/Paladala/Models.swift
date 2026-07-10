@@ -203,6 +203,122 @@ struct BiliAllSearchResults: Sendable {
     var bangumi: [VideoDTO] = []    // raw DTOs; the UI can re-decode via BangumiCard
     var liveRooms: [VideoDTO] = []  // ditto
     var articles: [VideoDTO] = []   // ditto
+}
+
+// MARK: - 番剧 (Bangumi / PGC season)
+//
+// Minimal data shapes for the bangumi timeline surface.  The
+// upstream `/pgc/web/timeline` endpoint returns a list of
+// "days" (周一 through 周日) and each day carries the season
+// cards that update that day.  We don't reproduce the full
+// upstream schema — just the fields the home timeline UI
+// surfaces (cover, title, latest-episode index, share URL).
+// Detailed season / episode metadata is loaded on demand via
+// the `seasonId` if/when we add a detail view; out of scope
+// for this first pass.
+
+/// One season card in the bangumi timeline.  The cell renders
+/// `cover`, `title`, and `updateDescription` ("更新至第 12 话"
+/// / "已完结" / "即将开播" / etc.) and on tap opens
+/// `shareURL` in the system handler (SFSafariViewController
+/// or the official app via Universal Links).  We don't
+/// navigate to an in-app detail screen — the web surface
+/// already carries episodes, comments, and the official
+/// player.
+struct BangumiCard: Identifiable, Hashable, Sendable {
+    let seasonId: Int64
+    let title: String
+    let coverURL: URL?
+    let updateDescription: String
+    let badgeText: String?
+    let shareURL: URL?
+    var id: Int64 { seasonId }
+}
+
+/// One day in the weekly timeline.  Sorted ascending by
+/// `weekday` (1 = Monday, 7 = Sunday) so the timeline always
+/// starts on the same weekday in the UI regardless of when
+/// the user opens the screen.  Cards inside a day are in
+/// upstream order (typically: most-viewed first).
+struct BangumiDay: Identifiable, Hashable, Sendable {
+    let weekday: Int          // 1 = Mon … 7 = Sun
+    let weekdayLabel: String  // localized "周一" … "周日"
+    let date: String?         // upstream-supplied "MM-DD" for the upcoming slot
+    let cards: [BangumiCard]
+    var id: Int { weekday }
+}
+
+extension BangumiDay {
+    /// Static factory: decode the upstream `/pgc/web/timeline`
+    /// response (already JSON-decoded into a generic
+    /// structure) into a stable `[BangumiDay]`.  Pulls only
+    /// the fields the UI surfaces; missing fields degrade
+    /// gracefully to empty strings / nil.
+    static func decode(upstream: [[String: Any]]) -> [BangumiDay] {
+        upstream.compactMap { entry -> BangumiDay? in
+            guard let weekday = entry["day_of_week"] as? Int
+                ?? (entry["day_of_week"] as? NSNumber)?.intValue else {
+                return nil
+            }
+            let date = entry["date"] as? String
+            let episodes = entry["episodes"] as? [[String: Any]] ?? []
+            let cards: [BangumiCard] = episodes.compactMap { ep in
+                guard let season = ep["season"] as? [String: Any],
+                      let seasonId = (season["season_id"] as? NSNumber)?.int64Value
+                        ?? (season["season_id"] as? Int64)
+                        ?? (season["season_id"] as? Int).map(Int64.init)
+                else { return nil }
+                let title = (season["title"] as? String) ?? ""
+                let cover = (season["cover"] as? String).flatMap(URL.init(string:))
+                let pubIndex = (ep["pub_index"] as? String) ?? ""
+                let pubTime = (ep["pub_time"] as? String) ?? ""
+                let updateDescription: String
+                if !pubIndex.isEmpty {
+                    updateDescription = "更新至\(pubIndex)"
+                } else if !pubTime.isEmpty {
+                    updateDescription = pubTime
+                } else {
+                    updateDescription = "即将开播"
+                }
+                let badge: String?
+                if let isPublished = ep["is_published"] as? Int, isPublished == 0 {
+                    badge = "未开播"
+                } else {
+                    badge = nil
+                }
+                let shareURL = URL(string: "https://www.bilibili.com/bangumi/play/ss\(seasonId)")
+                return BangumiCard(
+                    seasonId: seasonId,
+                    title: title,
+                    coverURL: cover,
+                    updateDescription: updateDescription,
+                    badgeText: badge,
+                    shareURL: shareURL
+                )
+            }
+            return BangumiDay(
+                weekday: weekday,
+                weekdayLabel: Self.weekdayLabel(for: weekday),
+                date: date,
+                cards: cards
+            )
+        }
+        .sorted { $0.weekday < $1.weekday }
+    }
+
+    private static func weekdayLabel(for weekday: Int) -> String {
+        switch weekday {
+        case 1: "周一"
+        case 2: "周二"
+        case 3: "周三"
+        case 4: "周四"
+        case 5: "周五"
+        case 6: "周六"
+        case 7: "周日"
+        default: "周\(weekday)"
+        }
+    }
+}
 
     var isEmpty: Bool {
         videos.isEmpty && users.isEmpty && bangumi.isEmpty
