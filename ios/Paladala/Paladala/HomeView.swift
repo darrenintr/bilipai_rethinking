@@ -57,9 +57,6 @@ struct HomeView: View {
         UISearchFieldBridge(
             text: $model.searchQuery,
             prompt: "搜索 Bilibili 视频和 UP 主",
-            onQueryChanged: { query in
-                model.searchQueryChanged(query, repository: repository)
-            },
             onSubmit: {
                 model.clearSuggestions()
                 model.category = .search
@@ -67,6 +64,9 @@ struct HomeView: View {
                     await model.load(repository: repository, accountMid: accountMid)
                     await model.runAllSearch(repository: repository)
                 }
+            },
+            onQueryChanged: { query in
+                model.searchQueryChanged(query, repository: repository)
             }
         )
         .padding(.horizontal, PaladalaTheme.Spacing.l)
