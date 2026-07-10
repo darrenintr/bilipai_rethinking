@@ -379,6 +379,7 @@ struct VideoDetailView: View {
             }
         }
         .onChange(of: isFullscreenPresented) { _, newValue in
+            NSLog("[Paladala][fullscreen] isFullscreenPresented -> %d", newValue ? 1 : 0)
             // The grace-window timestamps defend against the
             // iPad quirk where `.fullScreenCover` fires
             // `onDisappear` on the parent view.  AVKit now

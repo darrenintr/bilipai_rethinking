@@ -1202,6 +1202,7 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             _ playerViewController: AVPlayerViewController,
             willBeginFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
         ) {
+            NSLog("[Paladala][fullscreen] willBeginFullScreen")
             Task { @MainActor in
                 self.wasPlayingBeforeFullscreen = self.playerController.player.timeControlStatus == .playing
                 self.playerController.isNativeFullscreenActive = true
@@ -1212,8 +1213,10 @@ struct NativeInlinePlayerRepresentable: UIViewControllerRepresentable {
             _ playerViewController: AVPlayerViewController,
             willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
         ) {
+            NSLog("[Paladala][fullscreen] willEndFullScreen, wasPlaying=%d", wasPlayingBeforeFullscreen)
             Task { @MainActor in
                 coordinator.animate(alongsideTransition: nil) { [weak self] context in
+                    NSLog("[Paladala][fullscreen] willEndFullScreen completion, cancelled=%d", context.isCancelled ? 1 : 0)
                     guard let self, !context.isCancelled else { return }
                     self.playerController.isNativeFullscreenActive = false
                     // AVKit pauses when exiting native fullscreen.
