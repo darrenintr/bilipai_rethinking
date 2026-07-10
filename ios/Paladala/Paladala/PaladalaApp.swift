@@ -274,6 +274,55 @@ struct PaladalaApp: App {
 
         UIPageControl.appearance().currentPageIndicatorTintColor = pink
         UIPageControl.appearance().pageIndicatorTintColor = ink.withAlphaComponent(0.28)
+
+        // PR-fix-2026-07-10 (B): UISearchBar was inheriting the
+        // iOS 26 default round-cornered glass treatment even after
+        // the rest of the chrome moved to Street Minimal. Apply
+        // a flat paper background + hard ink shadow so the bar's
+        // own surface sits flush with the navigation bar above.
+        //
+        // Note: the *inner* search text field is a private
+        // UITextField that the appearance API can't reach
+        // (`UISearchBarAppearance` exposes `searchFieldBackgroundImage`
+        // and `searchBarStyle` but not the text field itself).
+        // SwiftUI's `.searchable` modifier renders that field
+        // with iOS 26's default glass treatment regardless.
+        // We still want the outer bar to be opaque paper so
+        // the user sees at most one transparent surface (the
+        // text field) instead of the whole bar being a
+        // floating capsule.
+        let search = UISearchBarAppearance()
+        search.configureWithOpaqueBackground()
+        search.backgroundColor = paper
+        search.shadowColor = ink
+        // `.minimal` drops the iOS default background fill and
+        // border on the outer bar, so the search field sits
+        // against the navigation bar's paper instead of a
+        // floating capsule. The inner text field is still
+        // system-styled (it lives behind a private API), but
+        // the surrounding chrome no longer draws a separate
+        // tinted surface.
+        search.searchBarStyle = .minimal
+        UISearchBar.appearance().standardAppearance = search
+        UISearchBar.appearance().scrollEdgeAppearance = search
+
+        // PR-fix-2026-07-10 (A): the trailing toolbar column on
+        // `HomeView` (离线缓存 / 短视频 / 刷新 / 动态 / 我的) was
+        // rendering with the iOS 26 Liquid Glass material so the
+        // icons looked like they were floating on a separate
+        // surface.  SwiftUI's `ToolbarItemGroup` is rendered
+        // through `UIBarButtonItem`, so styling
+        // `UIBarButtonItemAppearance` makes every nav-bar
+        // trailing item adopt the same paper background + 1.5pt
+        // ink border that the nav bar itself uses.
+        let barButton = UIBarButtonItemAppearance(style: .plain)
+        barButton.normal.background.backgroundColor = paper
+        barButton.highlighted.background.backgroundColor = paper
+        barButton.disabled.background.backgroundColor = paper
+        barButton.focused.background.backgroundColor = paper
+        UIBarButtonItem.appearance().standardAppearance = barButton
+        UIBarButtonItem.appearance().compactAppearance = barButton
+        UIBarButtonItem.appearance().scrollEdgeAppearance = barButton
     }
 }
 
