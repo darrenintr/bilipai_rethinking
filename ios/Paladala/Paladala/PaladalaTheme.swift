@@ -1,58 +1,199 @@
 import SwiftUI
 
+/// Top-level design variant. Drives the visual language of the
+/// whole app via `PaladalaTheme`'s computed tokens. The two
+/// values intentionally model the "old vs new" toggle:
+/// - `.streetRedesign` — the hard-edged Street Minimal language
+///   introduced in the e03bbbb3 redesign. Default.
+/// - `.classic` — the pre-redesign Liquid-Glass-on-system
+///   language (corner radius 24, soft glass shadows, system
+///   `Color.primary` / `.secondary` foreground, etc.).
+///
+/// Persisted to `UserDefaults` under `paladala.designVariant` so
+/// the user's choice survives relaunch. The `RootView` listens
+/// for the change and reapplies it via `PaladalaTheme.apply(_:)`
+/// so views re-render against the new token values.
+enum DesignVariant: String, CaseIterable, Identifiable, Sendable {
+    case classic
+    case streetRedesign
+
+    var id: String { rawValue }
+
+    /// User-facing label shown in the Settings toggle.
+    var title: String {
+        switch self {
+        case .classic: "经典 Liquid Glass"
+        case .streetRedesign: "街头硬影"
+        }
+    }
+
+    /// Short blurb shown under the toggle so the user knows what
+    /// they're getting.
+    var blurb: String {
+        switch self {
+        case .classic:
+            "还原到改版前的视觉:圆角 24、玻璃材质、系统色。"
+        case .streetRedesign:
+            "当前的硬边极简风格:无圆角、1.5pt 黑边、4pt 实心硬影。"
+        }
+    }
+}
+
 enum PaladalaTheme {
-    // MARK: - Street Minimal palette
+    // MARK: - Active variant
     //
-    // The redesign deliberately keeps the palette tiny. `ink` and
-    // `paper` invert in dark mode so the same hard-edged hierarchy remains
-    // legible without falling back to blur, translucency, or a separate
-    // visual language. Pink is a signal color only: active controls, live
-    // state, and primary calls to action.
+    // `nonisolated(unsafe)` because every read is a value-typed
+    // load (Color / CGFloat / Font — atomic on word-sized
+    // copies) and the only writer is the settings toggle on
+    // the main actor. Swift 6 strict concurrency refuses plain
+    // `static var` outside an actor; this is the documented
+    // escape hatch for "I know what I'm doing" globals.
+    nonisolated(unsafe) static var activeVariant: DesignVariant = .streetRedesign
+
+    /// Apply a new variant. Called from the Settings toggle and
+    /// from `PaladalaApp.init` on launch.
+    static func apply(_ variant: DesignVariant) {
+        activeVariant = variant
+    }
+
+    // MARK: - Brand colors (variant-agnostic)
     static let biliPink = Color(red: 1.0, green: 0.38, blue: 0.58) // #FF6194
     static let biliPinkDim = Color(red: 0.70, green: 0.14, blue: 0.35)
-    static let ink = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .white : .black
-    })
-    static let paper = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .black : .white
-    })
-    static let canvas = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.045, green: 0.045, blue: 0.045, alpha: 1)
-            : UIColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1)
-    })
-    static let coolGray = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.11, green: 0.11, blue: 0.11, alpha: 1)
-            : UIColor(red: 0.957, green: 0.957, blue: 0.957, alpha: 1)
-    })
-    static let mutedInk = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.78, green: 0.78, blue: 0.78, alpha: 1)
-            : UIColor(red: 0.30, green: 0.27, blue: 0.27, alpha: 1)
-    })
 
-    // Compatibility accents kept for API consumers. They intentionally map
-    // back into the constrained Street palette instead of introducing extra
-    // hues into the interface.
-    static let cyan = ink
-    static let violet = biliPink
+    // MARK: - Adaptive ink + paper (variant-aware)
+    //
+    // The redesign deliberately keeps the palette tiny. `ink` and
+    // `paper` invert in dark mode so the same hard-edged hierarchy
+    // remains legible without falling back to blur, translucency,
+    // or a separate visual language. Pink is a signal color only.
+    static var ink: Color {
+        switch activeVariant {
+        case .streetRedesign:
+            return Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark ? .white : .black
+            })
+        case .classic:
+            return .primary
+        }
+    }
+    static var paper: Color {
+        switch activeVariant {
+        case .streetRedesign:
+            return Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark ? .black : .white
+            })
+        case .classic:
+            return Color(uiColor: .systemBackground)
+        }
+    }
+    static var canvas: Color {
+        switch activeVariant {
+        case .streetRedesign:
+            return Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.045, green: 0.045, blue: 0.045, alpha: 1)
+                    : UIColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1)
+            })
+        case .classic:
+            return Color.clear
+        }
+    }
+    static var coolGray: Color {
+        switch activeVariant {
+        case .streetRedesign:
+            return Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.11, green: 0.11, blue: 0.11, alpha: 1)
+                    : UIColor(red: 0.957, green: 0.957, blue: 0.957, alpha: 1)
+            })
+        case .classic:
+            return Color.primary.opacity(0.055)
+        }
+    }
+    static var mutedInk: Color {
+        switch activeVariant {
+        case .streetRedesign:
+            return Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.78, green: 0.78, blue: 0.78, alpha: 1)
+                    : UIColor(red: 0.30, green: 0.27, blue: 0.27, alpha: 1)
+            })
+        case .classic:
+            return .secondary
+        }
+    }
+    static var cyan: Color {
+        switch activeVariant {
+        case .streetRedesign: return ink
+        case .classic: return Color(red: 0.24, green: 0.78, blue: 0.94)
+        }
+    }
+    static var violet: Color {
+        switch activeVariant {
+        case .streetRedesign: return biliPink
+        case .classic: return Color(red: 0.48, green: 0.34, blue: 0.96)
+        }
+    }
 
-    // MARK: - Geometry
-    static let cornerRadius: CGFloat = 0
-    static let cardRadius = cornerRadius
-    static let pillRadius = cornerRadius
-    static let heroRadius = cornerRadius
+    // MARK: - Geometry (variant-aware)
+    static var cornerRadius: CGFloat {
+        switch activeVariant {
+        case .streetRedesign: return 0
+        case .classic: return 24
+        }
+    }
+    static var cardRadius: CGFloat { cornerRadius }
+    static var pillRadius: CGFloat { cornerRadius }
+    static var heroRadius: CGFloat { cornerRadius }
     static let cornerStyle: RoundedCornerStyle = .continuous
-    static let borderWidth: CGFloat = 1.5
-    static let hairlineWidth: CGFloat = 1
-    static let hardShadowOffset: CGFloat = 4
-    static let pressedOffset: CGFloat = 4
-    static let pageBackground = canvas
-    static let cardBackground = paper
-    // Deprecated semantic aliases retained while existing call sites migrate.
-    static let glassStroke = ink
-    static let glassShadow = ink
+    static var borderWidth: CGFloat {
+        switch activeVariant {
+        case .streetRedesign: return 1.5
+        case .classic: return 0
+        }
+    }
+    static var hairlineWidth: CGFloat {
+        switch activeVariant {
+        case .streetRedesign: return 1
+        case .classic: return 0.5
+        }
+    }
+    static var hardShadowOffset: CGFloat {
+        switch activeVariant {
+        case .streetRedesign: return 4
+        case .classic: return 0
+        }
+    }
+    static var pressedOffset: CGFloat {
+        switch activeVariant {
+        case .streetRedesign: return 4
+        case .classic: return 0
+        }
+    }
+    static var pageBackground: Color {
+        switch activeVariant {
+        case .streetRedesign: return canvas
+        case .classic: return Color.clear
+        }
+    }
+    static var cardBackground: Color {
+        switch activeVariant {
+        case .streetRedesign: return paper
+        case .classic: return Color.primary.opacity(0.055)
+        }
+    }
+    static var glassStroke: Color {
+        switch activeVariant {
+        case .streetRedesign: return ink
+        case .classic: return Color.white.opacity(0.24)
+        }
+    }
+    static var glassShadow: Color {
+        switch activeVariant {
+        case .streetRedesign: return ink
+        case .classic: return Color.black.opacity(0.08)
+        }
+    }
 
     // MARK: - Spacing scale (xs … xxxl)
     //
@@ -76,7 +217,14 @@ enum PaladalaTheme {
         /// 32pt — screen-edge breathing room
         static let xxxl: CGFloat = 32
         /// 48pt — zine-scale separation between editorial blocks.
-        static let display: CGFloat = 48
+        /// Falls back to `xxxl` (32) in the classic variant where
+        /// the editorial spacing layer doesn't exist.
+        static var display: CGFloat {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return 48
+            case .classic: return xxxl
+            }
+        }
 
         /// Default content padding (alias of `.l`).
         static let content = l
@@ -92,23 +240,63 @@ enum PaladalaTheme {
     // view files.
     enum SemanticColor {
         /// Filled card / surface — main opaque layer.
-        static let card = paper
+        static var card: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return paper
+            case .classic: return Color(uiColor: .secondarySystemGroupedBackground)
+            }
+        }
         /// Subdued surface — list rows, secondary cards.
-        static let surface = coolGray
+        static var surface: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return coolGray
+            case .classic: return Color(uiColor: .tertiarySystemGroupedBackground)
+            }
+        }
         /// Hairline border, chip stroke, divider.
-        static let stroke = ink
+        static var stroke: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return ink
+            case .classic: return Color.primary.opacity(0.08)
+            }
+        }
         /// Primary foreground (text, icon) — adaptive to colorScheme.
-        static let onSurface = ink
+        static var onSurface: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return ink
+            case .classic: return .primary
+            }
+        }
         /// Muted foreground (subtitles, captions) — adaptive to colorScheme.
-        static let onSurfaceMuted = mutedInk
+        static var onSurfaceMuted: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return mutedInk
+            case .classic: return .secondary
+            }
+        }
         /// Accent — brand pink, used for active states and CTAs.
         static let accent = biliPink
         /// Success (download complete, etc.).
-        static let success = ink
+        static var success: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return ink
+            case .classic: return .green
+            }
+        }
         /// Warning (rate-limit, slow network).
-        static let warning = biliPink
+        static var warning: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return biliPink
+            case .classic: return .orange
+            }
+        }
         /// Error (network failure, parse failure).
-        static let error = biliPink
+        static var error: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return biliPink
+            case .classic: return .red
+            }
+        }
     }
 
     // MARK: - Typography roles
@@ -120,24 +308,76 @@ enum PaladalaTheme {
         /// Brand/editorial display face. The system rounded face gives Latin
         /// text a geometric silhouette while preserving complete CJK and
         /// Dynamic Type fallback without shipping multi-megabyte web fonts.
-        static let displayLarge: Font = .system(size: 36, weight: .black, design: .rounded)
-        static let displayMedium: Font = .system(size: 28, weight: .black, design: .rounded)
-        static let headline: Font = .system(size: 24, weight: .bold, design: .default)
-        static let body: Font = .system(size: 16, weight: .regular, design: .default)
-        static let bodySmall: Font = .system(size: 14, weight: .regular, design: .default)
-        static let labelMono: Font = .system(size: 12, weight: .medium, design: .monospaced)
+        /// In the classic variant, falls back to `.largeTitle` so callers
+        /// that adopt the new role don't crash.
+        static var displayLarge: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 36, weight: .black, design: .rounded)
+            case .classic: return .largeTitle
+            }
+        }
+        static var displayMedium: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 28, weight: .black, design: .rounded)
+            case .classic: return .title
+            }
+        }
+        static var headline: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 24, weight: .bold, design: .default)
+            case .classic: return .headline
+            }
+        }
+        static var body: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 16, weight: .regular, design: .default)
+            case .classic: return .body
+            }
+        }
+        static var bodySmall: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 14, weight: .regular, design: .default)
+            case .classic: return .callout
+            }
+        }
+        static var labelMono: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 12, weight: .medium, design: .monospaced)
+            case .classic: return .caption2
+            }
+        }
         /// Card / row title — same weight as a section title but smaller.
-        static let cardTitle: Font = .system(size: 16, weight: .bold, design: .rounded)
+        static var cardTitle: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 16, weight: .bold, design: .rounded)
+            case .classic: return .headline
+            }
+        }
         /// Section header in a scroll view — slightly larger.
-        static let sectionHeader: Font = .system(size: 20, weight: .black, design: .rounded)
+        static var sectionHeader: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 20, weight: .black, design: .rounded)
+            case .classic: return .title3.weight(.semibold)
+            }
+        }
         /// Large icon for an empty / placeholder state.
         static let emptyStateIcon: Font = .system(size: 56, weight: .light)
         /// Very large hero icon (onboarding).
         static let heroIcon: Font = .system(size: 96, weight: .light)
         /// Live / LIVE badge inside a card.
-        static let badge: Font = .system(size: 11, weight: .bold, design: .monospaced)
+        static var badge: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return .system(size: 11, weight: .bold, design: .monospaced)
+            case .classic: return .caption2.weight(.bold)
+            }
+        }
         /// Compact monospaced caption (log viewer timestamps).
-        static let monospacedCaption: Font = labelMono
+        static var monospacedCaption: Font {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return labelMono
+            case .classic: return .system(.caption2, design: .monospaced)
+            }
+        }
     }
 
     // MARK: - Deprecated aliases
@@ -179,6 +419,10 @@ enum ThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Glass material used by the per-view glass modifiers
+/// (`.paladalaCardSurface`, nav bars, toolbars). Unrelated to
+/// the top-level `DesignVariant` — this is a SwiftUI material
+/// choice, not a design language.
 enum MaterialDesign: String, CaseIterable, Identifiable {
     case material3
     case liquidGlass
@@ -187,8 +431,8 @@ enum MaterialDesign: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .material3: "街头极简"
-        case .liquidGlass: "街头硬影"
+        case .material3: "Material 3"
+        case .liquidGlass: "Liquid Glass"
         }
     }
 }
