@@ -48,6 +48,32 @@ struct HomeView: View {
         return [GridItem(.flexible(), alignment: .top)]
     }
 
+    /// Street-style search bar extracted out of `body` so the
+    /// body expression stays under the Swift type-checker
+    /// budget.  Lives in `.safeAreaInset(edge: .top)` so it
+    /// sits flush with the nav bar above and pushes the feed
+    /// content below.
+    private var searchBar: some View {
+        UISearchFieldBridge(
+            text: $model.searchQuery,
+            prompt: "搜索 Bilibili 视频和 UP 主",
+            onQueryChanged: { query in
+                model.searchQueryChanged(query, repository: repository)
+            },
+            onSubmit: {
+                model.clearSuggestions()
+                model.category = .search
+                Task {
+                    await model.load(repository: repository, accountMid: accountMid)
+                    await model.runAllSearch(repository: repository)
+                }
+            }
+        )
+        .padding(.horizontal, PaladalaTheme.Spacing.l)
+        .padding(.vertical, PaladalaTheme.Spacing.s)
+        .background(PaladalaTheme.paper)
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             feedContent(scrollProxy: proxy)
@@ -69,26 +95,15 @@ struct HomeView: View {
                 // trade-off is that `.searchSuggestions` no
                 // longer wires up automatically — see the
                 // bridge's doc-comment for follow-up.
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    UISearchFieldBridge(
-                        text: $model.searchQuery,
-                        prompt: "搜索 Bilibili 视频和 UP 主",
-                        onQueryChanged: { query in
-                            model.searchQueryChanged(query, repository: repository)
-                        },
-                        onSubmit: {
-                            model.clearSuggestions()
-                            model.category = .search
-                            Task {
-                                await model.load(repository: repository, accountMid: accountMid)
-                                await model.runAllSearch(repository: repository)
-                            }
-                        }
-                    )
-                    .padding(.horizontal, PaladalaTheme.Spacing.l)
-                    .padding(.vertical, PaladalaTheme.Spacing.s)
-                    .background(PaladalaTheme.paper)
-                }
+                //
+                // Extracted into `searchBar` (private computed
+                // property) so the body expression stays
+                // readable for the Swift type-checker.  The
+                // previous in-place chain timed out at
+                // `HomeView.swift:51: the compiler is unable
+                // to type-check this expression in reasonable
+                // time` (build #451).
+                .safeAreaInset(edge: .top, spacing: 0) { searchBar }
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         // 离线缓存 quick access. Lives in the top
