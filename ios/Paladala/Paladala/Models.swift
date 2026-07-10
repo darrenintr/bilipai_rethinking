@@ -203,6 +203,11 @@ struct BiliAllSearchResults: Sendable {
     var bangumi: [VideoDTO] = []    // raw DTOs; the UI can re-decode via BangumiCard
     var liveRooms: [VideoDTO] = []  // ditto
     var articles: [VideoDTO] = []   // ditto
+
+    var isEmpty: Bool {
+        videos.isEmpty && users.isEmpty && bangumi.isEmpty
+            && liveRooms.isEmpty && articles.isEmpty
+    }
 }
 
 // MARK: - 番剧 (Bangumi / PGC season)
@@ -267,12 +272,6 @@ extension BangumiDay {
         case 7: "周日"
         default: "周\(weekday)"
         }
-    }
-}
-
-    var isEmpty: Bool {
-        videos.isEmpty && users.isEmpty && bangumi.isEmpty
-            && liveRooms.isEmpty && articles.isEmpty
     }
 }
 
