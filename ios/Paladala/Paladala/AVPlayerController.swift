@@ -843,7 +843,25 @@ final class PlayerController: ObservableObject {
                 // BRK trap (SIGTRAP).  See build 225
                 // `Paladala-2026-07-10-111410.ips` for the
                 // matching crash trace.
-                let artwork = Self.makeNowPlayingArtwork(for: image)
+                //
+                // Build 226 (b88183a) put the factory on
+                // `PlayerController` as a `static func` and
+                // assumed that would escape the @MainActor
+                // inference.  It did not: `static` members on a
+                // `@MainActor` class inherit the actor's
+                // isolation, and the requestHandler closure
+                // literal was still inferred as `@MainActor`,
+                // tripping the same BRK trap on the same
+                // `*/accessQueue` — see build 226
+                // `Paladala-2026-07-10-113506.ips`, faultingThread
+                // 17, frames `dispatch_assert_queue_fail` →
+                // `swift_task_isCurrentExecutorWithFlagsImpl` →
+                // `closure #1 in static
+                // PlayerController.makeNowPlayingArtwork(for:)`.
+                // Build 227 moves the factory to a top-level
+                // `enum` with no actor isolation at all so the
+                // closure literal cannot inherit one.
+                let artwork = NowPlayingArtworkFactory.make(for: image)
                 await MainActor.run { [weak self] in
                     self?.nowPlayingArtwork = artwork
                     self?.updateNowPlaying()
@@ -895,34 +913,6 @@ final class PlayerController: ObservableObject {
                     ])
             return nil
         }
-    }
-
-    /// Wrap `image` in an `MPMediaItemArtwork` for the Lock
-    /// Screen / Control Center / CarPlay art.
-    ///
-    /// **Must be called from a non-MainActor context.**  The
-    /// `requestHandler` closure is stored by the system and
-    /// invoked asynchronously on a private dispatch queue
-    /// (`MPNowPlayingInfoCenter`'s `*/accessQueue`) whenever
-    /// Lock Screen / Now Playing needs to draw the artwork.
-    /// If the closure is constructed inside a `MainActor`
-    /// isolation domain, the Swift 6 compiler infers it as
-    /// `@MainActor` and the runtime trips a
-    /// `dispatch_assert_queue_fail` BRK trap the first time
-    /// the system calls it off-main — see build 225
-    /// `Paladala-2026-07-10-111410.ips`, faultingThread 9,
-    /// frames: `dispatch_assert_queue_fail` →
-    /// `swift_task_isCurrentExecutorWithFlagsImpl` →
-    /// `PlayerController.init(playback:video:)` closure #1.
-    ///
-    /// Keeping the construction in this `nonisolated static`
-    /// factory means the closure body has no inferred
-    /// isolation; it just returns the captured `UIImage`,
-    /// which is `@unchecked Sendable`.  The caller is then
-    /// free to assign the resulting artwork to a
-    /// MainActor-isolated property from any thread.
-    private static func makeNowPlayingArtwork(for image: UIImage) -> MPMediaItemArtwork {
-        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     // MARK: playback orchestration
@@ -2158,5 +2148,40 @@ final class PlayerController: ObservableObject {
                 NotificationCenter.default.removeObserver($0)
             }
         }
+    }
+}
+
+/// Wrap a downloaded cover `UIImage` in an `MPMediaItemArtwork` for
+/// the Lock Screen / Control Center / CarPlay art surfaces.
+///
+/// **Why this lives at file scope, not on `PlayerController`.**
+/// `PlayerController` is a `@MainActor` `ObservableObject`. Static
+/// (and instance) members on a `@MainActor` type inherit the actor's
+/// isolation even when annotated `nonisolated`, and the `requestHandler`
+/// closure literal `{ _ in image }` is then inferred as `@MainActor`.
+/// The system stores that closure and invokes it asynchronously on
+/// `MPNowPlayingInfoCenter`'s private `*/accessQueue` dispatch lane
+/// whenever Lock Screen / Now Playing needs to redraw the artwork —
+/// a `@MainActor` closure called off-main trips
+/// `dispatch_assert_queue_fail` → BRK trap (SIGTRAP).
+///
+/// Build 225 (artwork literal inside `MainActor.run`) hit this on
+/// `PlayerController.init` (see `Paladala-2026-07-10-111410.ips`).
+/// Build 226 (commit `b88183a`) moved the literal into a `static func`
+/// on the same class — *still* `@MainActor`-isolated, *still* BRK
+/// trapped on the same `*/accessQueue` (see
+/// `Paladala-2026-07-10-113506.ips`, faultingThread 17,
+/// `closure #1 in static PlayerController.makeNowPlayingArtwork`).
+///
+/// Build 227 moves the factory to a top-level `enum` with no actor
+/// isolation at all.  The closure literal now has no `@MainActor`
+/// isolation to inherit — the closure body only captures the
+/// `UIImage` argument, which is `@unchecked Sendable`, so it is
+/// safe to invoke from any executor.  The caller is then free to
+/// assign the resulting artwork to a `@MainActor`-isolated property
+/// from `MainActor.run`.
+private enum NowPlayingArtworkFactory {
+    static func make(for image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 }
