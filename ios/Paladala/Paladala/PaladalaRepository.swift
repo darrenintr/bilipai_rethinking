@@ -103,6 +103,16 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
         bundled.samples(for: category)
     }
 
+    /// 番剧时间表 (PGC weekly timeline).  Wraps
+    /// `BilibiliAPIClient.bangumiTimeline(...)` so the view
+    /// only depends on the repository.  Returns the full
+    /// seven-day list in weekday order; days with no
+    /// updates carry an empty `cards` array (upstream
+    /// always includes the day stub).
+    func bangumiTimeline(types: Int = 1) async throws -> [BangumiDay] {
+        try await apiClient.bangumiTimeline(types: types)
+    }
+
     func detail(for video: BiliVideo) async throws -> BiliVideo {
         guard !video.bvid.isEmpty || video.aid > 0 else { return video }
         return try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)

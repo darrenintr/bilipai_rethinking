@@ -666,6 +666,103 @@ final class BilibiliAPIClient: @unchecked Sendable {
         )
     }
 
+    /// 番剧时间表.  Hits the public
+    /// `/pgc/web/timeline` endpoint which returns seven
+    /// "days" (周一 … 周日) with the season cards that
+    /// update each day.  No WBI signing required — the
+    /// endpoint is anonymous.
+    ///
+    /// Parameters
+    ///  - `types`: 1 for 番剧 (default), 4 for 国创.
+    ///  - `before` / `after`: how many days before/after
+    ///    today to include; `6 / 6` covers a full week.
+    ///
+    /// Returns seven `BangumiDay`s, one per weekday, sorted
+    /// ascending by `weekday` so the UI can start the row
+    /// at Monday regardless of when the user opened the
+    /// surface.  Days with no updates return an empty
+    /// `cards` array (upstream still includes the day
+    /// stub).
+    func bangumiTimeline(types: Int = 1, before: Int = 6, after: Int = 6) async throws -> [BangumiDay] {
+        let payload: APIResponse<BangumiTimelinePayload> = try await get(
+            baseURL: baseURL,
+            path: "/pgc/web/timeline",
+            queryItems: [
+                URLQueryItem(name: "types", value: "\(types)"),
+                URLQueryItem(name: "before", value: "\(before)"),
+                URLQueryItem(name: "after", value: "\(after)")
+            ]
+        )
+        try payload.requireOK()
+        let days = payload.value?.days ?? []
+        return days.compactMap(Self.makeDay(from:))
+    }
+
+    /// DTO → BangumiDay conversion.  Lifted to a private
+    /// static so `bangumiTimeline(...)` can stay flat and so
+    /// a future `BangumiIndex` / `BangumiDetail` can reuse
+    /// the same projection if upstream ever unifies the
+    /// payloads.
+    private static func makeDay(from dto: BangumiTimelineDay) -> BangumiDay? {
+        let cards: [BangumiCard] = dto.episodes.compactMap { ep -> BangumiCard? in
+            guard let season = ep.season,
+                  let seasonId = season.seasonId else {
+                return nil
+            }
+            let title = season.title ?? ""
+            let cover = season.cover.flatMap(URL.init(string:))
+            let pubIndex = ep.pubIndex ?? ""
+            let pubTime = ep.pubTime ?? ""
+            let updateDescription: String
+            if !pubIndex.isEmpty {
+                updateDescription = "更新至\(pubIndex)"
+            } else if !pubTime.isEmpty {
+                updateDescription = pubTime
+            } else {
+                updateDescription = "即将开播"
+            }
+            let badge: String?
+            if let isPublished = ep.isPublished, isPublished == 0 {
+                badge = "未开播"
+            } else {
+                badge = nil
+            }
+            // Canonical share URL.  PGC plays live at
+            // /bangumi/play/ss<season_id>; the upstream
+            // also returns `share_url` for some rows but
+            // not all, so we always build the canonical
+            // form here for consistency.
+            let shareURL = URL(string: "https://www.bilibili.com/bangumi/play/ss\(seasonId)")
+            return BangumiCard(
+                seasonId: seasonId,
+                title: title,
+                coverURL: cover,
+                updateDescription: updateDescription,
+                badgeText: badge,
+                shareURL: shareURL
+            )
+        }
+        return BangumiDay(
+            weekday: dto.weekday,
+            weekdayLabel: weekdayLabel(for: dto.weekday),
+            date: dto.date,
+            cards: cards
+        )
+    }
+
+    private static func weekdayLabel(for weekday: Int) -> String {
+        switch weekday {
+        case 1: "周一"
+        case 2: "周二"
+        case 3: "周三"
+        case 4: "周四"
+        case 5: "周五"
+        case 6: "周六"
+        case 7: "周日"
+        default: "周\(weekday)"
+        }
+    }
+
     /// Internal helper for one-off search-type slots used by
     /// `searchAll(...)`. Returns the raw `result` array so
     /// the caller can decide how to decode — keeps the
@@ -2062,6 +2159,56 @@ private struct WbiImage: Decodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case imgURL = "img_url"
         case subURL = "sub_url"
+    }
+}
+
+// MARK: - 番剧时间表 (PGC /pgc/web/timeline) DTO
+//
+// Private response shapes for the bangumi timeline endpoint.
+// Kept private to this file so the public API only surfaces
+// the hand-built `BangumiDay` / `BangumiCard` types from
+// `Models.swift`.  Field names follow the upstream PGC
+// payload (`day_of_week` / `pub_index` / `is_published` /
+// `season_id`); Sendable because the surrounding API
+// surface is `@unchecked Sendable`.
+
+private struct BangumiTimelinePayload: Decodable, Sendable {
+    let days: [BangumiTimelineDay]
+    enum CodingKeys: String, CodingKey { case days = "result" }
+}
+
+private struct BangumiTimelineDay: Decodable, Sendable {
+    let date: String?
+    let weekday: Int
+    let episodes: [BangumiTimelineEpisode]
+    enum CodingKeys: String, CodingKey {
+        case date
+        case weekday = "day_of_week"
+        case episodes
+    }
+}
+
+private struct BangumiTimelineEpisode: Decodable, Sendable {
+    let pubIndex: String?
+    let pubTime: String?
+    let isPublished: Int?
+    let season: BangumiTimelineSeason?
+    enum CodingKeys: String, CodingKey {
+        case pubIndex = "pub_index"
+        case pubTime = "pub_time"
+        case isPublished = "is_published"
+        case season
+    }
+}
+
+private struct BangumiTimelineSeason: Decodable, Sendable {
+    let seasonId: Int64?
+    let title: String?
+    let cover: String?
+    enum CodingKeys: String, CodingKey {
+        case seasonId = "season_id"
+        case title
+        case cover
     }
 }
 
