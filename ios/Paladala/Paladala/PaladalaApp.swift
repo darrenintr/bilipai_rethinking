@@ -12,10 +12,16 @@ struct PaladalaApp: App {
     @StateObject private var miniPlayerStore = MiniPlayerStore()
     @AppStorage("paladala.themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+    @AppStorage("paladala.designVariant") private var designVariant: DesignVariant = .streetRedesign
     @AppStorage("paladala.streetMigrationVersion") private var streetMigrationVersion = 0
 
     init() {
         Self.configureStreetAppearance()
+        // PR-fix-2026-07-10: apply the persisted design variant
+        // before any view renders so the very first paint
+        // already uses the right token values.  `RootView`
+        // also reapplies on `onChange` to cover runtime toggles.
+        PaladalaTheme.apply(designVariant)
         // PR-fix-2026-07-10: register the BG task handler during
         // the launch window.  Previously this happened in
         // `body.onAppear`, but iOS 26 Beta aborts when
@@ -102,6 +108,17 @@ struct PaladalaApp: App {
                 .font(PaladalaTheme.FontRole.body)
                 .tint(PaladalaTheme.biliPink)
                 .preferredColorScheme(themeMode.colorScheme)
+                // PR-fix-2026-07-10: reapply the design variant
+                // whenever the user flips the Settings toggle.
+                // `PaladalaTheme` tokens are `static var` computed
+                // off `activeVariant`; this hook is the single
+                // place that mutates that global so every view
+                // re-render reads the new values.  `init()` also
+                // calls `apply` once on launch so the very first
+                // frame is already on the right variant.
+                .onChange(of: designVariant) { _, newValue in
+                    PaladalaTheme.apply(newValue)
+                }
                 .onAppear {
                     // Preserve the stored enum/raw-value contract while moving
                     // existing installs onto the elevated hard-shadow variant.

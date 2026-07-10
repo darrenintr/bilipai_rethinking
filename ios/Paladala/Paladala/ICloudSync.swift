@@ -32,6 +32,7 @@ final class ICloudSync: ObservableObject {
     static let mirroredKeys: [String] = [
         "paladala.themeMode",
         "paladala.materialDesign",
+        "paladala.designVariant",
         "paladala.danmakuEnabled",
         "paladala.backgroundAudio"
     ]

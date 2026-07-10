@@ -42,6 +42,7 @@ struct ProfileSettingsView: View {
     @StateObject private var profileModel = ProfileViewModel()
     @AppStorage("paladala.themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
+    @AppStorage("paladala.designVariant") private var designVariant: DesignVariant = .streetRedesign
     @AppStorage("paladala.danmakuEnabled") private var danmakuEnabled = true
     @AppStorage("paladala.backgroundAudio") private var backgroundAudio = false
     /// When `true` (default), navigating away from a playing
@@ -121,23 +122,28 @@ struct ProfileSettingsView: View {
                         value: newValue.rawValue
                     )
                 }
-                HStack {
-                    Label("界面设计", systemImage: "square.grid.3x3.square")
-                    Spacer()
-                    Text("STREET MINIMAL")
-                        .font(PaladalaTheme.FontRole.labelMono)
-                        .foregroundStyle(PaladalaTheme.ink)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(PaladalaTheme.biliPink)
-                        .overlay {
-                            Rectangle()
-                                .strokeBorder(
-                                    PaladalaTheme.ink,
-                                    lineWidth: PaladalaTheme.hairlineWidth
-                                )
-                        }
+                Picker("界面设计", selection: $designVariant) {
+                    ForEach(DesignVariant.allCases) { variant in
+                        Text(variant.title).tag(variant)
+                    }
                 }
+                .onChange(of: designVariant) { _, newValue in
+                    // The picker writes to `UserDefaults`
+                    // automatically; we additionally reapply
+                    // it to the static `PaladalaTheme` enum
+                    // so all computed tokens flip in the
+                    // current render pass.  iCloud-mirrored
+                    // so the choice follows the user across
+                    // their other devices.
+                    PaladalaTheme.apply(newValue)
+                    ICloudSync.shared.mirror(
+                        key: "paladala.designVariant",
+                        value: newValue.rawValue
+                    )
+                }
+                Text(designVariant.blurb)
+                    .font(PaladalaTheme.FontRole.bodySmall)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
             }
 
             Section("播放设置") {
