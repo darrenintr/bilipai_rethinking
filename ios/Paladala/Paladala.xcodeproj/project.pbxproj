@@ -16,6 +16,7 @@
 		100000000000000000000107 /* ViewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000207 /* ViewModels.swift */; };
 		100000000000000000000108 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000208 /* RootView.swift */; };
 		100000000000000000000109 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000209 /* HomeView.swift */; };
+		FA00000000000000000000B1 /* UISearchFieldBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA00000000000000000000F1 /* UISearchFieldBridge.swift */; };
 		10000000000000000000010A /* VideoDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020A /* VideoDetailView.swift */; };
 		10000000000000000000010B /* DynamicFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020B /* DynamicFeedView.swift */; };
 		10000000000000000000010C /* LiveRoomsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020C /* LiveRoomsView.swift */; };
@@ -100,6 +101,7 @@
 		100000000000000000000207 /* ViewModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels.swift; sourceTree = "<group>"; };
 		100000000000000000000208 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		100000000000000000000209 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		FA00000000000000000000F1 /* UISearchFieldBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UISearchFieldBridge.swift; sourceTree = "<group>"; };
 		10000000000000000000020A /* VideoDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDetailView.swift; sourceTree = "<group>"; };
 		10000000000000000000020B /* DynamicFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicFeedView.swift; sourceTree = "<group>"; };
 		10000000000000000000020C /* LiveRoomsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveRoomsView.swift; sourceTree = "<group>"; };
@@ -226,6 +228,7 @@
 				100000000000000000000207 /* ViewModels.swift */,
 				100000000000000000000208 /* RootView.swift */,
 				100000000000000000000209 /* HomeView.swift */,
+				FA00000000000000000000F1 /* UISearchFieldBridge.swift */,
 				10000000000000000000020A /* VideoDetailView.swift */,
 				10000000000000000000020B /* DynamicFeedView.swift */,
 				10000000000000000000020C /* LiveRoomsView.swift */,
@@ -539,6 +542,7 @@
 				100000000000000000000107 /* ViewModels.swift in Sources */,
 				100000000000000000000108 /* RootView.swift in Sources */,
 				100000000000000000000109 /* HomeView.swift in Sources */,
+				FA00000000000000000000B1 /* UISearchFieldBridge.swift in Sources */,
 				10000000000000000000010A /* VideoDetailView.swift in Sources */,
 				10000000000000000000010B /* DynamicFeedView.swift in Sources */,
 				10000000000000000000010C /* LiveRoomsView.swift in Sources */,
