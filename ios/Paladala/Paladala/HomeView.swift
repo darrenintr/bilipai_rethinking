@@ -59,36 +59,36 @@ struct HomeView: View {
                 // scroll returns to top. The system handles
                 // the animation; we just enable the mode.
                 .navigationBarTitleDisplayMode(.inline)
-                // System-provided search bar. Replaces the
-                // hand-rolled pill surface in `feedContent` —
-                // gets the magnifying-glass icon, clear
-                // button, cancel affordance, and search scopes
-                // integration for free.
-                .searchable(
-                    text: $model.searchQuery,
-                    placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "搜索 Bilibili 视频和 UP 主"
-                )
-                // Keystroke-rate suggestions + debounced fetch +
-                // submit handler — bundled into a single modifier
-                // to keep the body expression small enough that
-                // the SwiftUI type-checker can finish in its
-                // budget.  See `HomeSearchModifier` below.
-                .modifier(HomeSearchModifier(
-                    query: $model.searchQuery,
-                    suggestions: model.searchSuggestions,
-                    onQueryChanged: { query in
-                        model.searchQueryChanged(query, repository: repository)
-                    },
-                    onSubmit: {
-                        model.clearSuggestions()
-                        model.category = .search
-                        Task {
-                            await model.load(repository: repository, accountMid: accountMid)
-                            await model.runAllSearch(repository: repository)
+                // PR-fix-2026-07-10: replace `.searchable` with
+                // a hand-rolled `UISearchFieldBridge` so the
+                // search bar carries Street Minimal chrome
+                // (paper background, 1.5pt ink border, no
+                // rounding, SF-Symbol magnifier).  The system
+                // `.searchable` rendered a glass capsule that
+                // didn't fit the rest of the chrome.  The
+                // trade-off is that `.searchSuggestions` no
+                // longer wires up automatically — see the
+                // bridge's doc-comment for follow-up.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    UISearchFieldBridge(
+                        text: $model.searchQuery,
+                        prompt: "搜索 Bilibili 视频和 UP 主",
+                        onQueryChanged: { query in
+                            model.searchQueryChanged(query, repository: repository)
+                        },
+                        onSubmit: {
+                            model.clearSuggestions()
+                            model.category = .search
+                            Task {
+                                await model.load(repository: repository, accountMid: accountMid)
+                                await model.runAllSearch(repository: repository)
+                            }
                         }
-                    }
-                ))
+                    )
+                    .padding(.horizontal, PaladalaTheme.Spacing.l)
+                    .padding(.vertical, PaladalaTheme.Spacing.s)
+                    .background(PaladalaTheme.paper)
+                }
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         // 离线缓存 quick access. Lives in the top
@@ -890,51 +890,18 @@ private struct DynamicPostCard: View {
     }
 }
 
-/// ViewModifier that bundles `.searchSuggestions` +
-/// `.onChange(of: query)` + `.onSubmit(of: .search)` so the
-/// home `body` expression stays under the SwiftUI type-checker
-/// budget.  The previous in-place chain was timing out at
-/// `HomeView.swift:44: the compiler is unable to type-check this
-/// expression in reasonable time` (build-198 CI failure).
-///
-/// Tapping a suggestion row fills the search field with the
-/// suggestion's `displayName` (via `.searchCompletion`) and
-/// triggers `.onSubmit(of: .search)` — the same code path
-/// the user hits when they tap the keyboard's search button.
-private struct HomeSearchModifier: ViewModifier {
-    @Binding var query: String
-    let suggestions: [BiliSearchSuggestion]
-    let onQueryChanged: (String) -> Void
-    let onSubmit: () -> Void
-
-    func body(content: Content) -> some View {
-        content
-            // `.searchSuggestions` takes a `@ViewBuilder`
-            // closure of suggestion rows; the tap-to-fill
-            // behavior is wired via `.searchCompletion(_:)`
-            // on each row, which is what `.searchable` looks
-            // for when the user taps a suggestion.
-            .searchSuggestions {
-                ForEach(suggestions) { suggestion in
-                    SuggestionRow(suggestion: suggestion)
-                        .searchCompletion(suggestion.displayName)
-                }
-            }
-            .onChange(of: query) { _, newQuery in
-                onQueryChanged(newQuery)
-            }
-            .onSubmit(of: .search) {
-                onSubmit()
-            }
-    }
-}
-
 /// One row in the `.searchSuggestions` list. Renders the raw
 /// upstream HTML (with `<em class="suggest_high_light">` spans)
 /// via `AttributedString` so the matched substring lights up in
 /// pink. Falls back to the plain-text `displayName` if HTML
 /// decoding fails (which can happen if the upstream changes its
 /// highlight markup).
+///
+/// Note: 2026-07-10 — `.searchSuggestions` is no longer wired
+/// in `HomeView` (we use `UISearchFieldBridge` instead, which
+/// doesn't integrate with the system suggestion pipeline).  This
+/// row type is kept for the day someone re-introduces a
+/// SwiftUI-driven suggestion list beside the bridge.
 private struct SuggestionRow: View {
     let suggestion: BiliSearchSuggestion
 
