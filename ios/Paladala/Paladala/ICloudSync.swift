@@ -99,12 +99,11 @@ final class ICloudSync: ObservableObject {
     }
 
     @objc private func handleIdentityChange(_ note: Notification) {
-        // PR-C Task 4: explicit `[weak self]` so the
-        // @Sendable Task closure doesn't capture a strong
-        // reference to this non-MainActor final class.
-        // `@objc` handlers can be invoked from arbitrary
-        // threads; the Task hops to MainActor to call
-        // self.refreshAvailability() and self.store.synchronize().
+        // `@objc` handlers can be invoked from arbitrary threads.
+        // The `Task` body inherits this class's @MainActor isolation
+        // (line 22), so the explicit `@MainActor` annotation is not
+        // required; we keep it for symmetry with the brief. `[weak
+        // self]` is retain discipline, not Sendable conformance.
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.refreshAvailability()
