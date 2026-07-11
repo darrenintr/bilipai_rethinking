@@ -2885,6 +2885,21 @@ struct VideoDTO: Decodable, Sendable {
     let viewCount: Int
     let danmakuCount: Int
     let likeCount: Int
+    /// Reply / comment count from the upstream `stat` block.
+    /// Bilibili feeds (`/x/web-interface/index/feed`, recommend
+    /// cards) and search results all return `stat` as a nested
+    /// object — `reply` is the comment-count key.  The previous
+    /// decoder only read `view` / `danmaku` / `like`, so the
+    /// home feed silently showed 0 comments for every video
+    /// even though `/x/web-interface/view` had the real number
+    /// ready to read.
+    let replyCount: Int
+    /// Publish timestamp from the upstream `pubdate` field
+    /// (Unix seconds).  Optional because some feed shapes
+    /// (history rows, dynamic-feed archive, search result
+    /// previews) don't surface it; the home card hides the
+    /// date row when this is `nil`.
+    let publishDate: Date?
     let description: String
     /// Owner's Bilibili `mid`. Read from `owner.mid` (the same
     /// nested container that owns `ownerName`). Surfaced on the
@@ -2904,6 +2919,8 @@ struct VideoDTO: Decodable, Sendable {
             viewCount: viewCount,
             danmakuCount: danmakuCount,
             likeCount: likeCount,
+            replyCount: replyCount,
+            publishDate: publishDate,
             description: description,
             ownerMid: ownerMid
         )
@@ -2947,6 +2964,24 @@ struct VideoDTO: Decodable, Sendable {
         viewCount = stat?.decodeInt(keys: ["view", "view_count"]) ?? container.decodeInt(keys: ["play"]) ?? 0
         danmakuCount = stat?.decodeInt(keys: ["danmaku"]) ?? container.decodeInt(keys: ["danmaku"]) ?? 0
         likeCount = stat?.decodeInt(keys: ["like"]) ?? 0
+        // `stat.reply` is the comment count.  Bilibili writes it
+        // on every `/x/web-interface/view` and most feed shapes
+        // but a few (search result previews) only surface
+        // `video_review` — accept both keys so the home card
+        // doesn't drop to 0 for those.
+        replyCount = stat?.decodeInt(keys: ["reply", "video_review"])
+            ?? container.decodeInt(keys: ["reply", "video_review"])
+            ?? 0
+        // `pubdate` is a Unix-seconds timestamp on the
+        // canonical /x/web-interface/view response.  Search
+        // results and history rows don't always include it;
+        // leave `nil` so the card hides the date row rather
+        // than rendering "1970-01-01" for the missing case.
+        if let pubdate = container.decodeInt64(keys: ["pubdate", "publish_date"]) {
+            publishDate = Date(timeIntervalSince1970: TimeInterval(pubdate))
+        } else {
+            publishDate = nil
+        }
     }
 }
 

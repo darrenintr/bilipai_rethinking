@@ -456,3 +456,69 @@ extension Int {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
+
+extension Date {
+    /// Compact Chinese relative-time label used on the home
+    /// `VideoCard` date row.
+    ///
+    ///  - "刚刚"  under 1 minute
+    ///  - "N 分钟前"  under 1 hour
+    ///  - "N 小时前"  under 24 hours
+    ///  - "N 天前"    under 30 days
+    ///  - "N 周前"    under 12 months
+    ///  - "N 个月前"  under 12 months
+    ///  - "N 年前"    older
+    ///  - "yyyy-MM-dd"  when the date is more than 1 year in
+    ///    the past, or any future date (server clock skew)
+    ///
+    /// `Locale.current` is used so the Chinese labels stay
+    /// natural on the iOS 26 zh-Hans / zh-Hant systems the
+    /// build targets; English / Japanese / Korean regions get
+    /// the same labels in their script as long as the
+    /// surrounding chrome is also localised.
+    var relativeDateLabel: String {
+        let now = Date()
+        let delta = now.timeIntervalSince(self)
+        // Future date — server clock skew or a scheduled premiere.
+        // Fall back to a calendar string so we don't render
+        // "刚刚" for a 2099 timestamp.
+        if delta < 0 {
+            return absoluteDateLabel
+        }
+        let minute: TimeInterval = 60
+        let hour: TimeInterval = 60 * minute
+        let day: TimeInterval = 24 * hour
+        let week: TimeInterval = 7 * day
+        let month: TimeInterval = 30 * day
+        let year: TimeInterval = 365 * day
+        if delta < minute {
+            return "刚刚"
+        }
+        if delta < hour {
+            return "\(Int(delta / minute)) 分钟前"
+        }
+        if delta < day {
+            return "\(Int(delta / hour)) 小时前"
+        }
+        if delta < week {
+            return "\(Int(delta / day)) 天前"
+        }
+        if delta < month {
+            return "\(Int(delta / week)) 周前"
+        }
+        if delta < year {
+            return "\(Int(delta / month)) 个月前"
+        }
+        return "\(Int(delta / year)) 年前"
+    }
+
+    /// `yyyy-MM-dd` short calendar form.  Used for older videos
+    /// (over a year ago) and for any future date that the
+    /// relative form would mis-render.
+    var absoluteDateLabel: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: self)
+    }
+}

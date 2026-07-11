@@ -482,6 +482,7 @@ private struct VideoListRow: View {
                 HStack(spacing: 10) {
                     Label(video.viewCount.compactCount, systemImage: "play.fill")
                     Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
+                    Label(video.replyCount.compactCount, systemImage: "text.bubble.fill")
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)

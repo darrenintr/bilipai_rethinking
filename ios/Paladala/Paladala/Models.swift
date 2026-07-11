@@ -80,6 +80,22 @@ struct BiliVideo: Identifiable, Hashable, Codable, Sendable {
     var viewCount: Int
     var danmakuCount: Int
     var likeCount: Int
+    /// Total reply / comment count.  Surfaced on `VideoCard`
+    /// so the home feed shows 评论数 next to 弹幕数 — without
+    /// this the upstream `/x/web-interface/view` `stat.reply`
+    /// value is silently dropped (the DTO only decoded view,
+    /// danmaku, and like). Defaults to `0` so feed entries
+    /// from sources that don't surface `stat.reply` (search
+    /// results, dynamic-feed archive rows) still render.
+    var replyCount: Int = 0
+    /// Publish date / time. Bilibili's `pubdate` field is a
+    /// Unix timestamp in seconds; we decode it as `Date?` and
+    /// render it on the card as a relative age
+    /// ("3 天前" / "2 周前" / "2024-12-01") via
+    /// `VideoCard.relativeDateLabel`. Defaults to `nil` so
+    /// feed entries that don't surface `pubdate` still
+    /// compile and render.
+    var publishDate: Date? = nil
     let description: String
     /// Owner's Bilibili `mid` (64-bit user id). Populated by
     /// `VideoDTO` from the `/x/web-interface/view` response;

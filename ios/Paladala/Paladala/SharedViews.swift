@@ -94,12 +94,38 @@ struct VideoCard: View {
                     HStack(spacing: 12) {
                         Label(video.viewCount.compactCount, systemImage: "play.fill")
                         Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
+                        // Reply / comment count.  The
+                        // `text.bubble.fill` SF Symbol is the
+                        // standard "comments" affordance on iOS
+                        // 17+; the older `text.bubble` (used for
+                        // danmaku above) would visually
+                        // duplicate, so use the fill variant
+                        // here to keep the two side-by-side
+                        // icons distinguishable.
+                        Label(video.replyCount.compactCount, systemImage: "text.bubble.fill")
                     }
                     .font(PaladalaTheme.FontRole.labelMono)
                     .foregroundStyle(PaladalaTheme.mutedInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
+                    // Publish date — `relativeDateLabel` returns
+                    // "刚刚" / "N 天前" / "yyyy-MM-dd" depending
+                    // on age.  We hide the row entirely when the
+                    // upstream didn't surface `pubdate` (search
+                    // previews, dynamic-feed archive rows) rather
+                    // than rendering a "—" placeholder.
+                    if let date = video.publishDate {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar")
+                                .font(PaladalaTheme.FontRole.labelMono)
+                            Text(date.relativeDateLabel)
+                                .font(PaladalaTheme.FontRole.labelMono)
+                        }
+                        .foregroundStyle(PaladalaTheme.mutedInk)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
                 }
                 .padding(16)
             }
