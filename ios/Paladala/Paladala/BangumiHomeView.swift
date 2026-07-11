@@ -389,7 +389,7 @@ struct BangumiSeasonDetailView: View {
             if isFetchingPgcPlayback {
                 pgcPlayerLoading
             } else if let err = pgcPlaybackError {
-                pgcPlayerError(message: err)
+                pgcPlayerError(ep: ep, message: err)
             } else if let c = pgcController {
                 pgcPlayerSurface(controller: c)
             }
@@ -446,7 +446,7 @@ struct BangumiSeasonDetailView: View {
         .padding(.vertical, PaladalaTheme.Spacing.m)
     }
 
-    private func pgcPlayerError(message: String) -> some View {
+    private func pgcPlayerError(ep: BangumiEpisode, message: String) -> some View {
         HStack(spacing: PaladalaTheme.Spacing.m) {
             Image(systemName: "exclamationmark.triangle")
                 .foregroundStyle(PaladalaTheme.biliPink)
@@ -761,6 +761,7 @@ struct BangumiSeasonDetailView: View {
         selectedEpisode = nil
     }
 
+    @MainActor
     private func fetchAndStartPgcPlayback(ep: BangumiEpisode) async {
         do {
             let playback = try await repository.pgcPlayback(
