@@ -703,26 +703,51 @@ final class BilibiliAPIClient: @unchecked Sendable {
     /// a future `BangumiIndex` / `BangumiDetail` can reuse
     /// the same projection if upstream ever unifies the
     /// payloads.
+    ///
+    /// The upstream `/pgc/web/timeline` response flattens
+    /// everything onto the episode object — there is no
+    /// `season` sub-object.  Fields we surface:
+    ///
+    ///   - `title`       → BangumiCard.title
+    ///   - `cover`       → BangumiCard.coverURL
+    ///   - `pub_index`   → BangumiCard.updateDescription
+    ///                    ("第42话" — passed through verbatim
+    ///                    because upstream already formats it;
+    ///                    older endpoints that returned a raw
+    ///                    integer were normalised here, but
+    ///                    timeline always sends the full string)
+    ///   - `pub_time`    → "MM-DD" of the upcoming slot if
+    ///                    pub_index is empty
+    ///   - `published`   → badge "未开播" when 0
+    ///   - `season_id`   → BangumiCard.seasonId + share URL
     private static func makeDay(from dto: BangumiTimelineDay) -> BangumiDay? {
         let cards: [BangumiCard] = dto.episodes.compactMap { ep -> BangumiCard? in
-            guard let season = ep.season,
-                  let seasonId = season.seasonId else {
+            guard let seasonId = ep.seasonId else {
                 return nil
             }
-            let title = season.title ?? ""
-            let cover = season.cover.flatMap(URL.init(string:))
+            let title = ep.title ?? "未知番剧"
+            // Upstream always sends a cover URL but guard
+            // against the unlikely missing-field case.
+            let cover = (ep.cover ?? ep.squareCover ?? ep.epCover)
+                .flatMap(URL.init(string:))
             let pubIndex = ep.pubIndex ?? ""
             let pubTime = ep.pubTime ?? ""
             let updateDescription: String
             if !pubIndex.isEmpty {
-                updateDescription = "更新至\(pubIndex)"
+                // pub_index is already formatted ("第42话"
+                // / "全12话" / etc.) so we pass it through.
+                updateDescription = pubIndex
             } else if !pubTime.isEmpty {
                 updateDescription = pubTime
             } else {
                 updateDescription = "即将开播"
             }
+            // `published` is `0` for not-yet-aired rows and
+            // `1` for everything else.  Some rows may not
+            // carry the field at all; treat absence as
+            // "published" (the safe default).
             let badge: String?
-            if let isPublished = ep.isPublished, isPublished == 0 {
+            if let published = ep.published, published == 0 {
                 badge = "未开播"
             } else {
                 badge = nil
@@ -2168,9 +2193,42 @@ private struct WbiImage: Decodable, Sendable {
 // Kept private to this file so the public API only surfaces
 // the hand-built `BangumiDay` / `BangumiCard` types from
 // `Models.swift`.  Field names follow the upstream PGC
-// payload (`day_of_week` / `pub_index` / `is_published` /
-// `season_id`); Sendable because the surrounding API
-// surface is `@unchecked Sendable`.
+// payload (verified against a live `curl` of the endpoint
+// on 2026-07-11 — see `scripts/probe_pgc_endpoints.py`):
+//
+//   {
+//     "code": 0,
+//     "result": [
+//       {
+//         "date": "7-5",
+//         "date_ts": 1783180800,
+//         "day_of_week": 7,
+//         "is_today": true,
+//         "episodes": [
+//           {
+//             "title": "假面骑士ZZZ",
+//             "cover": "https://i0.hdslb.com/.../88406f07...jpg",
+//             "square_cover": "...",
+//             "ep_cover": "...",
+//             "pub_index": "第42话",
+//             "pub_time": "10:00",
+//             "pub_ts": 1783216800,
+//             "published": 1,
+//             "season_id": 109700,
+//             "episode_id": 3781142,
+//             "follows": "-",
+//             "plays": "-",
+//             ...
+//           }
+//         ]
+//       }
+//     ]
+//   }
+//
+// Note: the `season` sub-object I assumed in the previous
+// revision does NOT exist — every field is flattened onto
+// the episode itself.  `published` is `0/1` (not
+// `is_published`).  This DTO is the corrected shape.
 
 private struct BangumiTimelinePayload: Decodable, Sendable {
     let days: [BangumiTimelineDay]
@@ -2179,36 +2237,39 @@ private struct BangumiTimelinePayload: Decodable, Sendable {
 
 private struct BangumiTimelineDay: Decodable, Sendable {
     let date: String?
+    let dateTs: Int64?
     let weekday: Int
+    let isToday: Bool?
     let episodes: [BangumiTimelineEpisode]
     enum CodingKeys: String, CodingKey {
         case date
+        case dateTs = "date_ts"
         case weekday = "day_of_week"
+        case isToday = "is_today"
         case episodes
     }
 }
 
 private struct BangumiTimelineEpisode: Decodable, Sendable {
-    let pubIndex: String?
-    let pubTime: String?
-    let isPublished: Int?
-    let season: BangumiTimelineSeason?
-    enum CodingKeys: String, CodingKey {
-        case pubIndex = "pub_index"
-        case pubTime = "pub_time"
-        case isPublished = "is_published"
-        case season
-    }
-}
-
-private struct BangumiTimelineSeason: Decodable, Sendable {
-    let seasonId: Int64?
     let title: String?
     let cover: String?
+    let squareCover: String?
+    let epCover: String?
+    let pubIndex: String?
+    let pubTime: String?
+    let published: Int?
+    let seasonId: Int64?
+    let episodeId: Int64?
     enum CodingKeys: String, CodingKey {
-        case seasonId = "season_id"
         case title
         case cover
+        case squareCover = "square_cover"
+        case epCover = "ep_cover"
+        case pubIndex = "pub_index"
+        case pubTime = "pub_time"
+        case published
+        case seasonId = "season_id"
+        case episodeId = "episode_id"
     }
 }
 
