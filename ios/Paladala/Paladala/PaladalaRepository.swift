@@ -126,6 +126,19 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
         try await apiClient.pgcSeason(epId: epId)
     }
 
+    /// PGC playurl (DASH source for the in-app PGC
+    /// player).  Pass-through to
+    /// `BilibiliAPIClient.pgcPlayurl(...)`; the view layer
+    /// never talks to the API client directly.  Returns
+    /// the same `BiliPlayback` shape that the UGC
+    /// `VideoDetailView` consumes, so the in-app PGC
+    /// player can drop straight into
+    /// `AVPlayerController.loadPlayback(...)` with no
+    /// further adapter.
+    func pgcPlayback(epId: Int64, seasonId: Int64? = nil) async throws -> BiliPlayback {
+        try await apiClient.pgcPlayurl(epId: epId, seasonId: seasonId)
+    }
+
     func detail(for video: BiliVideo) async throws -> BiliVideo {
         guard !video.bvid.isEmpty || video.aid > 0 else { return video }
         return try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)

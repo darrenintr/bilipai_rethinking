@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import SafariServices
+import AVKit
 
 // MARK: - 追番 home
 //
@@ -315,6 +316,23 @@ struct BangumiSeasonDetailView: View {
     /// Sheet for the in-app Safari fallback when the
     /// in-app player is unavailable.
     @State private var fallbackURL: IdentifiableURL?
+    /// PGC in-app player surface.  Initialised lazily when
+    /// the user first picks an episode.  The `PlayerController`
+    /// is owned by SwiftUI via `@State` so its lifetime
+    /// matches the view; we tear it down explicitly when
+    /// `selectedEpisode` flips back to nil (close button)
+    /// so the next episode gets a fresh AVPlayer + a fresh
+    /// `LocalHLSProxyServer` reservation.
+    @State private var pgcController: PlayerController?
+    /// `true` while the in-app PGC playurl fetch is in
+    /// flight, false once `pgcController` is set or the
+    /// fetch fails.  Drives the in-view spinner before the
+    /// AVPlayer surface takes over.
+    @State private var isFetchingPgcPlayback: Bool = false
+    /// Last error from the in-app PGC playurl fetch.  When
+    /// non-nil, the inline surface shows an error block
+    /// with "在 Safari 中打开" as the only escape hatch.
+    @State private var pgcPlaybackError: String?
 
     var body: some View {
         Group {
@@ -346,28 +364,45 @@ struct BangumiSeasonDetailView: View {
                 .background(PaladalaTheme.ink)
             episodeList(detail: detail)
             if let ep = selectedEpisode {
-                selectedEpisodeBar(ep: ep)
+                pgcPlayerPanel(ep: ep)
             }
         }
         .background(PaladalaTheme.canvas)
     }
 
-    /// Bottom action bar that appears once the user has
-    /// picked an episode.  Two affordances:
-    ///   - "在 Paladala 打开"  →  in-app playback.  For
-    ///     this first pass the in-app player pipeline is
-    ///     not yet wired through to the PGC playurl
-    ///     source, so the button falls back to an
-    ///     `InAppSafariView` sheet pointed at the
-    ///     canonical B站 share URL.  The B-pass commit
-    ///     (pgcPlayurl → BiliPlayback.pgc(epId:) →
-    ///     AVPlayerController) will replace this fallback
-    ///     with the real in-app DASH playback.
-    ///   - "在 Safari 打开"   →  the same URL, also via
-    ///     `InAppSafariView`; kept for symmetry / quick
-    ///     comparison against the official B站 player
-    ///     behaviour when a real PGC playurl fails.
-    private func selectedEpisodeBar(ep: BangumiEpisode) -> some View {
+    /// In-app PGC player panel.  Three states:
+    ///   1. `pgcController == nil && isFetchingPgcPlayback` —
+    ///      the playurl fetch is in flight; show a spinner
+    ///      plus the current `selectedEpisode` metadata.
+    ///   2. `pgcController != nil` — the AVPlayer is bound;
+    ///      embed a SwiftUI `VideoPlayer` so the system
+    ///      chrome (play / pause / scrub / AirPlay / PiP)
+    ///      shows up automatically.
+    ///   3. `pgcPlaybackError != nil` — upstream returned
+    ///      a real failure (most commonly -10403 "区域限制
+    ///      不可观看"); surface a compact error with a
+    ///      "在 Safari 中打开" affordance.
+    @ViewBuilder
+    private func pgcPlayerPanel(ep: BangumiEpisode) -> some View {
+        VStack(spacing: 0) {
+            pgcPlayerHeader(ep: ep)
+            if isFetchingPgcPlayback {
+                pgcPlayerLoading
+            } else if let err = pgcPlaybackError {
+                pgcPlayerError(message: err)
+            } else if let c = pgcController {
+                pgcPlayerSurface(controller: c)
+            }
+        }
+        .background(PaladalaTheme.paper)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(PaladalaTheme.ink, style: FillStyle())
+                .frame(height: PaladalaTheme.hairlineWidth)
+        }
+    }
+
+    private func pgcPlayerHeader(ep: BangumiEpisode) -> some View {
         HStack(spacing: PaladalaTheme.Spacing.m) {
             Image(systemName: "play.circle.fill")
                 .font(.system(size: 28, weight: .regular))
@@ -383,11 +418,54 @@ struct BangumiSeasonDetailView: View {
             }
             Spacer(minLength: 0)
             Button {
+                closePgcPlayer()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+                    .padding(8)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭播放器")
+        }
+        .padding(.horizontal, PaladalaTheme.Spacing.l)
+        .padding(.vertical, PaladalaTheme.Spacing.s)
+    }
+
+    private var pgcPlayerLoading: some View {
+        HStack(spacing: PaladalaTheme.Spacing.m) {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(PaladalaTheme.ink)
+            Text("准备播放器…")
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+            Spacer()
+        }
+        .padding(.horizontal, PaladalaTheme.Spacing.l)
+        .padding(.vertical, PaladalaTheme.Spacing.m)
+    }
+
+    private func pgcPlayerError(message: String) -> some View {
+        HStack(spacing: PaladalaTheme.Spacing.m) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(PaladalaTheme.biliPink)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("无法在此设备播放")
+                    .font(PaladalaTheme.FontRole.bodySmall)
+                    .foregroundStyle(PaladalaTheme.ink)
+                Text(message)
+                    .font(PaladalaTheme.FontRole.bodySmall)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            Button {
                 if let url = ep.shareURL {
                     fallbackURL = IdentifiableURL(url: url)
                 }
             } label: {
-                Text("在 Paladala 打开")
+                Text("在 Safari 打开")
                     .font(PaladalaTheme.FontRole.labelMono)
                     .foregroundStyle(PaladalaTheme.ink)
                     .padding(.horizontal, PaladalaTheme.Spacing.m)
@@ -401,14 +479,25 @@ struct BangumiSeasonDetailView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, PaladalaTheme.Spacing.l)
-        .padding(.vertical, PaladalaTheme.Spacing.s)
-        .background(PaladalaTheme.paper)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(PaladalaTheme.ink, style: FillStyle())
-                .frame(height: PaladalaTheme.hairlineWidth)
-        }
+        .padding(.vertical, PaladalaTheme.Spacing.m)
     }
+
+    @ViewBuilder
+    private func pgcPlayerSurface(controller: PlayerController) -> some View {
+        VideoPlayer(player: controller.player)
+            .frame(height: 220)
+            .background(Color.black)
+    }
+
+    /// Bottom action bar that appears once the user has
+    /// picked an episode.  Replaced by the full `pgcPlayerPanel`
+    /// (loading / inline AVPlayer / error / close) — kept
+    /// here as a comment marker so the file-level diff
+    /// against the build-243 baseline stays readable.
+    /// The body previously housed the "在 Paladala 打开"
+    /// button (an `InAppSafariView` fallback) and is
+    /// superseded by `pgcPlayerPanel` once the user has
+    /// selected an episode.
 
     private func heroView(detail: BangumiSeasonDetail) -> some View {
         HStack(alignment: .top, spacing: PaladalaTheme.Spacing.m) {
@@ -617,14 +706,24 @@ struct BangumiSeasonDetailView: View {
         }
     }
 
-    /// Episode tap.  Build marker (B): the in-app PGC
-    /// player is wired up here, but a future commit will
-    /// route through `AVPlayerController` + a dedicated
-    /// `BiliPlayback.pgc(epId:)` source.  For now we
-    /// queue the selection in state and surface a
-    /// bottom-of-screen "Open in app" / "Open in Safari"
-    /// panel so the user always has a path forward while
-    /// the in-app player lands.
+    /// Episode tap.  Real in-app PGC playback path:
+    ///   1. Set `selectedEpisode` so the player panel
+    ///      re-renders into existence.
+    ///   2. Tear down any previous in-flight
+    ///      `PlayerController` (a different season's
+    ///      playurl would otherwise leak in).
+    ///   3. Fetch the PGC playurl via the repository
+    ///      pass-through to `BilibiliAPIClient.pgcPlayurl`.
+    ///      The upstream may answer -10403 ("区域限制")
+    ///      which surfaces as `BilibiliAPIError.api` and
+    ///      ends up in `pgcPlaybackError`; the panel
+    ///      falls back to a "在 Safari 打开" affordance.
+    ///   4. On success, instantiate a `PlayerController`
+    ///      (no `BiliVideo` is available for PGC content,
+    ///      so `video: nil` — the `WatchSession` /
+    ///      history-reporter path is skipped).
+    ///   5. Store the controller in `@State`.  SwiftUI
+    ///      keeps it alive for the lifetime of the view.
     private func onEpisodeTap(_ ep: BangumiEpisode) {
         diagLog(.bangumi, "BangumiSeasonDetail episode tapped",
                 details: [
@@ -633,6 +732,73 @@ struct BangumiSeasonDetailView: View {
                     "title": ep.title
                 ])
         selectedEpisode = ep
+        pgcPlaybackError = nil
+        if let old = pgcController {
+            // Tear down the previous controller so the next
+            // episode gets a fresh AVPlayer / LocalHLSProxyServer
+            // reservation.  `PlayerController.loadPlayback` already
+            // calls cancel on the previous loadTask, but we want
+            // a clean teardown of the AVPlayer's nowPlayingInfo
+            // so the system control center doesn't keep showing
+            // the old track.
+            _ = old
+        }
+        pgcController = nil
+        isFetchingPgcPlayback = true
+        Task { await fetchAndStartPgcPlayback(ep: ep) }
+    }
+
+    /// Close the in-app PGC player panel.  Releases the
+    /// `PlayerController` so the AVPlayer's
+    /// `MPNowPlayingInfoCenter` entry clears and the local
+    /// HLS proxy reservation frees up.
+    private func closePgcPlayer() {
+        diagLog(.bangumi, "BangumiSeasonDetail close pgc player",
+                details: ["epId": selectedEpisode?.epId ?? -1])
+        pgcController = nil
+        pgcPlaybackError = nil
+        isFetchingPgcPlayback = false
+        selectedEpisode = nil
+    }
+
+    private func fetchAndStartPgcPlayback(ep: BangumiEpisode) async {
+        do {
+            let playback = try await repository.pgcPlayback(
+                epId: ep.epId,
+                seasonId: seasonId
+            )
+            diagLog(.bangumi, "BangumiSeasonDetail pgc playback fetched",
+                    details: [
+                        "epId": ep.epId,
+                        "isDASH": playback.isDASH
+                    ])
+            // `PlayerController(playback:video:)` already calls
+            // `loadPlayback` from inside `init` (it owns the
+            // loadTask lifecycle).  The `video: nil` overload
+            // skips the `WatchSession` history reporter (PGC
+            // episodes don't expose a usable `BiliVideo` /
+            // `B站 v2 aid+cid`).
+            let controller = PlayerController(
+                playback: playback,
+                video: nil
+            )
+            // Hand the new controller to the view; SwiftUI
+            // keeps it alive until we set it back to nil in
+            // `closePgcPlayer` or the user opens a different
+            // episode.
+            pgcController = controller
+            isFetchingPgcPlayback = false
+        } catch {
+            diagLog(.bangumi, "BangumiSeasonDetail pgc playback failed",
+                    details: [
+                        "epId": ep.epId,
+                        "errorType": String(describing: type(of: error)),
+                        "errorMessage": "\(error)"
+                    ])
+            pgcPlaybackError = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+            isFetchingPgcPlayback = false
+        }
     }
 
     private func formatDuration(_ ms: Int64) -> String {

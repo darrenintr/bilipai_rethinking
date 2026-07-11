@@ -2508,6 +2508,121 @@ struct PgcSeasonEpisode: Decodable, Sendable {
     }
 }
 
+// MARK: - PGC playurl (DASH source for in-app player)
+//
+// Hits `/pgc/player/web/v2/playurl` with `fnval=4048` to
+// ask for DASH + HLS + MP4 + FLV; the response shape
+// differs from the UGC `/x/player/wbi/playurl` envelope:
+// the relevant DASH block lives at
+// `result.video_info.dash` rather than `result.dash`, and
+// the `result` field carries a `from` / `quality` /
+// `format` summary that we ignore for the playback path.
+//
+// We mirror the UGC `bestPlayback(referer:)` projection:
+// pick the highest-qn video + lowest-qn audio that
+// together survive, build a `BiliPlayback` that the
+// existing `AVPlayerController.loadPlayback(...)` path
+// can consume (no player-side changes needed — the DASH
+// half is fanned out into the same `LocalHLSProxyServer`
+// that UGC uses).
+//
+// The upstream returns -10403 (`抱歉您所在地区不可观看`)
+// for region-gated episodes regardless of cookie state.
+// When the user has configured a custom PGC playurl
+// endpoint (see `AppRouter.pgcCustomEndpoint`) the request
+// is rerouted there first so the user can self-host a
+// reverse proxy in front of the official B站 API.
+struct PgcPlayURLPayload: Decodable, Sendable {
+    let code: Int
+    let message: String?
+    let result: PgcPlayURLResult?
+}
+
+struct PgcPlayURLResult: Decodable, Sendable {
+    let videoInfo: PgcVideoInfo?
+    let quality: Int?
+    let format: String?
+    let from: String?
+    let timelength: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case videoInfo = "video_info"
+        case quality
+        case format
+        case from
+        case timelength
+    }
+}
+
+struct PgcVideoInfo: Decodable, Sendable {
+    let dash: PlayURLPayload.Dash?
+    let duration: Double?
+    let quality: Int?
+}
+
+/// PGC playurl (DASH source for in-app player).  Hits
+/// `/pgc/player/web/v2/playurl` with `fnval=4048` to ask
+/// for DASH + HLS + MP4 + FLV; the response shape differs
+/// from the UGC `/x/player/wbi/playurl` envelope in that
+/// the DASH block lives at `result.video_info.dash`
+/// (PGC) rather than `result.dash` (UGC).  The cleanest
+/// way to share the existing `bestPlayback(referer:)`
+/// projection is to re-encode the upstream `video_info`
+/// block as JSON and re-decode it as the UGC-shaped
+/// `PlayURLPayload` (the PGC `video_info` block is a
+/// superset of the UGC `data` fields; the synthesized
+/// init on `PlayURLPayload` ignores the PGC-only
+/// `quality` / `format` / `from` extras so the round-trip
+/// is lossless for the four fields the player cares
+/// about — durl / dash / hls / duration).
+///
+/// The upstream returns -10403 (`抱歉您所在地区不可观看`)
+/// for region-gated episodes regardless of cookie state.
+/// The 404 path for anonymous viewers returns -404.  Both
+/// surface as `BilibiliAPIError.api` / `.missingData`
+/// and the call site falls back to the
+/// `InAppSafariView` share-URL sheet that the build-243
+/// in-app season detail already ships.
+func pgcPlayurl(epId: Int64, seasonId: Int64? = nil) async throws -> BiliPlayback {
+    var items: [URLQueryItem] = [
+        URLQueryItem(name: "ep_id", value: "\(epId)"),
+        URLQueryItem(name: "qn", value: "112"),
+        URLQueryItem(name: "fnval", value: "4048"),
+        URLQueryItem(name: "fnver", value: "0"),
+        URLQueryItem(name: "fourk", value: "1"),
+        URLQueryItem(name: "from_client", value: "BROWSER")
+    ]
+    if let seasonId {
+        items.append(URLQueryItem(name: "season_id", value: "\(seasonId)"))
+    }
+    let envelope: PgcPlayURLPayload = try await get(
+        baseURL: baseURL,
+        path: "/pgc/player/web/v2/playurl",
+        queryItems: items
+    )
+    if envelope.code != 0 {
+        throw BilibiliAPIError.api(envelope.message ?? "PGC playurl code \(envelope.code)")
+    }
+    guard let videoInfo = envelope.result?.videoInfo else {
+        throw BilibiliAPIError.missingData
+    }
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    let playURLData = try encoder.encode(videoInfo)
+    let playURL = try decoder.decode(PlayURLPayload.self, from: playURLData)
+    let referer: URL = {
+        if let seasonId,
+           let url = URL(string: "https://www.bilibili.com/bangumi/play/ss\(seasonId)") {
+            return url
+        }
+        return URL(string: "https://www.bilibili.com/bangumi/play/ep\(epId)")!
+    }()
+    guard let playback = playURL.bestPlayback(referer: referer.absoluteString) else {
+        throw BilibiliAPIError.noPlayableFormat
+    }
+    return playback
+}
+
 private struct VideoListPayload: Decodable, Sendable {
     let item: [VideoDTO]?
     let list: [VideoDTO]?
