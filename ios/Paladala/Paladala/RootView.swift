@@ -193,7 +193,12 @@ struct RootView: View {
         case "live":
             router.open(.live)
         case "music":
-            router.open(.music)
+            // 2026-07-11: music tab was removed in favour of
+            // 追番.  Redirect the existing `paladala://music`
+            // deep link so a previously-shared link still
+            // lands the user in a tabbed surface rather than
+            // silently breaking.
+            router.open(.bangumi)
         case "settings":
             router.open(.profile)
         case "search":
@@ -470,18 +475,18 @@ private struct PhoneRootView: View {
                 }
                 .tag(MainTab.live)
 
-                LazyTab(tag: MainTab.music, activeTag: router.selectedTab) {
-                    MusicHomeView(repository: repository)
+                LazyTab(tag: MainTab.bangumi, activeTag: router.selectedTab) {
+                    BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
                 }
                 .tabItem {
                     Label {
-                        Text(MainTab.music.title)
+                        Text(MainTab.bangumi.title)
                     } icon: {
-                        Image(systemName: MainTab.music.symbolName)
-                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.music)
+                        Image(systemName: MainTab.bangumi.symbolName)
+                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.bangumi)
                     }
                 }
-                .tag(MainTab.music)
+                .tag(MainTab.bangumi)
 
                 LazyTab(tag: MainTab.profile, activeTag: router.selectedTab) {
                     ProfileSettingsView(repository: repository)
@@ -523,6 +528,12 @@ private struct PhoneRootView: View {
                     MusicPlayerView(video: video, repository: repository)
                 }
             }
+            .navigationDestination(for: BangumiRoute.self) { route in
+                switch route {
+                case .timeline:
+                    BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
+                }
+            }
             .navigationDestination(for: UPProfileRoute.self) { route in
                 switch route {
                 case .up(let mid):
@@ -552,7 +563,7 @@ private struct PadRootView: View {
     /// bottom of the sidebar instead of a regular row. The five-case
     /// `MainTab` enum stays unchanged so the phone tab bar keeps
     /// working.
-    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live, .music]
+    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live, .bangumi]
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -588,6 +599,12 @@ private struct PadRootView: View {
                         switch route {
                         case .player(let video):
                             MusicPlayerView(video: video, repository: repository)
+                        }
+                    }
+                    .navigationDestination(for: BangumiRoute.self) { route in
+                        switch route {
+                        case .timeline:
+                            BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
                         }
                     }
                     .navigationDestination(for: UPProfileRoute.self) { route in
@@ -627,10 +644,10 @@ private struct PadRootView: View {
                 LiveRoomsView(repository: repository)
                     .transition(ScreenSwitchTransition.active)
                     .id(MainTab.live)
-            case .music:
-                MusicHomeView(repository: repository)
+            case .bangumi:
+                BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
                     .transition(ScreenSwitchTransition.active)
-                    .id(MainTab.music)
+                    .id(MainTab.bangumi)
             case .profile:
                 ProfileSettingsView(repository: repository)
                     .transition(ScreenSwitchTransition.active)
@@ -894,6 +911,13 @@ private func profileRouteView(_ route: ProfileRoute, repository: PaladalaReposit
         WatchLaterListView(repository: repository)
     case .downloads:
         DownloadedVideosView(repository: repository)
+    case .bangumiTimeline:
+        // The deep-link entry from the profile quick
+        // action. `AppRouter.openBangumiTimeline()` also
+        // flips `selectedTab` to `.bangumi` so the
+        // dedicated tab is highlighted when the user
+        // backs out.
+        BangumiHomeView(repository: repository, heroNamespace: nil)
     }
 }
 

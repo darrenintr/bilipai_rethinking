@@ -101,7 +101,7 @@ struct ProfileSettingsView: View {
                     .init(title: "我的收藏", subtitle: "Favorite", symbol: "star", destination: .favorites),
                     .init(title: "稍后再看", subtitle: "Watch later", symbol: "clock.badge.checkmark", destination: .watchLater),
                     .init(title: "消息中心", subtitle: "Inbox", symbol: "tray"),
-                    .init(title: "追番追剧", subtitle: "Bangumi", symbol: "play.square.stack")
+                    .init(title: "追番追剧", subtitle: "Bangumi", symbol: "play.square.stack", destination: .bangumi)
                 ], repository: repository)
             }
 
@@ -505,6 +505,12 @@ private struct ProfileQuickAction: Identifiable {
         /// `.downloads` for this case without an active
         /// account.
         case downloads
+        /// 追番 weekly timeline.  Mirrors the dedicated
+        /// `MainTab.bangumi` tab so the user can deep-link
+        /// from the profile screen (or from a search result
+        /// whose `card_goto` is `bangumi`) without leaving
+        /// their current tab.
+        case bangumi
     }
 
     let id = UUID()
@@ -577,6 +583,12 @@ private struct ProfileQuickActionGrid: View {
             // videos on airplane mode, which is the entire
             // point of the feature.
             return .downloads
+        case .bangumi:
+            // 追番 is reachable signed-out (PGC content is
+            // public). Switches to the dedicated tab via
+            // `AppRouter.openBangumiTimeline()` so the user
+            // lands in the right place.
+            return .bangumiTimeline
         case nil:
             return nil
         }

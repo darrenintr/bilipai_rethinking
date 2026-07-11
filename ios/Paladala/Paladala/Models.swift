@@ -1131,8 +1131,27 @@ struct BiliDanmakuItem: Hashable, Codable, Identifiable, Sendable {
 /// Navigation routes for the Music tab. Pushed onto the router's
 /// `path` so the existing `.navigationDestination(for:)` machinery
 /// resolves them into the right view.
+///
+/// The Music tab itself was removed when the 追番 tab was
+/// added; `MusicRoute.player(_:)` is still routed to the
+/// fullscreen `MusicPlayerView` by the existing
+/// `navigationDestination(for:)` handler but no longer
+/// has a dedicated tab host.
 enum MusicRoute: Hashable, Sendable {
     /// Open the fullscreen music player for `video`. The view
     /// resolves the playback URL + lyric track on appear.
     case player(BiliVideo)
+}
+
+/// Navigation routes for the 追番 surface. Currently
+/// just the weekly timeline; per-season detail is out of
+/// scope (the timeline taps open the canonical PGC share
+/// URL in the system handler instead of pushing an
+/// in-app detail view).
+enum BangumiRoute: Hashable, Sendable {
+    /// Open the weekly timeline. Same view as the
+    /// `MainTab.bangumi` tab content; pushed onto the
+    /// stack when the user enters via the profile
+    /// "追番追剧" quick action.
+    case timeline
 }

@@ -5,7 +5,7 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     case home
     case dynamic
     case live
-    case music
+    case bangumi
     case profile
 
     var id: String { rawValue }
@@ -18,8 +18,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "動態"
         case .live:
             return "直播"
-        case .music:
-            return "音樂"
+        case .bangumi:
+            return "追番"
         case .profile:
             return "我的"
         }
@@ -38,8 +38,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "rectangle.stack"
         case .live:
             return "play.tv"
-        case .music:
-            return "music.note"
+        case .bangumi:
+            return "play.rectangle.stack"
         case .profile:
             return "person.crop.circle"
         }
@@ -48,7 +48,7 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     /// Filled/high-contrast variants that match the new sidebar
     /// design: a solid pink house for the active 首頁 pill, a
     /// compass/scope for 動態, a radiating-wave glyph for 直播,
-    /// a filled music-note glyph for 音樂, and a circle-person
+    /// a stacked-rectangle glyph for 追番, and a circle-person
     /// badge for the 我的 card.
     var sidebarSymbolName: String {
         switch self {
@@ -58,8 +58,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "safari"
         case .live:
             return "dot.radiowaves.left.and.right"
-        case .music:
-            return "music.note"
+        case .bangumi:
+            return "play.rectangle.on.rectangle.fill"
         case .profile:
             return "person.crop.circle"
         }
@@ -82,6 +82,13 @@ enum ProfileRoute: Hashable {
     /// No associated value — the destination view reads
     /// `DownloadStore.shared.records` directly.
     case downloads
+    /// 追番 weekly timeline. Reachable from the "追番追剧"
+    /// quick action on the profile screen and from any
+    /// other deep-link route (a search result whose
+    /// `card_goto` is `bangumi` can land here too).  The
+    /// main `MainTab.bangumi` tab is a separate entry
+    /// point and doesn't route through here.
+    case bangumiTimeline
 }
 
 /// Local (downloaded) video playback.  The associated
@@ -132,13 +139,33 @@ final class AppRouter: ObservableObject {
     /// tab and pushes `MusicRoute.player(video)` onto the path
     /// so the existing `.navigationDestination(for:)` machinery
     /// resolves it into a `MusicPlayerView`.
+    ///
+    /// The music tab itself was removed when the 追番 tab
+    /// was added (commit upcoming).  `openMusic(_:)` stays
+    /// for callers that still route to `MusicPlayerView`
+    /// through the navigation stack (e.g. the existing
+    /// `MusicRoute.player(video)` push survives), but the
+    /// UI no longer has a music home tab to switch into —
+    /// the destination renders standalone in whatever
+    /// tab the caller was on.
     func openMusic(_ video: BiliVideo) {
         diagLog(.music, "AppRouter.openMusic", details: [
             "bvid": video.bvid,
             "title": video.title
         ])
-        selectedTab = .music
         path.append(MusicRoute.player(video))
+    }
+
+    /// Open the 追番 weekly timeline. Switches to the
+    /// 追番 tab and pushes a `BangumiRoute.timeline` onto
+    /// the path so the destination renders inside the
+    /// current navigation stack rather than a fresh one.
+    /// No-op (besides the log) when the bangumi tab is
+    /// already the selected tab.
+    func openBangumiTimeline() {
+        diagLog(.recommendation, "AppRouter.openBangumiTimeline")
+        selectedTab = .bangumi
+        path.append(BangumiRoute.timeline)
     }
 
     func open(_ tab: MainTab) {
