@@ -66,6 +66,9 @@ final class DiagnosticLogger: ObservableObject {
                                 // failures (PR-B Commit 5 build fix —
                                 // B15 added diagLog(.audio, ...) without
                                 // declaring the category)
+        case bangumi = "BGMI"   // BangumiHomeView lifecycle — load
+                                // started / succeeded / failed, day
+                                // strip selection, card shareURL open.
     }
 
     struct Event: Identifiable {

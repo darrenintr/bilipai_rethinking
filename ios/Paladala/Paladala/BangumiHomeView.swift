@@ -210,7 +210,13 @@ struct BangumiHomeView: View {
     }
 
     private func load(force: Bool = false) async {
-        if !force && !days.isEmpty { return }
+        if !force && !days.isEmpty {
+            diagLog(.bangumi, "BangumiHomeView load skipped (cached)",
+                    details: ["days": days.count])
+            return
+        }
+        diagLog(.bangumi, "BangumiHomeView load started",
+                details: ["force": force, "cachedDays": days.count])
         isLoading = true
         loadError = nil
         defer { isLoading = false }
@@ -223,9 +229,23 @@ struct BangumiHomeView: View {
                 selectedWeekday = fetched.first?.weekday ?? selectedWeekday
             }
             days = fetched
+            diagLog(.bangumi, "BangumiHomeView load succeeded",
+                    details: [
+                        "days": fetched.count,
+                        "firstDate": fetched.first?.date ?? "nil",
+                        "selectedWeekday": selectedWeekday,
+                        "weekdayWithCards": fetched
+                            .map { "\($0.weekday)=\($0.cards.count)" }
+                            .joined(separator: ",")
+                    ])
         } catch {
             loadError = (error as? LocalizedError)?.errorDescription
                 ?? error.localizedDescription
+            diagLog(.bangumi, "BangumiHomeView load failed",
+                    details: [
+                        "errorType": String(describing: type(of: error)),
+                        "errorMessage": "\(error)"
+                    ])
         }
     }
 }
