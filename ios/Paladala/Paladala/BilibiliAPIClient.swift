@@ -684,7 +684,14 @@ final class BilibiliAPIClient: @unchecked Sendable {
     /// `cards` array (upstream still includes the day
     /// stub).
     func bangumiTimeline(types: Int = 1, before: Int = 6, after: Int = 6) async throws -> [BangumiDay] {
-        let payload: APIResponse<BangumiTimelinePayload> = try await get(
+        // B 站 wraps the timeline payload in a `{code, message,
+        // result}` envelope where `result` is the days array
+        // (NOT a single keyed object).  The shared
+        // `APIResponse<T>` envelope assumes `result: T` is
+        // keyed-container-shaped, so we decode the raw
+        // `BangumiTimelinePayload` envelope directly and do
+        // the `code != 0` check ourselves.
+        let payload: BangumiTimelinePayload = try await get(
             baseURL: baseURL,
             path: "/pgc/web/timeline",
             queryItems: [
@@ -693,9 +700,10 @@ final class BilibiliAPIClient: @unchecked Sendable {
                 URLQueryItem(name: "after", value: "\(after)")
             ]
         )
-        try payload.requireOK()
-        let days = payload.value?.days ?? []
-        return days.compactMap(Self.makeDay(from:))
+        if let code = payload.code, code != 0 {
+            throw BilibiliAPIError.api(payload.message ?? "PGC timeline returned code \(code)")
+        }
+        return payload.days.compactMap(Self.makeDay(from:))
     }
 
     /// DTO → BangumiDay conversion.  Lifted to a private
@@ -2282,9 +2290,27 @@ private struct WbiImage: Decodable, Sendable {
 // the episode itself.  `published` is `0/1` (not
 // `is_published`).  This DTO is the corrected shape.
 
+/// Top-level envelope for `/pgc/web/timeline`.  Decoded
+/// directly (NOT through the shared `APIResponse<T>` wrapper)
+/// because the upstream's `result` field is a JSON array of
+/// day objects, while `APIResponse<T>`'s synthesized init
+/// tries to decode `result: T` as a keyed container — that
+/// mismatch was the source of the v0.5.1.239 cascade of
+/// `Expected to decode Dictionary<String, Any> but found an
+/// array instead` failures in the diagnostic log.
+///
+/// The `code` / `message` / `days` triple mirrors the
+/// upstream shape so a future addition (e.g. cursor-based
+/// pagination) lands in the obvious place.
 private struct BangumiTimelinePayload: Decodable, Sendable {
+    let code: Int?
+    let message: String?
     let days: [BangumiTimelineDay]
-    enum CodingKeys: String, CodingKey { case days = "result" }
+    enum CodingKeys: String, CodingKey {
+        case code
+        case message
+        case days = "result"
+    }
 }
 
 private struct BangumiTimelineDay: Decodable, Sendable {
