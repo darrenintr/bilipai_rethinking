@@ -300,7 +300,8 @@ private struct EventRow: View {
         case .playback, .fullscreen, .download, .network, .proxy:
             return PaladalaTheme.biliPink
         case .auth, .recommendation, .app, .lifecycle, .system,
-             .session, .music, .notification, .feed, .audio:
+             .session, .music, .notification, .feed, .audio,
+             .bangumi:
             return PaladalaTheme.mutedInk
         }
     }
