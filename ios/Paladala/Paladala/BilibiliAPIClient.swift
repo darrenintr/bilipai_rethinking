@@ -1455,14 +1455,34 @@ final class BilibiliAPIClient: @unchecked Sendable {
     }
 
     /// Fetch the total number of dynamic posts for a user.
+    ///
+    /// B 站 retired the `/x/space/nav/num` endpoint at some
+    /// point in 2026 — it now answers 404 for arbitrary `mid`s.
+    /// We surface that as a silent zero rather than propagating
+    /// an error, so the profile card renders with a "—"
+    /// placeholder instead of an "加载失败" toast.  The
+    /// `SpaceNavNumPayload` decoder still works for any
+    /// upstream that DOES answer (the helper is left in place
+    /// for that path).
     func userDynamicCount(mid: Int64) async throws -> Int {
-        let payload: APIResponse<SpaceNavNumPayload> = try await get(
-            baseURL: baseURL,
-            path: "/x/space/nav/num",
-            queryItems: [URLQueryItem(name: "mid", value: "\(mid)")]
-        )
-        try payload.requireOK()
-        return payload.value?.dynamicCount ?? 0
+        do {
+            let payload: APIResponse<SpaceNavNumPayload> = try await get(
+                baseURL: baseURL,
+                path: "/x/space/nav/num",
+                queryItems: [URLQueryItem(name: "mid", value: "\(mid)")]
+            )
+            try payload.requireOK()
+            return payload.value?.dynamicCount ?? 0
+        } catch BilibiliAPIError.http {
+            // /x/space/nav/num is retired upstream — don't
+            // break the profile card for that.  Other
+            // BilibiliAPIError cases (api, missingData,
+            // sessionExpired) still propagate so the user
+            // actually sees a login prompt when their cookie
+            // is dead.
+            bpLog("/x/space/nav/num retired upstream; falling back to 0")
+            return 0
+        }
     }
 
     /// Fetch a user's public profile card (avatar, name, signature,
@@ -1853,9 +1873,26 @@ final class BilibiliAPIClient: @unchecked Sendable {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
 
-        let (data, response) = try await session.data(for: request)
+        // 412 (B站 风控) and 429 (rate limit) are transient
+        // signals from the upstream — back off once and try
+        // again.  A second failure propagates as `http` so
+        // the caller still surfaces the failure to the user.
+        // 401 is intentionally NOT retried here: a session
+        // expiry needs a fresh login, not a duplicate request
+        // that will also 401.
+        let initial = try await session.data(for: request)
+        let resolved: (Data, URLResponse)
+        if let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode,
+           initialStatus == 412 || initialStatus == 429 {
+            bpLog("GET \(url.absoluteString) returned HTTP \(initialStatus) — backoff 1.2s + retry once")
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            resolved = try await session.data(for: request)
+        } else {
+            resolved = initial
+        }
+        let (data, response) = resolved
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let status = http.statusCode
             bpLog("GET \(url.absoluteString) returned HTTP \(status)")
             // 401 = session expired.  Surface a typed error
             // (instead of the generic `http`) and let the app
@@ -1942,9 +1979,24 @@ final class BilibiliAPIClient: @unchecked Sendable {
             request.setValue(cookies, forHTTPHeaderField: "Cookie")
         }
 
-        let (data, response) = try await session.data(for: request)
+        // 412 / 429 transient retry mirrors `get(...)` — see
+        // the rationale there.  POSTs to gated endpoints
+        // (like, follow, comment) can 412 under wind control
+        // when the user submits a burst of actions, and 1.2s
+        // is usually enough to clear the limit.
+        let initial = try await session.data(for: request)
+        let resolved: (Data, URLResponse)
+        if let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode,
+           initialStatus == 412 || initialStatus == 429 {
+            bpLog("POST \(url.absoluteString) returned HTTP \(initialStatus) — backoff 1.2s + retry once")
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            resolved = try await session.data(for: request)
+        } else {
+            resolved = initial
+        }
+        let (data, response) = resolved
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let status = http.statusCode
             bpLog("POST \(url.absoluteString) returned HTTP \(status)")
             // Same 401 → sessionExpired mapping as `get(...)` —
             // POSTs to gated endpoints (post comment, like,

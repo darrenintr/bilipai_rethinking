@@ -702,6 +702,18 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 "audioReferences": audioIndex?.fragments.count ?? 0
             ])
             return PreparedPlayback(video: videoIndex, audio: audioIndex)
+        } catch is CancellationError {
+            // The user (or `retryPlayback()`) cancelled the
+            // load — that's a normal teardown, not a
+            // failure.  Log it under a distinct channel so
+            // the diagnostic dump no longer reads "Playback
+            // manifest prep failed" every time the user
+            // switches source / host mid-prep.  Real
+            // failures still hit the catch-all below.
+            diagLog(.playback, "Playback manifest prep cancelled", details: [
+                "generation": generation
+            ])
+            throw error
         } catch {
             diagLog(.playback, "Playback manifest prep failed", details: [
                 "generation": generation,
@@ -4386,7 +4398,36 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
         self.connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
-            case .cancelled, .failed:
+            case .cancelled:
+                // .cancelled means we (or AVPlayer tearing
+                // the socket down on host switch / source
+                // change / user navigated away) asked the
+                // connection to close.  It is NOT a broken
+                // downstream — log a single quiet line so the
+                // diagnostic dump still records the teardown
+                // but the operator (or anyone reading the
+                // dump) doesn't read it as a real B站 / CDN
+                // failure.  The URLSession
+                // didCompleteWithError(NSURLErrorCancelled)
+                // branch elsewhere handles actual teardown.
+                let reason = "connection state: \(state)"
+                self.delegateQueue.addOperation { [weak self] in
+                    guard let self else { return }
+                    guard !self.downstreamBroken else { return }
+                    diagLog(.network,
+                            "LocalHLSProxyServer downstream closed",
+                            details: [
+                                "conn": self.connID,
+                                "mode": self.mode,
+                                "reason": reason
+                            ])
+                }
+            case .failed:
+                // .failed is a real upstream / peer-initiated
+                // close (POSIX 54 "Connection reset by peer",
+                // TLS errors, etc.) — surface it as a broken
+                // downstream so the existing failure handlers
+                // can mark the host for failover.
                 let reason = "connection state: \(state)"
                 self.delegateQueue.addOperation { [weak self] in
                     self?.markDownstreamBroken(reason: reason)
