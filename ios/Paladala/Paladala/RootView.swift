@@ -532,6 +532,11 @@ private struct PhoneRootView: View {
                 switch route {
                 case .timeline:
                     BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
+                case .seasonDetail(let seasonId):
+                    BangumiSeasonDetailView(
+                        repository: repository,
+                        seasonId: seasonId
+                    )
                 }
             }
             .navigationDestination(for: UPProfileRoute.self) { route in
@@ -605,6 +610,11 @@ private struct PadRootView: View {
                         switch route {
                         case .timeline:
                             BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
+                        case .seasonDetail(let seasonId):
+                            BangumiSeasonDetailView(
+                                repository: repository,
+                                seasonId: seasonId
+                            )
                         }
                     }
                     .navigationDestination(for: UPProfileRoute.self) { route in

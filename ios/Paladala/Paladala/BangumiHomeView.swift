@@ -73,7 +73,6 @@ struct BangumiHomeView: View {
                 seasonId: seasonId
             )
         }
-        }
     }
 
     private var contentView: some View {
