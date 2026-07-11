@@ -702,7 +702,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 "audioReferences": audioIndex?.fragments.count ?? 0
             ])
             return PreparedPlayback(video: videoIndex, audio: audioIndex)
-        } catch is CancellationError {
+        } catch let err where err is CancellationError {
             // The user (or `retryPlayback()`) cancelled the
             // load — that's a normal teardown, not a
             // failure.  Log it under a distinct channel so
@@ -713,7 +713,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             diagLog(.playback, "Playback manifest prep cancelled", details: [
                 "generation": generation
             ])
-            throw error
+            throw err
         } catch {
             diagLog(.playback, "Playback manifest prep failed", details: [
                 "generation": generation,

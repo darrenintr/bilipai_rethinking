@@ -1892,7 +1892,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         }
         let (data, response) = resolved
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let status = http.statusCode
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             bpLog("GET \(url.absoluteString) returned HTTP \(status)")
             // 401 = session expired.  Surface a typed error
             // (instead of the generic `http`) and let the app
@@ -1996,7 +1996,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         }
         let (data, response) = resolved
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let status = http.statusCode
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             bpLog("POST \(url.absoluteString) returned HTTP \(status)")
             // Same 401 → sessionExpired mapping as `get(...)` —
             // POSTs to gated endpoints (post comment, like,
