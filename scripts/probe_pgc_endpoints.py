@@ -54,10 +54,21 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+
+# Use the OS temp dir so the script works on macOS, Linux
+# and Windows.  `tempfile.gettempdir()` returns the
+# platform-appropriate directory (`/tmp` on Unix,
+# `%TEMP%` on Windows).  The `/tmp/...` paths in the
+# module docstring still read correctly on Unix because
+# the same directory is what `tempfile.gettempdir()`
+# returns there.
+_TMP = tempfile.gettempdir()
 
 UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"
@@ -75,35 +86,45 @@ ENDPOINTS = [
         "label": "周时间表 (番剧)",
         "url": "https://api.bilibili.com/pgc/web/timeline",
         "query": {"types": "1", "before": "6", "after": "6"},
+        "required": True,
     },
     {
+        # Probed but NOT currently consumed by the iOS
+        # app.  Marked optional so a 404 here doesn't fail
+        # CI — the endpoint may be retired or relocated
+        # without breaking the timeline view.
         "name": "home",
-        "label": "PGC home",
+        "label": "PGC home (optional)",
         "url": "https://api.bilibili.com/pgc/web/home",
         "query": {},
+        "required": False,
     },
     {
+        # Probed but not consumed. Optional.
         "name": "index",
-        "label": "番剧索引",
+        "label": "番剧索引 (optional)",
         "url": "https://api.bilibili.com/pgc/web/index/result",
         "query": {"index_type": "1", "weekday": "-1"},
+        "required": False,
     },
     {
-        # Probed but not yet consumed. Uses a known
-        # season_id (109700, "假面骑士ZZZ" from the
+        # Probed but not yet consumed. Optional. Uses a
+        # known season_id (109700, "假面骑士ZZZ" from the
         # timeline probe) so the upstream returns a real
         # payload.
         "name": "season",
-        "label": "番剧详情",
+        "label": "番剧详情 (optional)",
         "url": "https://api.bilibili.com/pgc/view/web/season",
         "query": {"season_id": "109700"},
+        "required": False,
     },
     {
-        # Same — probed but not yet consumed.
+        # Probed but not yet consumed. Optional.
         "name": "ep_list",
-        "label": "剧集列表",
+        "label": "剧集列表 (optional)",
         "url": "https://api.bilibili.com/pgc/view/web/ep/list",
         "query": {"season_id": "109700"},
+        "required": False,
     },
 ]
 
@@ -111,7 +132,7 @@ ENDPOINTS = [
 def probe(endpoint, dry=False):
     qs = "&".join(f"{k}={v}" for k, v in endpoint["query"].items())
     url = endpoint["url"] + ("?" + qs if qs else "")
-    out_path = f"/tmp/pgc_{endpoint['name']}.json"
+    out_path = os.path.join(_TMP, f"pgc_{endpoint['name']}.json")
 
     if dry:
         print(f"[dry] {endpoint['name']:10s}  {url}")
@@ -142,6 +163,7 @@ def probe(endpoint, dry=False):
 
     code = data.get("code", "n/a")
     ok = code == 0
+    required = endpoint.get("required", True)
     tag = "ok" if ok else "BAD"
     print(
         f"[{tag:3s}] {endpoint['name']:10s}  "
@@ -153,7 +175,9 @@ def probe(endpoint, dry=False):
     preview = body[:160].decode("utf-8", errors="replace").replace("\n", " ")
     print(f"        preview: {preview}{'…' if len(body) > 160 else ''}")
     print(f"        saved:   {out_path}")
-    return ok
+    # Optional endpoints that fail don't fail the run;
+    # required endpoints do.
+    return ok or not required
 
 
 def main():
@@ -176,12 +200,32 @@ def main():
     print()
     results = [probe(e, dry=args.dry) for e in targets]
     print()
-    if all(results):
-        print(f"All {len(targets)} endpoint(s) returned code=0.")
-        sys.exit(0)
-    else:
-        print(f"{results.count(False)}/{len(results)} endpoint(s) failed.")
+    required_failures = [
+        e for r, e in zip(results, targets)
+        if not r and e.get("required", True)
+    ]
+    optional_failures = [
+        e for r, e in zip(results, targets)
+        if not r and not e.get("required", True)
+    ]
+    if required_failures:
+        print(f"FAIL: {len(required_failures)} required endpoint(s) failed:")
+        for e in required_failures:
+            print(f"  - {e['name']:10s}  {e['label']}")
+        if optional_failures:
+            print(f"      + {len(optional_failures)} optional endpoint(s) also failed (ignored):")
+            for e in optional_failures:
+                print(f"        - {e['name']:10s}  {e['label']}")
         sys.exit(1)
+    else:
+        msg = f"OK: all {len(targets)} endpoint(s) reachable."
+        if optional_failures:
+            msg += (
+                f"  ({len(optional_failures)} optional endpoint(s) failed"
+                f" — upstream may have retired them; ignore.)"
+            )
+        print(msg)
+        sys.exit(0)
 
 
 if __name__ == "__main__":
