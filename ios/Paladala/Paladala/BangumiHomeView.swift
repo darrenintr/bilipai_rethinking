@@ -371,7 +371,17 @@ private struct InAppSafariView: UIViewControllerRepresentable {
         config.entersReaderIfAvailable = false
         config.barCollapsingEnabled = true
         let vc = SFSafariViewController(url: url, configuration: config)
-        vc.preferredControlTintColor = PaladalaTheme.biliPink
+        // PaladalaTheme.biliPink is a SwiftUI Color; UIKit's
+        // SFSafariViewController.preferredControlTintColor
+        // wants a UIColor.  Hard-code the matching RGBA here
+        // (#FF6194) so we don't pay a Color → UIColor
+        // bridge at sheet-present time and we don't risk
+        // the iOS 14/15 `UIColor(_:)` initializer on
+        // `Color` being unavailable on whichever OS this
+        // build ends up running on.
+        vc.preferredControlTintColor = UIColor(
+            red: 1.0, green: 0.38, blue: 0.58, alpha: 1.0
+        )
         vc.dismissButtonStyle = .close
         return vc
     }
