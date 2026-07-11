@@ -113,18 +113,21 @@ enum LiveRoute: Hashable {
 
 @MainActor
 final class AppRouter: ObservableObject {
-    /// PR-7 (M6): hydrate `selectedTab` from `UserDefaults` so a
-    /// force-quit + cold launch returns the user to where they
-    /// were.  The raw value is the `MainTab.rawValue` string so
-    /// defaults migrate cleanly when `MainTab` gains a new case.
-    /// First-launch default is `.home` when no key is set.
-    @Published var selectedTab: MainTab = {
-        if let raw = UserDefaults.standard.string(forKey: "paladala.selectedTab"),
-           let restored = MainTab(rawValue: raw) {
-            return restored
-        }
-        return .home
-    }() {
+    /// PR-7 (M6) used to hydrate `selectedTab` from `UserDefaults`
+    /// so a force-quit + cold launch returned the user to where
+    /// they were.  In practice the user-reported "app opens to
+    /// the profile tab" behaviour was confusing — a fresh launch
+    /// should land on the home feed, not the last tab the user
+    /// happened to be on (especially since several deep-link
+    /// surfaces — `paladala://music`, the profile "追番" quick
+    /// action, etc. — temporarily flip `selectedTab` as part of
+    /// their routing flow, so a saved `profile` value would
+    /// override the intended entry point on next cold launch).
+    /// The default is now always `.home`; the `didSet` is kept
+    /// in case a future revision wants to read the saved tab
+    /// (and to preserve forward compatibility for any in-flight
+    /// save code).
+    @Published var selectedTab: MainTab = .home {
         didSet {
             UserDefaults.standard.set(selectedTab.rawValue, forKey: "paladala.selectedTab")
         }

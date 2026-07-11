@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import SafariServices
 
 // MARK: - 追番 home
 //
@@ -121,14 +122,18 @@ struct BangumiHomeView: View {
     private func weekdayTab(day: BangumiDay) -> some View {
         let isSelected = day.weekday == selectedWeekday
         return VStack(spacing: 2) {
+            // `weekdayLabel` (e.g. "周一") is sufficient on
+            // its own — the upstream's MM-DD `date` field was
+            // just a redundant second date indicator under
+            // the weekday name, and on a 7-day strip the
+            // weekday + the visible card list already tell
+            // the user which day they're on.  We keep
+            // `BangumiDay.date` in the model for any future
+            // detail / hero surface, but the strip stops
+            // rendering it.
             Text(day.weekdayLabel)
                 .font(PaladalaTheme.FontRole.labelMono)
                 .foregroundStyle(isSelected ? PaladalaTheme.ink : PaladalaTheme.mutedInk)
-            if let date = day.date {
-                Text(date)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(PaladalaTheme.mutedInk)
-            }
             Rectangle()
                 .fill(isSelected ? PaladalaTheme.ink : Color.clear)
                 .frame(height: 2)
@@ -253,16 +258,20 @@ struct BangumiHomeView: View {
 /// One row in the bangumi day's card list.  Street Minimal
 /// chrome: cover thumbnail, title, update description, and
 /// a hairline divider between rows.  Tapping the row opens
-/// the card's `shareURL` in the system handler so the user
-/// lands on Bilibili's official PGC surface (or the official
-/// app via Universal Links).
+/// the card's `shareURL` in an in-app `SFSafariViewController`
+/// (via `InAppSafariView`) so the user stays inside Paladala
+/// instead of being pushed to the official B站 app via a
+/// Universal Link.
 private struct BangumiCardRow: View {
     let card: BangumiCard
+    @State private var presentedURL: IdentifiableURL?
 
     var body: some View {
         Button {
             Haptics.tap()
-            openShare()
+            if let url = card.shareURL {
+                presentedURL = IdentifiableURL(url: url)
+            }
         } label: {
             HStack(alignment: .top, spacing: PaladalaTheme.Spacing.m) {
                 cover
@@ -298,6 +307,10 @@ private struct BangumiCardRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .sheet(item: $presentedURL) { wrapped in
+            InAppSafariView(url: wrapped.url)
+                .ignoresSafeArea()
+        }
     }
 
     @ViewBuilder
@@ -338,6 +351,41 @@ private struct BangumiCardRow: View {
 
     private func openShare() {
         guard let url = card.shareURL else { return }
-        UIApplication.shared.open(url)
+        presentedURL = IdentifiableURL(url: url)
     }
+}
+
+/// In-app SFSafariViewController wrapper.  The previous
+/// flow used `UIApplication.shared.open(...)` which
+/// triggered a Universal Link into the official B站 app and
+/// effectively took the user out of Paladala — bad for
+/// retention, bad for a "stay in our chrome" tab.  This
+/// wrapper presents the same B站 PGC page inside a sheet
+/// instead, so the user can dismiss it and be back on the
+/// 追番 tab without losing context.
+private struct InAppSafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let config = SFSafariViewController.Configuration()
+        config.entersReaderIfAvailable = false
+        config.barCollapsingEnabled = true
+        let vc = SFSafariViewController(url: url, configuration: config)
+        vc.preferredControlTintColor = PaladalaTheme.biliPink
+        vc.dismissButtonStyle = .close
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+}
+
+/// `URL` itself isn't `Identifiable`, so the `.sheet(item:)`
+/// binding needs a wrapper.  Using the URL as its own id is
+/// safe here because `presentedURL` is only ever set to one
+/// URL at a time — a re-tap with the same URL would
+/// re-present the same sheet, but the user would have had
+/// to dismiss the previous one first.
+private struct IdentifiableURL: Identifiable {
+    let url: URL
+    var id: URL { url }
 }
