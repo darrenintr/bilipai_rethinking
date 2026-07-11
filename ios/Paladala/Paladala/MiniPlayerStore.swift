@@ -45,21 +45,35 @@ final class MiniPlayerStore: ObservableObject {
 
     private var watchSession: WatchSession?
     private var cancellables: Set<AnyCancellable> = []
+    /// Last `BiliPlayback` value the store was bound to.  Used
+    /// by `bind(...)` to short-circuit a re-bind with the same
+    /// playback without rebuilding the controller — important
+    /// because the freshly-built `PlayerController`'s duration
+    /// is still `.nan` / `.zero` for the first ~250 ms, so
+    /// duration-based idempotency was racy with the
+    /// `onChange(of:, initial: true)` + `onAppear` pair that
+    /// both call `bind` on first appear.
+    private var pendingPlayback: BiliPlayback?
 
     /// Bind a new playback to the store. Idempotent: if the same
-    /// video is already bound, the call returns without rebuilding
-    /// the controller or re-firing `WatchSession.start()`.
+    /// video is already bound **and the playback object is
+    /// unchanged**, the call returns without rebuilding the
+    /// controller or re-firing `WatchSession.start()`.  Equality
+    /// is by `BiliPlayback` Hashable conformance (every field
+    /// the player cares about is in the hash), so re-binding
+    /// with the same fetch result is a no-op even if the
+    /// controller's `duration` hasn't resolved yet — that path
+    /// was previously racing with `onAppear` and falling through
+    /// to a teardown + rebuild loop.
     func bind(video: BiliVideo, playback: BiliPlayback, repository: PaladalaRepository) {
         if let current = currentVideo,
            current.id == video.id,
-           let existing = controller,
-           hasResolvedDuration(existing) {
-            // The controller is already bound to the same video.
-            // Keep the existing controller and the existing watch
-            // session (don't double-report `progress=0`).
-            // If the mini-player was surfaced by a navigation push
-            // (e.g. user opened UP profile then came back), hide it
-            // so the inline player re-takes over.
+           let pendingPlayback,
+           pendingPlayback == playback {
+            // Same video, same playback — keep the existing
+            // controller and watch session.  Hide the mini-player
+            // if a previous navigation push surfaced it so the
+            // inline player re-takes over.
             if isShowingMiniPlayer {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     isShowingMiniPlayer = false
@@ -69,14 +83,17 @@ final class MiniPlayerStore: ObservableObject {
             return
         }
 
-        // Switching to a different video (or first bind). Tear down
-        // any previous controller first so the local HLS proxy is
-        // free to be re-served with the new DASH source.
+        // Switching to a different video, or a quality change
+        // (different `BiliPlayback` value for the same video),
+        // or the first bind.  Tear down any previous controller
+        // first so the local HLS proxy is free to be re-served
+        // with the new DASH source.
         teardownController()
 
         let newController = PlayerController(playback: playback, video: video)
         controller = newController
         currentVideo = video
+        pendingPlayback = playback
 
         // Mirror the controller's @Published state into the store.
         // `objectWillChange` would be more efficient but Combine
@@ -204,6 +221,7 @@ final class MiniPlayerStore: ObservableObject {
         controller = nil
         cancellables.removeAll()
         currentVideo = nil
+        pendingPlayback = nil
         currentTime = 0
         duration = 0
         isPlaying = true
@@ -211,19 +229,4 @@ final class MiniPlayerStore: ObservableObject {
         networkSpeed = 0
     }
 
-    /// True when the controller's player item has a finite, non-NaN
-    /// duration. Used by `bind` to decide whether a re-bind of the
-    /// same video can skip rebuilding the controller — if the
-    /// duration has resolved, the controller is fully primed and the
-    /// re-bind would just no-op. If it's still `.nan` / `.zero`
-    /// (typical for the first ~250 ms after binding to a new
-    /// playback), the caller wants to be sure we get a fresh
-    /// controller on the next opportunity, so we treat the existing
-    /// one as "not yet ready" and fall through to the rebuild path.
-    private func hasResolvedDuration(_ controller: PlayerController) -> Bool {
-        guard let seconds = controller.player.currentItem?.asset.duration.seconds else {
-            return false
-        }
-        return seconds.isFinite && seconds > 0
-    }
 }
