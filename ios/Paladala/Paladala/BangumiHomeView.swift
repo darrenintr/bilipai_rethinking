@@ -34,6 +34,15 @@ struct BangumiHomeView: View {
     @State private var selectedWeekday: Int = Calendar.current.component(.weekday, from: Date())
     @State private var isLoading: Bool = false
     @State private var loadError: String? = nil
+    /// Pushed onto the root nav stack when a timeline card
+    /// is tapped.  The destination renders the in-app
+    /// `BangumiSeasonDetailView`.  Kept here (rather than
+    /// hoisted into `AppRouter`) so the weekly timeline
+    /// and the per-season surface share the same view
+    /// instance — both are reachable from the
+    /// `MainTab.bangumi` tab and via the profile quick
+    /// action.
+    @State private var presentedSeasonId: Int64?
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
@@ -58,6 +67,13 @@ struct BangumiHomeView: View {
         .refreshable {
             await load(force: true)
         }
+        .navigationDestination(item: $presentedSeasonId) { seasonId in
+            BangumiSeasonDetailView(
+                repository: repository,
+                seasonId: seasonId
+            )
+        }
+        }
     }
 
     private var contentView: some View {
@@ -81,7 +97,9 @@ struct BangumiHomeView: View {
                     } else {
                         LazyVStack(spacing: 0) {
                             ForEach(day.cards) { card in
-                                BangumiCardRow(card: card)
+                                BangumiCardRow(card: card) { tapped in
+                                    onCardTap(tapped)
+                                }
                                 if card.id != day.cards.last?.id {
                                     Rectangle()
                                         .fill(PaladalaTheme.ink.opacity(0.12))
@@ -253,25 +271,401 @@ struct BangumiHomeView: View {
                     ])
         }
     }
+
+    /// Card row tap.  Sets `presentedSeasonId` so the
+    /// `.navigationDestination(item:)` binding pushes the
+    /// in-app `BangumiSeasonDetailView`.  Long-form
+    /// episode + play selection lives there; the timeline
+    /// itself stays a browse surface.
+    private func onCardTap(_ card: BangumiCard) {
+        diagLog(.bangumi, "BangumiHomeView card tapped",
+                details: [
+                    "seasonId": card.seasonId,
+                    "title": card.title
+                ])
+        presentedSeasonId = card.seasonId
+    }
+}
+
+// MARK: - In-app PGC season detail
+//
+// Shows the cover, title, long description, and the full
+// episode list for a single PGC season.  Tapping an
+// episode attempts an in-app PGC play (the build-243
+// PGC playurl integration lives in the same file under
+// the B-marker section so this surface stays the single
+// entry point for the in-app PGC flow).
+//
+// This view is reachable from:
+//   1. `BangumiHomeView` timeline card tap, via
+//      `navigationDestination(item: $presentedSeasonId)`.
+//   2. The dedicated in-app PGC route once the user
+//      opens a PGC share URL inside Paladala (handled by
+//      the same destination).
+struct BangumiSeasonDetailView: View {
+    let repository: PaladalaRepository
+    let seasonId: Int64
+
+    @State private var detail: BangumiSeasonDetail?
+    @State private var isLoading: Bool = false
+    @State private var loadError: String? = nil
+    /// The episode the user has currently selected for
+    /// playback.  Drives the in-app player panel; nil
+    /// means "nothing queued".
+    @State private var selectedEpisode: BangumiEpisode?
+    /// Sheet for the in-app Safari fallback when the
+    /// in-app player is unavailable.
+    @State private var fallbackURL: IdentifiableURL?
+
+    var body: some View {
+        Group {
+            if isLoading && detail == nil {
+                loadingView
+            } else if let loadError, detail == nil {
+                errorView(message: loadError)
+            } else if let detail {
+                contentView(detail: detail)
+            } else {
+                Color.clear
+            }
+        }
+        .navigationTitle(detail?.title ?? "番剧详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(PaladalaTheme.paper, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .task(id: seasonId) { await load() }
+        .sheet(item: $fallbackURL) { wrapped in
+            InAppSafariView(url: wrapped.url).ignoresSafeArea()
+        }
+    }
+
+    @ViewBuilder
+    private func contentView(detail: BangumiSeasonDetail) -> some View {
+        VStack(spacing: 0) {
+            heroView(detail: detail)
+            Divider()
+                .background(PaladalaTheme.ink)
+            episodeList(detail: detail)
+            if let ep = selectedEpisode {
+                selectedEpisodeBar(ep: ep)
+            }
+        }
+        .background(PaladalaTheme.canvas)
+    }
+
+    /// Bottom action bar that appears once the user has
+    /// picked an episode.  Two affordances:
+    ///   - "在 Paladala 打开"  →  in-app playback.  For
+    ///     this first pass the in-app player pipeline is
+    ///     not yet wired through to the PGC playurl
+    ///     source, so the button falls back to an
+    ///     `InAppSafariView` sheet pointed at the
+    ///     canonical B站 share URL.  The B-pass commit
+    ///     (pgcPlayurl → BiliPlayback.pgc(epId:) →
+    ///     AVPlayerController) will replace this fallback
+    ///     with the real in-app DASH playback.
+    ///   - "在 Safari 打开"   →  the same URL, also via
+    ///     `InAppSafariView`; kept for symmetry / quick
+    ///     comparison against the official B站 player
+    ///     behaviour when a real PGC playurl fails.
+    private func selectedEpisodeBar(ep: BangumiEpisode) -> some View {
+        HStack(spacing: PaladalaTheme.Spacing.m) {
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(PaladalaTheme.biliPink)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ep.indexLabel)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+                Text(ep.longTitle ?? ep.title)
+                    .font(PaladalaTheme.FontRole.cardTitle)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button {
+                if let url = ep.shareURL {
+                    fallbackURL = IdentifiableURL(url: url)
+                }
+            } label: {
+                Text("在 Paladala 打开")
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .padding(.horizontal, PaladalaTheme.Spacing.m)
+                    .padding(.vertical, PaladalaTheme.Spacing.s)
+                    .background(PaladalaTheme.paper)
+                    .overlay {
+                        Rectangle()
+                            .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                    }
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, PaladalaTheme.Spacing.l)
+        .padding(.vertical, PaladalaTheme.Spacing.s)
+        .background(PaladalaTheme.paper)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(PaladalaTheme.ink, style: FillStyle())
+                .frame(height: PaladalaTheme.hairlineWidth)
+        }
+    }
+
+    private func heroView(detail: BangumiSeasonDetail) -> some View {
+        HStack(alignment: .top, spacing: PaladalaTheme.Spacing.m) {
+            coverThumb(detail: detail)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(detail.title)
+                    .font(PaladalaTheme.FontRole.sectionHeader)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .lineLimit(2)
+                if let desc = detail.desc, !desc.isEmpty {
+                    Text(desc)
+                        .font(PaladalaTheme.FontRole.bodySmall)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
+                        .lineLimit(4)
+                }
+                Text("共 \(detail.episodes.count) 话")
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+                    .padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(PaladalaTheme.Spacing.l)
+        .background(PaladalaTheme.paper)
+    }
+
+    @ViewBuilder
+    private func coverThumb(detail: BangumiSeasonDetail) -> some View {
+        if let url = detail.coverURL {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .empty:
+                    Rectangle().fill(PaladalaTheme.coolGray)
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                case .failure:
+                    Rectangle().fill(PaladalaTheme.coolGray)
+                @unknown default:
+                    Rectangle().fill(PaladalaTheme.coolGray)
+                }
+            }
+            .frame(width: 96, height: 128)
+            .clipped()
+            .overlay {
+                Rectangle()
+                    .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.hairlineWidth)
+            }
+        } else {
+            Rectangle()
+                .fill(PaladalaTheme.coolGray)
+                .frame(width: 96, height: 128)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.hairlineWidth)
+                }
+        }
+    }
+
+    private func episodeList(detail: BangumiSeasonDetail) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(detail.episodes) { ep in
+                    Button {
+                        Haptics.tap()
+                        onEpisodeTap(ep)
+                    } label: {
+                        episodeRow(ep: ep,
+                                   isSelected: ep.id == selectedEpisode?.id)
+                    }
+                    .buttonStyle(.plain)
+                    if ep.id != detail.episodes.last?.id {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink.opacity(0.12))
+                            .frame(height: PaladalaTheme.hairlineWidth)
+                            .padding(.leading, PaladalaTheme.Spacing.l)
+                    }
+                }
+            }
+        }
+    }
+
+    private func episodeRow(ep: BangumiEpisode, isSelected: Bool) -> some View {
+        HStack(alignment: .center, spacing: PaladalaTheme.Spacing.m) {
+            Text(ep.indexLabel)
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.ink)
+                .frame(width: 56, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ep.longTitle ?? ep.title)
+                    .font(PaladalaTheme.FontRole.cardTitle)
+                    .foregroundStyle(PaladalaTheme.ink)
+                    .lineLimit(2)
+                if let ms = ep.durationMs, ms > 0 {
+                    Text(formatDuration(ms))
+                        .font(PaladalaTheme.FontRole.bodySmall)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
+                }
+            }
+            Spacer(minLength: 0)
+            if isSelected {
+                Image(systemName: "play.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(PaladalaTheme.biliPink)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+            }
+        }
+        .padding(.horizontal, PaladalaTheme.Spacing.l)
+        .padding(.vertical, PaladalaTheme.Spacing.m)
+        .background(isSelected ? PaladalaTheme.biliPink.opacity(0.06) : PaladalaTheme.paper)
+        .contentShape(Rectangle())
+    }
+
+    private var loadingView: some View {
+        VStack {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(PaladalaTheme.ink)
+            Text("加载中…")
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+                .padding(.top, PaladalaTheme.Spacing.s)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PaladalaTheme.canvas)
+    }
+
+    private func errorView(message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(PaladalaTheme.biliPink)
+            Text("加载失败")
+                .font(PaladalaTheme.FontRole.sectionHeader)
+                .foregroundStyle(PaladalaTheme.ink)
+            Text(message)
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+                .multilineTextAlignment(.center)
+            HStack(spacing: PaladalaTheme.Spacing.m) {
+                Button {
+                    Task { await load() }
+                } label: {
+                    Text("重试")
+                        .font(PaladalaTheme.FontRole.labelMono)
+                        .foregroundStyle(PaladalaTheme.ink)
+                        .padding(.horizontal, PaladalaTheme.Spacing.l)
+                        .padding(.vertical, PaladalaTheme.Spacing.s)
+                        .background(PaladalaTheme.paper)
+                        .overlay {
+                            Rectangle()
+                                .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                        }
+                }
+                .buttonStyle(.plain)
+                if let detail {
+                    Button {
+                        if let url = detail.episodes.first?.shareURL {
+                            fallbackURL = IdentifiableURL(url: url)
+                        }
+                    } label: {
+                        Text("在 Safari 打开")
+                            .font(PaladalaTheme.FontRole.labelMono)
+                            .foregroundStyle(PaladalaTheme.mutedInk)
+                            .padding(.horizontal, PaladalaTheme.Spacing.l)
+                            .padding(.vertical, PaladalaTheme.Spacing.s)
+                            .background(PaladalaTheme.paper)
+                            .overlay {
+                                Rectangle()
+                                    .strokeBorder(PaladalaTheme.mutedInk, lineWidth: PaladalaTheme.borderWidth)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(PaladalaTheme.Spacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PaladalaTheme.canvas)
+    }
+
+    private func load() async {
+        isLoading = true
+        loadError = nil
+        defer { isLoading = false }
+        do {
+            let fetched = try await repository.pgcSeason(seasonId: seasonId)
+            detail = fetched
+            diagLog(.bangumi, "BangumiSeasonDetail load succeeded",
+                    details: [
+                        "seasonId": seasonId,
+                        "title": fetched.title,
+                        "episodes": fetched.episodes.count
+                    ])
+        } catch {
+            loadError = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+            diagLog(.bangumi, "BangumiSeasonDetail load failed",
+                    details: [
+                        "seasonId": seasonId,
+                        "errorType": String(describing: type(of: error)),
+                        "errorMessage": "\(error)"
+                    ])
+        }
+    }
+
+    /// Episode tap.  Build marker (B): the in-app PGC
+    /// player is wired up here, but a future commit will
+    /// route through `AVPlayerController` + a dedicated
+    /// `BiliPlayback.pgc(epId:)` source.  For now we
+    /// queue the selection in state and surface a
+    /// bottom-of-screen "Open in app" / "Open in Safari"
+    /// panel so the user always has a path forward while
+    /// the in-app player lands.
+    private func onEpisodeTap(_ ep: BangumiEpisode) {
+        diagLog(.bangumi, "BangumiSeasonDetail episode tapped",
+                details: [
+                    "seasonId": seasonId,
+                    "epId": ep.epId,
+                    "title": ep.title
+                ])
+        selectedEpisode = ep
+    }
+
+    private func formatDuration(_ ms: Int64) -> String {
+        let total = ms / 1000
+        let minutes = total / 60
+        let seconds = total % 60
+        if minutes >= 60 {
+            let hours = minutes / 60
+            let m = minutes % 60
+            return String(format: "%d:%02d:%02d", hours, m, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
 }
 
 /// One row in the bangumi day's card list.  Street Minimal
 /// chrome: cover thumbnail, title, update description, and
-/// a hairline divider between rows.  Tapping the row opens
-/// the card's `shareURL` in an in-app `SFSafariViewController`
-/// (via `InAppSafariView`) so the user stays inside Paladala
-/// instead of being pushed to the official B站 app via a
-/// Universal Link.
+/// a hairline divider between rows.  Tapping the row pushes
+/// an in-app `BangumiSeasonDetailView` onto the root nav
+/// stack so the user gets the full season + episode list
+/// without leaving Paladala.  Tapping a row is the
+/// canonical entry to a per-season surface; falling back
+/// to `shareURL` (via `InAppSafariView`) is reserved for
+/// the in-detail "open in browser" affordance.
 private struct BangumiCardRow: View {
     let card: BangumiCard
-    @State private var presentedURL: IdentifiableURL?
+    let onTap: (BangumiCard) -> Void
 
     var body: some View {
         Button {
             Haptics.tap()
-            if let url = card.shareURL {
-                presentedURL = IdentifiableURL(url: url)
-            }
+            onTap(card)
         } label: {
             HStack(alignment: .top, spacing: PaladalaTheme.Spacing.m) {
                 cover
@@ -307,10 +701,6 @@ private struct BangumiCardRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .sheet(item: $presentedURL) { wrapped in
-            InAppSafariView(url: wrapped.url)
-                .ignoresSafeArea()
-        }
     }
 
     @ViewBuilder
@@ -347,11 +737,6 @@ private struct BangumiCardRow: View {
                         .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.hairlineWidth)
                 }
         }
-    }
-
-    private func openShare() {
-        guard let url = card.shareURL else { return }
-        presentedURL = IdentifiableURL(url: url)
     }
 }
 

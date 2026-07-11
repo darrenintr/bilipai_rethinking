@@ -1143,15 +1143,47 @@ enum MusicRoute: Hashable, Sendable {
     case player(BiliVideo)
 }
 
-/// Navigation routes for the 追番 surface. Currently
-/// just the weekly timeline; per-season detail is out of
-/// scope (the timeline taps open the canonical PGC share
-/// URL in the system handler instead of pushing an
-/// in-app detail view).
+/// Navigation routes for the 追番 surface.
 enum BangumiRoute: Hashable, Sendable {
     /// Open the weekly timeline. Same view as the
     /// `MainTab.bangumi` tab content; pushed onto the
     /// stack when the user enters via the profile
     /// "追番追剧" quick action.
     case timeline
+    /// Open the in-app PGC season detail page.  Pushed
+    /// when the user taps a season card on the timeline
+    /// or the dedicated in-app PGC player button.
+    case seasonDetail(seasonId: Int64)
+}
+
+/// One PGC season's worth of metadata + episode list,
+/// surfaced by `BangumiSeasonDetailView`.  The upstream
+/// `/pgc/view/web/season?ep_id=...` response is decoded
+/// into a small DTO; the card / title / desc render in
+/// the season hero and each row in `episodes` becomes a
+/// tappable episode cell.
+struct BangumiSeasonDetail: Hashable, Sendable {
+    let seasonId: Int64
+    let title: String
+    let desc: String?
+    let coverURL: URL?
+    let episodes: [BangumiEpisode]
+    var id: Int64 { seasonId }
+}
+
+/// One episode inside a `BangumiSeasonDetail`.  We carry
+/// the upstream `ep_id` (B站's stable per-episode id),
+/// the long + short titles, the cover, the duration in
+/// milliseconds, and the resolved `shareURL`.  When
+/// in-app playback is unavailable the share URL is the
+/// fallback (SFSafariViewController sheet).
+struct BangumiEpisode: Hashable, Identifiable, Sendable {
+    let epId: Int64
+    let title: String
+    let longTitle: String?
+    let indexLabel: String
+    let coverURL: URL?
+    let durationMs: Int64?
+    let shareURL: URL?
+    var id: Int64 { epId }
 }

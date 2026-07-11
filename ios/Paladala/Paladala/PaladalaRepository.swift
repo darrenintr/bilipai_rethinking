@@ -113,6 +113,19 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
         try await apiClient.bangumiTimeline(types: types)
     }
 
+    /// PGC season detail (per-season / per-episode).  Thin
+    /// pass-through to `BilibiliAPIClient.pgcSeason(...)`;
+    /// the view layer never talks to the API client
+    /// directly.  Returns a `BangumiSeasonDetail` whose
+    /// `episodes` array is keyed by stable `epId`.
+    func pgcSeason(seasonId: Int64) async throws -> BangumiSeasonDetail {
+        try await apiClient.pgcSeason(seasonId: seasonId)
+    }
+
+    func pgcSeason(epId: Int64) async throws -> BangumiSeasonDetail {
+        try await apiClient.pgcSeason(epId: epId)
+    }
+
     func detail(for video: BiliVideo) async throws -> BiliVideo {
         guard !video.bvid.isEmpty || video.aid > 0 else { return video }
         return try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)

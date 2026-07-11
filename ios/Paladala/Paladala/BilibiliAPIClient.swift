@@ -706,6 +706,84 @@ final class BilibiliAPIClient: @unchecked Sendable {
         return payload.days.compactMap(Self.makeDay(from:))
     }
 
+    /// Fetch the full PGC season detail + episode list
+    /// for `seasonId`.  Used by `BangumiSeasonDetailView`
+    /// when a timeline card is tapped.  Anonymous requests
+    /// return `-404`; the upstream requires a signed-in
+    /// cookie.  We don't authenticate-open the login sheet
+    /// on a -404 because the user's path to this screen
+    /// (a card tap on the timeline) usually means they
+    /// were already in the app with a valid session; the
+    /// sheet appears via the standard 401 → sessionExpired
+    /// path in `get(...)` if the cookie really has died.
+    func pgcSeason(seasonId: Int64) async throws -> BangumiSeasonDetail {
+        let payload: APIResponse<PgcSeasonResult> = try await get(
+            baseURL: baseURL,
+            path: "/pgc/view/web/season",
+            queryItems: [URLQueryItem(name: "season_id", value: "\(seasonId)")]
+        )
+        try payload.requireOK()
+        guard let result = payload.value else {
+            throw BilibiliAPIError.missingData
+        }
+        return Self.makeSeasonDetail(result)
+    }
+
+    /// Fetch the PGC season detail when the only thing
+    /// the caller has is an `epId`.  The upstream returns
+    /// the full season; we extract the resolved
+    /// `season_id` so the route / state can navigate by
+    /// season if a future revision needs that.
+    func pgcSeason(epId: Int64) async throws -> BangumiSeasonDetail {
+        let payload: APIResponse<PgcSeasonResult> = try await get(
+            baseURL: baseURL,
+            path: "/pgc/view/web/season",
+            queryItems: [URLQueryItem(name: "ep_id", value: "\(epId)")]
+        )
+        try payload.requireOK()
+        guard let result = payload.value else {
+            throw BilibiliAPIError.missingData
+        }
+        return Self.makeSeasonDetail(result)
+    }
+
+    /// DTO → `BangumiSeasonDetail` conversion.  Builds the
+    /// canonical B站 share URL for every episode and
+    /// maps the optional `evaluate` (long description) to
+    /// `desc`.  Episodes with no `cover` or `duration` are
+    /// still surfaced (the cell renders placeholders
+    /// downstream), and the share URL is computed even
+    /// when the upstream `share_url` field is absent.
+    private static func makeSeasonDetail(_ result: PgcSeasonResult) -> BangumiSeasonDetail {
+        let resolvedSeasonId = result.seasonId ?? 0
+        let episodes: [BangumiEpisode] = result.episodes.enumerated().map { idx, ep in
+            let cover = ep.cover.flatMap(URL.init(string:))
+            let shareURL = URL(string: "https://www.bilibili.com/bangumi/play/ep\(ep.epId)")
+            let indexLabel: String
+            if let copy = ep.shareCopy, !copy.isEmpty {
+                indexLabel = copy
+            } else {
+                indexLabel = "\(idx + 1)"
+            }
+            return BangumiEpisode(
+                epId: ep.epId,
+                title: ep.title ?? indexLabel,
+                longTitle: ep.longTitle,
+                indexLabel: indexLabel,
+                coverURL: cover,
+                durationMs: ep.durationMs,
+                shareURL: shareURL
+            )
+        }
+        return BangumiSeasonDetail(
+            seasonId: resolvedSeasonId,
+            title: result.title,
+            desc: result.evaluate,
+            coverURL: result.cover.flatMap(URL.init(string:)),
+            episodes: episodes
+        )
+    }
+
     /// DTO → BangumiDay conversion.  Lifted to a private
     /// static so `bangumiTimeline(...)` can stay flat and so
     /// a future `BangumiIndex` / `BangumiDetail` can reuse
@@ -2365,6 +2443,68 @@ private struct BangumiTimelineEpisode: Decodable, Sendable {
         case published
         case seasonId = "season_id"
         case episodeId = "episode_id"
+    }
+}
+
+// MARK: - PGC season detail (per-season / per-episode)
+//
+// Hits `/pgc/view/web/season` to fetch the full season
+// metadata + episode list for a tapped PGC card.  The
+// upstream returns a `{code, message, result}` envelope
+// where `result` is a single keyed object (not an array,
+// unlike `/pgc/web/timeline`), so we keep this on the
+// shared `APIResponse` envelope.
+//
+// Two entry points:
+//   - `pgcSeason(seasonId:)` — by season id (most common
+//     from the timeline card row, which already carries
+//     `season_id`).
+//   - `pgcSeason(epId:)` — by ep id (used when the only
+//     thing we have is an episode id, e.g. a deep-link
+//     `bangumi/play/ep<id>` URL).  The season is resolved
+//     from the upstream `result.season_id` field.
+//
+// Both require a signed-in cookie: an anonymous request
+// returns `code: -404` ("啥都木有").  The Bangumi card
+// timeline itself is anonymous, so the transition from
+// "browse" to "open" is the first time we hit a
+// cookie-gated endpoint in the PGC surface.
+
+struct PgcSeasonResult: Decodable, Sendable {
+    let seasonId: Int64?
+    let title: String
+    let cover: String?
+    let evaluate: String?
+    let episodes: [PgcSeasonEpisode]
+
+    enum CodingKeys: String, CodingKey {
+        case seasonId = "season_id"
+        case title
+        case cover
+        case evaluate
+        case episodes
+    }
+}
+
+struct PgcSeasonEpisode: Decodable, Sendable {
+    let epId: Int64
+    let title: String?
+    let longTitle: String?
+    let shareCopy: String?
+    let cover: String?
+    let durationMs: Int64?
+    let aid: Int64?
+    let cid: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case epId = "id"
+        case title
+        case longTitle = "long_title"
+        case shareCopy = "share_copy"
+        case cover
+        case durationMs = "duration"
+        case aid
+        case cid
     }
 }
 
