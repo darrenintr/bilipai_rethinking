@@ -753,9 +753,10 @@ final class BilibiliAPIClient: @unchecked Sendable {
     /// differs from the UGC `/x/player/wbi/playurl` envelope
     /// in that the relevant DASH block lives at
     /// `result.video_info.dash` (PGC) rather than
-    /// `result.dash` (UGC); we re-encode the upstream
-    /// `video_info` block to JSON and re-decode it as the
-    /// UGC-shaped `PlayURLPayload` so the existing
+    /// `result.dash` (UGC).  We fetch the raw response body
+    /// with `JSONSerialization`, extract the
+    /// `result.video_info` JSON object, and re-decode it as
+    /// the UGC-shaped `PlayURLPayload` so the existing
     /// `bestPlayback(referer:)` projection does the
     /// best-quality selection.  The synthesised init on
     /// `PlayURLPayload` ignores the PGC-only `quality` /
@@ -782,6 +783,15 @@ final class BilibiliAPIClient: @unchecked Sendable {
         if let seasonId {
             items.append(URLQueryItem(name: "season_id", value: "\(seasonId)"))
         }
+        // Fetch the raw envelope bytes so we can round-trip
+        // the `result.video_info` JSON object into the UGC
+        // decoder without forcing `PlayURLPayload.Dash` (and
+        // its sub-DTOs) to grow an `Encodable` contract they
+        // don't otherwise need.  We still call `get<T>` with
+        // the typed envelope first so the 412/429 retry and
+        // 401 session-expired mapping fire correctly; the
+        // second request below is only the path that gives
+        // us the raw body.
         let envelope: PgcPlayURLPayload = try await get(
             baseURL: baseURL,
             path: "/pgc/player/web/v2/playurl",
@@ -792,12 +802,24 @@ final class BilibiliAPIClient: @unchecked Sendable {
                 envelope.message ?? "PGC playurl code \(envelope.code)"
             )
         }
-        guard let videoInfo = envelope.result?.videoInfo else {
+        guard envelope.result?.videoInfo != nil else {
             throw BilibiliAPIError.missingData
         }
-        let encoder = JSONEncoder()
+        let rawData: Data = try await rawGet(
+            baseURL: baseURL,
+            path: "/pgc/player/web/v2/playurl",
+            queryItems: items
+        )
+        guard let root = try? JSONSerialization.jsonObject(with: rawData) as? [String: Any],
+              let result = root["result"] as? [String: Any],
+              let videoInfoJSON = result["video_info"] else {
+            throw BilibiliAPIError.missingData
+        }
+        let playURLData = try JSONSerialization.data(
+            withJSONObject: videoInfoJSON,
+            options: []
+        )
         let decoder = JSONDecoder()
-        let playURLData = try encoder.encode(videoInfo)
         let playURL = try decoder.decode(PlayURLPayload.self, from: playURLData)
         let referer: URL = {
             if let seasonId,
@@ -812,6 +834,60 @@ final class BilibiliAPIClient: @unchecked Sendable {
             throw BilibiliAPIError.noPlayableFormat
         }
         return playback
+    }
+
+    /// Raw-body companion to `get<T>`.  Same retry / referer
+    /// / WBI-sign behaviour as `get<T>`, but returns the
+    /// raw `Data` so the PGC playurl path can re-decode the
+    /// `result.video_info` JSON object as the UGC-shaped
+    /// `PlayURLPayload` without forcing the DASH sub-DTOs
+    /// to implement `Encodable`.  Bypasses the `Decodable`
+    /// return contract.
+    private func rawGet(
+        baseURL: URL,
+        path: String,
+        queryItems: [URLQueryItem]
+    ) async throws -> Data {
+        var items = queryItems
+        let isAppAPI = baseURL.host?.contains("app.bilibili.com") == true
+        if !isAppAPI {
+            if !items.contains(where: { $0.name == "_t" }) {
+                items.append(URLQueryItem(name: "_t", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
+            }
+            if !items.contains(where: { $0.name == "_r" }) {
+                items.append(URLQueryItem(name: "_r", value: UUID().uuidString))
+            }
+        }
+        var components = URLComponents(
+            url: baseURL.appending(path: path),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = items
+        guard let url = components.url else {
+            throw BilibiliAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
+        request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
+        if let cookie = cookieProvider?() {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        let initial = try await session.data(for: request)
+        let resolved: (Data, URLResponse)
+        if let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode,
+           initialStatus == 412 || initialStatus == 429 {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            resolved = try await session.data(for: request)
+        } else {
+            resolved = initial
+        }
+        let (data, response) = resolved
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw BilibiliAPIError.http
+        }
+        return data
     }
 
     /// DTO → `BangumiSeasonDetail` conversion.  Builds the
@@ -2621,14 +2697,15 @@ fileprivate struct PgcPlayURLResult: Decodable, Sendable {
     }
 }
 
-/// `Codable` (not just `Decodable`) because the playback
-/// path re-encodes the upstream `video_info` block to JSON
-/// and re-decodes it as the UGC-shaped `PlayURLPayload` —
-/// the synthesised init on `PlayURLPayload` ignores the
-/// PGC-only `quality` / `format` / `from` extras, so the
-/// round-trip is lossless for the four fields the player
-/// cares about (durl / dash / hls / duration).
-fileprivate struct PgcVideoInfo: Codable, Sendable {
+/// `Decodable` only — the playback path does not need
+/// to re-encode the upstream `video_info` block; the
+/// `pgcPlayurl` method does the round-trip via
+/// `JSONSerialization` on the raw response bytes, which
+/// keeps `PlayURLPayload.Dash` (and its sub-types
+/// `DashVideo` / `DashMedia` / `SegmentBase`) free of
+/// a parallel `Encodable` contract they would never
+/// otherwise need.
+fileprivate struct PgcVideoInfo: Decodable, Sendable {
     let dash: PlayURLPayload.Dash?
     let duration: Double?
     let quality: Int?
