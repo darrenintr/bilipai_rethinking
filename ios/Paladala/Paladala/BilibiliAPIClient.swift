@@ -2326,6 +2326,23 @@ private struct BangumiTimelineDay: Decodable, Sendable {
         case isToday = "is_today"
         case episodes
     }
+
+    /// B 站 sends `is_today` as a JSON number (0/1), not a
+    /// Bool.  Synthesized Decodable would typeMismatch on
+    /// that, so we coerce 0/1 to Bool here and keep
+    /// `isToday: Bool?` for the call site.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        date = try c.decodeIfPresent(String.self, forKey: .date)
+        dateTs = try c.decodeIfPresent(Int64.self, forKey: .dateTs)
+        weekday = try c.decode(Int.self, forKey: .weekday)
+        if let n = try c.decodeIfPresent(Int.self, forKey: .isToday) {
+            isToday = n != 0
+        } else {
+            isToday = nil
+        }
+        episodes = try c.decode([BangumiTimelineEpisode].self, forKey: .episodes)
+    }
 }
 
 private struct BangumiTimelineEpisode: Decodable, Sendable {
