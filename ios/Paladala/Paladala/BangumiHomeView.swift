@@ -49,9 +49,11 @@ struct BangumiHomeView: View {
     var body: some View {
         Group {
             if isLoading && days.isEmpty {
-                loadingView
+                BangumiLoadingView()
             } else if let loadError, days.isEmpty {
-                errorView(message: loadError)
+                BangumiErrorView(message: loadError) {
+                    Task { await load(force: true) }
+                }
             } else if days.isEmpty {
                 emptyView
             } else {
@@ -172,53 +174,6 @@ struct BangumiHomeView: View {
         }
     }
 
-    private var loadingView: some View {
-        VStack {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .tint(PaladalaTheme.ink)
-            Text("加载中…")
-                .font(PaladalaTheme.FontRole.bodySmall)
-                .foregroundStyle(PaladalaTheme.mutedInk)
-                .padding(.top, PaladalaTheme.Spacing.s)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(PaladalaTheme.canvas)
-    }
-
-    private func errorView(message: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(PaladalaTheme.biliPink)
-            Text("加载失败")
-                .font(PaladalaTheme.FontRole.sectionHeader)
-                .foregroundStyle(PaladalaTheme.ink)
-            Text(message)
-                .font(PaladalaTheme.FontRole.bodySmall)
-                .foregroundStyle(PaladalaTheme.mutedInk)
-                .multilineTextAlignment(.center)
-            Button {
-                Task { await load(force: true) }
-            } label: {
-                Text("重试")
-                    .font(PaladalaTheme.FontRole.labelMono)
-                    .foregroundStyle(PaladalaTheme.ink)
-                    .padding(.horizontal, PaladalaTheme.Spacing.l)
-                    .padding(.vertical, PaladalaTheme.Spacing.s)
-                    .background(PaladalaTheme.paper)
-                    .overlay {
-                        Rectangle()
-                            .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
-                    }
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(PaladalaTheme.Spacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(PaladalaTheme.canvas)
-    }
-
     private var emptyView: some View {
         VStack(spacing: 12) {
             Image(systemName: "play.rectangle")
@@ -337,9 +292,11 @@ struct BangumiSeasonDetailView: View {
     var body: some View {
         Group {
             if isLoading && detail == nil {
-                loadingView
+                BangumiLoadingView()
             } else if let loadError, detail == nil {
-                errorView(message: loadError)
+                BangumiErrorView(message: loadError) {
+                    Task { await load() }
+                }
             } else if let detail {
                 contentView(detail: detail)
             } else {
@@ -611,74 +568,6 @@ struct BangumiSeasonDetailView: View {
         .padding(.vertical, PaladalaTheme.Spacing.m)
         .background(isSelected ? PaladalaTheme.biliPink.opacity(0.06) : PaladalaTheme.paper)
         .contentShape(Rectangle())
-    }
-
-    private var loadingView: some View {
-        VStack {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .tint(PaladalaTheme.ink)
-            Text("加载中…")
-                .font(PaladalaTheme.FontRole.bodySmall)
-                .foregroundStyle(PaladalaTheme.mutedInk)
-                .padding(.top, PaladalaTheme.Spacing.s)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(PaladalaTheme.canvas)
-    }
-
-    private func errorView(message: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(PaladalaTheme.biliPink)
-            Text("加载失败")
-                .font(PaladalaTheme.FontRole.sectionHeader)
-                .foregroundStyle(PaladalaTheme.ink)
-            Text(message)
-                .font(PaladalaTheme.FontRole.bodySmall)
-                .foregroundStyle(PaladalaTheme.mutedInk)
-                .multilineTextAlignment(.center)
-            HStack(spacing: PaladalaTheme.Spacing.m) {
-                Button {
-                    Task { await load() }
-                } label: {
-                    Text("重试")
-                        .font(PaladalaTheme.FontRole.labelMono)
-                        .foregroundStyle(PaladalaTheme.ink)
-                        .padding(.horizontal, PaladalaTheme.Spacing.l)
-                        .padding(.vertical, PaladalaTheme.Spacing.s)
-                        .background(PaladalaTheme.paper)
-                        .overlay {
-                            Rectangle()
-                                .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
-                        }
-                }
-                .buttonStyle(.plain)
-                if let detail {
-                    Button {
-                        if let url = detail.episodes.first?.shareURL {
-                            fallbackURL = IdentifiableURL(url: url)
-                        }
-                    } label: {
-                        Text("在 Safari 打开")
-                            .font(PaladalaTheme.FontRole.labelMono)
-                            .foregroundStyle(PaladalaTheme.mutedInk)
-                            .padding(.horizontal, PaladalaTheme.Spacing.l)
-                            .padding(.vertical, PaladalaTheme.Spacing.s)
-                            .background(PaladalaTheme.paper)
-                            .overlay {
-                                Rectangle()
-                                    .strokeBorder(PaladalaTheme.mutedInk, lineWidth: PaladalaTheme.borderWidth)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(PaladalaTheme.Spacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(PaladalaTheme.canvas)
     }
 
     private func load() async {

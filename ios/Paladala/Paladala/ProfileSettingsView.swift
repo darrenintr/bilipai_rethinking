@@ -72,15 +72,6 @@ struct ProfileSettingsView: View {
     // app restarts.
     @AppStorage("analytics.optIn") private var analyticsOptIn: Bool = true
 
-    /// Local state for the FFmpeg + VideoToolbox test surface.
-    /// Tapping the entry in the "诊断工具" section sets this to
-    /// `true` and the `.sheet` modifier at the bottom of `body`
-    /// presents `FFmpegTestView`.  This is the only way to reach
-    /// the FFmpeg stack from production UI right now — it lives in
-    /// the profile screen so internal testers can find it without
-    /// adding a permanent Settings tab.
-    @State private var showingFFmpegTest = false
-
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var authStore: AuthStore
 
@@ -307,22 +298,6 @@ struct ProfileSettingsView: View {
                     }
                 }
 
-                // FFmpeg + VideoToolbox test surface.  Opens a
-                // sheet that lets the tester pick a local MP4 and
-                // verify the FFmpeg demuxer → VideoToolbox hardware
-                // decode path works.  This is the iOS 26 Beta MPSGraph
-                // workaround diagnostic entry — production playback
-                // is still routed through AVPlayer, this surface
-                // exists only to validate the alternative path.
-                Button {
-                    showingFFmpegTest = true
-                } label: {
-                    PluginRow(title: "FFmpeg 播放测试",
-                              subtitle: "iOS 26 Beta 临时通道：选本地 MP4 验证 VideoToolbox 硬解",
-                              symbol: "ant.fill")
-                }
-                .buttonStyle(.plain)
-
                 Link(destination: URL(string: "https://github.com/darrenintr/pure-bilibili-rethinking")!) {
                     PluginRow(title: "GitHub 仓库", subtitle: "开源项目地址", symbol: "link")
                 }
@@ -339,10 +314,6 @@ struct ProfileSettingsView: View {
                 await profileModel.loadStats(mid: mid, repository: repository)
                 await profileModel.loadCoinBalance(repository: repository)
             }
-        }
-        .sheet(isPresented: $showingFFmpegTest) {
-            FFmpegTestView()
-                .paladalaSheetGlass()
         }
     }
 

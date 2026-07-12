@@ -901,6 +901,123 @@ struct SkeletonGrid: View {
     }
 }
 
+// MARK: - Bangumi loading / error surfaces
+//
+// `BangumiHomeView` (timeline) and `BangumiSeasonDetailView`
+// (per-season detail) both render a "load → error → empty"
+// state machine against `repository.bangumiTimeline(...)` and
+// `repository.pgcSeason(...)`.  The three surfaces were
+// duplicated wholesale — `loadingView` was identical, the
+// `errorView`s differed only by an optional Safari fallback
+// button.  Extracting them here collapses ~80 lines per view
+// into a single source of truth so a styling change in one
+// place can't drift from the other.
+
+/// Loading placeholder for any Bangumi surface.  Renders the
+/// paper-canvas spinner + "加载中…" caption used by both
+/// `BangumiHomeView` and `BangumiSeasonDetailView`.
+struct BangumiLoadingView: View {
+    var body: some View {
+        VStack {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(PaladalaTheme.ink)
+            Text("加载中…")
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+                .padding(.top, PaladalaTheme.Spacing.s)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PaladalaTheme.canvas)
+    }
+}
+
+/// Error surface for any Bangumi surface.  Mandatory `message`
+/// is rendered below the warning glyph; `retry` is wired to a
+/// plain bordered "重试" button.  Pass `fallback` to render the
+/// secondary "在 Safari 打开" affordance used by
+/// `BangumiSeasonDetailView` when the in-app PGC player
+/// upstream gates the request (-10403 区域限制 etc.).
+struct BangumiErrorView: View {
+    let message: String
+    let retry: () -> Void
+    /// Optional secondary action label + closure.  When
+    /// non-nil, a "在 Safari 打开" button is rendered next
+    /// to "重试" so the user has a fallback path even when
+    /// the in-app player can't bind.
+    let fallback: (label: String, action: () -> Void)?
+
+    init(
+        message: String,
+        retry: @escaping () -> Void,
+        fallback: (label: String, action: () -> Void)? = nil
+    ) {
+        self.message = message
+        self.retry = retry
+        self.fallback = fallback
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(PaladalaTheme.biliPink)
+            Text("加载失败")
+                .font(PaladalaTheme.FontRole.sectionHeader)
+                .foregroundStyle(PaladalaTheme.ink)
+            Text(message)
+                .font(PaladalaTheme.FontRole.bodySmall)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+                .multilineTextAlignment(.center)
+            HStack(spacing: PaladalaTheme.Spacing.m) {
+                retryButton
+                if let fallback {
+                    fallbackButton(label: fallback.label, action: fallback.action)
+                }
+            }
+        }
+        .padding(PaladalaTheme.Spacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PaladalaTheme.canvas)
+    }
+
+    private var retryButton: some View {
+        Button {
+            retry()
+        } label: {
+            Text("重试")
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.ink)
+                .padding(.horizontal, PaladalaTheme.Spacing.l)
+                .padding(.vertical, PaladalaTheme.Spacing.s)
+                .background(PaladalaTheme.paper)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func fallbackButton(label: String, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+        } label: {
+            Text(label)
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+                .padding(.horizontal, PaladalaTheme.Spacing.l)
+                .padding(.vertical, PaladalaTheme.Spacing.s)
+                .background(PaladalaTheme.paper)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(PaladalaTheme.mutedInk, lineWidth: PaladalaTheme.borderWidth)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// Single skeleton card. Its square blocks mirror the cover and text
 /// regions without material, blur, gradient, or infinite animation.
 struct SkeletonCard: View {

@@ -831,9 +831,8 @@ struct BiliAppConfig: Hashable, Sendable {
 
 /// `BiliLiveStreamFormat` describes the streaming protocol a live
 /// room exposes. Bilibili rooms typically offer both an FLV stream
-/// (lowest latency, FFmpeg friendly) and an HLS stream (works with
-/// stock players). The player toggle in `LivePlayerView` flips
-/// between them.
+/// (lowest latency) and an HLS stream (works with stock players).
+/// The player toggle in `LivePlayerView` flips between them.
 enum BiliLiveStreamFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     case hls
     case flv

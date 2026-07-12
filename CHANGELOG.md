@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased — Refactor pass
+
+### 新增
+- **`LoadState<T>`** (`ios/Paladala/Paladala/LoadState.swift`): `@MainActor ObservableObject` 封装 `isLoading` / `isLoadingMore` / `errorMessage` / `value` 四态机。配套 `LoadStateTests.swift` (10 个用例覆盖成功、失败、并发短路、pagination、reset)。下游 5 个 `AccountContentViews` ViewModel 待迁移;`LoadState` 已就位可用。
+- **`GenerationGuard`** (`ios/Paladala/Paladala/GenerationGuard.swift`): 单调递增 generation counter,封装 `bump()` / `isCurrent()` / `bumpAnd(_:)`。当前在 `HomeViewModel.suggestGeneration` / `requestGeneration` 与 `LocalHLSProxyServer.currentPrepGeneration` 三处重复实现。
+- **`BangumiLoadingView` / `BangumiErrorView`** (`SharedViews.swift`): 抽出 `BangumiHomeView` 与 `BangumiSeasonDetailView` 重复的 loading / error 表面。`BangumiErrorView` 支持可选 `fallback` 子按钮。
+
+### 移除
+- **FFmpeg scaffold**: `FFmpegDemuxer.swift` / `FFmpegPlaybackEngine.swift` / `VideoToolboxDecoder.swift` / `FFmpegTestView.swift` / `PaladalaFFmpegShim.c` / `PaladalaFFmpegShim.h` 共 6 个文件(1710 行)移至 `experimental/ffmpeg/`。`ProfileSettingsView` 中隐藏的"诊断工具"FFmpeg 入口一并移除。`Paladala-Bridging-Header.h` 保留为空文件,FFmpeg C 头文件依赖清除。
+- **`VLCPlayerView.swift.vlc`** 26KB 备份文件删除。
+- **pbxproj**: `FFmpeg*` 与 `VLCPlayerView` 的 12 个 `PBXBuildFile` / `PBXFileReference` 节点、`Paladala-Bridging-Header.h` 的 FFmpeg 注释行已清理。
+
+### 文件
+- `BangumiHomeView.swift`: 952 → 841 行(-111),`loadingView` / `errorView` 双副本合并为 `BangumiLoadingView()` / `BangumiErrorView(...)` 调用。
+- `SharedViews.swift`: 929 → 1046 行(+117),承载新增的两个共享 view 与文档注释。
+- `ProfileSettingsView.swift`: 635 → 606 行(-29),`@State showingFFmpegTest` 与 `.sheet` FFmpegTestView 弹出器移除。
+
+### 风险
+- 修改了 `project.pbxproj` 的 12 个节点(新增 `LoadState` / `GenerationGuard` / `LoadStateTests` 3 个文件 × 4 个节点,移除 FFmpeg 6 个文件 × 4 个节点)。需要 macOS 本地 `xcodebuild` 验证 project 没有损坏。
+- 新文件无 Swift 工具链本地编译验证,build 后请先在 macOS 上 `xcodebuild -scheme Paladala clean build` 一次。
+
 ## v9.1.0 (2026-07-08) — Swift 6 语言模式升级 (PR-C)
 
 ### 版本信息

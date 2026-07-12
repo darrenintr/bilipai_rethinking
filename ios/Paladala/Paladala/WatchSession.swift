@@ -5,10 +5,8 @@
 //  Periodic history reporter.  Lives in the View layer (next
 //  to `VideoDetailView`) and forwards watch progress to
 //  `PaladalaRepository.reportHistoryForWatchSession` every
-//  30 seconds.  Originally lived inside `VLCPlayerView.swift`,
-//  which is now disabled (renamed to `.vlc`) because VLC is
-//  no longer the playback engine — the SwiftUI host now points
-//  at `PlayerView` (which uses AVKit's `VideoPlayer`).
+//  30 seconds.  The SwiftUI host now points at `PlayerView`
+//  (which uses AVKit's `VideoPlayer`).
 //
 
 import Foundation
