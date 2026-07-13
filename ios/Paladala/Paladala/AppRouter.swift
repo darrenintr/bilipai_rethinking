@@ -5,6 +5,7 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     case home
     case dynamic
     case live
+    case music
     case bangumi
     case profile
 
@@ -18,6 +19,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "動態"
         case .live:
             return "直播"
+        case .music:
+            return "音樂"
         case .bangumi:
             return "追番"
         case .profile:
@@ -38,6 +41,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "rectangle.stack"
         case .live:
             return "play.tv"
+        case .music:
+            return "music.note"
         case .bangumi:
             return "play.rectangle.stack"
         case .profile:
@@ -48,8 +53,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     /// Filled/high-contrast variants that match the new sidebar
     /// design: a solid pink house for the active 首頁 pill, a
     /// compass/scope for 動態, a radiating-wave glyph for 直播,
-    /// a stacked-rectangle glyph for 追番, and a circle-person
-    /// badge for the 我的 card.
+    /// a music-note glyph for 音樂, a stacked-rectangle glyph
+    /// for 追番, and a circle-person badge for the 我的 card.
     var sidebarSymbolName: String {
         switch self {
         case .home:
@@ -58,6 +63,8 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "safari"
         case .live:
             return "dot.radiowaves.left.and.right"
+        case .music:
+            return "music.note"
         case .bangumi:
             return "play.rectangle.on.rectangle.fill"
         case .profile:

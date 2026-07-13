@@ -193,12 +193,11 @@ struct RootView: View {
         case "live":
             router.open(.live)
         case "music":
-            // 2026-07-11: music tab was removed in favour of
-            // 追番.  Redirect the existing `paladala://music`
-            // deep link so a previously-shared link still
-            // lands the user in a tabbed surface rather than
-            // silently breaking.
-            router.open(.bangumi)
+            // 2026-07-13: music tab restored under the
+            // section-reintroduction project. The bangumi
+            // redirect that lived here 2026-07-11 → 2026-07-13
+            // is gone; deep links now land on the music tab.
+            router.open(.music)
         case "settings":
             router.open(.profile)
         case "search":
@@ -475,6 +474,19 @@ private struct PhoneRootView: View {
                 }
                 .tag(MainTab.live)
 
+                LazyTab(tag: MainTab.music, activeTag: router.selectedTab) {
+                    MusicHomeView(repository: repository)
+                }
+                .tabItem {
+                    Label {
+                        Text(MainTab.music.title)
+                    } icon: {
+                        Image(systemName: MainTab.music.symbolName)
+                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.music)
+                    }
+                }
+                .tag(MainTab.music)
+
                 LazyTab(tag: MainTab.bangumi, activeTag: router.selectedTab) {
                     BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
                 }
@@ -568,7 +580,7 @@ private struct PadRootView: View {
     /// bottom of the sidebar instead of a regular row. The five-case
     /// `MainTab` enum stays unchanged so the phone tab bar keeps
     /// working.
-    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live, .bangumi]
+    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live, .music, .bangumi]
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -654,6 +666,10 @@ private struct PadRootView: View {
                 LiveRoomsView(repository: repository)
                     .transition(ScreenSwitchTransition.active)
                     .id(MainTab.live)
+            case .music:
+                MusicHomeView(repository: repository)
+                    .transition(ScreenSwitchTransition.active)
+                    .id(MainTab.music)
             case .bangumi:
                 BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
                     .transition(ScreenSwitchTransition.active)
