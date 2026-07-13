@@ -50,7 +50,7 @@ import Foundation
 // for the view, the inner `LoadState` is observed only where
 // needed.
 @MainActor
-final class LoadState<T>: ObservableObject {
+final class LoadState<T: Sendable>: ObservableObject {
     /// The currently-loaded value.  `nil` while the very first
     /// `load(_:)` is still in flight, and after a load error
     /// that resets `value` to `nil` (matching the existing
