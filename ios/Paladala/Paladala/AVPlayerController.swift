@@ -235,6 +235,17 @@ final class PlayerController: ObservableObject {
     /// snapshot/restore logic lands in Group 4.
     internal private(set) var retryRestoreTime: Double?
 
+    /// Snapshot of a user-initiated seek (`seek(to:)` /
+    /// `seek(by:)`) that arrived before the real `AVPlayerItem`
+    /// was bound — `duration` is still 0 then, so the public
+    /// seek methods can't clamp or even call `player.seek`.  We
+    /// stash the target here and `startPlaybackSession(item:)`
+    /// replays it via `performSeek(_:fromRestore: true)` after
+    /// the real item binds.  Without this the resume-prompt
+    /// "Continue from MM:SS" tap (which fires before the proxy
+    /// load completes) silently drops the user's intent.
+    internal private(set) var pendingUserSeek: Double?
+
     /// **PR-A Group 5**: test-only setter for `retryRestoreTime`.
     /// Production code only writes this field from
     /// `retryPlayback()` (proxy branch); tests need to seed a
@@ -940,6 +951,17 @@ final class PlayerController: ObservableObject {
         if isPlaying {
             player.play()
         }
+        // Replay any user seek (`seek(to:)` / `seek(by:)`) that
+        // arrived before the real item was bound.  Higher
+        // priority than `retryRestoreTime` because the user's
+        // intent is freshest.
+        if let pending = pendingUserSeek {
+            pendingUserSeek = nil
+            diagLog(.playback, "pending_user_seek_replay", details: [
+                "restoreTo": pending
+            ])
+            performSeek(pending, fromRestore: true)
+        }
         // **PR-A Group 4 (item 9, D4)**: if a retry on the proxy
         // path captured the previous playhead, restore it now
         // (after `play()` so AVPlayer's seek target is honoured).
@@ -1639,9 +1661,23 @@ final class PlayerController: ObservableObject {
     /// any caller — `performSeek` is the single entry point.
     func seek(by offset: Double) {
         let now = CMTimeGetSeconds(player.currentTime())
-        guard now.isFinite, duration > 0 else { return }
-        let target = max(0, min(duration, now + offset))
-        performSeek(target)
+        guard now.isFinite else { return }
+        let target = max(0, now + offset)
+        if duration > 0 {
+            performSeek(min(duration, target))
+        } else {
+            // Duration not yet resolved (e.g. double-tap before
+            // the AVPlayerItem bound).  Persist and replay in
+            // `startPlaybackSession(item:)` once the real item
+            // is ready — otherwise the gesture is silently
+            // dropped and the user sees no scrub feedback.
+            pendingUserSeek = target
+            diagLog(.playback, "seek_deferred_until_item_ready", details: [
+                "kind": "by",
+                "offset": offset,
+                "target": target
+            ])
+        }
     }
 
     /// Seek to an absolute timestamp in seconds.  Used by the
@@ -1651,10 +1687,26 @@ final class PlayerController: ObservableObject {
     /// `[0, duration]` for the same reason `seek(by:)` does.
     ///
     /// **PR-A Group 1**: routes through `performSeek(_:)`.
+    ///
+    /// When `duration` is still 0 (resume-prompt "Continue
+    /// from MM:SS" fires before the proxy load completes),
+    /// the seek is persisted via `pendingUserSeek` and replayed
+    /// in `startPlaybackSession(item:)` once the real item is
+    /// bound.  Without this deferral the user's intent is lost
+    /// when `replaceCurrentItemForPlayback` swaps in the real
+    /// item — `player.seek` on the placeholder is a no-op.
     func seek(to seconds: Double) {
-        guard seconds.isFinite, duration > 0 else { return }
-        let target = max(0, min(duration, seconds))
-        performSeek(target)
+        guard seconds.isFinite else { return }
+        let target = max(0, seconds)
+        if duration > 0 {
+            performSeek(min(duration, target))
+        } else {
+            pendingUserSeek = target
+            diagLog(.playback, "seek_deferred_until_item_ready", details: [
+                "kind": "to",
+                "target": target
+            ])
+        }
     }
 
     /// SponsorBlock auto-skip entry point.  Called from the
@@ -1958,7 +2010,21 @@ final class PlayerController: ObservableObject {
             else {
                 return .commandFailed
             }
-            let target = max(0, positionEvent.positionTime)
+            // Clamp to `[0, duration]` (or `[0, +∞)` when duration
+            // isn't known yet) so a stray `positionEvent.positionTime
+            // == duration` doesn't seek past the end and fire
+            // `AVPlayerItemDidPlayToEndTime`.  That notification
+            // posts `.paladalaVideoDidPlayToEnd`, which the
+            // VideoDetailView overlay interprets as "video ended"
+            // and surfaces the next-up / replay card — wrong if the
+            // playhead is mid-video.  Note: this handler bypasses
+            // `performSeek(_:)`'s generation guard so it can stay
+            // synchronous — the lock-screen scrubber expects
+            // immediate response.
+            let upperBound = self.duration > 0
+                ? self.duration
+                : Double.greatestFiniteMagnitude
+            let target = max(0, min(upperBound, positionEvent.positionTime))
             let time = CMTime(seconds: target, preferredTimescale: 600)
             self.player.seek(to: time)
             // Position changed — push the new value to Now Playing
