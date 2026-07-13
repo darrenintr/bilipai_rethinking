@@ -42,82 +42,101 @@ struct MusicHomeView: View {
     @EnvironmentObject private var router: AppRouter
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                if let error = model.errorMessage {
-                    ErrorBanner(message: error)
-                }
-                if model.isLoading && model.videos.isEmpty {
-                    SkeletonGrid(
-                        columns: horizontalSizeClass == .regular ? 2 : 1,
-                        columnSpacing: 32,
-                        rowSpacing: 32
-                    )
-                        .padding(.top, 4)
-                } else if model.videos.isEmpty {
-                    emptyState
-                } else {
-                    LazyVGrid(columns: columns, spacing: 32) {
-                        ForEach(model.videos) { video in
-                            Button {
-                                Haptics.tap()
-                                diagLog(.music, "MusicCard tap", details: [
-                                    "bvid": video.bvid,
-                                    "title": video.title
-                                ])
-                                router.openMusic(video)
-                            } label: {
-                                MusicCard(video: video)
-                            }
-                            .buttonStyle(PaladalaPressBounceButtonStyle())
-                        }
+        content
+            .background(Color.clear)
+            .navigationTitle(L10n.music.title)
+            .task {
+                diagLog(.music, "MusicHomeView appeared")
+            }
+            .onDisappear {
+                diagLog(.music, "MusicHomeView disappeared")
+            }
+            .task(id: "music-load") {
+                // PR-A Task 9: see HomeView.task for the same
+                // seed-then-load pattern. The id makes this re-fire
+                // on explicit user actions, but the didBootstrap gate
+                // makes it a no-op for re-appearances with cached data.
+                if !model.didBootstrap {
+                    if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "music") {
+                        model.seedFromCache(cached)
                     }
+                    model.markBootstrapped()
+                    LaunchMetrics.shared.mark(.firstFeedCached)
+                    await Task.yield()
+                    LaunchMetrics.shared.mark(.firstFeedNetworkStart)
+                    await model.load(repository: repository)
+                    LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
                 }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Haptics.tap()
+                        Task { await model.refresh(repository: repository) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .accessibilityLabel("Refresh")
+                }
+            }
+            .modifier(LiquidGlassNavBarModifier(materialDesign: materialDesign))
+    }
+
+    /// Top-level content switch. Mirrors `BangumiHomeView.body`:
+    /// the error / loading / empty states render outside the
+    /// `ScrollView` so the `.refreshable` modifier is only attached
+    /// when there's actual scrollable content.  This avoids the
+    /// iPadOS 26.6 quirk where a `ScrollView` with empty content
+    /// + `.refreshable` re-fires the refresh closure at frame-tick
+    /// rate while the user is mid-pull, which previously chained
+    /// 5-10 `MusicViewModel.refresh` calls in a single gesture.
+    @ViewBuilder
+    private var content: some View {
+        if model.isLoading && model.videos.isEmpty {
+            SkeletonGrid(
+                columns: horizontalSizeClass == .regular ? 2 : 1,
+                columnSpacing: 32,
+                rowSpacing: 32
+            )
+            .padding(PaladalaTheme.contentPadding)
+        } else if let error = model.errorMessage, model.videos.isEmpty {
+            // Error state outside the ScrollView so the pull-to-refresh
+            // gesture doesn't get retriggered by the empty content. The
+            // `ErrorBanner` keeps a compact form (vs. Bangumi's full
+            // BangumiErrorView) because the music tab still has a
+            // toolbar refresh button for an explicit retry path.
+            VStack(spacing: 12) {
+                ErrorBanner(message: error)
+                Spacer(minLength: 0)
             }
             .padding(PaladalaTheme.contentPadding)
-        }
-        .background(Color.clear)
-        .scrollIndicators(.hidden)
-        .navigationTitle(L10n.music.title)
-        .task {
-            diagLog(.music, "MusicHomeView appeared")
-        }
-        .onDisappear {
-            diagLog(.music, "MusicHomeView disappeared")
-        }
-        .task(id: "music-load") {
-            // PR-A Task 9: see HomeView.task for the same
-            // seed-then-load pattern. The id makes this re-fire
-            // on explicit user actions, but the didBootstrap gate
-            // makes it a no-op for re-appearances with cached data.
-            if !model.didBootstrap {
-                if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "music") {
-                    model.seedFromCache(cached)
+        } else if model.videos.isEmpty {
+            emptyState
+        } else {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 32) {
+                    ForEach(model.videos) { video in
+                        Button {
+                            Haptics.tap()
+                            diagLog(.music, "MusicCard tap", details: [
+                                "bvid": video.bvid,
+                                "title": video.title
+                            ])
+                            router.openMusic(video)
+                        } label: {
+                            MusicCard(video: video)
+                        }
+                        .buttonStyle(PaladalaPressBounceButtonStyle())
+                    }
                 }
-                model.markBootstrapped()
-                LaunchMetrics.shared.mark(.firstFeedCached)
-                await Task.yield()
-                LaunchMetrics.shared.mark(.firstFeedNetworkStart)
-                await model.load(repository: repository)
-                LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
+                .padding(PaladalaTheme.contentPadding)
+            }
+            .scrollIndicators(.hidden)
+            .refreshable {
+                Haptics.medium()
+                await model.refresh(repository: repository)
             }
         }
-        .refreshable {
-            Haptics.medium()
-            await model.refresh(repository: repository)
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Haptics.tap()
-                    Task { await model.refresh(repository: repository) }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .accessibilityLabel("Refresh")
-            }
-        }
-        .modifier(LiquidGlassNavBarModifier(materialDesign: materialDesign))
     }
 
     private var emptyState: some View {
