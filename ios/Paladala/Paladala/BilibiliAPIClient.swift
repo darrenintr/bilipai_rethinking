@@ -2422,6 +2422,34 @@ enum BilibiliAPIError: Error, Sendable {
     case sessionExpired
 }
 
+extension BilibiliAPIError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return L10n.errors.parse
+        case .http:
+            return L10n.errors.network
+        case .api(let message):
+            // Forward the upstream message verbatim.  Anonymous
+            // calls surface the well-known B站 business codes
+            // here — e.g. `-404 啥都木有` ("nothing here") or
+            // `-101 请先登录` ("please sign in").  Returning the
+            // raw message lets callers show the upstream reason
+            // instead of the unhelpful Swift default
+            // "(Paladala.BilibiliAPIError error 0.)".
+            return message
+        case .missingData:
+            return L10n.errors.parse
+        case .missingIdentity:
+            return L10n.errors.unauthorized
+        case .noPlayableFormat:
+            return L10n.errors.empty
+        case .sessionExpired:
+            return L10n.errors.unauthorized
+        }
+    }
+}
+
 struct EmptyPayload: Codable, Sendable {}
 
 /// `data.money` from `/site/getCoin` — the signed-in user's coin balance.

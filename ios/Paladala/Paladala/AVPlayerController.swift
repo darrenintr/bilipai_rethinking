@@ -1448,8 +1448,18 @@ final class PlayerController: ObservableObject {
         ) { [weak self, weak item] _ in
             guard let item else { return }
             let entries = item.errorLog()?.events ?? []
+            // **Build 250 fix**: `String(describing:)` on an
+            // AVPlayerItemErrorLogEvent emits a useless
+            // `<AVPlayerItemErrorLogEvent: 0x...>` token —
+            // operators reading the diagnostic dump can't tell
+            // *what* went wrong without parsing the hex
+            // address.  Pull the structured fields instead.
             let summary = entries.prefix(3).map { e -> String in
-                String(describing: e)
+                "domain=\(e.errorDomain) "
+                    + "code=\(e.errorStatusCode) "
+                    + "comment=\(e.errorComment ?? "") "
+                    + "uri=\(e.uri ?? "") "
+                    + "server=\(e.serverAddress ?? "")"
             }.joined(separator: " | ")
             diagLog(.playback, "AVPlayerItem new error log entry", details: [
                 "count": entries.count,

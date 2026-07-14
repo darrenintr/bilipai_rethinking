@@ -4861,39 +4861,62 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
         // do NOT auto-retry, since retrying the same request
         // against the same upstream will hit the same bug
         // (per D6: avoid amplifying buggy upstreams).
+        //
+        // **Build 250 fix**: on a retry, the upstream request
+        // is shifted by `bytesReceivedFromUpstream` so the
+        // CDN hands us the bytes the previous attempt already
+        // lost.  The 206 Content-Range we expect back is
+        // therefore the ORIGINAL request's start + that
+        // offset, not the original start.  Without this
+        // shift the retry path produced a spurious
+        // `content_range_mismatch` 502 even though the
+        // upstream was correctly answering the shifted
+        // request (diagnostic build 250: expected
+        // 24153788-25806548, actual 25266620-26919380 — a
+        // delta of 1112832 that exactly matched the logged
+        // `bytesReceived`).
         if let reqStart = self.rangeStart, let reqEnd = self.rangeEnd,
            http.statusCode == 206,
-           rangeStart >= 0, rangeEnd >= rangeStart,
-           (rangeStart != reqStart || rangeEnd != reqEnd) {
-            diagLog(.playback, "content_range_mismatch", details: [
-                "conn": connID,
-                "mode": mode,
-                "path": upstream.path,
-                "expected": "\(reqStart)-\(reqEnd)",
-                "actual": "\(rangeStart)-\(rangeEnd)",
-                "total": rangeTotal
-            ])
-            // **PR-B D2**: mirror the 5xx exhaustion path
-            // above.  Without `didSendHeader = true` AND
-            // `finishWhenSendsDrain()` here, a late
-            // `didReceive data` callback (URLSession's
-            // `.cancel` is asynchronous) could slip past
-            // the `!didSendHeader` guard in `didReceive
-            // data` and synthesise a 200 header for a
-            // socket we have already decided to fail.
-            cancelledForRangeMismatch = true   // **D3**: guards late data callbacks
-            server.sendHeader(
-                connection: connection,
-                sendGroup: sendGroup,
-                status: 502,
-                contentType: "application/json",
-                contentLength: nil,
-                connID: connID
-            )
-            didSendHeader = true
-            finishWhenSendsDrain()
-            completionHandler(.cancel)
-            return
+           rangeStart >= 0, rangeEnd >= rangeStart {
+            // Both ends shift by the retry offset: see
+            // `shiftedRequest(startingAt:)` which builds the
+            // new Range header from the original range and the
+            // `bytesReceivedFromUpstream` delta.
+            let shift = bytesReceivedFromUpstream
+            let expectedStart = reqStart + shift
+            let expectedEnd = reqEnd + shift
+            if rangeStart != expectedStart || rangeEnd != expectedEnd {
+                diagLog(.playback, "content_range_mismatch", details: [
+                    "conn": connID,
+                    "mode": mode,
+                    "path": upstream.path,
+                    "expected": "\(expectedStart)-\(expectedEnd)",
+                    "actual": "\(rangeStart)-\(rangeEnd)",
+                    "total": rangeTotal,
+                    "retryOffset": bytesReceivedFromUpstream
+                ])
+                // **PR-B D2**: mirror the 5xx exhaustion path
+                // above.  Without `didSendHeader = true` AND
+                // `finishWhenSendsDrain()` here, a late
+                // `didReceive data` callback (URLSession's
+                // `.cancel` is asynchronous) could slip past
+                // the `!didSendHeader` guard in `didReceive
+                // data` and synthesise a 200 header for a
+                // socket we have already decided to fail.
+                cancelledForRangeMismatch = true   // **D3**: guards late data callbacks
+                server.sendHeader(
+                    connection: connection,
+                    sendGroup: sendGroup,
+                    status: 502,
+                    contentType: "application/json",
+                    contentLength: nil,
+                    connID: connID
+                )
+                didSendHeader = true
+                finishWhenSendsDrain()
+                completionHandler(.cancel)
+                return
+            }
         }
         let upstreamCL: Int64 = http.expectedContentLength >= 0
             ? http.expectedContentLength
