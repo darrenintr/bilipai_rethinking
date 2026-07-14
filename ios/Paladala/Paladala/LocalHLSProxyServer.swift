@@ -4830,9 +4830,22 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
                     by: shift
                ) {
                 extraHeaders["Content-Range"] = shifted
-            } else if let upstreamContentRange,
-                      mode == "passthrough" {
-                // `/seg` passthrough: forward verbatim.
+            } else if let upstreamContentRange {
+                // **Build 250 fix**: when no shift is
+                // recorded (e.g. a track landed in the
+                // un-shifted codepath, or `mode` is not
+                // "passthrough"), forward the upstream's
+                // Content-Range verbatim instead of
+                // dropping it.  Without this fallback, a
+                // 206 with no Content-Range reaches
+                // AVPlayer and triggers CoreMediaError
+                // -12666 ("have 206 with no
+                // Content-Range, and no end length"),
+                // which the recovery loop then has to
+                // paper over.  Forwarding the absolute
+                // range is at worst a length mismatch
+                // AVPlayer can tolerate, at best an exact
+                // match.
                 extraHeaders["Content-Range"] = upstreamContentRange
             }
         }

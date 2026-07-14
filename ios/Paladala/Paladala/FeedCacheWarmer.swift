@@ -49,6 +49,29 @@ final class FeedCacheWarmer {
         return result.toOptionalCards()
     }
 
+    /// Persist `cards` as the seed snapshot for `key`.  Best-effort:
+    /// any failure (IO, encoding) is logged and swallowed so the
+    /// caller never has to defend against disk errors mid-render.
+    ///
+    /// **Build 250 fix**: the read path was wired up but no call
+    /// site ever wrote to the on-disk file, so every cold start
+    /// fell through to network.  Diagnostic build 250 logged
+    /// `seed_cache_unavailable | reason: "missing"` on every
+    /// `HomeView` / `MusicHomeView` appearance.  This method
+    /// closes the loop: view models call it after a successful
+    /// replace-load so the *next* launch can paint the first
+    /// frame from cache.
+    func write(cards: [BiliVideo], key: String) {
+        let capturedDirectory = directory
+        Task.detached(priority: .background) {
+            FeedCacheWarmer.writeSync(
+                directory: capturedDirectory,
+                key: key,
+                cards: cards
+            )
+        }
+    }
+
     /// Synchronous file read — runs on a detached task. Kept private so
     /// callers can't accidentally do disk IO on the main actor. Marked
     /// `nonisolated` because in Swift 6 a `static func` inside a
@@ -67,6 +90,44 @@ final class FeedCacheWarmer {
             return .corrupt(reason: "schema")
         }
         return .success(envelope.cards)
+    }
+
+    /// Synchronous file write — runs on a detached task.  Writes
+    /// atomically: encodes the envelope, writes to a sibling temp
+    /// file, and renames over the destination.  A crash mid-write
+    /// therefore leaves the previous good snapshot in place.
+    private nonisolated static func writeSync(
+        directory: URL,
+        key: String,
+        cards: [BiliVideo]
+    ) {
+        let envelope = FeedSnapshotEnvelope(version: 1, cards: cards)
+        guard let data = try? JSONEncoder().encode(envelope) else {
+            diagLog(.feed, "seed_cache_write_failed",
+                    details: ["key": key, "reason": "encode"])
+            return
+        }
+        let finalURL = directory.appendingPathComponent("\(key).json")
+        let tempURL = directory.appendingPathComponent("\(key).json.tmp")
+        do {
+            try data.write(to: tempURL, options: .atomic)
+            // Atomic-rename step: even if the process is killed
+            // between the encode and the rename, the previous
+            // good snapshot survives.
+            if FileManager.default.fileExists(atPath: finalURL.path) {
+                _ = try FileManager.default.replaceItemAt(finalURL, withItemAt: tempURL)
+            } else {
+                try FileManager.default.moveItem(at: tempURL, to: finalURL)
+            }
+            diagLog(.feed, "seed_cache_written",
+                    details: ["key": key, "count": cards.count])
+        } catch {
+            diagLog(.feed, "seed_cache_write_failed",
+                    details: [
+                        "key": key,
+                        "reason": error.localizedDescription
+                    ])
+        }
     }
 
     /// `Application Support/Paladala/`. Created on first access. Uses

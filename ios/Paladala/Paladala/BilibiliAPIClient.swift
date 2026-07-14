@@ -2420,6 +2420,25 @@ enum BilibiliAPIError: Error, Sendable {
     /// from `http` so the client can auto-open the login sheet
     /// and re-try the request once the user re-authenticates.
     case sessionExpired
+
+    /// B站 returns business code `-404` with the message
+    /// `啥都木有` when a region/part feed (e.g. 音乐) has no
+    /// items visible to the current viewer — either because
+    /// the cookie is missing, the region is gated, or the
+    /// upstream genuinely has nothing to show.  The wire
+    /// response is the same shape as any other code, so
+    /// callers normally get a thrown `api("啥都木有")`.  The
+    /// UI, however, should treat this as the empty-feed
+    /// state ("暂无音乐") rather than a network error.
+    ///
+    /// Use the `isEmptyFeed` helper below to check; do NOT
+    /// pattern-match the raw message string at the call site.
+    var isEmptyFeed: Bool {
+        if case .api(let message) = self {
+            return message == "啥都木有"
+        }
+        return false
+    }
 }
 
 extension BilibiliAPIError: LocalizedError {

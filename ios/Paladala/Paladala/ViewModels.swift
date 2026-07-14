@@ -241,6 +241,15 @@ final class HomeViewModel: ObservableObject {
                 }
                 if replacing {
                     videos = next
+                    // **Build 250 fix**: write the seed snapshot
+                    // for the recommend feed so the *next* cold
+                    // start can paint the first frame from disk
+                    // instead of waiting on a full network round
+                    // trip.  See `FeedCacheWarmer.write` for the
+                    // atomic-rename guarantee.
+                    if category == .recommend, !next.isEmpty {
+                        FeedCacheWarmer.shared.write(cards: next, key: "home")
+                    }
                 } else {
                     // Dedupe appended items by `bvid` so a "load next batch"
                     // gesture on a wrapped-around feed does not double up

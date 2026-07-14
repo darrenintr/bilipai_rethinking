@@ -58,7 +58,33 @@ final class MusicViewModel: ObservableObject {
             diagLog(.music, "MusicViewModel.load success", details: [
                 "count": next.count
             ])
+            // **Build 250 fix**: persist the seed snapshot
+            // (including the empty-feed case) so the next cold
+            // start can paint the empty state from cache
+            // instead of waiting on the network.
+            FeedCacheWarmer.shared.write(cards: next, key: "music")
         } catch {
+            // **Build 250 fix**: B站 returns business code
+            // `-404 啥都木有` when the music region has nothing
+            // for the current viewer — semantically an empty
+            // feed, NOT a network error.  Falling into the
+            // generic `networkError` branch spammed the diag
+            // log and showed a red error banner on a page the
+            // user would otherwise experience as "暂无音乐".
+            // Map it to the same zero-result path as a clean
+            // 200-with-empty-body so the existing empty-state
+            // UI renders correctly.
+            if let apiError = error as? BilibiliAPIError, apiError.isEmptyFeed {
+                videos = []
+                diagLog(.music, "MusicViewModel.load empty", details: [
+                    "reason": "啥都木有"
+                ])
+                // Persist the empty snapshot so the next cold
+                // start paints the empty state from cache and
+                // doesn't repeat the network round-trip.
+                FeedCacheWarmer.shared.write(cards: [], key: "music")
+                return
+            }
             errorMessage = "\(L10n.music.networkError)：\(error.localizedDescription)"
             videos = []
             diagLog(.music, "MusicViewModel.load failed", details: [
