@@ -42,44 +42,49 @@ struct MusicHomeView: View {
     @EnvironmentObject private var router: AppRouter
 
     var body: some View {
-        content
-            .background(Color.clear)
-            .navigationTitle(L10n.music.title)
-            .task {
-                diagLog(.music, "MusicHomeView appeared")
-            }
-            .onDisappear {
-                diagLog(.music, "MusicHomeView disappeared")
-            }
-            .task(id: "music-load") {
-                // PR-A Task 9: see HomeView.task for the same
-                // seed-then-load pattern. The id makes this re-fire
-                // on explicit user actions, but the didBootstrap gate
-                // makes it a no-op for re-appearances with cached data.
-                if !model.didBootstrap {
-                    if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "music") {
-                        model.seedFromCache(cached)
-                    }
-                    model.markBootstrapped()
-                    LaunchMetrics.shared.mark(.firstFeedCached)
-                    await Task.yield()
-                    LaunchMetrics.shared.mark(.firstFeedNetworkStart)
-                    await model.load(repository: repository)
-                    LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
+        // Keep the lifecycle modifiers on a stable concrete root. Attaching
+        // them directly to `content` lets its loading/empty/grid branch swap
+        // cancel the in-flight structured task that caused the swap.
+        ZStack {
+            content
+        }
+        .background(Color.clear)
+        .navigationTitle(L10n.music.title)
+        .task {
+            diagLog(.music, "MusicHomeView appeared")
+        }
+        .onDisappear {
+            diagLog(.music, "MusicHomeView disappeared")
+        }
+        .task(id: "music-load") {
+            // PR-A Task 9: see HomeView.task for the same
+            // seed-then-load pattern. The id makes this re-fire
+            // on explicit user actions, but the didBootstrap gate
+            // makes it a no-op for re-appearances with cached data.
+            if !model.didBootstrap {
+                if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "music") {
+                    model.seedFromCache(cached)
                 }
+                model.markBootstrapped()
+                LaunchMetrics.shared.mark(.firstFeedCached)
+                await Task.yield()
+                LaunchMetrics.shared.mark(.firstFeedNetworkStart)
+                await model.load(repository: repository)
+                LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Haptics.tap()
-                        Task { await model.refresh(repository: repository) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .accessibilityLabel("Refresh")
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Haptics.tap()
+                    Task { await model.refresh(repository: repository) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
+                .accessibilityLabel("Refresh")
             }
-            .modifier(LiquidGlassNavBarModifier(materialDesign: materialDesign))
+        }
+        .modifier(LiquidGlassNavBarModifier(materialDesign: materialDesign))
     }
 
     /// Top-level content switch. Mirrors `BangumiHomeView.body`:

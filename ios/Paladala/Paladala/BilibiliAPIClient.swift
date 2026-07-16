@@ -446,17 +446,14 @@ final class BilibiliAPIClient: @unchecked Sendable {
 
     /// Fetch a page of the 音乐 (music) region feed. The region's
     /// `rid` is `3` on Bilibili's taxonomy — the same partition the
-    /// Android paladala client uses for its Music tab. Returns a
-    /// plain `[BiliVideo]` so the Music view can reuse the same
-    /// card / row chrome as the home feed.
-    ///
-    /// Falls back to the popular feed when the music partition is
-    /// temporarily empty / rate-limited; this keeps the screen from
-    /// going to a hard "暂无内容" state on first launch.
+    /// Android paladala client uses for its Music tab. `/dynamic/region`
+    /// now returns business code `-404` for this partition, while the
+    /// current `/newlist` endpoint returns the same `archives` payload
+    /// shape with valid `bvid` / `cid` values.
     func musicVideos(page: Int = 1) async throws -> [BiliVideo] {
         let payload: APIResponse<VideoListPayload> = try await get(
             baseURL: baseURL,
-            path: "/x/web-interface/dynamic/region",
+            path: "/x/web-interface/newlist",
             queryItems: [
                 URLQueryItem(name: "rid", value: "3"),
                 URLQueryItem(name: "pn", value: "\(page)"),
