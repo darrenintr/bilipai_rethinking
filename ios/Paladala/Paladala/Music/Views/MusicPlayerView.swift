@@ -65,6 +65,8 @@ struct MusicPlayerView: View {
             .padding(.top, PaladalaTheme.Spacing.l)
             if let errorMessage {
                 errorOverlay(errorMessage)
+            } else if controller?.playbackState == .preparing {
+                playbackPreparingOverlay
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -295,6 +297,18 @@ struct MusicPlayerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(PaladalaTheme.paper)
+    }
+
+    private var playbackPreparingOverlay: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .tint(PaladalaTheme.biliPink)
+            Text("Preparing playback…")
+                .font(.subheadline)
+                .foregroundStyle(PaladalaTheme.mutedInk)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PaladalaTheme.paper.opacity(0.92))
     }
 
     // MARK: - Player lifecycle

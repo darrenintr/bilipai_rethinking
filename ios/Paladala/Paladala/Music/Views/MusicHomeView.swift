@@ -139,6 +139,7 @@ struct MusicHomeView: View {
                         } label: {
                             MusicCard(video: video)
                         }
+                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
                         .buttonStyle(PaladalaPressBounceButtonStyle())
                     }
                 }

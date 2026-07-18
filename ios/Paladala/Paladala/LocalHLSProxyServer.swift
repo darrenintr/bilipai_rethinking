@@ -675,7 +675,10 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         let perTrackDeadlineSeconds: Double = 10
 
         do {
-            let videoIndex: TrackSegmentIndex = try await raceWithDeadline(
+            // Prepare both tracks concurrently. The previous sequential
+            // awaits made audio start only after video validation, so a
+            // slow audio CDN could be cancelled during music startup.
+            async let videoIndex = raceWithDeadline(
                 seconds: perTrackDeadlineSeconds,
                 label: "video"
             ) {
@@ -683,8 +686,8 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                     dash.video, kind: "video", referer: referer
                 )
             }
-            let audioIndex: TrackSegmentIndex? = if let audio = dash.audio {
-                try await raceWithDeadline(
+            async let audioIndex: TrackSegmentIndex? = if let audio = dash.audio {
+                try await self.raceWithDeadline(
                     seconds: perTrackDeadlineSeconds,
                     label: "audio"
                 ) {
@@ -696,12 +699,15 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 nil
             }
 
+            let preparedVideo = try await videoIndex
+            let preparedAudio = try await audioIndex
+
             diagLog(.playback, "Playback manifest prep completed", details: [
                 "generation": generation,
-                "videoReferences": videoIndex.fragments.count,
-                "audioReferences": audioIndex?.fragments.count ?? 0
+                "videoReferences": preparedVideo.fragments.count,
+                "audioReferences": preparedAudio?.fragments.count ?? 0
             ])
-            return PreparedPlayback(video: videoIndex, audio: audioIndex)
+            return PreparedPlayback(video: preparedVideo, audio: preparedAudio)
         } catch let err where err is CancellationError {
             // The user (or `retryPlayback()`) cancelled the
             // load — that's a normal teardown, not a

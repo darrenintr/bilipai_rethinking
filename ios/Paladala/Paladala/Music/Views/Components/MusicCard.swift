@@ -47,8 +47,9 @@ struct MusicCard: View {
                     // and rely on `.font(PaladalaTheme.FontRole.headline)`
                     // for the editorial weight.
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
                 Text(video.ownerName)
                     .font(PaladalaTheme.FontRole.labelMono)
                     .foregroundStyle(PaladalaTheme.mutedInk)
@@ -73,8 +74,9 @@ struct MusicCard: View {
                 .foregroundStyle(PaladalaTheme.mutedInk)
             }
             .padding(PaladalaTheme.Spacing.l)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
         .paladalaCardSurface(materialDesign)
         .contentShape(Rectangle())
     }
@@ -104,7 +106,7 @@ struct MusicCard: View {
             // `.fit`).
             ResilientImage(url: url, maximumPixelSize: 720)
                 .aspectRatio(1, contentMode: .fit)
-                .frame(maxWidth: .infinity)
+                .frame(minWidth: 0, maxWidth: .infinity)
         } else {
             Rectangle()
                 .fill(PaladalaTheme.coolGray)
