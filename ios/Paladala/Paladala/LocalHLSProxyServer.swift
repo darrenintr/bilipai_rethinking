@@ -686,18 +686,11 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                     dash.video, kind: "video", referer: referer
                 )
             }
-            async let audioIndex: TrackSegmentIndex? = if let audio = dash.audio {
-                try await self.raceWithDeadline(
-                    seconds: perTrackDeadlineSeconds,
-                    label: "audio"
-                ) {
-                    try await self.prepareTrackSegmentIndex(
-                        audio, kind: "audio", referer: referer
-                    )
-                }
-            } else {
-                nil
-            }
+            async let audioIndex = self.prepareOptionalAudioIndex(
+                dash.audio,
+                referer: referer,
+                deadline: perTrackDeadlineSeconds
+            )
 
             let preparedVideo = try await videoIndex
             let preparedAudio = try await audioIndex
@@ -726,6 +719,22 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 "error": "\(error)"
             ])
             throw error
+        }
+    }
+
+    private func prepareOptionalAudioIndex(
+        _ track: BiliDashSource.Track?,
+        referer: String,
+        deadline: Double
+    ) async throws -> TrackSegmentIndex? {
+        guard let track else { return nil }
+        return try await raceWithDeadline(
+            seconds: deadline,
+            label: "audio"
+        ) {
+            try await self.prepareTrackSegmentIndex(
+                track, kind: "audio", referer: referer
+            )
         }
     }
 
