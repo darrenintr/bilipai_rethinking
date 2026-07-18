@@ -329,6 +329,11 @@ jobs:
           # Fetch + create-or-switch the ci-logs branch as an
           # orphan (no shared history with `working`, so it
           # can't pollute the main line).
+          # The build-number step intentionally edits Info.plist in
+          # the runner's working copy. Reset tracked files before
+          # switching branches so that generated version changes do
+          # not block checkout after a failed xcodebuild.
+          git reset --hard HEAD
           git fetch origin ci-logs 2>/dev/null || true
           if git rev-parse --verify origin/ci-logs >/dev/null 2>&1; then
             git checkout -B ci-logs origin/ci-logs

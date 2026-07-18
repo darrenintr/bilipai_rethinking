@@ -1736,9 +1736,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         // request can sit behind the first for several seconds and make the
         // player appear stuck at 0:00.
         for _ in 0..<20 {
-            lock.lock()
-            let cached = probedSizes[url]
-            lock.unlock()
+            let cached = cachedProbeSize(for: url)
             if let cached, cached > 0 {
                 return UInt64(cached)
             }
@@ -1758,6 +1756,14 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             throw RangeFetchError.missingContentRange
         }
         return total
+    }
+
+    /// Locking is kept in a synchronous helper because Swift 6 forbids
+    /// calling `NSLock` APIs directly across an async suspension boundary.
+    private func cachedProbeSize(for url: URL) -> Int64? {
+        lock.lock()
+        defer { lock.unlock() }
+        return probedSizes[url]
     }
 
     private func fetchExactRange(
