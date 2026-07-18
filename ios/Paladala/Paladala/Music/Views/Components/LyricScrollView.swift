@@ -116,10 +116,10 @@ struct LyricScrollView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "text.alignleft")
                         .font(.title2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
                     Text(L10n.music.noLyrics)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PaladalaTheme.mutedInk)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -161,7 +161,7 @@ struct LyricLineView: View {
     private var foreground: Color {
         if isActive { return PaladalaTheme.ink }
         if isSelected { return PaladalaTheme.biliPink.opacity(0.7) }
-        if line.isMetadata { return .secondary.opacity(0.5) }
-        return .secondary
+        if line.isMetadata { return PaladalaTheme.mutedInk.opacity(0.5) }
+        return PaladalaTheme.mutedInk
     }
 }

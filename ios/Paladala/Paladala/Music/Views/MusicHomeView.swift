@@ -50,6 +50,14 @@ struct MusicHomeView: View {
         }
         .background(Color.clear)
         .navigationTitle(L10n.music.title)
+        .navigationBarTitleDisplayMode(.inline)
+        // Same nav-bar chrome as HomeView / LiveRoomsView /
+        // BangumiHomeView: paper background that stays visible
+        // during scroll, otherwise iOS 26 re-introduces a
+        // translucent glass material on top of the Street
+        // toolbar (PR-fix-2026-07-10 home-toolbar fix).
+        .toolbarBackground(PaladalaTheme.paper, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .task {
             diagLog(.music, "MusicHomeView appeared")
         }
@@ -103,7 +111,7 @@ struct MusicHomeView: View {
                 columnSpacing: 32,
                 rowSpacing: 32
             )
-            .padding(PaladalaTheme.contentPadding)
+            .padding(PaladalaTheme.Spacing.l)
         } else if let error = model.errorMessage, model.videos.isEmpty {
             // Error state outside the ScrollView so the pull-to-refresh
             // gesture doesn't get retriggered by the empty content. The
@@ -114,7 +122,7 @@ struct MusicHomeView: View {
                 ErrorBanner(message: error)
                 Spacer(minLength: 0)
             }
-            .padding(PaladalaTheme.contentPadding)
+            .padding(PaladalaTheme.Spacing.l)
         } else if model.videos.isEmpty {
             emptyState
         } else {
@@ -134,7 +142,7 @@ struct MusicHomeView: View {
                         .buttonStyle(PaladalaPressBounceButtonStyle())
                     }
                 }
-                .padding(PaladalaTheme.contentPadding)
+                .padding(PaladalaTheme.Spacing.l)
             }
             .scrollIndicators(.hidden)
             .refreshable {

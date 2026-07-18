@@ -31,6 +31,7 @@ struct MusicPlayerView: View {
     @State private var errorMessage: String?
     /// Created lazily once `playback` is loaded.
     @State private var controller: PlayerController?
+    @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
 
     var body: some View {
         ZStack {
@@ -60,13 +61,20 @@ struct MusicPlayerView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, PaladalaTheme.contentPadding)
+            .padding(.horizontal, PaladalaTheme.Spacing.l)
             .padding(.top, PaladalaTheme.Spacing.l)
             if let errorMessage {
                 errorOverlay(errorMessage)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        // Same paper nav-bar chrome as HomeView / LiveRoomsView /
+        // BangumiHomeView. Without this, iOS 26 paints a
+        // translucent Liquid Glass tint over the Street toolbar
+        // and the "纯享" pill in `.principal` sits on the wrong
+        // surface.
+        .toolbarBackground(PaladalaTheme.paper, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
@@ -114,10 +122,10 @@ struct MusicPlayerView: View {
         VStack(spacing: 8) {
             Image(systemName: "text.alignleft")
                 .font(.title2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PaladalaTheme.mutedInk)
             Text(L10n.music.noLyrics)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PaladalaTheme.mutedInk)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -201,7 +209,10 @@ struct MusicPlayerView: View {
                 Text(video.title)
                     .font(PaladalaTheme.FontRole.headline)
                     .foregroundStyle(PaladalaTheme.ink)
-                    .textCase(.uppercase)
+                    // No `.textCase(.uppercase)` so this body
+                    // duplicate matches the toolbar `.principal`
+                    // pill (also mixed case via
+                    // `PaladalaTheme.FontRole.cardTitle`).
                     .lineLimit(2)
                 Text(video.ownerName)
                     .font(PaladalaTheme.FontRole.labelMono)
@@ -211,6 +222,13 @@ struct MusicPlayerView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 36) {
+                // Skip / play buttons.  Skip ±10 use the shared
+                // `paladalaPillSurface` helper so the chrome
+                // matches every other hard-edged button in the
+                // app; the centred play / pause keeps its own
+                // pink fill to signal the primary transport
+                // action (same accent trick the home video
+                // detail screen uses for its play button).
                 Button {
                     Haptics.tap()
                     seek(by: -10)
@@ -218,14 +236,7 @@ struct MusicPlayerView: View {
                     Image(systemName: "gobackward.10")
                         .font(.title2.weight(.black))
                         .frame(width: 52, height: 52)
-                        .background(PaladalaTheme.paper)
-                        .overlay {
-                            Rectangle()
-                                .strokeBorder(
-                                    PaladalaTheme.ink,
-                                    lineWidth: PaladalaTheme.borderWidth
-                                )
-                        }
+                        .paladalaPillSurface(materialDesign)
                 }
                 .buttonStyle(PaladalaPressBounceButtonStyle())
                 Button {
@@ -253,14 +264,7 @@ struct MusicPlayerView: View {
                     Image(systemName: "goforward.10")
                         .font(.title2.weight(.black))
                         .frame(width: 52, height: 52)
-                        .background(PaladalaTheme.paper)
-                        .overlay {
-                            Rectangle()
-                                .strokeBorder(
-                                    PaladalaTheme.ink,
-                                    lineWidth: PaladalaTheme.borderWidth
-                                )
-                        }
+                        .paladalaPillSurface(materialDesign)
                 }
                 .buttonStyle(PaladalaPressBounceButtonStyle())
             }

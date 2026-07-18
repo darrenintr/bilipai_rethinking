@@ -24,10 +24,13 @@ struct MusicCard: View {
                 cover
                 Text(video.duration.mmss)
                     .font(PaladalaTheme.FontRole.labelMono)
-                    .foregroundStyle(.white)
+                    // Match VideoCard's duration chip (paper on ink)
+                    // so the music feed inherits the same Street
+                    // Minimal chip treatment as the home feed.
+                    .foregroundStyle(PaladalaTheme.paper)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.black.opacity(0.74))
+                    .background(PaladalaTheme.ink)
                     .padding(12)
             }
             .overlay(alignment: .bottom) {
@@ -39,7 +42,10 @@ struct MusicCard: View {
                 Text(video.title)
                     .font(PaladalaTheme.FontRole.headline)
                     .foregroundStyle(PaladalaTheme.ink)
-                    .textCase(.uppercase)
+                    // No `.textCase(.uppercase)` — VideoCard /
+                    // LiveRoomCard render titles in mixed case
+                    // and rely on `.font(PaladalaTheme.FontRole.headline)`
+                    // for the editorial weight.
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
