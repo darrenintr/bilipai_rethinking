@@ -203,6 +203,12 @@ final class PlayerController: ObservableObject {
     @Published private(set) var playbackState: PlaybackState = .idle
     @Published private(set) var networkSpeed: Double = 0
 
+    /// User transport intent must not be inferred from a placeholder
+    /// item's transient AVPlayer state. The proxy path starts with a
+    /// paused placeholder, and mirroring that state used to suppress
+    /// the initial play when the real item was installed.
+    private var wantsToPlay = true
+
     // MARK: seek state machine (PR-A Group 1)
 
     /// `true` while an `AVPlayer.seek(to:)` is in flight.  Used
@@ -948,7 +954,7 @@ final class PlayerController: ObservableObject {
             SponsorBlockManager.shared.reset(for: sbBvid)
             SponsorBlockManager.shared.loadSegments(for: sbBvid)
         }
-        if isPlaying {
+        if wantsToPlay {
             player.play()
         }
         // Replay any user seek (`seek(to:)` / `seek(by:)`) that
@@ -1245,6 +1251,7 @@ final class PlayerController: ObservableObject {
             isBuffering = true
             let target = CMTimeGetSeconds(player.currentTime())
             performSeek(target.isFinite ? target : currentTime, fromRestore: true)
+            wantsToPlay = true
             isPlaying = true
             player.play()
         case .sessionRestart:
@@ -1579,18 +1586,20 @@ final class PlayerController: ObservableObject {
 
     /// Toggle play/pause.
     func toggle() {
-        if player.timeControlStatus == .playing {
-            player.pause()
+        if isPlaying {
+            pause()
         } else {
-            player.play()
+            play()
         }
     }
 
     func play() {
+        wantsToPlay = true
         player.play()
     }
 
     func pause() {
+        wantsToPlay = false
         player.pause()
     }
 
@@ -1944,6 +1953,7 @@ final class PlayerController: ObservableObject {
         // snapshot so a teardown mid-recovery doesn't leak
         // the restore target into a future playback.
         retryRestoreTime = nil
+        wantsToPlay = false
         player.pause()
         if let token = timeObserver {
             player.removeTimeObserver(token)
