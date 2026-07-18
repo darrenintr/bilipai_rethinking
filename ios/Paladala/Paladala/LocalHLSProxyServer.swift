@@ -654,8 +654,6 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         guard let dash = playback.dash else {
             throw PlaybackPreparationError.noDash
         }
-        resetMediaTotalProbes()
-
         let referer = playback.referer.absoluteString
         diagLog(.playback, "Playback manifest prep started", details: [
             "generation": generation,
@@ -1732,6 +1730,22 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         referer: String,
         kind: String
     ) async throws -> UInt64 {
+        // `serve(playback:)` starts a lightweight bytes=0-0 probe before
+        // SIDX preparation. Reuse that result instead of issuing a second
+        // request for the same range; on some Bilibili CDN hosts the second
+        // request can sit behind the first for several seconds and make the
+        // player appear stuck at 0:00.
+        for _ in 0..<20 {
+            lock.lock()
+            let cached = probedSizes[url]
+            lock.unlock()
+            if let cached, cached > 0 {
+                return UInt64(cached)
+            }
+            try Task.checkCancellation()
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
         let outcome = try await fetchExactRange(
             url: url,
             range: 0..<1,

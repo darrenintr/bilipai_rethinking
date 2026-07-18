@@ -104,9 +104,19 @@ struct MusicCard: View {
             // height = width.  This matches how `VideoCard` and
             // `LiveRoomCard` render their covers (both use
             // `.fit`).
-            ResilientImage(url: url, maximumPixelSize: 720)
+            // Put the ratio on a concrete Shape. ResilientImage is an
+            // asynchronous ZStack and has no reliable intrinsic height
+            // while loading; in a LazyVGrid that lets the next row's
+            // thumbnail paint over this card's metadata.
+            Rectangle()
+                .fill(.clear)
                 .aspectRatio(1, contentMode: .fit)
                 .frame(minWidth: 0, maxWidth: .infinity)
+                .overlay(
+                    ResilientImage(url: url, maximumPixelSize: 720)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                )
+                .clipped()
         } else {
             Rectangle()
                 .fill(PaladalaTheme.coolGray)
