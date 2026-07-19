@@ -107,6 +107,17 @@ struct MusicPlayerView: View {
             await loadPlayback()
             await loadLyrics()
         }
+        .onReceive(
+            controller?.$playerError.eraseToAnyPublisher()
+                ?? Just<PlayerPlaybackError?>(nil).eraseToAnyPublisher()
+        ) { error in
+            guard let error else { return }
+            errorMessage = error.message
+            diagLog(.music, "MusicPlayerView controller playback failed", details: [
+                "bvid": video.bvid,
+                "error": "\(error)"
+            ])
+        }
         .onDisappear {
             diagLog(.music, "MusicPlayerView disappeared", details: [
                 "bvid": video.bvid,
@@ -321,7 +332,9 @@ struct MusicPlayerView: View {
         do {
             let resolved = try await repository.playback(for: video, qn: 80)
             playback = resolved
-            if controller == nil {
+            if let controller {
+                controller.loadPlayback(resolved)
+            } else {
                 controller = PlayerController(playback: resolved, video: video)
             }
             errorMessage = nil

@@ -114,6 +114,33 @@ final class LocalHLSProxyServerTests: XCTestCase {
         )
     }
 
+    func test_preparationCandidateOrder_prefersSuccessfulBackup() {
+        let primary = URL(string: "https://primary.example/audio.m4s")!
+        let backup = URL(string: "https://backup.example/audio.m4s")!
+
+        let ordered = LocalHLSProxyServer.orderPreparationCandidates(
+            [primary, backup],
+            successful: [backup],
+            failed: [primary]
+        )
+
+        XCTAssertEqual(ordered, [backup, primary])
+    }
+
+    func test_preparationCandidateOrder_preservesUnknownFallbacks() {
+        let primary = URL(string: "https://primary.example/audio.m4s")!
+        let backup1 = URL(string: "https://backup1.example/audio.m4s")!
+        let backup2 = URL(string: "https://backup2.example/audio.m4s")!
+
+        let ordered = LocalHLSProxyServer.orderPreparationCandidates(
+            [primary, backup1, backup2],
+            successful: [],
+            failed: [primary]
+        )
+
+        XCTAssertEqual(ordered, [backup1, backup2, primary])
+    }
+
     func test_resolveSegmentationMode_unavailableDoesNotLock() {
         // **PR-A Group 3 (item 6)**: when the SIDX has not yet
         // been published, the mode must be `.unavailable` AND

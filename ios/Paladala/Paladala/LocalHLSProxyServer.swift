@@ -1282,6 +1282,11 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     // updates probe state directly under `lock`.
     private var probedSizes: [URL: Int64] = [:]
     private var probeInFlight: Set<URL> = []
+    /// URLs whose lightweight size probe completed without a usable
+    /// `Content-Range`.  Keeping failures separate from "not started" lets
+    /// preparation prefer a backup that has already proved healthy instead
+    /// of repeating a request against a known-bad primary CDN.
+    private var failedProbes: Set<URL> = []
     /// CDN failover cursor. Keyed by the track's primary URL,
     /// value is the index into the track's `backupURLs` array
     /// that should serve the next playlist (and segment
@@ -1521,6 +1526,9 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         probeInFlight.remove(url)
         if let total {
             probedSizes[url] = total
+            failedProbes.remove(url)
+        } else {
+            failedProbes.insert(url)
         }
         lock.unlock()
         diagLog(.playback, "LocalHLSProxyServer probe media total",
@@ -1539,6 +1547,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         lock.lock()
         probedSizes.removeAll()
         probeInFlight.removeAll()
+        failedProbes.removeAll()
         lock.unlock()
     }
 
@@ -1565,7 +1574,8 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     ) async throws -> TrackSegmentIndex {
         var failures: [String] = []
         let candidates = [track.baseURL] + track.backupURLs
-        for (idx, candidate) in candidates.enumerated() {
+        let orderedCandidates = await preparationCandidates(from: candidates)
+        for candidate in orderedCandidates {
             try Task.checkCancellation()
             do {
                 let index = try await prepareTrackSegmentIndex(
@@ -1574,7 +1584,8 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                     referer: referer,
                     sourceURL: candidate
                 )
-                setFailoverIndex(idx, for: track.baseURL)
+                let selectedIndex = candidates.firstIndex(of: candidate) ?? 0
+                setFailoverIndex(selectedIndex, for: track.baseURL)
                 return index
             } catch is CancellationError {
                 throw CancellationError()
@@ -1586,6 +1597,73 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             host: track.baseURL.host ?? "",
             reason: failures.joined(separator: " | ")
         )
+    }
+
+    /// Give the parallel size probes a short opportunity to identify a
+    /// healthy CDN, then put proven candidates first while preserving API
+    /// order within each group.  This is intentionally bounded: preparation
+    /// must still make progress when every probe is slow or inconclusive.
+    private func preparationCandidates(from candidates: [URL]) async -> [URL] {
+        for _ in 0..<20 {
+            let snapshot = mediaProbeSnapshot(for: candidates)
+            if !snapshot.successful.isEmpty || snapshot.inFlight.isEmpty {
+                let ordered = Self.orderPreparationCandidates(
+                    candidates,
+                    successful: snapshot.successful,
+                    failed: snapshot.failed
+                )
+                if ordered.first != candidates.first {
+                    diagLog(.playback, "Playback preparation preferred probed CDN",
+                            details: [
+                                "selectedHost": ordered.first?.host ?? "",
+                                "primaryHost": candidates.first?.host ?? "",
+                                "successfulProbeCount": snapshot.successful.count,
+                                "failedProbeCount": snapshot.failed.count
+                            ])
+                }
+                return ordered
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            if Task.isCancelled { return candidates }
+        }
+        let snapshot = mediaProbeSnapshot(for: candidates)
+        return Self.orderPreparationCandidates(
+            candidates,
+            successful: snapshot.successful,
+            failed: snapshot.failed
+        )
+    }
+
+    private func mediaProbeSnapshot(
+        for candidates: [URL]
+    ) -> (successful: Set<URL>, failed: Set<URL>, inFlight: Set<URL>) {
+        lock.lock(); defer { lock.unlock() }
+        let candidateSet = Set(candidates)
+        return (
+            Set(probedSizes.keys).intersection(candidateSet),
+            failedProbes.intersection(candidateSet),
+            probeInFlight.intersection(candidateSet)
+        )
+    }
+
+    /// Stable candidate ranking, exposed internally for regression tests.
+    /// Proven-good hosts lead, unknown hosts remain eligible, and known probe
+    /// failures are attempted last as a final fallback.
+    internal static func orderPreparationCandidates(
+        _ candidates: [URL],
+        successful: Set<URL>,
+        failed: Set<URL>
+    ) -> [URL] {
+        candidates.enumerated().sorted { lhs, rhs in
+            func rank(_ url: URL) -> Int {
+                if successful.contains(url) { return 0 }
+                if failed.contains(url) { return 2 }
+                return 1
+            }
+            let leftRank = rank(lhs.element)
+            let rightRank = rank(rhs.element)
+            return leftRank == rightRank ? lhs.offset < rhs.offset : leftRank < rightRank
+        }.map(\.element)
     }
 
     private func prepareTrackSegmentIndex(

@@ -1081,6 +1081,10 @@ final class PlayerController: ObservableObject {
             let pbError: PlayerPlaybackError
             if let proxy = error as? PlayerPlaybackError {
                 pbError = proxy
+            } else if error is LocalHLSProxyServer.PlaybackPreparationError {
+                pbError = .playbackSourceUnavailable(
+                    detail: "All available audio/video sources failed to prepare. Please retry."
+                )
             } else {
                 pbError = .itemFailed(detail: "\(error)")
             }
