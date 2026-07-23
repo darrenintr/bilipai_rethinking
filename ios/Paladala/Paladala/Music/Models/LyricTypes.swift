@@ -40,17 +40,21 @@ struct BiliLyricTrack: Hashable, Codable, Sendable {
         // active-line highlight sitting on the wrong row.
         // Treat any non-finite value as "not yet started".
         guard time.isFinite else { return 0 }
-        // Walk back from the end. Most lyric lookups hit a line
-        // close to the current time so the linear-from-end walk
-        // is faster than a full binary search in practice.
-        var i = lines.count - 1
-        while i > 0 {
-            if lines[i].startTime <= time {
-                return i
+        // Upper-bound binary search: find the first line that starts
+        // after `time`, then step back to the last active line. This
+        // runs on every playback tick, so O(log n) avoids repeatedly
+        // scanning long subtitle and lyric tracks.
+        var lowerBound = 0
+        var upperBound = lines.count
+        while lowerBound < upperBound {
+            let midpoint = lowerBound + (upperBound - lowerBound) / 2
+            if lines[midpoint].startTime <= time {
+                lowerBound = midpoint + 1
+            } else {
+                upperBound = midpoint
             }
-            i -= 1
         }
-        return 0
+        return max(0, lowerBound - 1)
     }
 }
 

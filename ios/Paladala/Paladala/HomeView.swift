@@ -214,14 +214,19 @@ struct HomeView: View {
                     // to network on a miss. Pull-to-refresh is the
                     // manual re-bootstrap path.
                     if !model.didBootstrap {
-                        if let cached = await FeedCacheWarmer.shared.seedFromCache(key: "home") {
+                        let cached = await FeedCacheWarmer.shared.seedFromCache(key: "home")
+                        if let cached {
                             model.seedFromCache(cached)
                         }
                         model.markBootstrapped()
                         LaunchMetrics.shared.mark(.firstFeedCached)
                         await Task.yield()
                         LaunchMetrics.shared.mark(.firstFeedNetworkStart)
-                        await model.load(repository: repository, accountMid: accountMid)
+                        await model.load(
+                            repository: repository,
+                            accountMid: accountMid,
+                            preservingExistingContent: cached != nil
+                        )
                         LaunchMetrics.shared.mark(.firstFeedNetworkComplete)
                     }
                 }

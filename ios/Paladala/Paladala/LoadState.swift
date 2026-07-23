@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 // MARK: - LoadState<T>
@@ -67,8 +68,8 @@ final class LoadState<T: Sendable>: ObservableObject {
     /// User-visible error string.  Set when a `load(_:)` call
     /// throws; cleared at the top of the next `load(_:)`.  The
     /// `errorText` argument supplies the fixed user-visible
-    /// label; the underlying error message is logged through
-    /// `bpLog` for diagnostics.
+    /// label; the underlying error is normalized and logged through
+    /// `AppErrorCenter` for diagnostics.
     @Published private(set) var errorMessage: String?
 
     /// Initialise with no value.  The typical entry point —
@@ -96,19 +97,28 @@ final class LoadState<T: Sendable>: ObservableObject {
     /// already true, a second `load(_:)` is a no-op.  This
     /// matches the `guard !isLoading else { return }` pattern
     /// in `ShortVideoFeedViewModel.load`.
-    func load(_ work: @escaping () async throws -> T, errorText: String) async {
+    func load(
+        _ work: @escaping () async throws -> T,
+        errorText: String,
+        context: String = "loadState.load"
+    ) async {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
+        defer { isLoading = false }
         do {
             let result = try await work()
             value = result
         } catch {
+            guard !AppErrorDescriptor.isCancellation(error) else { return }
             value = nil
-            errorMessage = errorText
-            bpLog("LoadState.load failed: \(error)")
+            let descriptor = AppErrorCenter.shared.record(
+                error,
+                context: context,
+                fallbackMessage: errorText
+            )
+            errorMessage = descriptor?.message ?? errorText
         }
-        isLoading = false
     }
 
     /// Pagination path.  Runs `work` only when the current
@@ -126,7 +136,8 @@ final class LoadState<T: Sendable>: ObservableObject {
     func loadMore(
         _ work: @escaping () async throws -> T,
         append: @escaping (T, T) -> T,
-        errorText: String
+        errorText: String,
+        context: String = "loadState.pagination"
     ) async {
         guard !isLoading, !isLoadingMore else { return }
         guard let current = value else { return }
@@ -136,8 +147,13 @@ final class LoadState<T: Sendable>: ObservableObject {
             let next = try await work()
             value = append(current, next)
         } catch {
-            errorMessage = errorText
-            bpLog("LoadState.loadMore failed: \(error)")
+            guard !AppErrorDescriptor.isCancellation(error) else { return }
+            let descriptor = AppErrorCenter.shared.record(
+                error,
+                context: context,
+                fallbackMessage: errorText
+            )
+            errorMessage = descriptor?.message ?? errorText
         }
     }
 

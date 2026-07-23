@@ -10,6 +10,7 @@ struct PaladalaApp: App {
     @StateObject private var repository: PaladalaRepository
     @StateObject private var networkMonitor = NetworkMonitor()
     @StateObject private var miniPlayerStore = MiniPlayerStore()
+    @StateObject private var errorCenter = AppErrorCenter.shared
     @AppStorage("paladala.themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
     @AppStorage("paladala.designVariant") private var designVariant: DesignVariant = .streetRedesign
@@ -113,6 +114,8 @@ struct PaladalaApp: App {
                 .environmentObject(repository)
                 .environmentObject(networkMonitor)
                 .environmentObject(miniPlayerStore)
+                .environmentObject(errorCenter)
+                .appErrorAlerts(errorCenter)
                 .font(PaladalaTheme.FontRole.body)
                 .tint(PaladalaTheme.biliPink)
                 .preferredColorScheme(themeMode.colorScheme)
@@ -177,7 +180,11 @@ struct PaladalaApp: App {
                     // the failure so we only show the sheet once,
                     // and `AuthStore.completeLogin` resets the latch
                     // so the *next* session-expiry can re-fire.
-                    repository.onSessionExpired { [weak router] in
+                    repository.onSessionExpired { [weak router, weak errorCenter] in
+                        _ = errorCenter?.record(
+                            BilibiliAPIError.sessionExpired,
+                            context: "authentication.sessionExpired"
+                        )
                         router?.openLogin()
                     }
 
@@ -190,15 +197,16 @@ struct PaladalaApp: App {
                     // render a hint when the user is not signed in.
                     ICloudSync.shared.bootstrap()
                 }
-                // Invalidate the follow-feed's cached followings set
-                // whenever the active account changes. Without this,
-                // switching to a new account would still apply the
-                // previous account's follow filter on the next load
-                // of the 关注 tab.
+                // Keep every account-scoped subsystem in sync on login,
+                // account switch, and sign-out. The API providers above
+                // read `activeAccount` dynamically, but the follow cache and
+                // background poller store snapshots that must be refreshed.
                 .onReceive(authStore.$activeAccount) { newAccount in
-                    if newAccount != nil {
-                        repository.invalidateFollowingsCache()
-                    }
+                    repository.invalidateFollowingsCache()
+                    FollowNotificationService.shared.wireRepository(
+                        repository,
+                        accountMid: newAccount?.mid ?? 0
+                    )
                 }
                 // Forward cross-view login requests (posted by
                 // `PlayerView` when a live 403 surfaces the

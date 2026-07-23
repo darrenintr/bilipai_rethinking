@@ -82,11 +82,10 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
     /// `BilibiliAPIClient` to avoid a retain cycle through
     /// `PaladalaApp`.
     private weak var repository: PaladalaRepository?
-    /// Active account mid at the time `bootstrap(...)` was
-    /// called. The poll uses this for the `attentionFeed`
-    /// call's `accountMid:` parameter. Updated by `bootstrap`
-    /// every time the app resumes so account switches take
-    /// effect on the next BG tick.
+    /// Active account mid most recently supplied by the app. The
+    /// poll uses this for the `attentionFeed` call's `accountMid:`
+    /// parameter. `PaladalaApp` rewires it on login, account switch,
+    /// and sign-out so the next background tick uses current auth.
     private var activeAccountMid: Int64 = 0
     /// Set to `true` while a `BGAppRefreshTask` is in flight
     /// so we can ignore a second OS wake that arrives before
@@ -247,7 +246,7 @@ final class FollowNotificationService: NSObject, UNUserNotificationCenterDelegat
             refreshTask.setTaskCompleted(success: false)
             return
         }
-        guard repository.apiClient.cookieProvider?() != nil else {
+        guard await repository.apiClient.hasAuthenticatedSession() else {
             diagLog(.notification, "follow poll skipped: anonymous")
             refreshTask.setTaskCompleted(success: true)
             return

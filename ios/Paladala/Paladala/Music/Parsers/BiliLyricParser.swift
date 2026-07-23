@@ -3,9 +3,9 @@ import Foundation
 // MARK: - LRC / JSON lyric parser
 //
 // Moved from MusicService.swift as part of the music section
-// reintroduction (Phase 0b — directory regrouping). Behaviour
-// is byte-for-byte identical to the original; only the file
-// location and the file-level documentation header changed.
+// reintroduction (Phase 0b — directory regrouping). It now also
+// guarantees deterministic source order for equal timestamps so
+// lyric identity and binary-search behavior remain predictable.
 //
 // Bilibili serves two lyric encodings on the same `/x/player/v2`
 // endpoint:
@@ -15,8 +15,7 @@ import Foundation
 // The Music view must accept either; we sniff the first
 // non-whitespace byte to pick a parser. The output is a
 // `BiliLyricTrack` whose `lines` are sorted by `startTime`
-// ascending so `index(at:)` can short-circuit on a linear
-// from-the-end walk.
+// ascending so `index(at:)` can use a binary search.
 enum BiliLyricParser {
 
     /// Parse the lyric body. The caller passes the raw text the
@@ -76,7 +75,7 @@ enum BiliLyricParser {
                 ordinalCounter += 1
                 return line
             }
-            .sorted { $0.startTime < $1.startTime }
+            .sorted(by: playbackOrder)
         return BiliLyricTrack(lines: lines, language: language)
     }
 
@@ -125,6 +124,15 @@ enum BiliLyricParser {
             return try! NSRegularExpression(pattern: ".{99999}", options: [])
         }
     }()
+
+    /// Keep equal-timestamp lines in source order. Swift's sort is not
+    /// documented as stable, so the ordinal is an explicit tie-breaker.
+    private static func playbackOrder(_ lhs: BiliLyricLine, _ rhs: BiliLyricLine) -> Bool {
+        if lhs.startTime == rhs.startTime {
+            return lhs.ordinal < rhs.ordinal
+        }
+        return lhs.startTime < rhs.startTime
+    }
 
     private static func parseLRC(_ text: String, language: String) -> BiliLyricTrack? {
         var lines: [BiliLyricLine] = []
@@ -187,7 +195,7 @@ enum BiliLyricParser {
                 ordinalCounter += 1
             }
         }
-        let sorted = lines.sorted { $0.startTime < $1.startTime }
+        let sorted = lines.sorted(by: playbackOrder)
         if sorted.isEmpty { return nil }
         return BiliLyricTrack(lines: sorted, language: language)
     }

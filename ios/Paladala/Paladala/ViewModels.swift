@@ -93,10 +93,21 @@ final class HomeViewModel: ObservableObject {
     /// the end of the feed.
     private let pageSize = 20
 
-    func load(repository: PaladalaRepository, accountMid: Int64 = 0) async {
+    func load(
+        repository: PaladalaRepository,
+        accountMid: Int64 = 0,
+        preservingExistingContent: Bool = false
+    ) async {
         let requestID = beginNewRequestGeneration()
         page = 1
-        videos = [] // Clear immediately for visual feedback
+        // A disk-seeded first frame should remain visible while the live
+        // refresh runs. Clearing it here made the cache flash for one frame
+        // and then replaced it with a full-screen spinner, negating the cold
+        // start optimization. Category/search changes keep the old clearing
+        // behavior by using the default `false` value.
+        if !preservingExistingContent {
+            videos = []
+        }
         searchUsers = []
         liveRooms = []
         // Reset dynamic-feed state on every fresh load so switching
@@ -278,23 +289,30 @@ final class HomeViewModel: ObservableObject {
             }
         } catch {
             guard isCurrentRequest(requestID) else { return }
-            
-            // Ignore cancellation errors - they are usually intentional (e.g. new request started)
-            let nsError = error as NSError
-            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-                return
-            }
-            
+            guard !AppErrorDescriptor.isCancellation(error) else { return }
+
+            let fallback = replacing
+                ? "内容加载失败，下拉重试。"
+                : "加载更多失败，请重试。"
+            let descriptor = AppErrorCenter.shared.record(
+                error,
+                context: "home.\(category.rawValue).\(replacing ? "refresh" : "pagination")",
+                fallbackMessage: fallback
+            )
+
             if replacing {
-                videos = []
-                liveRooms = []
-                isShowingBundledFallback = false
-                errorMessage = "内容加载失败，下拉重试。"
+                // Keep a cache-seeded feed usable when its background refresh
+                // fails. Empty-state loads still render the normal error UI.
+                if videos.isEmpty {
+                    liveRooms = []
+                    isShowingBundledFallback = false
+                    errorMessage = descriptor?.message ?? fallback
+                }
             } else {
                 // Roll back the page bump so the next pull-to-refresh does not
                 // skip the page we failed to load.
                 page = max(1, page - 1)
-                errorMessage = "加载更多失败：\(error.localizedDescription)"
+                errorMessage = descriptor?.message ?? fallback
             }
         }
     }
@@ -347,19 +365,22 @@ final class HomeViewModel: ObservableObject {
             hasMore = dynamicHasMore
         } catch {
             guard isCurrentRequest(requestID) else { return }
-            let nsError = error as NSError
-            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-                return
-            }
+            guard !AppErrorDescriptor.isCancellation(error) else { return }
+            let fallback = replacing
+                ? "关注动态加载失败，下拉重试。"
+                : "加载更多关注动态失败，请重试。"
+            let descriptor = AppErrorCenter.shared.record(
+                error,
+                context: "home.follow.\(replacing ? "refresh" : "pagination")",
+                fallbackMessage: fallback
+            )
             if replacing {
                 dynamicItems = []
                 dynamicHasMore = false
                 dynamicNextOffset = ""
                 dynamicNeedsLogin = false
-                errorMessage = "关注动态加载失败，下拉重试。"
-            } else {
-                errorMessage = "加载更多关注动态失败：\(error.localizedDescription)"
             }
+            errorMessage = descriptor?.message ?? fallback
         }
     }
 

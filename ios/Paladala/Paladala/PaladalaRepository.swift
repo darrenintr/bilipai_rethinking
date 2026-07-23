@@ -20,7 +20,7 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
     /// fans out into 6 API calls doesn't pop the login sheet 6
     /// times. `AuthStore.completeLogin(_:)` resets the latch so
     /// the *next* session-expiry can re-fire.
-    func onSessionExpired(_ handler: @escaping () -> Void) {
+    func onSessionExpired(_ handler: @escaping @MainActor @Sendable () -> Void) {
         apiClient.onAuthFailure = handler
     }
 
@@ -374,31 +374,49 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
     /// Returns an empty page with `needsLogin: true` when the user is
     /// signed out so the home view can render the existing "登录后
     /// 查看关注动态" prompt without a try/catch dance.
-    private var cachedFollowings: (accountMid: Int64, mids: Set<Int64>)?
+    private struct FollowingsCacheState {
+        var value: (accountMid: Int64, mids: Set<Int64>)?
+        var generation = 0
+    }
+
+    private let followingsCacheLock = NSLock()
+    private var followingsCacheState = FollowingsCacheState()
 
     func attentionFeed(
         offset: String = "",
         accountMid: Int64,
         refreshFollowings: Bool = false
     ) async throws -> DynamicFeedPage {
-        if refreshFollowings { cachedFollowings = nil }
+        if refreshFollowings { invalidateFollowingsCache() }
         let mids = try await ensureFollowings(for: accountMid)
         return try await apiClient.attentionFeed(offset: offset, followingFilter: mids)
     }
 
     /// Drop the cached followings set. Call on account switch so the
     /// next follow-feed load fetches the new account's followings
-    /// instead of returning the previous user's filter.
+    /// instead of returning the previous user's filter. Incrementing
+    /// the generation also prevents an older in-flight fetch from
+    /// restoring stale cache state after this invalidation.
     func invalidateFollowingsCache() {
-        cachedFollowings = nil
+        followingsCacheLock.withLock {
+            followingsCacheState.value = nil
+            followingsCacheState.generation += 1
+        }
     }
 
     private func ensureFollowings(for accountMid: Int64) async throws -> Set<Int64> {
-        if let cached = cachedFollowings, cached.accountMid == accountMid {
+        let snapshot = followingsCacheLock.withLock {
+            (followingsCacheState.value, followingsCacheState.generation)
+        }
+        if let cached = snapshot.0, cached.accountMid == accountMid {
             return cached.mids
         }
+
         let mids = try await apiClient.followingMids(vmid: accountMid)
-        cachedFollowings = (accountMid, mids)
+        followingsCacheLock.withLock {
+            guard followingsCacheState.generation == snapshot.1 else { return }
+            followingsCacheState.value = (accountMid, mids)
+        }
         return mids
     }
 

@@ -38,43 +38,108 @@ final class BilibiliAPIClient: @unchecked Sendable {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let wbiSigner = WbiSigner()
-    /// Closure that returns the active account's `Cookie:` header, or
-    /// `nil` when the user is signed out. The `BilibiliAPIClient` does
-    /// not own the `AuthStore` so it stays decoupled from auth state —
-    /// the closure is re-evaluated on every request, so switching
-    /// accounts in `ProfileSettingsView` immediately takes effect.
-    var cookieProvider: (() -> String?)?
+    /// Auth providers read `AuthStore`, which is main-actor isolated.
+    /// Requests themselves may run on any executor, so we keep the
+    /// provider references behind a lock and invoke their closures on
+    /// the main actor through the async snapshot helpers below.
+    private struct RequestProviderState {
+        var cookieProvider: (@MainActor @Sendable () -> String?)?
+        var appConfigProvider: (@MainActor @Sendable () -> BiliAppConfig?)?
+    }
 
-    /// Per-request overrides the App API needs in order to return a
-    /// personalised feed. Without `buvid3`, the upstream gates the
-    /// personalised response behind an anonymous fallback and returns
-    /// the same `热门` list the web recommend endpoint would have sent.
-    /// Same ownership model as `cookieProvider` — owned by `AuthStore`,
-    /// re-evaluated on every call so account switches take effect
-    /// immediately.
-    var appConfigProvider: (() -> BiliAppConfig?)?
+    private let requestProviderLock = NSLock()
+    private var requestProviderState = RequestProviderState()
 
-    /// Fired the first time a request returns HTTP 401 in this
-    /// session.  The `BilibiliAPIClient` does not own auth state
-    /// — the app wires this up to whatever surfaces the login
-    /// sheet (`AppRouter.openLogin()`).  Fires once per 401 streak;
-    /// subsequent 401s within the same expiry episode are
-    /// suppressed so we don't queue three login sheets from a
-    /// burst of concurrent failed requests.
-    var onAuthFailure: (() -> Void)?
+    /// Returns the active account's `Cookie:` header, or `nil` when the
+    /// user is signed out. Re-evaluated for each request so an account
+    /// switch takes effect without recreating the API client.
+    var cookieProvider: (@MainActor @Sendable () -> String?)? {
+        get {
+            requestProviderLock.withLock { requestProviderState.cookieProvider }
+        }
+        set {
+            requestProviderLock.withLock { requestProviderState.cookieProvider = newValue }
+        }
+    }
 
-    /// Latched once a 401 fires in `onAuthFailure`.  Cleared by
-    /// the app when the user re-authenticates (a successful
-    /// login resets it).  Stored here rather than in the closure
-    /// so multiple call sites (concurrent tasks) coordinate
-    /// without a race.
-    private var authFailureReported = false
+    /// Per-request mobile identity used by the App recommendation API.
+    /// Like `cookieProvider`, the closure is main-actor isolated because
+    /// it reads the currently selected account.
+    var appConfigProvider: (@MainActor @Sendable () -> BiliAppConfig?)? {
+        get {
+            requestProviderLock.withLock { requestProviderState.appConfigProvider }
+        }
+        set {
+            requestProviderLock.withLock { requestProviderState.appConfigProvider = newValue }
+        }
+    }
 
-    /// Reset the 401 latch after a successful login.  Call this
-    /// from `AuthStore.completeLogin(...)` so the next session
-    /// expiry can re-open the sheet.
+    private func currentCookieHeader() async -> String? {
+        let provider = requestProviderLock.withLock {
+            requestProviderState.cookieProvider
+        }
+        return await provider?()
+    }
+
+    private func currentAppConfig() async -> BiliAppConfig? {
+        let provider = requestProviderLock.withLock {
+            requestProviderState.appConfigProvider
+        }
+        return await provider?()
+    }
+
+    func hasAuthenticatedSession() async -> Bool {
+        await currentCookieHeader() != nil
+    }
+
+    /// Mutable state used by the session-expiry interceptor. API
+    /// requests can finish concurrently, so both the callback and
+    /// its one-shot latch must be protected even though the client
+    /// itself is intentionally `@unchecked Sendable`.
+    private struct AuthFailureState {
+        var handler: (@MainActor @Sendable () -> Void)?
+        var hasReported = false
+    }
+
+    private let authFailureLock = NSLock()
+    private var authFailureState = AuthFailureState()
+
+    /// Fired on the main actor the first time a request returns HTTP
+    /// 401 in an expiry episode. Subsequent concurrent 401 responses
+    /// are collapsed by `authFailureState.hasReported` so they cannot
+    /// stack multiple login sheets.
+    var onAuthFailure: (@MainActor @Sendable () -> Void)? {
+        get {
+            authFailureLock.withLock { authFailureState.handler }
+        }
+        set {
+            authFailureLock.withLock { authFailureState.handler = newValue }
+        }
+    }
+
+    /// Reset the 401 latch after a successful login. Call this from
+    /// `AuthStore.completeLogin(...)` so the next session expiry can
+    /// re-open the sheet.
     func resetAuthFailureLatch() {
-        authFailureReported = false
+        authFailureLock.withLock { authFailureState.hasReported = false }
+    }
+
+    /// Atomically claims the one-shot callback, then hops to the main
+    /// actor before touching UI state. If no handler has been wired yet,
+    /// leave the latch open so a later 401 can still surface the prompt.
+    private func reportAuthFailureIfNeeded() {
+        let handler: (@MainActor @Sendable () -> Void)? = authFailureLock.withLock {
+            guard !authFailureState.hasReported,
+                  let handler = authFailureState.handler else {
+                return nil
+            }
+            authFailureState.hasReported = true
+            return handler
+        }
+        guard let handler else { return }
+        Task { @MainActor in
+            handler()
+        }
     }
 
     /// Static fallback when no account is signed in.  Kept on the
@@ -261,7 +326,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
     }
 
     func recommendedVideos(freshIndex: Int = 0) async throws -> [BiliVideo] {
-        let hasCookie = cookieProvider?() != nil
+        let hasCookie = await currentCookieHeader() != nil
         diagLog(.recommendation, "Fetching recommended videos", details: ["hasCookie": hasCookie, "freshIndex": freshIndex])
         
         // [FIX] Always use the Web Recommendation API even when logged in.
@@ -300,7 +365,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // so the response can be re-ranked against that user's history.
         // If the user is logged in, we prefer their account-derived
         // BUVID if available, otherwise we generate a stable one.
-        let config = appConfigProvider?() ?? BilibiliAPIClient.defaultConfig
+        let config = await currentAppConfig() ?? BilibiliAPIClient.defaultConfig
         
         // Mobile BUVID starts with XY (MAC) or XX (ID). Official iOS app
         // typically uses XY + MD5 hash.
@@ -867,14 +932,14 @@ final class BilibiliAPIClient: @unchecked Sendable {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
-        if let cookie = cookieProvider?() {
+        if let cookie = await currentCookieHeader() {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
         let initial = try await session.data(for: request)
         let resolved: (Data, URLResponse)
         if let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode,
            initialStatus == 412 || initialStatus == 429 {
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try await Task.sleep(for: .milliseconds(1_200))
             resolved = try await session.data(for: request)
         } else {
             resolved = initial
@@ -1480,7 +1545,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         followingFilter: Set<Int64>? = nil
     ) async throws -> DynamicFeedPage {
         diagLog(.recommendation, "Fetching attention feed", details: ["offset": offset, "hasFilter": followingFilter != nil])
-        if cookieProvider?() == nil {
+        if await currentCookieHeader() == nil {
             diagLog(.recommendation, "Attention feed skipped: No cookie")
             return DynamicFeedPage(items: [], nextOffset: "", hasMore: false, needsLogin: true)
         }
@@ -1606,7 +1671,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
     /// prompt without a try/catch dance.
     func followingMids(vmid: Int64) async throws -> Set<Int64> {
         diagLog(.recommendation, "Fetching following MIDs", details: ["vmid": vmid])
-        if cookieProvider?() == nil {
+        if await currentCookieHeader() == nil {
             diagLog(.recommendation, "Following MIDs skipped: No cookie")
             return []
         }
@@ -2095,7 +2160,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
             request.setValue("ios", forHTTPHeaderField: "platform")
         }
 
-        if let cookie = cookieProvider?() {
+        if let cookie = await currentCookieHeader() {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
 
@@ -2111,7 +2176,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         if let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode,
            initialStatus == 412 || initialStatus == 429 {
             bpLog("GET \(url.absoluteString) returned HTTP \(initialStatus) — backoff 1.2s + retry once")
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try await Task.sleep(for: .milliseconds(1_200))
             resolved = try await session.data(for: request)
         } else {
             resolved = initial
@@ -2123,15 +2188,12 @@ final class BilibiliAPIClient: @unchecked Sendable {
             // 401 = session expired.  Surface a typed error
             // (instead of the generic `http`) and let the app
             // open the login sheet.  The latch in
-            // `authFailureReported` collapses a burst of
+            // the auth-failure latch collapses a burst of
             // concurrent 401s into a single sheet-open so a
             // single expiry doesn't stack three sheets on top of
             // each other.
             if status == 401 {
-                if !authFailureReported {
-                    authFailureReported = true
-                    onAuthFailure?()
-                }
+                reportAuthFailureIfNeeded()
                 throw BilibiliAPIError.sessionExpired
             }
             throw BilibiliAPIError.http
@@ -2169,13 +2231,20 @@ final class BilibiliAPIClient: @unchecked Sendable {
     ) async throws -> T {
         var items = parameters
 
-        // Extract CSRF token from cookies if present
-        if let cookies = cookieProvider?() {
+        // Snapshot auth once so the CSRF token and Cookie header always
+        // belong to the same account even if the user switches accounts
+        // while this request is being assembled.
+        let cookies = await currentCookieHeader()
+        if let cookies {
             let pairs = cookies.components(separatedBy: ";")
             for pair in pairs {
-                let parts = pair.trimmingCharacters(in: .whitespaces).components(separatedBy: "=")
+                let parts = pair.trimmingCharacters(in: .whitespaces).split(
+                    separator: "=",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                )
                 if parts.count == 2 && parts[0] == "bili_jct" {
-                    items["csrf"] = parts[1]
+                    items["csrf"] = String(parts[1])
                     break
                 }
             }
@@ -2201,7 +2270,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
 
-        if let cookies = cookieProvider?() {
+        if let cookies {
             request.setValue(cookies, forHTTPHeaderField: "Cookie")
         }
 
@@ -2215,7 +2284,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         if let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode,
            initialStatus == 412 || initialStatus == 429 {
             bpLog("POST \(url.absoluteString) returned HTTP \(initialStatus) — backoff 1.2s + retry once")
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try await Task.sleep(for: .milliseconds(1_200))
             resolved = try await session.data(for: request)
         } else {
             resolved = initial
@@ -2230,10 +2299,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
             // dead, and the app needs to be able to surface the
             // login sheet without parsing the status code.
             if status == 401 {
-                if !authFailureReported {
-                    authFailureReported = true
-                    onAuthFailure?()
-                }
+                reportAuthFailureIfNeeded()
                 throw BilibiliAPIError.sessionExpired
             }
             throw BilibiliAPIError.http

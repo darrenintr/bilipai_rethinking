@@ -3,9 +3,9 @@ import SwiftUI
 // MARK: - LyricScrollView
 //
 // Moved from MusicHomeView.swift as part of the music section
-// reintroduction (Phase 0b — directory regrouping). Behaviour is
-// byte-for-byte identical to the original; only the file location
-// and the file-level documentation header changed.
+// reintroduction (Phase 0b — directory regrouping). Auto-scroll and
+// active-line transitions honor Reduce Motion, and lyric seeking uses
+// button semantics so VoiceOver exposes each line as an action.
 //
 // Apple-Music-style scrolling lyrics. The active line is bold
 // and tinted with the brand pink; the lines above and below
@@ -19,6 +19,8 @@ import SwiftUI
 // the playhead.
 
 struct LyricScrollView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let track: BiliLyricTrack?
     /// Observed directly so the view re-renders every time the
     /// player's periodic time observer publishes a new
@@ -54,43 +56,41 @@ struct LyricScrollView: View {
     /// window so the line they tapped stays centred.
     private var isInUserSeekWindow: Bool {
         guard let userScrolledAt else { return false }
-        return Date().timeIntervalSince(userScrolledAt) < 4
+        return Date.now.timeIntervalSince(userScrolledAt) < 4
     }
 
     var body: some View {
         Group {
             if let track, !track.isEmpty {
                 ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
+                    ScrollView(.vertical) {
                         VStack(alignment: .leading, spacing: 14) {
                             // Top spacer pushes the first line down
                             // so the active line is vertically
                             // centred.
                             Color.clear.frame(height: 80)
                             ForEach(track.lines) { line in
-                                LyricLineView(
-                                    line: line,
-                                    isActive: line.id == track.lines[activeIndex].id,
-                                    isSelected: line.id == userSelectedLineID
-                                )
-                                .id(line.id)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    userScrolledAt = Date()
+                                Button {
+                                    userScrolledAt = Date.now
                                     userSelectedLineID = line.id
-                                    // The whole point of Apple-Music-style
-                                    // lyrics: tap a line to jump there.
-                                    // Without this the tap only flipped
-                                    // the highlight and the user had to
-                                    // slide back to the playhead.
                                     onSeek(line.startTime)
+                                } label: {
+                                    LyricLineView(
+                                        line: line,
+                                        isActive: line.id == track.lines[activeIndex].id,
+                                        isSelected: line.id == userSelectedLineID
+                                    )
+                                    .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
+                                .id(line.id)
                             }
                             Color.clear.frame(height: 80)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12)
                     }
+                    .scrollIndicators(.hidden)
                     .onChange(of: controller.currentTime) { _, newTime in
                         guard !isInUserSeekWindow, !track.lines.isEmpty else { return }
                         // Look up the active index for `newTime`
@@ -102,12 +102,13 @@ struct LyricScrollView: View {
                         if next == lastActiveIndex { return }
                         lastActiveIndex = next
                         let id = track.lines[next].id
-                        withAnimation(.easeInOut(duration: 0.32)) {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.32)) {
                             proxy.scrollTo(id, anchor: .center)
                         }
                     }
                     .onAppear {
                         guard !track.lines.isEmpty else { return }
+                        lastActiveIndex = activeIndex
                         let id = track.lines[activeIndex].id
                         proxy.scrollTo(id, anchor: .center)
                     }
@@ -130,10 +131,12 @@ struct LyricScrollView: View {
 // MARK: - LyricLineView
 //
 // Moved from MusicHomeView.swift as part of the music section
-// reintroduction (Phase 0b — directory regrouping). Behaviour is
-// byte-for-byte identical to the original.
+// reintroduction (Phase 0b — directory regrouping). Its highlight
+// transition now follows the system Reduce Motion preference.
 
 struct LyricLineView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let line: BiliLyricLine
     let isActive: Bool
     let isSelected: Bool
@@ -155,7 +158,7 @@ struct LyricLineView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeInOut(duration: 0.24), value: isActive)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: isActive)
     }
 
     private var foreground: Color {

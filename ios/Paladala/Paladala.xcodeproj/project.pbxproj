@@ -91,6 +91,7 @@
 		7E5C0A000000000000000017 /* PaladalaBackdropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */; };
 		7E5C0A000000000000000019 /* LaunchMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000020 /* LaunchMetricsTests.swift */; };
 		LS0000000000000000000B001 /* LoadState.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS0000000000000000000F001 /* LoadState.swift */; };
+		AE0000000000000000000B01 /* AppErrorCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0000000000000000000F01 /* AppErrorCenter.swift */; };
 		LS0000000000000000000B002 /* GenerationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS0000000000000000000F002 /* GenerationGuard.swift */; };
 		LS0000000000000000000B003 /* LoadStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS0000000000000000000F003 /* LoadStateTests.swift */; };
 /* End PBXBuildFile section */
@@ -186,6 +187,7 @@
 		7E5C0A000000000000000020 /* LaunchMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetricsTests.swift; sourceTree = "<group>"; };
 		A1FF00000000000000FF05F1 /* Paladala-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Paladala-Bridging-Header.h"; sourceTree = "<group>"; };
 		LS0000000000000000000F001 /* LoadState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadState.swift; sourceTree = "<group>"; };
+		AE0000000000000000000F01 /* AppErrorCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppErrorCenter.swift; sourceTree = "<group>"; };
 		LS0000000000000000000F002 /* GenerationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationGuard.swift; sourceTree = "<group>"; };
 		LS0000000000000000000F003 /* LoadStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadStateTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -292,6 +294,7 @@
 				7E5C0A000000000000000014 /* LazyTab.swift */,
 				A1FF00000000000000FF05F1 /* Paladala-Bridging-Header.h */,
 				LS0000000000000000000F001 /* LoadState.swift */,
+				AE0000000000000000000F01 /* AppErrorCenter.swift */,
 				LS0000000000000000000F002 /* GenerationGuard.swift */,
 			);
 			path = Paladala;
@@ -665,6 +668,7 @@
 				7E5C0A00000000000000000F /* FeedCacheWarmer.swift in Sources */,
 				7E5C0A000000000000000013 /* LazyTab.swift in Sources */,
 				LS0000000000000000000B001 /* LoadState.swift in Sources */,
+				AE0000000000000000000B01 /* AppErrorCenter.swift in Sources */,
 				LS0000000000000000000B002 /* GenerationGuard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
