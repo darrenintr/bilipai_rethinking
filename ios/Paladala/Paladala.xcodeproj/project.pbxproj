@@ -21,6 +21,8 @@
 		10000000000000000000010A /* VideoDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020A /* VideoDetailView.swift */; };
 		10000000000000000000010B /* DynamicFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020B /* DynamicFeedView.swift */; };
 		10000000000000000000010C /* LiveRoomsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020C /* LiveRoomsView.swift */; };
+		300000000000000000000001 /* CDNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000002 /* CDNManager.swift */; };
+		300000000000000000000003 /* CDNSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000004 /* CDNSettingsView.swift */; };
 		10000000000000000000010D /* ProfileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020D /* ProfileSettingsView.swift */; };
 		10000000000000000000010E /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020E /* SharedViews.swift */; };
 		10000000000000000000010F /* PaladalaAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000020F /* PaladalaAppIntents.swift */; };
@@ -112,6 +114,8 @@
 		10000000000000000000020A /* VideoDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDetailView.swift; sourceTree = "<group>"; };
 		10000000000000000000020B /* DynamicFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicFeedView.swift; sourceTree = "<group>"; };
 		10000000000000000000020C /* LiveRoomsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveRoomsView.swift; sourceTree = "<group>"; };
+		300000000000000000000002 /* CDNManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CDNManager.swift; sourceTree = "<group>"; };
+		300000000000000000000004 /* CDNSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CDNSettingsView.swift; sourceTree = "<group>"; };
 		10000000000000000000020D /* ProfileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingsView.swift; sourceTree = "<group>"; };
 		10000000000000000000020E /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
 		10000000000000000000020F /* PaladalaAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaAppIntents.swift; sourceTree = "<group>"; };
@@ -245,6 +249,8 @@
 				10000000000000000000020B /* DynamicFeedView.swift */,
 				10000000000000000000020C /* LiveRoomsView.swift */,
 				10000000000000000000020D /* ProfileSettingsView.swift */,
+				300000000000000000000002 /* CDNManager.swift */,
+				300000000000000000000004 /* CDNSettingsView.swift */,
 				10000000000000000000020E /* SharedViews.swift */,
 				10000000000000000000021D /* ReplyListView.swift */,
 				10000000000000000000021C /* AccountContentViews.swift */,
@@ -611,6 +617,8 @@
 				10000000000000000000010A /* VideoDetailView.swift in Sources */,
 				10000000000000000000010B /* DynamicFeedView.swift in Sources */,
 				10000000000000000000010C /* LiveRoomsView.swift in Sources */,
+				300000000000000000000001 /* CDNManager.swift in Sources */,
+				300000000000000000000003 /* CDNSettingsView.swift in Sources */,
 				10000000000000000000010D /* ProfileSettingsView.swift in Sources */,
 				10000000000000000000010E /* SharedViews.swift in Sources */,
 				10000000000000000000010F /* PaladalaAppIntents.swift in Sources */,

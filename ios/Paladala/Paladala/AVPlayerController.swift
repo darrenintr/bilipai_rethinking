@@ -494,6 +494,7 @@ final class PlayerController: ObservableObject {
         self.nowPlayingCoverURL = video?.coverURL
         self.nowPlayingBvid = video?.id
 
+        let playback = CDNManager.shared.rewrite(playback)
         let referer = playback.referer.absoluteString
         var asset: AVAsset
         let usesProxy: Bool

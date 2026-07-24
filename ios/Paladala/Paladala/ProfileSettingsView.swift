@@ -208,6 +208,14 @@ struct ProfileSettingsView: View {
                 }
             }
 
+            Section("播放源") {
+                NavigationLink {
+                    CDNSettingsView()
+                } label: {
+                    PluginRow(title: "CDN 播放源", subtitle: "手动切换节点 · 测速并选择", symbol: "antenna.radiowaves.left.and.right")
+                }
+            }
+
             Section("插件中心") {
                 NavigationLink {
                     SponsorBlockSettingsView()
