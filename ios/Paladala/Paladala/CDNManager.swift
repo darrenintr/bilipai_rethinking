@@ -29,9 +29,9 @@ final class CDNManager: ObservableObject {
         didSet { UserDefaults.standard.set(selectedHost, forKey: Self.selectedHostKey) }
     }
 
-    static let selectedHostKey = "paladala.cdn.selectedHost"
-    static let enabledKey = "paladala.cdn.enabled"
-    static let defaultHost = "upos-sz-mirrorali.bilivideo.com"
+    nonisolated static let selectedHostKey = "paladala.cdn.selectedHost"
+    nonisolated static let enabledKey = "paladala.cdn.enabled"
+    nonisolated static let defaultHost = "upos-sz-mirrorali.bilivideo.com"
 
     private let session: URLSession
 
@@ -94,7 +94,7 @@ final class CDNManager: ObservableObject {
 
     nonisolated func rewrite(_ playback: BiliPlayback) -> BiliPlayback {
         guard UserDefaults.standard.bool(forKey: Self.enabledKey),
-              let selected = UserDefaults.standard.string(forKey: Self.selectedHost),
+              let selected = UserDefaults.standard.string(forKey: Self.selectedHostKey),
               !selected.isEmpty else { return playback }
         func replace(_ url: URL) -> URL {
             guard let host = url.host, Self.isMediaHost(host), var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
@@ -121,7 +121,7 @@ final class CDNManager: ObservableObject {
         return components.url ?? url
     }
 
-    static func isMediaHost(_ host: String) -> Bool {
+    nonisolated static func isMediaHost(_ host: String) -> Bool {
         let h = host.lowercased()
         return h.contains("bilivideo.com") || h.contains("bilivideo.cn") ||
             h.contains("acgvideo.com") || h.contains("acgvideo.cn") ||
