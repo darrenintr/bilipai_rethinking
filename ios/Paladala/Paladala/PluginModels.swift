@@ -73,7 +73,11 @@ struct Plugin: Codable, Equatable, Identifiable, Sendable {
 
     /// Disk-side origin used by `PluginsSettingsView` to
     /// distinguish user-pasted entries from bundled ones.
-    enum Origin: Equatable, Sendable {
+    /// `Codable` so `Plugin`'s auto-synthesised
+    /// `init(from:) / encode(to:)` can encode the optional
+    /// `origin` field (which is stripped at persist time
+    /// anyway — see `PluginManager.persist(_:to:)`).
+    enum Origin: Codable, Equatable, Sendable {
         case bundled
         case disk(filename: String)
     }
