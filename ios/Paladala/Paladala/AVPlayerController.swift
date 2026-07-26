@@ -496,10 +496,22 @@ final class PlayerController: ObservableObject {
 
         // Consult the plugin manager for a CDN-pin override
         // before the user-chosen CDN. PluginManager is
-        // non-isolated so this synchronous read is safe in
-        // `init`. Empty pin is ignored, so a stale plugin
-        // can't disable the manual picker.
-        let pinHost = video.flatMap { PluginManager.shared.cdnPin(for: $0.id) }
+        // `@MainActor` (Swift 6 strict requires it for
+        // `@Published` mutations on `ObservableObject`), so
+        // this non-isolated `init` wraps the lookup in
+        // `MainActor.assumeIsolated`. The wrap is safe
+        // because every existing call site is on the main
+        // thread (`MiniPlayerStore.bind(video:)` is invoked
+        // from SwiftUI view lifecycle); if that ever changes,
+        // the runtime assertion surfaces it. Empty pin is
+        // ignored, so a stale plugin can't disable the
+        // manual picker.
+        let pinHost: String? = {
+            guard let video else { return nil }
+            return MainActor.assumeIsolated {
+                PluginManager.shared.cdnPin(for: video.id)
+            }
+        }()
         let playback = CDNManager.shared.rewrite(playback, pinHost: pinHost)
         let referer = playback.referer.absoluteString
         var asset: AVAsset

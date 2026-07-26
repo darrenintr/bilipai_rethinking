@@ -13,14 +13,17 @@
 import Foundation
 import Combine
 
-/// Plain `final class` rather than `@MainActor` so non-isolated
-/// contexts (such as `AVPlayerController.init`) can call the
-/// hook helpers without `await`.  All access at runtime is on
-/// the main thread — the four call sites are SwiftUI bodies
-/// and a view-driven `init` — and the helpers are
-/// thread-safe to call concurrently because they only read
-/// the immutable snapshot of `plugins` set during
-/// `reload()`.
+/// `@MainActor` to match the rest of the project's
+/// `ObservableObject` types (e.g. `SponsorBlockManager`) and
+/// to satisfy Swift 6 strict concurrency — `@Published`
+/// mutations are expected to happen on the main actor.
+///
+/// The one non-main-actor call site
+/// (`AVPlayerController.init`'s `cdnPin` lookup) wraps the
+/// call in `MainActor.assumeIsolated`, which is fine because
+/// that init always runs on the main thread in practice
+/// (`MiniPlayerStore` calls it from view lifecycle).
+@MainActor
 final class PluginManager: ObservableObject {
     static let shared = PluginManager()
 
