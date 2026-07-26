@@ -78,12 +78,12 @@
 		50000000000000000000055D /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50000000000000000000055C /* Analytics.swift */; };
 		600000000000000000000804 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000901 /* PrivacyInfo.xcprivacy */; };
 		600000000000000000000805 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000902 /* PrivacyInfo.xcprivacy */; };
-		PL600000000000000000000B001 /* Plugins in Resources */ = {isa = PBXBuildFile; fileRef = PL600000000000000000000B101 /* Plugins */; };
-		SL6000000000000000000SL002 /* SleepTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = SL6000000000000000000SL001 /* SleepTimer.swift */; };
-		SL6000000000000000000SL012 /* SleepTimerHUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SL6000000000000000000SL011 /* SleepTimerHUDView.swift */; };
-		PL6000000000000000000PL012 /* PluginModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL6000000000000000000PL011 /* PluginModels.swift */; };
-		PL6000000000000000000PL022 /* PluginManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL6000000000000000000PL021 /* PluginManager.swift */; };
-		PL6000000000000000000PL032 /* PluginsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL6000000000000000000PL031 /* PluginsSettingsView.swift */; };
+		7000000000000000000000B2 /* Plugins in Resources */ = {isa = PBXBuildFile; fileRef = 7000000000000000000000B1 /* Plugins */; };
+		7000000000000000000001A2 /* SleepTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7000000000000000000001A1 /* SleepTimer.swift */; };
+		7000000000000000000001B2 /* SleepTimerHUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7000000000000000000001B1 /* SleepTimerHUDView.swift */; };
+		7000000000000000000001C2 /* PluginModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7000000000000000000001C1 /* PluginModels.swift */; };
+		7000000000000000000001D2 /* PluginManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7000000000000000000001D1 /* PluginManager.swift */; };
+		7000000000000000000001E2 /* PluginsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7000000000000000000001E1 /* PluginsSettingsView.swift */; };
 		10000000000000000000012D /* LaunchMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022D /* LaunchMetrics.swift */; };
 		10000000000000000000012E /* UPProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022E /* UPProfileView.swift */; };
 		600000000000000000000621 /* SponsorBlockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000611 /* SponsorBlockModels.swift */; };
@@ -180,12 +180,12 @@
 		50000000000000000000055C /* Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Analytics.swift; sourceTree = "<group>"; };
 		600000000000000000000901 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		600000000000000000000902 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		PL600000000000000000000B101 /* Plugins */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Plugins; sourceTree = "<group>"; };
-		SL6000000000000000000SL001 /* SleepTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimer.swift; sourceTree = "<group>"; };
-		SL6000000000000000000SL011 /* SleepTimerHUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerHUDView.swift; sourceTree = "<group>"; };
-		PL6000000000000000000PL011 /* PluginModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginModels.swift; sourceTree = "<group>"; };
-		PL6000000000000000000PL021 /* PluginManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginManager.swift; sourceTree = "<group>"; };
-		PL6000000000000000000PL031 /* PluginsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginsSettingsView.swift; sourceTree = "<group>"; };
+		7000000000000000000000B1 /* Plugins */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Plugins; sourceTree = "<group>"; };
+		7000000000000000000001A1 /* SleepTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimer.swift; sourceTree = "<group>"; };
+		7000000000000000000001B1 /* SleepTimerHUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerHUDView.swift; sourceTree = "<group>"; };
+		7000000000000000000001C1 /* PluginModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginModels.swift; sourceTree = "<group>"; };
+		7000000000000000000001D1 /* PluginManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginManager.swift; sourceTree = "<group>"; };
+		7000000000000000000001E1 /* PluginsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginsSettingsView.swift; sourceTree = "<group>"; };
 		10000000000000000000022D /* LaunchMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetrics.swift; sourceTree = "<group>"; };
 		10000000000000000000022E /* UPProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPProfileView.swift; sourceTree = "<group>"; };
 		600000000000000000000611 /* SponsorBlockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockModels.swift; sourceTree = "<group>"; };
@@ -284,7 +284,7 @@
 				300000000000000000000503 /* WatchSession.swift */,
 				100000000000000000000212 /* Assets.xcassets */,
 				100000000000000000000213 /* DesignModifier.swift */,
-				PL600000000000000000000B101 /* Plugins */,
+				7000000000000000000000B1 /* Plugins */,
 				100000000000000000000214 /* BundledFeedService.swift */,
 				100000000000000000000467 /* ICloudSync.swift */,
 				100000000000000000000469 /* LiveActivityCoordinator.swift */,
@@ -309,11 +309,11 @@
 				600000000000000000000612 /* SponsorBlockService.swift */,
 				600000000000000000000613 /* SponsorBlockManager.swift */,
 				600000000000000000000614 /* SponsorBlockSettingsView.swift */,
-				SL6000000000000000000SL001 /* SleepTimer.swift */,
-				SL6000000000000000000SL011 /* SleepTimerHUDView.swift */,
-				PL6000000000000000000PL011 /* PluginModels.swift */,
-				PL6000000000000000000PL021 /* PluginManager.swift */,
-				PL6000000000000000000PL031 /* PluginsSettingsView.swift */,
+				7000000000000000000001A1 /* SleepTimer.swift */,
+				7000000000000000000001B1 /* SleepTimerHUDView.swift */,
+				7000000000000000000001C1 /* PluginModels.swift */,
+				7000000000000000000001D1 /* PluginManager.swift */,
+				7000000000000000000001E1 /* PluginsSettingsView.swift */,
 				7E5C0A000000000000000010 /* FeedCacheWarmer.swift */,
 				7E5C0A000000000000000014 /* LazyTab.swift */,
 				A1FF00000000000000FF05F1 /* Paladala-Bridging-Header.h */,
@@ -599,7 +599,7 @@
 			files = (
 				100000000000000000000111 /* Assets.xcassets in Resources */,
 				600000000000000000000804 /* PrivacyInfo.xcprivacy in Resources */,
-				PL600000000000000000000B001 /* Plugins in Resources */,
+				7000000000000000000000B2 /* Plugins in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -697,11 +697,11 @@
 				LS0000000000000000000B001 /* LoadState.swift in Sources */,
 				AE0000000000000000000B01 /* AppErrorCenter.swift in Sources */,
 				LS0000000000000000000B002 /* GenerationGuard.swift in Sources */,
-				SL6000000000000000000SL002 /* SleepTimer.swift in Sources */,
-				SL6000000000000000000SL012 /* SleepTimerHUDView.swift in Sources */,
-				PL6000000000000000000PL012 /* PluginModels.swift in Sources */,
-				PL6000000000000000000PL022 /* PluginManager.swift in Sources */,
-				PL6000000000000000000PL032 /* PluginsSettingsView.swift in Sources */,
+				7000000000000000000001A2 /* SleepTimer.swift in Sources */,
+				7000000000000000000001B2 /* SleepTimerHUDView.swift in Sources */,
+				7000000000000000000001C2 /* PluginModels.swift in Sources */,
+				7000000000000000000001D2 /* PluginManager.swift in Sources */,
+				7000000000000000000001E2 /* PluginsSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
