@@ -154,8 +154,14 @@ struct VideoDetailView: View {
                     // enough — `onChange` picks up later swaps.
                     .onAppear { sleepTimer.setController(playerController) }
                     .onDisappear { sleepTimer.setController(nil) }
-                    .onChange(of: playerController) { _, new in
-                        sleepTimer.setController(new)
+                    // Track identity via `ObjectIdentifier`
+                    // because `PlayerController` isn't
+                    // `Equatable`, so `onChange(of:)` cannot
+                    // match.  Two crossings of `.onChange` —
+                    // nil-to-instance and instance-to-instance
+                    // — both flip the identifier.
+                    .onChange(of: playerController.map(ObjectIdentifier.init)) { _, _ in
+                        sleepTimer.setController(playerController)
                     }
                     // YouTube-style "next up" overlay sits over
                     // the player surface only — never over the
