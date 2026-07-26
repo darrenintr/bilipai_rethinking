@@ -92,10 +92,24 @@ final class CDNManager: ObservableObject {
         isTesting = false
     }
 
-    nonisolated func rewrite(_ playback: BiliPlayback) -> BiliPlayback {
-        guard UserDefaults.standard.bool(forKey: Self.enabledKey),
-              let selected = UserDefaults.standard.string(forKey: Self.selectedHostKey),
-              !selected.isEmpty else { return playback }
+    nonisolated func rewrite(_ playback: BiliPlayback, pinHost: String? = nil) -> BiliPlayback {
+        // Plugin-pinned host beats the user's manual CDN
+        // choice (`selectedHostKey`). Empty pin is ignored so
+        // a stale plugin can't disable the manual picker;
+        // pinning with manual-picker OFF also works because we
+        // no longer early-return on `enabledKey`.
+        let manual = UserDefaults.standard.string(forKey: Self.selectedHostKey)
+        let userEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        let pluginEnabled = (pinHost?.isEmpty == false)
+        let selected: String?
+        if pluginEnabled {
+            selected = pinHost
+        } else if userEnabled, let m = manual, !m.isEmpty {
+            selected = m
+        } else {
+            selected = nil
+        }
+        guard let selected else { return playback }
         func replace(_ url: URL) -> URL {
             guard let host = url.host, Self.isMediaHost(host), var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
             c.host = selected

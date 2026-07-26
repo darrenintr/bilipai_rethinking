@@ -494,7 +494,13 @@ final class PlayerController: ObservableObject {
         self.nowPlayingCoverURL = video?.coverURL
         self.nowPlayingBvid = video?.id
 
-        let playback = CDNManager.shared.rewrite(playback)
+        // Consult the plugin manager for a CDN-pin override
+        // before the user-chosen CDN. PluginManager is
+        // non-isolated so this synchronous read is safe in
+        // `init`. Empty pin is ignored, so a stale plugin
+        // can't disable the manual picker.
+        let pinHost = video.flatMap { PluginManager.shared.cdnPin(for: $0.id) }
+        let playback = CDNManager.shared.rewrite(playback, pinHost: pinHost)
         let referer = playback.referer.absoluteString
         var asset: AVAsset
         let usesProxy: Bool
@@ -1611,6 +1617,14 @@ final class PlayerController: ObservableObject {
     /// Change the playback rate (e.g., 2.0 for 2x speed).
     func setRate(_ rate: Float) {
         player.rate = rate
+    }
+
+    /// Set the linear audio gain. Clamped to `0.0 ... 1.0` so
+    /// a buggy caller can't over-drive `AVPlayer.volume`. Used
+    /// by `SleepTimer` to fade audio before pausing; not
+    /// observed externally, so no `@Published` wrapper.
+    func setVolume(_ volume: Float) {
+        player.volume = max(0, min(1, volume))
     }
 
     func setPiPActive(_ active: Bool) {

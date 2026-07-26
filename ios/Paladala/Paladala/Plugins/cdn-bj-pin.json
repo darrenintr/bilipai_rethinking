@@ -1,0 +1,12 @@
+{
+  "id": "com.paladala.builtin.cdn-bj-pin",
+  "name": "强制北京 CDN 节点",
+  "version": 1,
+  "enabled": false,
+  "scope": ["cdn"],
+  "rules": {
+    "cdn": {
+      "pinHost": "upos-bj2-206-3.bilivideo.com"
+    }
+  }
+}

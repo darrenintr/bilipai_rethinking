@@ -1139,7 +1139,7 @@ final class VideoDetailViewModel: ObservableObject {
 
         switch await danmakuResult {
         case .success(let items):
-            danmakuItems = items
+            danmakuItems = PluginManager.shared.danmakuFilter(items: items)
         case .failure(let error):
             bpLog("Danmaku fetch failed: \(error)")
             danmakuItems = []

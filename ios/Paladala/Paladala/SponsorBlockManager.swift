@@ -99,8 +99,14 @@ final class SponsorBlockManager: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 let filtered = result.filter { ($0.votes ?? 0) >= config.minVotes }
-                self.segments = filtered
-                self.sortedSegments = filtered.sorted { $0.startTime < $1.startTime }
+                // Layer plugin-supplied skip segments on top of
+                // the network result before sorting. Plugin
+                // extras bypass `minVotes` because they're
+                // locally authored and trust-implicit — see
+                // `PluginManager.sponsorExtras(for:)`.
+                let combined = filtered + PluginManager.shared.sponsorExtras(for: videoID)
+                self.segments = combined
+                self.sortedSegments = combined.sorted { $0.startTime < $1.startTime }
                 self.segmentIndex = 0
 
                 diagLog(.playback, "SponsorBlock: loaded \(filtered.count) segments", details: [

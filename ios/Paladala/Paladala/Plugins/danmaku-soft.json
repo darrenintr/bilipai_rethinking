@@ -1,0 +1,12 @@
+{
+  "id": "com.paladala.builtin.danmaku-soft",
+  "name": "弹幕减密",
+  "version": 1,
+  "enabled": false,
+  "scope": ["danmaku"],
+  "rules": {
+    "danmaku": {
+      "maxDensity": 5
+    }
+  }
+}

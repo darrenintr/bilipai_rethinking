@@ -104,6 +104,11 @@ struct VideoDetailView: View {
     /// the HIG-recommended transition window for video
     /// chrome.
     private static let nextUpCountdownDuration: Int = 5
+    /// Per-playback sleep timer. Late-bound to the actual
+    /// `PlayerController` once the inline player mounts via
+    /// `miniPlayerStore` — see `.onAppear` / `.onChange(of:)`
+    /// below.
+    @StateObject private var sleepTimer = SleepTimer(controller: nil)
 
     init(video: BiliVideo, repository: PaladalaRepository, heroNamespace: Namespace.ID? = nil, localRecord: DownloadRecord? = nil) {
         self.video = video
@@ -141,6 +146,17 @@ struct VideoDetailView: View {
                     .frame(height: playerHeight)
                     .frame(maxWidth: .infinity)
                     .clipped()
+                    // Late-bind the sleep timer to the active
+                    // controller so the fade-out has somewhere to
+                    // drive. `MiniPlayerStore` produces the
+                    // controller asynchronously after the first
+                    // play() call, so `onAppear` alone isn't
+                    // enough — `onChange` picks up later swaps.
+                    .onAppear { sleepTimer.setController(playerController) }
+                    .onDisappear { sleepTimer.setController(nil) }
+                    .onChange(of: playerController) { _, new in
+                        sleepTimer.setController(new)
+                    }
                     // YouTube-style "next up" overlay sits over
                     // the player surface only — never over the
                     // comments. The overlay is empty by default
@@ -374,7 +390,8 @@ struct VideoDetailView: View {
                     repository: repository,
                     subtitleTrack: model.subtitleEnabled ? model.subtitleTrack : nil,
                     danmakuItems: model.danmakuEnabled ? model.danmakuItems : [],
-                    controller: controller
+                    controller: controller,
+                    sleepTimer: sleepTimer
                 )
             }
         }
@@ -582,7 +599,8 @@ struct VideoDetailView: View {
                     repository: repository,
                     subtitleTrack: model.subtitleEnabled ? model.subtitleTrack : nil,
                     danmakuItems: model.danmakuEnabled ? model.danmakuItems : [],
-                    controller: controller
+                    controller: controller,
+                    sleepTimer: sleepTimer
                 )
                     .onAppear { model.isPlaying = true }
                     .onDisappear { model.isPlaying = false }
@@ -663,17 +681,20 @@ struct VideoDetailView: View {
     }
 
     private var controlPanel: some View {
-        // Five chips: subtitle, danmaku, quality, download, coin.
-        // The previous iteration also exposed a 倍速 menu, but
-        // AVPlayerViewController already surfaces the same set
-        // natively (long-press the play button → speed picker)
-        // so keeping a duplicate here caused the two surfaces to
-        // drift — clearing it lets the AVKit path own speed.
+        // Six chips: subtitle, danmaku, quality, download, sleep,
+        // coin. The previous iteration also exposed a 倍速 menu,
+        // but AVPlayerViewController already surfaces the same
+        // set natively (long-press the play button → speed
+        // picker) so keeping a duplicate here caused the two
+        // surfaces to drift — clearing it lets the AVKit path own
+        // speed. Sleep timer is NOT a duplicate of anything in
+        // the system transport, so it stays.
         HStack(spacing: 0) {
             controlCell { subtitleChip }
             controlCell { danmakuChip }
             controlCell { qualityMenu }
             controlCell { downloadButton }
+            controlCell { sleepTimerChip }
             controlCell(showsDivider: false) { coinButton }
         }
         .font(PaladalaTheme.FontRole.labelMono)
@@ -828,8 +849,53 @@ struct VideoDetailView: View {
         }
     }
 
-    /// 投币 (B-coin) button.  The label flips to a filled
-    /// glyph + count chip once the user has given at least one
+    /// Sleep-timer chip. Wraps a `Menu` with Off / 15 / 30 / 60
+    /// minute choices; selection funnels into `SleepTimer.start`
+    /// (which then drives the HUD). The label glyph swaps to a
+    /// filled "moon.zzz.fill" while a countdown is active so the
+    /// user can see at a glance that a timer is running. Has no
+    /// effect when the controller hasn't mounted yet — the
+    /// `onChange(of:)` that late-binds the controller also
+    /// flushes any queued selection.
+    private var sleepTimerChip: some View {
+        Menu {
+            Button {
+                sleepTimer.cancel()
+            } label: {
+                Label(L10n.video.sleepTimer.off, systemImage: "moon")
+            }
+            Button {
+                sleepTimer.start(minutes: 15)
+            } label: {
+                Text(L10n.video.sleepTimer.minutes15)
+            }
+            Button {
+                sleepTimer.start(minutes: 30)
+            } label: {
+                Text(L10n.video.sleepTimer.minutes30)
+            }
+            Button {
+                sleepTimer.start(minutes: 60)
+            } label: {
+                Text(L10n.video.sleepTimer.minutes60)
+            }
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: sleepTimer.isActive
+                      ? "moon.zzz.fill"
+                      : "moon.zzz")
+                    .font(.body.weight(.black))
+                    .contentTransition(.symbolEffect(.replace.downUp))
+                Text(L10n.video.sleepTimer.title)
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .disabled(playerController == nil)
+    }
+
+    /// 投币 (B-coin) button.  The label flips to a filled glyph + count chip once the user has given at least one
     /// coin, so the action bar surfaces both the action and its
     /// current state in a single tap target.  The 1x / 2x
     /// choice lives in the menu so the chip itself stays a

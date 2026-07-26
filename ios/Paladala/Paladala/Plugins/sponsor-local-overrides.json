@@ -1,0 +1,12 @@
+{
+  "id": "com.paladala.builtin.sponsor-local-overrides",
+  "name": "本地片段覆盖（模板）",
+  "version": 1,
+  "enabled": false,
+  "scope": ["sponsorblock"],
+  "rules": {
+    "sponsorblock": {
+      "extraSegments": []
+    }
+  }
+}

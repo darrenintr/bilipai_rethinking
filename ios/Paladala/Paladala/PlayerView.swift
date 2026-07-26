@@ -30,6 +30,17 @@ struct PlayerView: View {
     let subtitleTrack: BiliLyricTrack?
     let danmakuItems: [BiliDanmakuItem]
     @ObservedObject var controller: PlayerController
+    /// Optional sleep timer.  Owned by `VideoDetailView` as a
+    /// `@StateObject` so the same instance survives inline ↔
+    /// fullscreen transitions and the countdown never resets.
+    /// When `nil`, the HUD simply doesn't render.
+    @ObservedObject var sleepTimer: SleepTimer
+
+    /// Brightness-plugin snapshot.  Pulled once on appear so
+    /// toggling a plugin does not force the inline player to
+    /// re-render every frame; the view only needs the cached
+    /// value here.  `nil` = no overlay.
+    @State private var brightnessCache: PluginBrightnessRule?
 
     var body: some View {
         ZStack {
@@ -78,7 +89,48 @@ struct PlayerView: View {
                 }
 
                 SponsorSkipToast()
+
+                if sleepTimer.isActive {
+                    SleepTimerHUDView(timer: sleepTimer)
+                        .padding(.top, 12)
+                        .padding(.trailing, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .transition(.opacity)
+                }
+
+                // Plugin brightness filter sits behind the
+                // chrome overlay so the system transport
+                // still gets its taps — `allowsHitTesting(false)`
+                // is what guarantees that.
+                if let b = brightnessCache {
+                    brightnessOverlay(b)
+                }
             }
+        }
+        .onAppear {
+            // Snapshot once per appearance; toggling plugins
+            // mid-playback is a rare action and the inline
+            // player tearing down its tree to re-render is
+            // worse than a one-frame stale overlay.
+            brightnessCache = PluginManager.shared.brightnessRule()
+        }
+    }
+
+    /// Plugin-driven dimming. Static `Color` overlays only —
+    /// no `Material`, no `.blur`, so the AVPlayer compositor
+    /// doesn't add an extra full-frame pass on each video
+    /// frame. The warm cast is `.softLight`-blended onto the
+    /// dim layer; capped at 0.25 opacity to avoid clipping.
+    @ViewBuilder
+    private func brightnessOverlay(_ rule: PluginBrightnessRule) -> some View {
+        if let level = rule.level, level > 0 {
+            Color.black.opacity(max(0, min(1, 1.0 - level)))
+                .allowsHitTesting(false)
+        }
+        if let warm = rule.warmth, warm > 0 {
+            Color.orange.opacity(min(0.25, warm * 0.25))
+                .blendMode(.softLight)
+                .allowsHitTesting(false)
         }
     }
 
@@ -276,6 +328,10 @@ struct FullscreenPlayerView: View {
     let subtitleTrack: BiliLyricTrack?
     let danmakuItems: [BiliDanmakuItem]
     @ObservedObject var controller: PlayerController
+    /// Same timer instance as the inline player — see
+    /// `PlayerView.sleepTimer`.  HUD only renders when the
+    /// timer is in flight, matching the inline behaviour.
+    @ObservedObject var sleepTimer: SleepTimer
 
     @Environment(\.dismiss) private var dismiss
 
@@ -297,6 +353,14 @@ struct FullscreenPlayerView: View {
                 dismiss()
             }
             .ignoresSafeArea()
+
+            if sleepTimer.isActive {
+                SleepTimerHUDView(timer: sleepTimer)
+                    .padding(.top, 12)
+                    .padding(.trailing, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .transition(.opacity)
+            }
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)

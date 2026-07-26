@@ -228,6 +228,21 @@ struct ProfileSettingsView: View {
                         symbol: "shield.lefthalf.filled"
                     )
                 }
+                // User-installed / bundled JSON plugins.
+                // Sits inside the same 插件中心 section so the
+                // navigation visually groups all plugin-shaped
+                // features together. Reads from
+                // `PluginManager.shared.plugins`; @ObservedObject
+                // re-renders the row when the array changes.
+                NavigationLink {
+                    PluginsSettingsView()
+                } label: {
+                    PluginRow(
+                        title: "我的插件",
+                        subtitle: "\(PluginManager.shared.plugins.count) 个已安装 · 含 \(PluginManager.shared.plugins.filter { $0.enabled }.count) 个已启用",
+                        symbol: "puzzlepiece.extension"
+                    )
+                }
             }
 
             Section {
