@@ -366,7 +366,7 @@ final class PlayerController: ObservableObject {
     private var errorObserver: NSObjectProtocol?
     private var errorLogObserver: NSObjectProtocol?
     /// **B1**: `NSObjectProtocol` slot for the
-    /// `.AVPlayerItem.playbackStalled` Notification subscription
+    /// `AVPlayerItem.playbackStalledNotification` Notification subscription
     /// added by `installNotificationObservers(on:)`. Held so
     /// `detachCurrentItemObservers()` can invalidate the token
     /// when `replaceCurrentItemForPlayback(_:)` swaps in a new
@@ -1179,7 +1179,7 @@ final class PlayerController: ObservableObject {
             NotificationCenter.default.removeObserver(token)
             errorLogObserver = nil
         }
-        // **B1**: invalidate the `.AVPlayerItem.playbackStalled`
+        // **B1**: invalidate the `AVPlayerItem.playbackStalledNotification`
         // token registered by `installNotificationObservers(on:)`
         // so a swap to a new item doesn't leak a notification
         // observer. Same pattern as `errorLogObserver` above.
@@ -1260,7 +1260,7 @@ final class PlayerController: ObservableObject {
             // - `prolongedStall` fires only when
             //   `isPlaybackBufferEmpty` has been true for 10 s
             //   (or now via Apple's own
-            //   `.AVPlayerItem.playbackStalled` notification).
+            //   `AVPlayerItem.playbackStalledNotification` notification).
             //   By that point the upstream is meaningfully slow
             //   and a no-op seek on top of the existing
             //   segment is unlikely to help. Two more
@@ -1640,7 +1640,7 @@ final class PlayerController: ObservableObject {
                 }
             }
         }
-        // **B1 / C1**: subscribe to `.AVPlayerItem.playbackStalled`.
+        // **B1 / C1**: subscribe to `AVPlayerItem.playbackStalledNotification`.
         // This is Apple's own "I have given up on internal
         // recovery" notification — it fires when `isPlaybackLikelyToKeepUp`
         // flips to `false` for long enough that AVPlayer
@@ -1672,7 +1672,7 @@ final class PlayerController: ObservableObject {
         // 网络问题") and the dedicated 10 s thresholds stay
         // coherent with the prior watchdog-derived path.
         playbackStalledObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.playbackStalled,
+            forName: AVPlayerItem.playbackStalledNotification,
             object: item, queue: .main
         ) { [weak self, weak item] _ in
             guard let item else { return }
@@ -2173,7 +2173,7 @@ final class PlayerController: ObservableObject {
         if let token = errorLogObserver {
             NotificationCenter.default.removeObserver(token)
         }
-        // **B1**: tear down the `.AVPlayerItem.playbackStalled`
+        // **B1**: tear down the `AVPlayerItem.playbackStalledNotification`
         // token registered in `installNotificationObservers(on:)`
         // — mirrored against `detachCurrentItemObservers()` so
         // a controller's end-of-life doesn't leak a notification
