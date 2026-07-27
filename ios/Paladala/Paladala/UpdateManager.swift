@@ -23,7 +23,7 @@ import UIKit
 final class UpdateManager: NSObject, ObservableObject {
     static let shared = UpdateManager()
 
-    @Published var downloadState: DownloadState = .idle
+    @Published var downloadState: UpdateDownloadState = .idle
     @Published var downloadProgress: Double = 0
 
     private var downloadTask: URLSessionDownloadTask?
@@ -237,9 +237,9 @@ extension UpdateManager: URLSessionDownloadDelegate {
     }
 }
 
-// MARK: - DownloadState
+// MARK: - UpdateDownloadState
 
-enum DownloadState: Equatable {
+enum UpdateDownloadState: Equatable {
     case idle
     case downloading
     case completed(URL)
