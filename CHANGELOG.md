@@ -3,6 +3,8 @@
 ## Unreleased — Refactor pass
 
 ### 新增
+- **关于页面 + 特别辨识号** (`AppVersion.swift` / `AboutView.swift`): 我的页新增"关于 Paladala"入口;关于页展示应用版本、构建号、`PD-XXXX-XXXX-XXXX` 形式的特别辨识号、发布类型 (debug / TestFlight / App Store / 企业 / 侧载 / 未知)、渠道、提交 SHA、构建时间和 Bundle ID;辨识号点击复制到剪贴板,带 toast 提示。辨识号由 `SHA1(bundleId | marketingVersion | buildNumber | releaseType | commit | epoch | salt)` 前 6 字节 (12 hex) 派生,CI 写入 BPBuildCommit/Date/Epoch,本地开发回退到 binary mtime。
+- **检查更新** (AboutView 内): 点击调用 GitHub Releases API (`/repos/darrenintr/pure-bilibili-rethinking/releases/latest`),对 tag 与本地版本做点分号比较 (短版本右侧补 0),返回"已是最新 / 发现新版本 / 开发构建 / 检查失败"四态。本地 / 侧载构建跳过版本比较,直接展示 GitHub releases 链接。
 - **`LoadState<T>`** (`ios/Paladala/Paladala/LoadState.swift`): `@MainActor ObservableObject` 封装 `isLoading` / `isLoadingMore` / `errorMessage` / `value` 四态机。配套 `LoadStateTests.swift` (10 个用例覆盖成功、失败、并发短路、pagination、reset)。下游 5 个 `AccountContentViews` ViewModel 待迁移;`LoadState` 已就位可用。
 - **`GenerationGuard`** (`ios/Paladala/Paladala/GenerationGuard.swift`): 单调递增 generation counter,封装 `bump()` / `isCurrent()` / `bumpAnd(_:)`。当前在 `HomeViewModel.suggestGeneration` / `requestGeneration` 与 `LocalHLSProxyServer.currentPrepGeneration` 三处重复实现。
 - **`BangumiLoadingView` / `BangumiErrorView`** (`SharedViews.swift`): 抽出 `BangumiHomeView` 与 `BangumiSeasonDetailView` 重复的 loading / error 表面。`BangumiErrorView` 支持可选 `fallback` 子按钮。
@@ -15,10 +17,11 @@
 ### 文件
 - `BangumiHomeView.swift`: 952 → 841 行(-111),`loadingView` / `errorView` 双副本合并为 `BangumiLoadingView()` / `BangumiErrorView(...)` 调用。
 - `SharedViews.swift`: 929 → 1046 行(+117),承载新增的两个共享 view 与文档注释。
-- `ProfileSettingsView.swift`: 635 → 606 行(-29),`@State showingFFmpegTest` 与 `.sheet` FFmpegTestView 弹出器移除。
+- `ProfileSettingsView.swift`: 635 → 624 行(-11),"引导" 与 "系统与诊断" 之间新增"关于" `Section`,`@State showingFFmpegTest` 与 `.sheet` FFmpegTestView 弹出器移除。
+- 新增 `AppVersion.swift` (约 220 行) / `AboutView.swift` (约 240 行)。
 
 ### 风险
-- 修改了 `project.pbxproj` 的 12 个节点(新增 `LoadState` / `GenerationGuard` / `LoadStateTests` 3 个文件 × 4 个节点,移除 FFmpeg 6 个文件 × 4 个节点)。需要 macOS 本地 `xcodebuild` 验证 project 没有损坏。
+- 修改了 `project.pbxproj` 的 16 个节点(新增 `LoadState` / `GenerationGuard` / `LoadStateTests` 3 个文件 × 4 个节点,新增 `AppVersion` / `AboutView` 2 个文件 × 4 个节点,移除 FFmpeg 6 个文件 × 4 个节点)。需要 macOS 本地 `xcodebuild` 验证 project 没有损坏。
 - 新文件无 Swift 工具链本地编译验证,build 后请先在 macOS 上 `xcodebuild -scheme Paladala clean build` 一次。
 
 ## v9.1.0 (2026-07-08) — Swift 6 语言模式升级 (PR-C)

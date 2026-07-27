@@ -214,6 +214,89 @@ enum L10n {
         static let watchLaterComingSoon = String(localized: "settings.watchLaterComingSoon", defaultValue: "稍后再看 (即将推出)")
     }
 
+    // MARK: - About page
+
+    enum about {
+        /// Navigation title for the 关于 screen.
+        static let title = String(localized: "about.title", defaultValue: "关于")
+        /// Row label: the human-readable marketing version
+        /// (e.g. "0.5.1"). The build number is on a separate
+        /// row right below.
+        static let version = String(localized: "about.version", defaultValue: "版本")
+        /// Row label: the monotonically increasing build
+        /// number that the CI workflow bumps on every run
+        /// (e.g. "195").
+        static let build = String(localized: "about.build", defaultValue: "构建号")
+        /// Row label: the per-build "特别辨识号" (special
+        /// identifier), formatted as `PD-XXXX-XXXX-XXXX`.
+        /// Tapping the row copies the identifier to the
+        /// clipboard.
+        static let identifier = String(localized: "about.identifier", defaultValue: "唯一辨识号")
+        /// Short message that appears at the bottom of the
+        /// screen for ~1.4 s after the user taps the
+        /// identifier row, confirming the copy.
+        static let identifierCopied = String(localized: "about.identifierCopied", defaultValue: "已复制到剪贴板")
+        /// Row label: how the running binary is distributed
+        /// (debug / TestFlight / App Store / etc.).  Renders
+        /// the localisable `debug` / `testflight` / etc.
+        /// value below it.
+        static let releaseType = String(localized: "about.releaseType", defaultValue: "发布类型")
+        /// Row label: free-form channel tag set by the build
+        /// (e.g. "ci", "local", "appstore").  Renders the
+        /// raw value as a monospaced string.
+        static let channel = String(localized: "about.channel", defaultValue: "渠道")
+        /// Row label: the short git commit SHA baked into
+        /// the build.  Hidden entirely when the build is
+        /// local (no commit recorded).
+        static let commit = String(localized: "about.commit", defaultValue: "提交")
+        /// Row label: the ISO-8601 timestamp the CI workflow
+        /// captured at build time.  Renders as
+        /// `yyyy-MM-dd HH:mm zzz`.
+        static let buildDate = String(localized: "about.buildDate", defaultValue: "构建时间")
+        /// Row label: the bundle identifier (e.g.
+        /// `com.dt.paladala`).
+        static let bundleId = String(localized: "about.bundleId", defaultValue: "Bundle ID")
+        /// Button label that triggers the GitHub Releases
+        /// lookup.
+        static let checkForUpdates = String(localized: "about.checkForUpdates", defaultValue: "检查更新")
+        /// Inline status shown under the button while the
+        /// network call is in flight.
+        static let checking = String(localized: "about.checking", defaultValue: "正在检查…")
+        /// Status shown when the remote tag is older than
+        /// or equal to the local build.  The remote tag is
+        /// appended after the `·` so the user can see which
+        /// version we compared against.
+        static let upToDate = String(localized: "about.upToDate", defaultValue: "已是最新版本")
+        /// Status shown when the remote tag is newer than
+        /// the local build.  The remote tag follows after
+        /// the `·`.
+        static let updateAvailable = String(localized: "about.updateAvailable", defaultValue: "发现新版本")
+        /// Status shown when the network call fails or the
+        /// API returns a non-2xx response.  Appended after
+        /// an `exclamationmark.triangle` glyph.
+        static let updateFailed = String(localized: "about.updateFailed", defaultValue: "检查更新失败，请稍后重试")
+        /// Button label on the update-available row that
+        /// opens the GitHub release page for the new tag.
+        static let viewRelease = String(localized: "about.viewRelease", defaultValue: "查看发布")
+        /// Button label on the dev-build row that opens the
+        /// repository's releases tab so the tester can grab
+        /// the latest unsigned IPA manually.
+        static let openOnGitHub = String(localized: "about.openOnGitHub", defaultValue: "在 GitHub 上打开")
+        /// Status shown when the running build is a
+        /// development / sideloaded binary; the update
+        /// checker always recommends grabbing the latest
+        /// release instead of trying to compare versions.
+        static let devBuild = String(localized: "about.devBuild", defaultValue: "当前为开发构建，不参与版本比较")
+        // Release-type display names.  Each value pairs with
+        // `ReleaseType.displayName` in AppVersion.swift.
+        static let debug = String(localized: "about.releaseType.debug", defaultValue: "调试")
+        static let appStore = String(localized: "about.releaseType.appStore", defaultValue: "App Store")
+        static let testflight = String(localized: "about.releaseType.testflight", defaultValue: "TestFlight")
+        static let enterprise = String(localized: "about.releaseType.enterprise", defaultValue: "企业分发")
+        static let sideload = String(localized: "about.releaseType.sideload", defaultValue: "侧载")
+        static let unknown = String(localized: "about.releaseType.unknown", defaultValue: "未知")
+    }
+
     // MARK: - Accessibility
 
     enum a11y {

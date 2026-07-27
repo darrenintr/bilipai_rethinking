@@ -31,6 +31,27 @@
     </array>
     <key>CFBundleVersion</key>
     <string>2</string>
+    <!--
+      Per-build fingerprint inputs surfaced on the 关于 page.
+      Populated at build time:
+        - CI (ios-unsigned-ipa.yml): sets all four to git SHA,
+          ISO date, and Unix epoch so each prerelease gets a
+          unique identifier.
+        - Local dev: keys are left empty; AppVersion.swift
+          falls back to the .app binary's modification time so
+          every rebuild still gets a unique identifier and the
+          same binary always reports the same identifier.
+    -->
+    <key>BPBuildChannel</key>
+    <string>local</string>
+    <key>BPBuildCommit</key>
+    <string></string>
+    <key>BPBuildDate</key>
+    <string></string>
+    <key>BPBuildEpoch</key>
+    <string></string>
+    <key>BPBuildIdentifierSalt</key>
+    <string></string>
     <key>NSAppTransportSecurity</key>
     <dict>
       <key>NSAllowsArbitraryLoads</key>

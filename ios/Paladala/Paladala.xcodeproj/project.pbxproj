@@ -86,6 +86,8 @@
 		7000000000000000000001E2 /* PluginsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7000000000000000000001E1 /* PluginsSettingsView.swift */; };
 		10000000000000000000012D /* LaunchMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022D /* LaunchMetrics.swift */; };
 		10000000000000000000012E /* UPProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022E /* UPProfileView.swift */; };
+		100000000000000000000132 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000231 /* AppVersion.swift */; };
+		100000000000000000000133 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000232 /* AboutView.swift */; };
 		600000000000000000000621 /* SponsorBlockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000611 /* SponsorBlockModels.swift */; };
 		600000000000000000000622 /* SponsorBlockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000612 /* SponsorBlockService.swift */; };
 		600000000000000000000623 /* SponsorBlockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000613 /* SponsorBlockManager.swift */; };
@@ -98,6 +100,7 @@
 		7E5C0A000000000000000015 /* LazyTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000016 /* LazyTabTests.swift */; };
 		7E5C0A000000000000000017 /* PaladalaBackdropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */; };
 		7E5C0A000000000000000019 /* LaunchMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000020 /* LaunchMetricsTests.swift */; };
+		7E5C0A000000000000000021 /* AppVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000022 /* AppVersionTests.swift */; };
 		LS0000000000000000000B001 /* LoadState.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS0000000000000000000F001 /* LoadState.swift */; };
 		AE0000000000000000000B01 /* AppErrorCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0000000000000000000F01 /* AppErrorCenter.swift */; };
 		LS0000000000000000000B002 /* GenerationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS0000000000000000000F002 /* GenerationGuard.swift */; };
@@ -188,6 +191,8 @@
 		7000000000000000000001E1 /* PluginsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginsSettingsView.swift; sourceTree = "<group>"; };
 		10000000000000000000022D /* LaunchMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetrics.swift; sourceTree = "<group>"; };
 		10000000000000000000022E /* UPProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPProfileView.swift; sourceTree = "<group>"; };
+		100000000000000000000231 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
+		100000000000000000000232 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		600000000000000000000611 /* SponsorBlockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockModels.swift; sourceTree = "<group>"; };
 		600000000000000000000612 /* SponsorBlockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockService.swift; sourceTree = "<group>"; };
 		600000000000000000000613 /* SponsorBlockManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockManager.swift; sourceTree = "<group>"; };
@@ -201,6 +206,7 @@
 		7E5C0A000000000000000016 /* LazyTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LazyTabTests.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaBackdropTests.swift; sourceTree = "<group>"; };
 		7E5C0A000000000000000020 /* LaunchMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchMetricsTests.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000022 /* AppVersionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersionTests.swift; sourceTree = "<group>"; };
 		A1FF00000000000000FF05F1 /* Paladala-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Paladala-Bridging-Header.h"; sourceTree = "<group>"; };
 		LS0000000000000000000F001 /* LoadState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadState.swift; sourceTree = "<group>"; };
 		AE0000000000000000000F01 /* AppErrorCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppErrorCenter.swift; sourceTree = "<group>"; };
@@ -305,6 +311,8 @@
 				50000000000000000000055C /* Analytics.swift */,
 				10000000000000000000022D /* LaunchMetrics.swift */,
 				10000000000000000000022E /* UPProfileView.swift */,
+				100000000000000000000231 /* AppVersion.swift */,
+				100000000000000000000232 /* AboutView.swift */,
 				600000000000000000000611 /* SponsorBlockModels.swift */,
 				600000000000000000000612 /* SponsorBlockService.swift */,
 				600000000000000000000613 /* SponsorBlockManager.swift */,
@@ -439,6 +447,7 @@
 				7E5C0A000000000000000016 /* LazyTabTests.swift */,
 				7E5C0A000000000000000018 /* PaladalaBackdropTests.swift */,
 				7E5C0A000000000000000020 /* LaunchMetricsTests.swift */,
+				7E5C0A000000000000000022 /* AppVersionTests.swift */,
 				LS0000000000000000000F003 /* LoadStateTests.swift */,
 			);
 			path = PaladalaTests;
@@ -688,6 +697,8 @@
 				50000000000000000000055D /* Analytics.swift in Sources */,
 				10000000000000000000012D /* LaunchMetrics.swift in Sources */,
 				10000000000000000000012E /* UPProfileView.swift in Sources */,
+				100000000000000000000132 /* AppVersion.swift in Sources */,
+				100000000000000000000133 /* AboutView.swift in Sources */,
 				600000000000000000000621 /* SponsorBlockModels.swift in Sources */,
 				600000000000000000000622 /* SponsorBlockService.swift in Sources */,
 				600000000000000000000623 /* SponsorBlockManager.swift in Sources */,
@@ -725,6 +736,7 @@
 				7E5C0A000000000000000015 /* LazyTabTests.swift in Sources */,
 				7E5C0A000000000000000017 /* PaladalaBackdropTests.swift in Sources */,
 				7E5C0A000000000000000019 /* LaunchMetricsTests.swift in Sources */,
+				7E5C0A000000000000000021 /* AppVersionTests.swift in Sources */,
 				LS0000000000000000000B003 /* LoadStateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

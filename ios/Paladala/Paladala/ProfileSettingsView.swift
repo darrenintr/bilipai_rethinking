@@ -260,6 +260,24 @@ struct ProfileSettingsView: View {
                 Text("重新展示首次使用的引导页，了解 Paladala 的各项功能。")
             }
 
+            // 关于 — push the dedicated AboutView so the
+            // user can read the build identifier and trigger
+            // a release-check without leaving the profile
+            // tab.  Subtitle mirrors the version line on the
+            // about page so the entry previews what's
+            // inside.
+            Section("关于") {
+                NavigationLink {
+                    AboutView()
+                } label: {
+                    PluginRow(
+                        title: "关于 Paladala",
+                        subtitle: "\(AppVersion.current.versionLine) · \(AppVersion.current.identifierDisplay)",
+                        symbol: "info.circle"
+                    )
+                }
+            }
+
             Section("系统与诊断") {
                 // The previous implementation used a sheet with an
                 // `if let url = logExportURL` content closure
