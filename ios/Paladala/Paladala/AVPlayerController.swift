@@ -365,6 +365,16 @@ final class PlayerController: ObservableObject {
     private var statusObserver: NSObjectProtocol?
     private var errorObserver: NSObjectProtocol?
     private var errorLogObserver: NSObjectProtocol?
+    /// **B1**: `NSObjectProtocol` slot for the
+    /// `.AVPlayerItem.playbackStalled` Notification subscription
+    /// added by `installNotificationObservers(on:)`. Held so
+    /// `detachCurrentItemObservers()` can invalidate the token
+    /// when `replaceCurrentItemForPlayback(_:)` swaps in a new
+    /// item — the standard observers above follow the same
+    /// pattern. The actual surfacing of `playbackStalled` as a
+    /// player error happens via `publishPlaybackError(...,
+    /// allowAutomaticRecovery:)` inside the closure.
+    private var playbackStalledObserver: NSObjectProtocol?
     /// Prolonged-stall watchdog — see `init()` for the
     /// rationale.  Held so `tearDown()` can cancel it before
     /// the controller is dropped; otherwise a discarded
@@ -380,10 +390,25 @@ final class PlayerController: ObservableObject {
     private var recoverySequence: UInt64 = 0
     private var recoveryAttempts: [String: Int] = [:]
     private static let recoveryDelaysNs: [UInt64] = [
-        80_000_000,
-        160_000_000,
-        320_000_000
+        200_000_000,
+        800_000_000,
+        2_500_000_000
     ]
+    /// **B1**: seconds of forward buffer AVPlayer tries to keep
+    /// loaded before letting playback head catch up. Default is
+    /// 0 (Apple picks it — historically conservative on
+    /// cellular for low-latency). `8.0` is the canonical
+    /// "smooth VOD" value from Samir Chen's 卡顿优化 writeup
+    /// and Apple's HLS Performance talk: long enough to ride a
+    /// short 4G hiccup without the buffer draining the 10 s
+    /// `prolongedStall` watchdog, short enough that cold start
+    /// still feels snappy.
+    private static let preferredForwardBufferSeconds: TimeInterval = 8.0
+    /// **B1**: explicit `automaticallyWaitsToMinimizeStalling`
+    /// policy. Default is already `true` on iOS 10+ for HLS,
+    /// but setting it explicitly keeps this knob visible in
+    /// code review rather than implicitly inherited.
+    private static let automaticallyWaitsToMinimizeStalling: Bool = true
     /// **Build 182**: the orchestration task that drives
     /// `LocalHLSProxyServer.serve(playback:) async throws ->
     /// URL` → endpoint self-test → `replaceCurrentItem` →
@@ -679,6 +704,16 @@ final class PlayerController: ObservableObject {
         self.playerError = initialPlayerError
 
         let item = AVPlayerItem(asset: asset)
+        // **B1**: tune AVPlayer's forward-buffer policy on
+        // the very first item the controller constructs.
+        // The proxy-path swap and the restartPlaybackSession
+        // direct-asset branch both go through
+        // `replaceCurrentItemForPlayback(_:)` which also
+        // sets the same value (belt-and-braces), but this
+        // first item never does — it becomes `playerItem`
+        // straight away.
+        item.preferredForwardBufferDuration =
+            Self.preferredForwardBufferSeconds
 
         // Build 182: the seek-to-resume-time call moved
         // into `startPlaybackSession(item:)`.  See the
@@ -688,6 +723,13 @@ final class PlayerController: ObservableObject {
         // runs after the real item is bound.
         self.playerItem = item
         self.player = AVPlayer(playerItem: item)
+        // **B1**: explicit `automaticallyWaitsToMinimizeStalling`
+        // on the player instance. Default is already true
+        // on iOS 10+ for HLS, but setting it explicitly
+        // keeps intent visible at the natural reading site
+        // for new contributors.
+        player.automaticallyWaitsToMinimizeStalling =
+            Self.automaticallyWaitsToMinimizeStalling
 
         // Audio session activation lives in
         // `activateAudioSessionOnce()` below — invoked at the
@@ -1065,6 +1107,14 @@ final class PlayerController: ObservableObject {
             try Task.checkCancellation()
 
             let item = AVPlayerItem(url: url)
+            // **B1**: apply the forward-buffer policy on the
+            // proxy-path item before it gets handed to
+            // `replaceCurrentItemForPlayback`. The helper
+            // below also re-applies it (belt-and-braces for
+            // any future callsite that forgets to set it
+            // explicitly).
+            item.preferredForwardBufferDuration =
+                Self.preferredForwardBufferSeconds
             replaceCurrentItemForPlayback(item)
             startPlaybackSession(item: item)
 
@@ -1129,6 +1179,14 @@ final class PlayerController: ObservableObject {
             NotificationCenter.default.removeObserver(token)
             errorLogObserver = nil
         }
+        // **B1**: invalidate the `.AVPlayerItem.playbackStalled`
+        // token registered by `installNotificationObservers(on:)`
+        // so a swap to a new item doesn't leak a notification
+        // observer. Same pattern as `errorLogObserver` above.
+        if let token = playbackStalledObserver {
+            NotificationCenter.default.removeObserver(token)
+            playbackStalledObserver = nil
+        }
     }
 
     /// Swap the AVPlayer item and re-arm every observer against
@@ -1137,6 +1195,19 @@ final class PlayerController: ObservableObject {
     /// dead item.
     private func replaceCurrentItemForPlayback(_ item: AVPlayerItem) {
         detachCurrentItemObservers()
+        // **B1**: belt-and-braces — every item that reaches
+        // `player.replaceCurrentItem(with:)` should leave this
+        // helper with the tuned forward-buffer value applied.
+        // The three upstream construction sites (init,
+        // loadPlayback proxy path, restartPlaybackSession
+        // direct-asset branch) set it explicitly so the intent
+        // is visible at the source, but a future callsite
+        // might forget. Re-applying here keeps the invariant
+        // local to a single helper rather than being a
+        // "remember to set this" comment-tax on every
+        // construction site.
+        item.preferredForwardBufferDuration =
+            Self.preferredForwardBufferSeconds
         player.replaceCurrentItem(with: item)
         playerItem = item
         installObservers(on: item)
@@ -1177,8 +1248,31 @@ final class PlayerController: ObservableObject {
     ) -> RecoveryStage? {
         switch error {
         case .prolongedStall:
-            if attempt < 2 { return .seekRefresh }
-            if attempt == 2 { return .sessionRestart }
+            // **B2**: retune the recovery ladder for the new
+            // delay sequence (`recoveryDelaysNs` is now
+            // `[200ms, 800ms, 2500ms]`). Reasoning:
+            //
+            // - `seekRefresh` is just a "wake AVPlayer with a
+            //   tiny seek at the current playhead" — it costs
+            //   nothing on the upstream side and sometimes
+            //   unsticks transient stalls. Keep it for the
+            //   *first* attempt only.
+            // - `prolongedStall` fires only when
+            //   `isPlaybackBufferEmpty` has been true for 10 s
+            //   (or now via Apple's own
+            //   `.AVPlayerItem.playbackStalled` notification).
+            //   By that point the upstream is meaningfully slow
+            //   and a no-op seek on top of the existing
+            //   segment is unlikely to help. Two more
+            //   `sessionRestart`s are a much better bet —
+            //   they re-prep the DASH manifest and pick a
+            //   fresh CDN via the failover cursor.
+            // - Total attempts: 3 (1 seekRefresh + 2
+            //   sessionRestart), so the user sees at most
+            //   200 + 800 + 2500 = 3.5 s of cascading
+            //   recovery before the manual "重试" surface.
+            if attempt == 0 { return .seekRefresh }
+            if attempt < 3 { return .sessionRestart }
             return nil
         case .itemFailed, .stoppedMidStream:
             return attempt < 2 ? .sessionRestart : nil
@@ -1415,6 +1509,44 @@ final class PlayerController: ObservableObject {
                 }
             }
         )
+        // **B1 / C1**: observe `errorRecoveryAttempted`. Apple
+        // sets this Bool to `true` when AVPlayer has begun an
+        // internal recovery attempt (typically a network re-fetch
+        // for a previous segment) and resets it to `false` when
+        // the attempt completes. Historically we ran blind — only
+        // our own 10 s `prolongedStall` watchdog surfaced a
+        // problem. Subscribing to this gives us a zero-cost,
+        // Apple-generated signal of "AVPlayer is trying to recover
+        // from something"; in the diagnostic dump a sequence of
+        // `errorRecoveryAttempted=true → false` events without a
+        // matching recovery to `ready` is the smoking gun for the
+        // "spin-and-fail" failure mode the user reports as
+        // "一直加载". The optional `.initial` fire is included
+        // so we capture the very first transition in the log too.
+        observers.insert(
+            item.observe(\.errorRecoveryAttempted, options: [.new, .initial]) {
+                [weak self, weak item] _, change in
+                guard let item else { return }
+                let newValue = change.newValue ?? false
+                let priorItemState = (
+                    item.isPlaybackBufferEmpty,
+                    item.isPlaybackLikelyToKeepUp
+                )
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    guard self.player.currentItem === item else { return }
+                    diagLog(.playback,
+                            "stall_apple_signal: errorRecoveryAttempted",
+                            details: [
+                                "newValue": newValue,
+                                "bufferEmpty": priorItemState.0,
+                                "likelyToKeepUp": priorItemState.1,
+                                "isSeeking": self.isSeeking,
+                                "playbackState": "\(self.playbackState)"
+                            ])
+                }
+            }
+        )
     }
 
     /// **Build 182**: NotificationCenter observer wiring
@@ -1520,6 +1652,62 @@ final class PlayerController: ObservableObject {
                         )
                     }
                 }
+            }
+        }
+        // **B1 / C1**: subscribe to `.AVPlayerItem.playbackStalled`.
+        // This is Apple's own "I have given up on internal
+        // recovery" notification — it fires when `isPlaybackLikelyToKeepUp`
+        // flips to `false` for long enough that AVPlayer
+        // decides the user is going to see an indefinite
+        // spinner. Before subscribing here we relied on a
+        // hand-rolled 10 s `isPlaybackBufferEmpty` watchdog
+        // (PR-A Group 1, `stallTimerTask`) which is close
+        // but always lags Apple's own signal by at least a
+        // frame. By the time this notification lands:
+        //
+        //   1. Emit a `stall_apple_signal: playbackStalled`
+        //      diagnostic line with the surrounding state so
+        //      the operator can correlate with downstream
+        //      errors. .playback category keeps it grouped
+        //      with the other stall/recovery lines.
+        //   2. Surface it through `publishPlaybackError(...,
+        //      source: "playbackStalled")` so the existing
+        //      recovery pipeline (`seekRefresh` →
+        //      `sessionRestart`) kicks in. We pass
+        //      `allowAutomaticRecovery: false` here because
+        //      this notification already represents Apple's
+        //      recovery having failed — running our own
+        //      seek-refresh on top of it would just spin; let
+        //      the diagnostic record it and the manual retry
+        //      button take over.
+        //
+        // The error is `.prolongedStall` deliberately so the
+        // existing user-facing title ("加载时间过长,可能是
+        // 网络问题") and the dedicated 10 s thresholds stay
+        // coherent with the prior watchdog-derived path.
+        playbackStalledObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItem.playbackStalled,
+            object: item, queue: .main
+        ) { [weak self, weak item] _ in
+            guard let item else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.player.currentItem === item else { return }
+                diagLog(.playback,
+                        "stall_apple_signal: playbackStalled",
+                        details: [
+                            "bufferEmpty": item.isPlaybackBufferEmpty,
+                            "likelyToKeepUp": item.isPlaybackLikelyToKeepUp,
+                            "timeControlStatus": "\(self.player.timeControlStatus)",
+                            "playbackState": "\(self.playbackState)",
+                            "isSeeking": self.isSeeking,
+                            "isBuffering": self.isBuffering
+                        ])
+                self.publishPlaybackError(
+                    .prolongedStall,
+                    source: "playbackStalled",
+                    allowAutomaticRecovery: false
+                )
             }
         }
     }
@@ -1999,9 +2187,20 @@ final class PlayerController: ObservableObject {
         if let token = errorLogObserver {
             NotificationCenter.default.removeObserver(token)
         }
+        // **B1**: tear down the `.AVPlayerItem.playbackStalled`
+        // token registered in `installNotificationObservers(on:)`
+        // — mirrored against `detachCurrentItemObservers()` so
+        // a controller's end-of-life doesn't leak a notification
+        // subscription on the item that the AVPlayer still
+        // holds. The slot is cleared alongside the three
+        // existing observer slots below.
+        if let token = playbackStalledObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
         statusObserver = nil
         errorObserver = nil
         errorLogObserver = nil
+        playbackStalledObserver = nil
         // Drop the inline-PiP lifecycle observers so a
         // torn-down controller doesn't receive notifications
         // that fire while a successor controller is being
