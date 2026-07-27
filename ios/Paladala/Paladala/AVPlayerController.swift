@@ -1509,44 +1509,30 @@ final class PlayerController: ObservableObject {
                 }
             }
         )
-        // **B1 / C1**: observe `errorRecoveryAttempted`. Apple
-        // sets this Bool to `true` when AVPlayer has begun an
-        // internal recovery attempt (typically a network re-fetch
-        // for a previous segment) and resets it to `false` when
-        // the attempt completes. Historically we ran blind — only
-        // our own 10 s `prolongedStall` watchdog surfaced a
-        // problem. Subscribing to this gives us a zero-cost,
-        // Apple-generated signal of "AVPlayer is trying to recover
-        // from something"; in the diagnostic dump a sequence of
-        // `errorRecoveryAttempted=true → false` events without a
-        // matching recovery to `ready` is the smoking gun for the
-        // "spin-and-fail" failure mode the user reports as
-        // "一直加载". The optional `.initial` fire is included
-        // so we capture the very first transition in the log too.
-        observers.insert(
-            item.observe(\.errorRecoveryAttempted, options: [.new, .initial]) {
-                [weak self, weak item] _, change in
-                guard let item else { return }
-                let newValue = change.newValue ?? false
-                let priorItemState = (
-                    item.isPlaybackBufferEmpty,
-                    item.isPlaybackLikelyToKeepUp
-                )
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    guard self.player.currentItem === item else { return }
-                    diagLog(.playback,
-                            "stall_apple_signal: errorRecoveryAttempted",
-                            details: [
-                                "newValue": newValue,
-                                "bufferEmpty": priorItemState.0,
-                                "likelyToKeepUp": priorItemState.1,
-                                "isSeeking": self.isSeeking,
-                                "playbackState": "\(self.playbackState)"
-                            ])
-                }
-            }
-        )
+        // **B1 / C1 — dropped**: the original draft also wanted
+        // a KVO on `errorRecoveryAttempted` (Apple flips a Bool
+        // to `true` when AVPlayer has begun an internal recovery
+        // attempt, back to `false` when it completes). The
+        // Xcode 16.4 + iOS 18.5 SDK used in CI no longer
+        // surfaces that property on `AVFoundation.AVPlayerItem`
+        // — `swiftc` reports
+        // `value of type 'AVPlayerItem' has no member 'errorRecoveryAttempted'`
+        // (the same SDK is also warning on `tracks(withMediaType:)`
+        // and `timeRange`, suggesting AVFoundation is mid-rotation
+        // to the async `load(...)` API surface).
+        //
+        // We don't reintroduce it via `AVKit.AVPlayerItem` because
+        // that class is the player-view-controller flavor and
+        // adding an `AVKit` import just for one diagnostic key
+        // isn't worth the surface area. `playbackStalled`
+        // (see `installNotificationObservers(on:)`) already
+        // captures the user-visible Apple "I gave up" signal,
+        // and `isPlaybackBufferEmpty` / `isPlaybackLikelyToKeepUp`
+        // KVO already capture the transition path. The
+        // "Apple is trying but failing" smoke gun we wanted
+        // from this KVO is recoverable post-hoc from the
+        // playbackStalled diag line + `isBufferEmpty` history
+        // in the diagnostic dump.
     }
 
     /// **Build 182**: NotificationCenter observer wiring
@@ -1686,7 +1672,7 @@ final class PlayerController: ObservableObject {
         // 网络问题") and the dedicated 10 s thresholds stay
         // coherent with the prior watchdog-derived path.
         playbackStalledObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItem.playbackStalled,
+            forName: AVPlayerItem.playbackStalled,
             object: item, queue: .main
         ) { [weak self, weak item] _ in
             guard let item else { return }
