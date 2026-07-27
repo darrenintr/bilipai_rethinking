@@ -21,6 +21,7 @@ struct AboutView: View {
     @State private var version = AppVersion.current
     @State private var copyToast: String? = nil
     @State private var updateState: UpdateState = .idle
+    @StateObject private var updateManager = UpdateManager.shared
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -158,7 +159,7 @@ struct AboutView: View {
                     .foregroundStyle(.secondary)
             }
         case .updateAvailable(let remote, let url):
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.up.circle.fill")
                         .foregroundStyle(PaladalaTheme.biliPink)
@@ -166,6 +167,57 @@ struct AboutView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.primary)
                 }
+
+                // Download + install button
+                Button {
+                    Task {
+                        await updateManager.downloadAndInstallLatest()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        if updateManager.downloadState == .downloading {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.down.circle.fill")
+                        }
+                        Text(downloadButtonLabel)
+                            .font(.caption.weight(.semibold))
+                        if updateManager.downloadState == .downloading {
+                            Text("(\(Int(updateManager.downloadProgress * 100))%)")
+                                .font(.caption2.monospacedDigit())
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(PaladalaTheme.biliPink)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .disabled(updateManager.downloadState == .downloading)
+
+                // Show error or success
+                if case .failed(let error) = updateManager.downloadState {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if case .completed = updateManager.downloadState {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("下载完成，请在分享菜单中选择 SideStore")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // Fallback: view on GitHub
                 if let url {
                     Button {
                         openURL(url)
@@ -189,6 +241,55 @@ struct AboutView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+
+                // Dev builds also get the download button
+                Button {
+                    Task {
+                        await updateManager.downloadAndInstallLatest()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        if updateManager.downloadState == .downloading {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.down.circle.fill")
+                        }
+                        Text(downloadButtonLabel)
+                            .font(.caption.weight(.semibold))
+                        if updateManager.downloadState == .downloading {
+                            Text("(\(Int(updateManager.downloadProgress * 100))%)")
+                                .font(.caption2.monospacedDigit())
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(PaladalaTheme.biliPink)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .disabled(updateManager.downloadState == .downloading)
+
+                if case .failed(let error) = updateManager.downloadState {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if case .completed = updateManager.downloadState {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("下载完成，请在分享菜单中选择 SideStore")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 if let url {
                     Button {
                         openURL(url)
@@ -207,6 +308,17 @@ struct AboutView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var downloadButtonLabel: String {
+        switch updateManager.downloadState {
+        case .idle, .failed:
+            return "下载并安装"
+        case .downloading:
+            return "下载中"
+        case .completed:
+            return "重新下载"
         }
     }
 

@@ -88,6 +88,7 @@
 		10000000000000000000012E /* UPProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000022E /* UPProfileView.swift */; };
 		100000000000000000000132 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000231 /* AppVersion.swift */; };
 		100000000000000000000133 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000232 /* AboutView.swift */; };
+		100000000000000000000134 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000233 /* UpdateManager.swift */; };
 		600000000000000000000621 /* SponsorBlockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000611 /* SponsorBlockModels.swift */; };
 		600000000000000000000622 /* SponsorBlockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000612 /* SponsorBlockService.swift */; };
 		600000000000000000000623 /* SponsorBlockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000613 /* SponsorBlockManager.swift */; };
@@ -193,6 +194,7 @@
 		10000000000000000000022E /* UPProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPProfileView.swift; sourceTree = "<group>"; };
 		100000000000000000000231 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 		100000000000000000000232 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		100000000000000000000233 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
 		600000000000000000000611 /* SponsorBlockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockModels.swift; sourceTree = "<group>"; };
 		600000000000000000000612 /* SponsorBlockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockService.swift; sourceTree = "<group>"; };
 		600000000000000000000613 /* SponsorBlockManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SponsorBlockManager.swift; sourceTree = "<group>"; };
@@ -313,6 +315,7 @@
 				10000000000000000000022E /* UPProfileView.swift */,
 				100000000000000000000231 /* AppVersion.swift */,
 				100000000000000000000232 /* AboutView.swift */,
+				100000000000000000000233 /* UpdateManager.swift */,
 				600000000000000000000611 /* SponsorBlockModels.swift */,
 				600000000000000000000612 /* SponsorBlockService.swift */,
 				600000000000000000000613 /* SponsorBlockManager.swift */,
@@ -699,6 +702,7 @@
 				10000000000000000000012E /* UPProfileView.swift in Sources */,
 				100000000000000000000132 /* AppVersion.swift in Sources */,
 				100000000000000000000133 /* AboutView.swift in Sources */,
+				100000000000000000000134 /* UpdateManager.swift in Sources */,
 				600000000000000000000621 /* SponsorBlockModels.swift in Sources */,
 				600000000000000000000622 /* SponsorBlockService.swift in Sources */,
 				600000000000000000000623 /* SponsorBlockManager.swift in Sources */,
