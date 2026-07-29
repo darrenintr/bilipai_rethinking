@@ -2628,7 +2628,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         \(AppVersion.current.versionLine)
         Marketing: \(AppVersion.current.marketingVersion)
         Build: \(AppVersion.current.buildNumber)
-        Fingerprint: \(AppVersion.current.fingerprint)
+        Fingerprint: \(AppVersion.current.identifier)
         Release: \(AppVersion.current.releaseType)
         State: \(currentState)
         """
