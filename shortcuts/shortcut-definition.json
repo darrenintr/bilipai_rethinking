@@ -1,0 +1,144 @@
+{
+  "shortcut": {
+    "name": "安装Paladala",
+    "description": "自动下载 Paladala IPA 并通过 SideStore 安装。由 Paladala App 自动调用，实现一键更新功能。",
+    "version": "1.0",
+    "author": "Paladala Team",
+    "icon": {
+      "glyph": "app.badge.checkmark",
+      "color": "#FB7299"
+    },
+    "actions": [
+      {
+        "id": "action1",
+        "type": "is.workflow.actions.getinput",
+        "name": "获取快捷指令输入",
+        "parameters": {
+          "WFInputType": "URL"
+        },
+        "comment": "接收来自 Paladala App 的 IPA 下载 URL"
+      },
+      {
+        "id": "action2",
+        "type": "is.workflow.actions.downloadurl",
+        "name": "下载 URL",
+        "parameters": {
+          "WFInput": "{{action1.output}}",
+          "ShowProgress": true
+        },
+        "comment": "从 GitHub Releases 下载 unsigned IPA 文件"
+      },
+      {
+        "id": "action3",
+        "type": "is.workflow.actions.documentpicker.save",
+        "name": "保存文件",
+        "parameters": {
+          "WFFile": "{{action2.output}}",
+          "WFFileStorageService": "iCloud Drive",
+          "WFFileDestinationPath": "Shortcuts/Paladala/",
+          "WFSaveFileName": "Paladala-latest.ipa",
+          "WFOverwriteIfFileExists": true,
+          "WFCreateIntermediateDirectories": true
+        },
+        "comment": "保存到 iCloud Drive 以便 SideStore 访问"
+      },
+      {
+        "id": "action4",
+        "type": "is.workflow.actions.getfile",
+        "name": "获取文件",
+        "parameters": {
+          "WFInput": "{{action3.output}}"
+        },
+        "comment": "获取保存后的文件引用"
+      },
+      {
+        "id": "action5",
+        "type": "is.workflow.actions.urlencode",
+        "name": "URL 编码",
+        "parameters": {
+          "WFInput": "{{action4.output}}",
+          "WFEncodeMode": "Percent"
+        },
+        "comment": "编码文件路径以便传递给 SideStore URL scheme"
+      },
+      {
+        "id": "action6",
+        "type": "is.workflow.actions.openurl",
+        "name": "打开 URL",
+        "parameters": {
+          "WFInput": "sidestore://install?url={{action5.output}}"
+        },
+        "comment": "调用 SideStore 安装 IPA"
+      }
+    ],
+    "settings": {
+      "showInShareSheet": true,
+      "shareSheetInputs": ["URL"],
+      "allowedOnLockScreen": false,
+      "allowedInApp": true,
+      "allowedFromOtherApps": true,
+      "requiresUnlock": false
+    },
+    "minVersion": "15.0",
+    "platforms": ["iOS", "iPadOS"]
+  },
+  "metadata": {
+    "created": "2026-07-28",
+    "repository": "https://github.com/darrenintr/pure-bilibili-rethinking",
+    "documentation": "https://github.com/darrenintr/pure-bilibili-rethinking/blob/main/shortcuts/INSTALL_SHORTCUT.md",
+    "notes": [
+      "这是一个 JSON 表示的快捷指令定义，用于文档和参考",
+      "实际的 .shortcut 文件需要在 iOS 设备上通过快捷指令 App 创建",
+      "创建后可以导出为 .shortcut 文件并分享给用户",
+      "也可以上传到 iCloud 并生成分享链接供用户一键安装"
+    ]
+  },
+  "alternatives": {
+    "altstore": {
+      "action6_url": "altstore://install?url={{action5.output}}",
+      "description": "如果使用 AltStore 而不是 SideStore"
+    },
+    "feather": {
+      "action6_url": "feather://install?url={{action5.output}}",
+      "description": "如果使用 Feather 而不是 SideStore"
+    },
+    "manual": {
+      "action6_type": "is.workflow.actions.notification",
+      "action6_parameters": {
+        "WFNotificationTitle": "下载完成",
+        "WFNotificationBody": "请在 Files App 中找到 Paladala-latest.ipa 并手动安装"
+      },
+      "description": "如果需要手动安装（最通用的方案）"
+    }
+  },
+  "testing": {
+    "test_url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.1/Paladala-unsigned.ipa",
+    "expected_behavior": [
+      "显示下载进度条",
+      "下载完成后保存到 iCloud Drive/Shortcuts/Paladala/",
+      "自动跳转到 SideStore",
+      "SideStore 显示安装确认界面",
+      "整个流程不超过 30 秒（取决于网速）"
+    ]
+  },
+  "troubleshooting": {
+    "common_issues": [
+      {
+        "issue": "快捷指令无法被 App 调用",
+        "solution": "确认快捷指令名称为 '安装Paladala'（完全匹配），并在设置中开启'允许从其他 App 运行'"
+      },
+      {
+        "issue": "下载失败",
+        "solution": "检查网络连接，确认 GitHub Releases 可访问，验证 IPA URL 有效"
+      },
+      {
+        "issue": "SideStore 无法打开",
+        "solution": "确认 SideStore 已安装并在后台运行，检查 URL scheme 注册是否正确"
+      },
+      {
+        "issue": "iCloud Drive 空间不足",
+        "solution": "清理 iCloud Drive 空间，或修改快捷指令使用本地存储"
+      }
+    ]
+  }
+}

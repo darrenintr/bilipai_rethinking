@@ -18,7 +18,7 @@ import Foundation
 import UIKit
 
 /// Manages the one-tap update flow: fetch release → download
-/// IPA → open in SideStore.
+/// IPA → invoke Shortcut to install via SideStore.
 @MainActor
 final class UpdateManager: NSObject, ObservableObject {
     static let shared = UpdateManager()
@@ -27,6 +27,8 @@ final class UpdateManager: NSObject, ObservableObject {
     @Published var downloadProgress: Double = 0
 
     private var downloadTask: URLSessionDownloadTask?
+    private var pendingIPAURL: URL? // Store the IPA download URL to pass to Shortcut
+
     private lazy var urlSession: URLSession = {
         let config = URLSessionConfiguration.background(
             withIdentifier: "com.paladala.ipa-download"
@@ -43,8 +45,18 @@ final class UpdateManager: NSObject, ObservableObject {
     // MARK: - Public API
 
     /// Fetch the latest release from GitHub, find the unsigned
-    /// IPA asset, download it, and open via SideStore.
+    /// IPA asset, and invoke the Shortcut to download and install.
     func downloadAndInstallLatest() async {
+        // Check if Shortcut is installed
+        guard ShortcutManager.shared.hasInstalledShortcut else {
+            bpLog("UpdateManager: Shortcut not installed, prompting user")
+            ShortcutManager.shared.checkAndPromptIfNeeded()
+            await MainActor.run {
+                downloadState = .failed("请先安装快捷指令")
+            }
+            return
+        }
+
         guard downloadState != .downloading else {
             bpLog("UpdateManager: download already in progress")
             return
@@ -71,8 +83,19 @@ final class UpdateManager: NSObject, ObservableObject {
 
             bpLog("UpdateManager: found IPA at \(downloadURL.absoluteString)")
 
-            // Step 2: start background download
-            await startDownload(from: downloadURL, filename: ipaAsset.name ?? "Paladala.ipa")
+            // Step 2: invoke Shortcut to handle download and installation
+            pendingIPAURL = downloadURL
+            let success = ShortcutManager.shared.installIPA(from: downloadURL)
+
+            await MainActor.run {
+                if success {
+                    downloadState = .completed(downloadURL)
+                    bpLog("UpdateManager: Shortcut invoked successfully")
+                } else {
+                    downloadState = .failed("无法调用快捷指令")
+                    bpLog("UpdateManager: failed to invoke Shortcut")
+                }
+            }
 
         } catch {
             bpLog("UpdateManager: download failed: \(error)")
@@ -88,6 +111,7 @@ final class UpdateManager: NSObject, ObservableObject {
         downloadTask = nil
         downloadState = .idle
         downloadProgress = 0
+        pendingIPAURL = nil
     }
 
     // MARK: - Private
@@ -117,6 +141,9 @@ final class UpdateManager: NSObject, ObservableObject {
 
         return latest
     }
+
+    // Legacy download methods kept for fallback scenarios
+    // (can be removed if Shortcut-only flow is preferred)
 
     private func startDownload(from url: URL, filename: String) async {
         let task = urlSession.downloadTask(with: url)

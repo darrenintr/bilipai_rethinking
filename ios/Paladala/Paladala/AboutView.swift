@@ -22,6 +22,7 @@ struct AboutView: View {
     @State private var copyToast: String? = nil
     @State private var updateState: UpdateState = .idle
     @StateObject private var updateManager = UpdateManager.shared
+    @StateObject private var shortcutManager = ShortcutManager.shared
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -44,6 +45,9 @@ struct AboutView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .padding(.bottom, 16)
             }
+        }
+        .sheet(isPresented: $shortcutManager.showInstallPrompt) {
+            ShortcutInstallPromptView()
         }
     }
 
@@ -397,13 +401,27 @@ struct AboutView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(PaladalaTheme.mutedInk)
             }
+
+            // Show shortcut setup button if error is about missing shortcut
+            if error.contains("快捷指令") {
+                Button {
+                    shortcutManager.checkAndPromptIfNeeded()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "wrench.and.screwdriver")
+                        Text("设置快捷指令")
+                    }
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(PaladalaTheme.biliPink)
+                }
+            }
         }
 
         if case .completed = updateManager.downloadState {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                Text("下载完成，请在分享菜单中选择 SideStore")
+                Text("已调用快捷指令，请在快捷指令中完成安装")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(PaladalaTheme.mutedInk)
             }
@@ -426,11 +444,11 @@ struct AboutView: View {
     private var downloadButtonLabel: String {
         switch updateManager.downloadState {
         case .idle, .failed:
-            return "下载并安装"
+            return "一键安装"
         case .downloading:
-            return "下载中"
+            return "准备中"
         case .completed:
-            return "重新下载"
+            return "重新安装"
         }
     }
 
@@ -479,6 +497,12 @@ struct AboutView: View {
     }
 
     private func checkForUpdates() {
+        // Check if shortcut is installed, prompt if not
+        if !shortcutManager.hasInstalledShortcut {
+            shortcutManager.checkAndPromptIfNeeded()
+            return
+        }
+
         updateState = .checking
         Task {
             let result = await UpdateChecker.check(current: version)
