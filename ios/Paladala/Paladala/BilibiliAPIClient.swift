@@ -3227,7 +3227,7 @@ private struct UserCardInfoPayload: Decodable, Sendable {
 private struct _NestedContainerDecoder: Decoder {
     let container: KeyedDecodingContainer<DynamicKey>
     var codingPath: [CodingKey] { [] }
-    var userInfo: [CodingUserInfoKey: Any] { [:] ]
+    var userInfo: [CodingUserInfoKey: Any] { [:] }
 
     func container<Key>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key>
     where Key: CodingKey {

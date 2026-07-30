@@ -107,6 +107,8 @@
 		AE0000000000000000000B01 /* AppErrorCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0000000000000000000F01 /* AppErrorCenter.swift */; };
 		LS0000000000000000000B002 /* GenerationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS0000000000000000000F002 /* GenerationGuard.swift */; };
 		LS0000000000000000000B003 /* LoadStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS0000000000000000000F003 /* LoadStateTests.swift */; };
+		03548a6a-547b-4dbe-9c3e-0d0fac582edd /* BilibiliVIP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 198ff133-9f05-43ab-afb7-bcadae569741 /* BilibiliVIP.swift */; };
+		76ae5710-119a-49f0-80d3-20d35d8daf1e /* VipBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -216,6 +218,8 @@
 		AE0000000000000000000F01 /* AppErrorCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppErrorCenter.swift; sourceTree = "<group>"; };
 		LS0000000000000000000F002 /* GenerationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationGuard.swift; sourceTree = "<group>"; };
 		LS0000000000000000000F003 /* LoadStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadStateTests.swift; sourceTree = "<group>"; };
+		198ff133-9f05-43ab-afb7-bcadae569741 /* BilibiliVIP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BilibiliVIP.swift; sourceTree = "<group>"; };
+		31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VipBadgeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -334,6 +338,8 @@
 				LS0000000000000000000F001 /* LoadState.swift */,
 				AE0000000000000000000F01 /* AppErrorCenter.swift */,
 				LS0000000000000000000F002 /* GenerationGuard.swift */,
+				198ff133-9f05-43ab-afb7-bcadae569741 /* BilibiliVIP.swift */,
+				31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -721,6 +727,8 @@
 				7000000000000000000001C2 /* PluginModels.swift in Sources */,
 				7000000000000000000001D2 /* PluginManager.swift in Sources */,
 				7000000000000000000001E2 /* PluginsSettingsView.swift in Sources */,
+				03548a6a-547b-4dbe-9c3e-0d0fac582edd /* BilibiliVIP.swift in Sources */,
+				76ae5710-119a-49f0-80d3-20d35d8daf1e /* VipBadgeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
