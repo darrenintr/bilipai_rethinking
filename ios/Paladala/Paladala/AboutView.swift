@@ -357,7 +357,7 @@ struct AboutView: View {
             }
         } label: {
             HStack(spacing: PaladalaTheme.Spacing.s) {
-                if updateManager.downloadState == .downloading {
+                if updateManager.updateDownloadState == .downloading {
                     ProgressView()
                         .tint(PaladalaTheme.ink)
                         .scaleEffect(0.8)
@@ -367,7 +367,7 @@ struct AboutView: View {
                 }
                 Text(downloadButtonLabel)
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
-                if updateManager.downloadState == .downloading {
+                if updateManager.updateDownloadState == .downloading {
                     Text("(\(Int(updateManager.downloadProgress * 100))%)")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 }
@@ -388,12 +388,12 @@ struct AboutView: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(updateManager.downloadState == .downloading)
+        .disabled(updateManager.updateDownloadState == .downloading)
     }
 
     @ViewBuilder
     private var downloadStatusMessages: some View {
-        if case .failed(let error) = updateManager.downloadState {
+        if case .failed(let error) = updateManager.updateDownloadState {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
@@ -417,7 +417,7 @@ struct AboutView: View {
             }
         }
 
-        if case .completed = updateManager.downloadState {
+        if case .completed = updateManager.updateDownloadState {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
@@ -442,7 +442,7 @@ struct AboutView: View {
     }
 
     private var downloadButtonLabel: String {
-        switch updateManager.downloadState {
+        switch updateManager.updateDownloadState {
         case .idle, .failed:
             return "一键安装"
         case .downloading:

@@ -23,7 +23,7 @@ import UIKit
 final class UpdateManager: NSObject, ObservableObject {
     static let shared = UpdateManager()
 
-    @Published var downloadState: UpdateDownloadState = .idle
+    @Published var updateDownloadState: UpdateDownloadState = .idle
     @Published var downloadProgress: Double = 0
 
     private var downloadTask: URLSessionDownloadTask?
@@ -52,18 +52,18 @@ final class UpdateManager: NSObject, ObservableObject {
             bpLog("UpdateManager: Shortcut not installed, prompting user")
             ShortcutManager.shared.checkAndPromptIfNeeded()
             await MainActor.run {
-                downloadState = .failed("请先安装快捷指令")
+                updateDownloadState = .failed("请先安装快捷指令")
             }
             return
         }
 
-        guard downloadState != .downloading else {
+        guard updateDownloadState != .downloading else {
             bpLog("UpdateManager: download already in progress")
             return
         }
 
         await MainActor.run {
-            downloadState = .downloading
+            updateDownloadState = .downloading
             downloadProgress = 0
         }
 
@@ -89,10 +89,10 @@ final class UpdateManager: NSObject, ObservableObject {
 
             await MainActor.run {
                 if success {
-                    downloadState = .completed(downloadURL)
+                    updateDownloadState = .completed(downloadURL)
                     bpLog("UpdateManager: Shortcut invoked successfully")
                 } else {
-                    downloadState = .failed("无法调用快捷指令")
+                    updateDownloadState = .failed("无法调用快捷指令")
                     bpLog("UpdateManager: failed to invoke Shortcut")
                 }
             }
@@ -100,7 +100,7 @@ final class UpdateManager: NSObject, ObservableObject {
         } catch {
             bpLog("UpdateManager: download failed: \(error)")
             await MainActor.run {
-                downloadState = .failed(error.localizedDescription)
+                updateDownloadState = .failed(error.localizedDescription)
             }
         }
     }
@@ -109,7 +109,7 @@ final class UpdateManager: NSObject, ObservableObject {
     func cancelDownload() {
         downloadTask?.cancel()
         downloadTask = nil
-        downloadState = .idle
+        updateDownloadState = .idle
         downloadProgress = 0
         pendingIPAURL = nil
     }
@@ -225,13 +225,13 @@ extension UpdateManager: URLSessionDownloadDelegate {
             bpLog("UpdateManager: IPA saved to \(destinationURL.path)")
 
             Task { @MainActor in
-                self.downloadState = .completed(destinationURL)
+                self.updateDownloadState = .completed(destinationURL)
                 self.presentIPA(at: destinationURL)
             }
         } catch {
             bpLog("UpdateManager: failed to move IPA: \(error)")
             Task { @MainActor in
-                self.downloadState = .failed(error.localizedDescription)
+                self.updateDownloadState = .failed(error.localizedDescription)
             }
         }
     }
@@ -258,7 +258,7 @@ extension UpdateManager: URLSessionDownloadDelegate {
         if let error = error {
             bpLog("UpdateManager: download task failed: \(error)")
             Task { @MainActor in
-                self.downloadState = .failed(error.localizedDescription)
+                self.updateDownloadState = .failed(error.localizedDescription)
             }
         }
     }

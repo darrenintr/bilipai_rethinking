@@ -541,7 +541,7 @@ final class VideoDetailViewModel: ObservableObject {
     /// for `self.detail.bvid` — the view subscribes via
     /// `$downloadState` to redraw the control-panel button
     /// when the user starts, completes, or fails a download.
-    @Published var downloadState: DownloadState = .notDownloaded
+    @Published var downloadState: VideoDownloadState = .notDownloaded
     /// How many B-coins (硬币) the user has given this video.
     /// Bilibili allows 0 / 1 / 2 per video; we start at 0 (the
     /// upstream default is "not yet coined").  Used by the control
@@ -643,7 +643,7 @@ final class VideoDetailViewModel: ObservableObject {
         // Initial state — must come before the publisher
         // subscriptions below so the first emission does
         // not see a stale `downloadState`.
-        refreshDownloadState()
+        refreshVideoDownloadState()
         // Subscribe to both the on-disk records (the source
         // of truth for "already downloaded") and the in-flight
         // download state (the source of truth for "currently
@@ -654,19 +654,19 @@ final class VideoDetailViewModel: ObservableObject {
         cancellables.append(
             DownloadStore.shared.$records
                 .sink { [weak self] _ in
-                    self?.refreshDownloadState()
+                    self?.refreshVideoDownloadState()
                 }
         )
         cancellables.append(
             DownloadManager.shared.$stateByBvid
                 .sink { [weak self] _ in
-                    self?.refreshDownloadState()
+                    self?.refreshVideoDownloadState()
                 }
         )
         cancellables.append(
             DownloadManager.shared.$progress
                 .sink { [weak self] _ in
-                    self?.refreshDownloadState()
+                    self?.refreshVideoDownloadState()
                 }
         )
     }
@@ -674,7 +674,7 @@ final class VideoDetailViewModel: ObservableObject {
     /// Combine the two sources of truth (on-disk records +
     /// in-flight download state) into the single
     /// `downloadState` enum the UI observes.
-    private func refreshDownloadState() {
+    private func refreshVideoDownloadState() {
         let bvid = detail.bvid
         if let record = DownloadStore.shared.record(for: bvid) {
             if downloadState != .downloaded(record: record) {
@@ -686,7 +686,7 @@ final class VideoDetailViewModel: ObservableObject {
             switch mgrState {
             case .downloading:
                 let progress = DownloadManager.shared.progress[bvid] ?? 0
-                let next: DownloadState = .downloading(progress: progress)
+                let next: VideoDownloadState = .downloading(progress: progress)
                 if downloadState != next { downloadState = next }
             case .failed(let message):
                 if downloadState != .failed(message: message) {

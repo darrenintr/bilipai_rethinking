@@ -53,7 +53,7 @@ final class DownloadManager: NSObject, ObservableObject {
     /// `completeAllSegments(bvid:)` once all the on-disk
     /// bytes have landed and `DownloadStore.shared.add(_:)`
     /// has accepted the manifest entry.
-    @Published private(set) var stateByBvid: [String: DownloadState] = [:]
+    @Published private(set) var stateByBvid: [String: VideoDownloadState] = [:]
 
     /// Completion handler stashed by the app delegate.  The
     /// background session calls it once *all* of its
@@ -503,7 +503,7 @@ final class DownloadManager: NSObject, ObservableObject {
     /// atomically promotes the staging directory into
     /// `ready/{bvid}/` and updates the manifest), then drop
     /// our bookkeeping.  The `stateByBvid` entry is removed
-    /// so `VideoDetailViewModel.refreshDownloadState()`
+    /// so `VideoDetailViewModel.refreshVideoDownloadState()`
     /// falls through to the `DownloadStore.records` lookup
     /// and surfaces the new `.downloaded(record:)` state on
     /// its next refresh.
@@ -636,7 +636,7 @@ final class DownloadManager: NSObject, ObservableObject {
         // `stateByBvid[bvid]` alone for now — the
         // `DownloadStore.shared.$records` subscriber in
         // `VideoDetailViewModel` will call
-        // `refreshDownloadState()` and pick up the new
+        // `refreshVideoDownloadState()` and pick up the new
         // `.downloaded(record:)` from the store on the
         // very next runloop.  Setting it to `.downloaded`
         // here too would race with that subscription.
@@ -975,12 +975,12 @@ extension DownloadManager: URLSessionDownloadDelegate {
     }
 }
 
-// MARK: - DownloadState
+// MARK: - VideoDownloadState
 
 /// Per-bvid state surfaced to the UI.  Mirrored on
 /// `VideoDetailViewModel.downloadState` (commit 11.B2) so
 /// the download button can render the right label.
-enum DownloadState: Equatable {
+enum VideoDownloadState: Equatable {
     case notDownloaded
     case downloading(progress: Double)
     case downloaded(record: DownloadRecord)
