@@ -526,6 +526,16 @@ final class VideoDetailViewModel: ObservableObject {
     /// refetches the playurl with the new ladder entry as the
     /// preferred slot.
     @Published var preferredQn: Int = 80
+    /// User's preferred audio quality. Maps to Bilibili's
+    /// `dash.audio[].id` ladder: 30216 = 64 kbps (low),
+    /// 30232 = 128 kbps (standard), 30250 = 320 kbps (Hi-Res,
+    /// gated behind 大会员), 30280 = 192 kbps Dolby (also
+    /// gated). Default 30232 — universally available without
+    /// VIP, matches the web player's fallback. The toolbar
+    /// menu in `VideoDetailView` writes through to this on
+    /// tap; `setPreferredAudioQuality(_:repository:)` refetches
+    /// the playurl with the new audio track id preferred.
+    @Published var preferredAudioQuality: Int = BiliAudioQuality.defaultID
     /// Current download state for this video.  Mirrors
     /// `DownloadStore.records` and `DownloadManager.stateByBvid`
     /// for `self.detail.bvid` — the view subscribes via
@@ -973,7 +983,11 @@ final class VideoDetailViewModel: ObservableObject {
         }
         do {
             detail = try await repository.detail(for: detail)
-            self.playback = try await repository.playback(for: detail, qn: preferredQn)
+            self.playback = try await repository.playback(
+                for: detail,
+                qn: preferredQn,
+                preferredAudioQuality: preferredAudioQuality
+            )
             // Seed `resumeTime` from the local progress store
             // when present.  `repository.playback(...)` already
             // set the value from `BiliVideo.resumeTime` (the
@@ -1267,7 +1281,11 @@ final class VideoDetailViewModel: ObservableObject {
         preferredQn = qn
         Haptics.selection()
         do {
-            let newPlayback = try await repository.playback(for: detail, qn: qn)
+            let newPlayback = try await repository.playback(
+                for: detail,
+                qn: qn,
+                preferredAudioQuality: preferredAudioQuality
+            )
             self.playback = newPlayback
         } catch let error as BilibiliAPIError {
             // The user picked a quality they cannot play;
@@ -1295,6 +1313,48 @@ final class VideoDetailViewModel: ObservableObject {
             }
         } catch {
             errorMessage = "切换清晰度失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// Switch the user's preferred audio quality and refetch
+    /// the playurl with the new audio track id. Mirrors
+    /// `setPreferredQn(_:repository:)` for the audio dimension.
+    /// Non-VIP picks (320 kbps / 192 kbps Dolby) are
+    /// silently downgraded to the highest available AAC
+    /// track the upstream returned — the playurl response
+    /// simply does not carry the gated audio ids for
+    /// non-VIP accounts.
+    func setPreferredAudioQuality(
+        _ audioQuality: Int,
+        repository: PaladalaRepository
+    ) async {
+        guard preferredAudioQuality != audioQuality else { return }
+        preferredAudioQuality = audioQuality
+        Haptics.selection()
+        do {
+            let newPlayback = try await repository.playback(
+                for: detail,
+                qn: preferredQn,
+                preferredAudioQuality: audioQuality
+            )
+            self.playback = newPlayback
+        } catch let error as BilibiliAPIError {
+            switch error {
+            case .noPlayableFormat:
+                errorMessage = "该音质不可用，已切换回原音质。"
+            case .api(let message):
+                errorMessage = message
+            case .missingData:
+                errorMessage = "该视频暂无可播放源。"
+            case .missingIdentity:
+                errorMessage = "无法识别该视频（缺少 aid/bvid）。"
+            case .invalidURL, .http:
+                errorMessage = "网络异常，请检查连接后重试。"
+            case .sessionExpired:
+                errorMessage = "登录状态已过期，请重新登录。"
+            }
+        } catch {
+            errorMessage = "切换音质失败：\(error.localizedDescription)"
         }
     }
 

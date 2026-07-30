@@ -152,7 +152,11 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
     /// lower qualities on the same call (gated / VIP-only 1080P
     /// drops to 720P automatically). Default 80 keeps the
     /// previous "ask for HD first" behaviour.
-    func playback(for video: BiliVideo, qn: Int = 80) async throws -> BiliPlayback {
+    func playback(
+        for video: BiliVideo,
+        qn: Int = 80,
+        preferredAudioQuality: Int = BiliAudioQuality.defaultID
+    ) async throws -> BiliPlayback {
         let cid = video.cid
         var pb: BiliPlayback
         if cid > 0 {
@@ -160,7 +164,8 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
                 bvid: video.bvid,
                 aid: video.aid,
                 cid: cid,
-                preferredQn: qn
+                preferredQn: qn,
+                preferredAudioQuality: preferredAudioQuality
             )
         } else {
             let detail = try await apiClient.videoDetail(bvid: video.bvid, aid: video.aid)
@@ -168,7 +173,8 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
                 bvid: detail.bvid,
                 aid: detail.aid,
                 cid: detail.cid,
-                preferredQn: qn
+                preferredQn: qn,
+                preferredAudioQuality: preferredAudioQuality
             )
         }
         pb.resumeTime = video.resumeTime ?? 0

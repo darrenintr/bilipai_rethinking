@@ -436,10 +436,18 @@ struct ProfileSettingsView: View {
         HStack(spacing: 14) {
             avatar(for: account)
             VStack(alignment: .leading, spacing: 5) {
-                Text(account.name)
-                    .font(PaladalaTheme.FontRole.headline)
-                    .foregroundStyle(PaladalaTheme.ink)
-                    .textCase(.uppercase)
+                HStack(spacing: 6) {
+                    Text(account.name)
+                        .font(PaladalaTheme.FontRole.headline)
+                        .foregroundStyle(
+                            vipBadgeNicknameColor(for: account.vipBadge)
+                                ?? PaladalaTheme.ink
+                        )
+                        .textCase(.uppercase)
+                    if let badge = account.vipBadge, badge.isActive {
+                        VipBadgeView(badge: badge, size: .standard)
+                    }
+                }
                 Text("UID: \(account.mid)")
                     .font(PaladalaTheme.FontRole.labelMono)
                     .foregroundStyle(PaladalaTheme.mutedInk)

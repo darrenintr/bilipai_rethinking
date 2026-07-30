@@ -148,11 +148,17 @@ private struct CommentHeader: View {
                 .frame(width: 44, height: 44)
 
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
+                HStack(spacing: 6) {
                     Text(comment.authorName)
                         .font(PaladalaTheme.FontRole.labelMono)
-                        .foregroundStyle(PaladalaTheme.ink)
+                        .foregroundStyle(
+                            vipBadgeNicknameColor(for: comment.vipBadge)
+                                ?? PaladalaTheme.ink
+                        )
                         .textCase(.uppercase)
+                    if let badge = comment.vipBadge, badge.isActive {
+                        VipBadgeView(badge: badge, size: .small)
+                    }
                     Spacer()
                     Button {
                         Task { await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like") }
@@ -183,10 +189,16 @@ private struct ReplyItemRow: View {
                 .frame(width: 34, height: 34)
 
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
+                HStack(spacing: 6) {
                     Text(comment.authorName)
                         .font(PaladalaTheme.FontRole.labelMono)
-                        .foregroundStyle(PaladalaTheme.ink)
+                        .foregroundStyle(
+                            vipBadgeNicknameColor(for: comment.vipBadge)
+                                ?? PaladalaTheme.ink
+                        )
+                    if let badge = comment.vipBadge, badge.isActive {
+                        VipBadgeView(badge: badge, size: .small)
+                    }
                     Spacer()
                     Button {
                         Task { await model.performCommentAction(repository: repository, rpid: comment.id, actionType: "like") }

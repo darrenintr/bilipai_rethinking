@@ -113,6 +113,13 @@ struct BiliVideo: Identifiable, Hashable, Codable, Sendable {
     /// Used when opening a video from history or a direct link
     /// that carries a progress marker.
     var resumeTime: Double? = nil
+    /// Owner's 大会员 badge, populated from feed rows that
+    /// include the upstream `owner.vip` block (the home
+    /// recommend endpoint, dynamic-feed archive). `nil` for
+    /// feed-entry shapes (search results, history rows) that
+    /// don't publish the owner VIP info — those rows simply
+    /// render the owner name without a badge.
+    var ownerVIPBadge: BiliVIPBadge? = nil
 }
 
 extension BiliVideo {
@@ -131,9 +138,13 @@ extension BiliVideo {
 /// `/x/space/wbi/acc/info` and surfaced on `UPProfileView` as
 /// the header row. `sign` is the user's signature (a free-form
 /// one-liner); `level` is the user-growth level (0-6); `vipType`
-/// is the legacy VIP type code (0 = none). All optional fields
-/// default to safe placeholders so a partial upstream response
-/// (e.g. a banned or shadow-banned user) still renders.
+/// is the legacy VIP type code (0 = none).
+///
+/// `vipBadge` carries the rich 大会员 badge — text, colours, theme
+/// — projected from the upstream `vip` block. Optional so a
+/// partial upstream response (e.g. a banned or shadow-banned
+/// user, or a future API drift that drops the field) still
+/// renders without the badge rather than failing the whole card.
 struct BiliUserCard: Codable, Hashable, Sendable {
     let mid: Int64
     let name: String
@@ -141,14 +152,85 @@ struct BiliUserCard: Codable, Hashable, Sendable {
     let sign: String
     let level: Int
     let vipType: Int
+    let vipBadge: BiliVIPBadge?
 
-    init(mid: Int64, name: String, faceURL: URL? = nil, sign: String = "", level: Int = 0, vipType: Int = 0) {
+    init(
+        mid: Int64,
+        name: String,
+        faceURL: URL? = nil,
+        sign: String = "",
+        level: Int = 0,
+        vipType: Int = 0,
+        vipBadge: BiliVIPBadge? = nil
+    ) {
         self.mid = mid
         self.name = name
         self.faceURL = faceURL
         self.sign = sign
         self.level = level
         self.vipType = vipType
+        self.vipBadge = vipBadge
+    }
+
+    // MARK: - Codable
+
+    /// Custom decoder so the new `vipBadge` field stays
+    /// backwards-compatible with previously persisted JSON that
+    /// does not have it. The upstream `vip` block on
+    /// `/x/space/wbi/acc/info` is a nested object with `type`,
+    /// `status`, and `label` — those are projected through
+    /// `BilibiliNavVIPDTO` (defined in `BilibiliVIP.swift`) and
+    /// then collapsed to a `BiliVIPBadge` via `.badge()`.
+    /// We do not decode `BiliVIPBadge` directly because its
+    /// fields use our internal hex / kind naming, not the
+    /// upstream snake_case shape.
+    private enum CodingKeys: String, CodingKey {
+        case mid, name, sign, level, vipType
+        case faceURL = "face"
+        case vipBadge = "vip"
+        case vipLabel
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mid = try c.decode(Int64.self, forKey: .mid)
+        name = try c.decode(String.self, forKey: .name)
+        sign = try c.decodeIfPresent(String.self, forKey: .sign) ?? ""
+        level = try c.decodeIfPresent(Int.self, forKey: .level) ?? 0
+        vipType = try c.decodeIfPresent(Int.self, forKey: .vipType) ?? 0
+        if let url = try c.decodeIfPresent(String.self, forKey: .faceURL) {
+            faceURL = URL(string: url.hasPrefix("//") ? "https:\(url)" : url)
+        } else {
+            faceURL = nil
+        }
+        // Decode the upstream vip block via the DTO and project
+        // to our render-ready badge. `decodeIfPresent` returns
+        // `nil` for a missing field (anonymous / banned user)
+        // or a partial response, which collapses to "no badge".
+        let vipDTO = try c.decodeIfPresent(
+            BilibiliNavVIPDTO.self,
+            forKey: .vipBadge
+        )
+        vipBadge = vipDTO?.badge()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(mid, forKey: .mid)
+        try c.encode(name, forKey: .name)
+        try c.encode(sign, forKey: .sign)
+        try c.encode(level, forKey: .level)
+        try c.encode(vipType, forKey: .vipType)
+        try c.encodeIfPresent(faceURL, forKey: .faceURL)
+        try c.encodeIfPresent(vipBadge, forKey: .vipBadge)
+    }
+
+    /// Convenience boolean consumed by the avatar / name row.
+    /// `true` when the badge represents an active paid
+    /// membership; false for `.none`, expired badges, and the
+    /// no-badge case.
+    var hasActiveVIP: Bool {
+        vipBadge?.isActive == true && vipBadge?.isExpired == false
     }
 }
 
@@ -900,6 +982,38 @@ struct BiliComment: Identifiable, Hashable, Sendable {
     let likeCount: Int
     let replyCount: Int
     let replies: [BiliComment]
+    /// 大会员 badge projection from the upstream `member.vip`
+    /// block. `nil` for non-VIP authors (most replies). The
+    /// comment-row renderer reads this to display the colored
+    /// chip next to the author name.
+    let vipBadge: BiliVIPBadge?
+
+    init(
+        id: Int,
+        authorName: String,
+        avatarURL: URL? = nil,
+        message: String,
+        likeCount: Int = 0,
+        replyCount: Int = 0,
+        replies: [BiliComment] = [],
+        vipBadge: BiliVIPBadge? = nil
+    ) {
+        self.id = id
+        self.authorName = authorName
+        self.avatarURL = avatarURL
+        self.message = message
+        self.likeCount = likeCount
+        self.replyCount = replyCount
+        self.replies = replies
+        self.vipBadge = vipBadge
+    }
+
+    /// Convenience boolean used by the row chrome (subtitle /
+    /// nickname color) so a non-VIP comment doesn't have to
+    /// special-case the absent badge.
+    var hasActiveVIP: Bool {
+        vipBadge?.isActive == true && vipBadge?.isExpired == false
+    }
 }
 
 struct CommentPage: Hashable, Sendable {
@@ -1147,4 +1261,133 @@ struct BangumiEpisode: Hashable, Identifiable, Sendable {
     let durationMs: Int64?
     let shareURL: URL?
     var id: Int64 { epId }
+}
+
+// MARK: - Audio quality
+
+/// Bilibili DASH audio track ids. Each representation in
+/// `dash.audio[]` carries an integer `id` we use to pick the
+/// preferred audio quality at playurl time. The mapping comes
+/// straight from `bilibili-API-collect/docs/video/videostream_url.md`
+/// and B站's own web player ladder:
+///
+/// | id     | label                       | VIP gate |
+/// | ------ | --------------------------- | -------- |
+/// | 30216  | 64 kbps AAC (low)           | no       |
+/// | 30232  | 128 kbps AAC (standard)     | no       |
+/// | 30250  | 320 kbps AAC (Hi-Res / 高码率) | yes   |
+/// | 30280  | 192 kbps Dolby / 高码率     | yes      |
+///
+/// The Hi-Res / Dolby ids often require a 大会员 subscription;
+/// the playurl endpoint either omits the audio track entirely
+/// or returns it gated behind `dash.audio[].id` so the audio
+/// quality menu must hide them for non-VIP users. The proxy
+/// falls back to the highest available AAC track when the
+/// requested id is absent.
+enum BiliAudioQuality: Int, CaseIterable, Identifiable, Codable, Sendable {
+    case low64 = 30216
+    case standard128 = 30232
+    case hiRes320 = 30250
+    case dolby192 = 30280
+
+    var id: Int { rawValue }
+
+    /// Label rendered in the audio-quality menu.
+    var title: String {
+        switch self {
+        case .low64: return L10n.player.audioQuality64
+        case .standard128: return L10n.player.audioQuality128
+        case .hiRes320: return L10n.player.audioQuality320
+        case .dolby192: return L10n.player.audioQuality192
+        }
+    }
+
+    /// True when this quality requires a paid 大会员 membership
+    /// to unlock. The toolbar menu uses this to grey out the
+    /// row for non-VIP users (and the playurl fetch uses it as
+    /// a hint when no audio track is returned).
+    var requiresVIP: Bool {
+        switch self {
+        case .low64, .standard128: return false
+        case .hiRes320, .dolby192: return true
+        }
+    }
+
+    /// Default for first-launch users who have not picked an
+    /// audio quality yet. 128 kbps is universally available
+    /// without VIP and matches what most web players fall
+    /// back to.
+    static let defaultID: Int = BiliAudioQuality.standard128.rawValue
+}
+
+// MARK: - Video quality
+
+/// Bilibili DASH video qn ladder. Mirrors `accept_quality` in
+/// the playurl response. Each entry knows whether it requires
+/// a 大会员 membership to unlock so the quality menu can grey
+/// the gated rows out for non-VIP users.
+///
+/// We intentionally model only the ladder entries the upstream
+/// actually returns today; unknown qns the upstream occasionally
+/// inserts (e.g. test ladders B站 rolls out then rolls back)
+/// fall back to the bare integer label so the menu never
+/// silently drops an entry.
+enum BiliVideoQuality: Int, CaseIterable, Identifiable, Codable, Sendable {
+    case p360 = 16
+    case p480 = 32
+    case p720 = 64
+    case p1080 = 80
+    case p1080Plus = 112
+    case p1080P60 = 116
+    case k4K = 120
+    case hdr = 125
+    case dolbyVision = 126
+    case k8K = 127
+    case p1080HiBitrate = 128
+    case k4KHiBitrate = 129
+    case k4KHDR = 130
+    case k8KHDR = 131
+
+    var id: Int { rawValue }
+
+    /// Label rendered in the quality menu. Gated qualities
+    /// automatically get a "大会员" suffix so the user can see
+    /// why a row is dimmed when they are non-VIP.
+    func title(isVIP: Bool) -> String {
+        let base: String
+        switch self {
+        case .p360: base = L10n.player.quality360
+        case .p480: base = L10n.player.quality480
+        case .p720: base = L10n.player.quality720
+        case .p1080: base = L10n.player.quality1080
+        case .p1080Plus: base = L10n.player.quality1080Plus
+        case .p1080P60: base = L10n.player.quality1080P60
+        case .k4K: base = L10n.player.quality4K
+        case .hdr: base = L10n.player.qualityHDR
+        case .dolbyVision: base = L10n.player.qualityDolby
+        case .k8K: base = L10n.player.quality8K
+        case .p1080HiBitrate: base = L10n.player.quality1080Hi
+        case .k4KHiBitrate: base = L10n.player.quality4KHi
+        case .k4KHDR: base = L10n.player.quality4KHDR
+        case .k8KHDR: base = L10n.player.quality8KHDR
+        }
+        if requiresVIP && !isVIP {
+            return base + " · " + L10n.vip.lockedBadge
+        }
+        return base
+    }
+
+    /// True when this ladder entry is gated behind a paid
+    /// 大会员 membership. Mirrors B站's `accept_description`
+    /// matrix — anything 1080P and above (with rare 720P
+    /// exceptions for legacy content) is VIP-gated.
+    var requiresVIP: Bool {
+        switch self {
+        case .p360, .p480, .p720: return false
+        case .p1080: return false
+        case .p1080Plus, .p1080P60, .k4K, .hdr, .dolbyVision,
+             .k8K, .p1080HiBitrate, .k4KHiBitrate, .k4KHDR, .k8KHDR:
+            return true
+        }
+    }
 }

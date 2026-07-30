@@ -147,8 +147,73 @@ enum L10n {
         static let quality480 = String(localized: "player.quality480", defaultValue: "480P")
         static let quality720 = String(localized: "player.quality720", defaultValue: "720P")
         static let quality1080 = String(localized: "player.quality1080", defaultValue: "1080P")
+        /// 1080P 高码率 — the gated 1080P high-bitrate variant
+        /// (qn=112) that B站 serves when VIP is active. Distinct
+        /// from `quality1080` because the menu shows them side
+        /// by side and the high-bitrate variant is the one
+        /// typically required for HDR / Dolby Vision sources.
+        static let quality1080Plus = String(localized: "player.quality1080Plus", defaultValue: "1080P 高码率")
+        /// 1080P 60fps (qn=116). Requires 大会员.
+        static let quality1080P60 = String(localized: "player.quality1080P60", defaultValue: "1080P 60帧")
+        static let quality1080Hi = String(localized: "player.quality1080Hi", defaultValue: "1080P Hi-Res")
         static let quality4K = String(localized: "player.quality4K", defaultValue: "4K")
+        static let quality4KHi = String(localized: "player.quality4KHi", defaultValue: "4K Hi-Res")
+        static let quality4KHDR = String(localized: "player.quality4KHDR", defaultValue: "4K HDR")
+        static let qualityHDR = String(localized: "player.qualityHDR", defaultValue: "HDR")
+        static let qualityDolby = String(localized: "player.qualityDolby", defaultValue: "杜比视界")
+        static let quality8K = String(localized: "player.quality8K", defaultValue: "8K")
+        static let quality8KHDR = String(localized: "player.quality8KHDR", defaultValue: "8K HDR")
+        /// Audio quality menu label. Mirrors `quality` for video
+        /// but reads "音质" in zh-Hans; the toolbar icon
+        /// already differentiates the two.
+        static let audioQuality = String(localized: "player.audioQuality", defaultValue: "音质")
+        /// 64 kbps AAC (low). Default for non-VIP users that
+        /// picked nothing yet — universally available, AVPlayer
+        /// consumes it natively.
+        static let audioQuality64 = String(localized: "player.audioQuality64", defaultValue: "64K")
+        /// 128 kbps AAC (standard). Default for first-launch
+        /// users — matches the web player's fallback.
+        static let audioQuality128 = String(localized: "player.audioQuality128", defaultValue: "128K")
+        /// 192 kbps Dolby Atmos / 高码率 audio. Gated behind
+        /// 大会员; the toolbar dims the row for non-VIP users.
+        static let audioQuality192 = String(localized: "player.audioQuality192", defaultValue: "192K 杜比")
+        /// 320 kbps Hi-Res AAC. Gated behind 大会员.
+        static let audioQuality320 = String(localized: "player.audioQuality320", defaultValue: "320K Hi-Res")
         static let gestureHint = String(localized: "player.gestureHint", defaultValue: "双击左侧后退 10s · 双击右侧前进 10s · 双击中心点赞")
+    }
+
+    // MARK: - VIP / 大会员
+
+    enum vip {
+        /// Generic 大会员 chip text (used by the monthly tier).
+        static let title = String(localized: "vip.title", defaultValue: "大会员")
+        /// 年大会员 — annual membership badge.
+        static let annualTitle = String(localized: "vip.annualTitle", defaultValue: "年度大会员")
+        /// 十年大会员 — the 10-year commemorative membership.
+        static let tenYearTitle = String(localized: "vip.tenYearTitle", defaultValue: "十年大会员")
+        /// 超级大会员 (Super VIP) — B站's top tier.
+        static let superTitle = String(localized: "vip.superTitle", defaultValue: "超级大会员")
+        /// Tiny chip text appended to gated quality / audio menu
+        /// rows so the user can see at a glance why the row is
+        /// dimmed for non-VIP accounts. Rendered with the same
+        /// pink as the regular VIP chip.
+        static let lockedBadge = String(localized: "vip.lockedBadge", defaultValue: "大会员")
+        /// "你还不是大会员，登录后可享受高清画质" style hint shown
+        /// when the user taps a gated quality while signed out.
+        static let upgradeHint = String(localized: "vip.upgradeHint", defaultValue: "登录大会员账号后可解锁此画质")
+        /// Status line on the profile header — `${kind} · 到期
+        /// ${date}`. Falls back to `${kind} · 已过期` when the
+        /// due date is in the past.
+        static func status(_ kind: String, due: Date?) -> String {
+            if let due {
+                let f = DateFormatter()
+                f.dateStyle = .medium
+                f.timeStyle = .none
+                f.locale = Locale(identifier: "zh_CN")
+                return "\(kind) · 到期 \(f.string(from: due))"
+            }
+            return kind
+        }
     }
 
     // MARK: - Mini-player

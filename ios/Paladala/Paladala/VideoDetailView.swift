@@ -50,6 +50,7 @@ struct VideoDetailView: View {
     @StateObject private var model: VideoDetailViewModel
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var miniPlayerStore: MiniPlayerStore
+    @EnvironmentObject private var authStore: AuthStore
     @State private var isFullscreenPresented = false
     @State private var fullscreenTransitionUntil: Date = .distantPast
     @State private var lastFullscreenDismissedAt: Date = .distantPast
@@ -69,8 +70,15 @@ struct VideoDetailView: View {
     /// User's preferred playback quality, persisted across
     /// launches. Mirrors `model.preferredQn` so a fresh open of
     /// the detail view picks up the user's last pick without a
-    /// flash of 1080P → 720P.
+    /// flash of 1080P → 720P. Default 80 (1080P high) — the
+    /// ladder goes higher for VIP users via the same stored
+    /// value (qn 116 / 120 / 125 / …).
     @AppStorage("paladala.preferredQn") private var storedPreferredQn: Int = 80
+    /// User's preferred audio quality, persisted across
+    /// launches. Mirrors `model.preferredAudioQuality`. Default
+    /// `BiliAudioQuality.defaultID` (128 kbps AAC, universally
+    /// available without VIP).
+    @AppStorage("paladala.preferredAudioQuality") private var storedPreferredAudioQuality: Int = BiliAudioQuality.defaultID
     /// Material design preference — drives glass vs M3 surfaces
     /// on the control panel and comment card.
     @AppStorage("paladala.materialDesign") private var materialDesign: MaterialDesign = .liquidGlass
@@ -294,6 +302,13 @@ struct VideoDetailView: View {
             // 720P" round-trip.
             if model.preferredQn != storedPreferredQn {
                 model.preferredQn = storedPreferredQn
+            }
+            // Same hydration for the audio-quality preference;
+            // independent dimension from video quality so the
+            // user can keep "Hi-Res audio" while stepping the
+            // video down to 720P for a slow connection.
+            if model.preferredAudioQuality != storedPreferredAudioQuality {
+                model.preferredAudioQuality = storedPreferredAudioQuality
             }
             if model.subtitleEnabled != storedSubtitleEnabled {
                 model.subtitleEnabled = storedSubtitleEnabled
@@ -699,6 +714,7 @@ struct VideoDetailView: View {
             controlCell { subtitleChip }
             controlCell { danmakuChip }
             controlCell { qualityMenu }
+            controlCell { audioQualityMenu }
             controlCell { downloadButton }
             controlCell { sleepTimerChip }
             controlCell(showsDivider: false) { coinButton }
@@ -1143,26 +1159,36 @@ struct VideoDetailView: View {
     /// itself is a standard SwiftUI `Menu` — no custom chrome — so
     /// it inherits the same Liquid Glass background the rest of the
     /// toolbar uses.
+    ///
+    /// VIP-gated qualities are dimmed but still listed so the
+    /// user can see what they're missing without a free
+    /// promotion wall. Tapping a gated row while non-VIP
+    /// surfaces the upgrade hint instead of refetching the
+    /// playurl.
     private var qualityMenu: some View {
-        Menu {
-            ForEach([80, 64, 32, 16], id: \.self) { qn in
+        let isVIP = authStore.activeAccount?.vipBadge?.canAccessGatedQuality == true
+        return Menu {
+            ForEach(BiliVideoQuality.allCases.reversed()) { quality in
                 Button {
+                    let qn = quality.rawValue
                     guard model.preferredQn != qn else { return }
                     storedPreferredQn = qn
                     Task { await model.setPreferredQn(qn, repository: repository) }
                 } label: {
+                    let title = quality.title(isVIP: isVIP)
                     if model.preferredQn == qn {
-                        Label(qnLabel(qn), systemImage: "checkmark")
+                        Label(title, systemImage: "checkmark")
                     } else {
-                        Text(qnLabel(qn))
+                        Text(title)
                     }
                 }
+                .disabled(quality.requiresVIP && !isVIP)
             }
         } label: {
             VStack(spacing: 6) {
                 Image(systemName: "rectangle.stack.badge.play")
                     .font(.body.weight(.black))
-                Text(qnLabel(model.preferredQn))
+                Text(currentQualityLabel())
                     .font(PaladalaTheme.FontRole.labelMono)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -1171,19 +1197,75 @@ struct VideoDetailView: View {
         .accessibilityLabel(L10n.player.quality)
     }
 
-    /// Map a Bilibili `accept_quality` ladder code to the
-    /// user-facing label. Anything outside the modelled ladder
-    /// (e.g. an unknown `qn` slipped in by an upstream change)
-    /// falls back to a plain "<qn>P" string so the menu never
-    /// renders empty.
-    private func qnLabel(_ qn: Int) -> String {
-        switch qn {
-        case 80: return L10n.player.quality1080
-        case 64: return L10n.player.quality720
-        case 32: return L10n.player.quality480
-        case 16: return L10n.player.quality360
-        default: return "\(qn)P"
+    /// Audio quality menu, sibling of `qualityMenu`. The user
+    /// picks one of four ladder entries; non-VIP entries are
+    /// dimmed. Default state honours `model.preferredAudioQuality`.
+    private var audioQualityMenu: some View {
+        let isVIP = authStore.activeAccount?.vipBadge?.canAccessGatedQuality == true
+        return Menu {
+            ForEach(BiliAudioQuality.allCases) { audio in
+                Button {
+                    let qn = audio.rawValue
+                    guard model.preferredAudioQuality != qn else { return }
+                    storedPreferredAudioQuality = qn
+                    Task {
+                        await model.setPreferredAudioQuality(
+                            qn,
+                            repository: repository
+                        )
+                    }
+                } label: {
+                    let title = audio.title +
+                        (audio.requiresVIP && !isVIP ? " · " + L10n.vip.lockedBadge : "")
+                    if model.preferredAudioQuality == qn {
+                        Label(title, systemImage: "checkmark")
+                    } else {
+                        Text(title)
+                    }
+                }
+                .disabled(audio.requiresVIP && !isVIP)
+            }
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "speaker.wave.2.bubble.left.fill")
+                    .font(.body.weight(.black))
+                Text(currentAudioQualityLabel())
+                    .font(PaladalaTheme.FontRole.labelMono)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
+        .accessibilityLabel(L10n.player.audioQuality)
+    }
+
+    /// Map the current preferred qn to the user-facing label.
+    /// Used by both the quality menu's label and the toolbar
+    /// preview. Falls back to "<qn>P" for ladder entries we
+    /// don't model so the toolbar never renders empty.
+    private func qnLabel(_ qn: Int) -> String {
+        if let q = BiliVideoQuality(rawValue: qn) {
+            let isVIP = authStore.activeAccount?.vipBadge?.canAccessGatedQuality == true
+            return q.title(isVIP: isVIP)
+        }
+        return "\(qn)P"
+    }
+
+    /// Render the current quality label for the toolbar button.
+    /// Honours the active user's VIP status so a VIP-only entry
+    /// shows the proper "1080P Hi-Res · 大会员" label rather
+    /// than the bare ladder name.
+    private func currentQualityLabel() -> String {
+        qnLabel(model.preferredQn)
+    }
+
+    /// Render the current audio-quality label for the toolbar
+    /// button. Honors VIP gating.
+    private func currentAudioQualityLabel() -> String {
+        if let q = BiliAudioQuality(rawValue: model.preferredAudioQuality) {
+            let isVIP = authStore.activeAccount?.vipBadge?.canAccessGatedQuality == true
+            return q.title + (q.requiresVIP && !isVIP ? " · " + L10n.vip.lockedBadge : "")
+        }
+        return "\(model.preferredAudioQuality)K"
     }
 
     private var commentPreview: some View {

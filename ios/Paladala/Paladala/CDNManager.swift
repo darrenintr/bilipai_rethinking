@@ -101,6 +101,7 @@ final class CDNManager: ObservableObject {
         let manual = UserDefaults.standard.string(forKey: Self.selectedHostKey)
         let userEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
         let pluginEnabled = (pinHost?.isEmpty == false)
+        
         let selected: String?
         if pluginEnabled {
             selected = pinHost
@@ -109,36 +110,92 @@ final class CDNManager: ObservableObject {
         } else {
             selected = nil
         }
-        guard let selected else { return playback }
-        func replace(_ url: URL) -> URL {
-            guard let host = url.host, Self.isMediaHost(host), var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
-            c.host = selected
+        
+        guard let selectedHost = selected, let normalizedHost = normalize(host: selectedHost) else {
+            return playback
+        }
+        
+        let backupHosts = Self.backupHosts.compactMap { normalize(host: $0) }
+
+        func replace(_ url: URL, with host: String) -> URL {
+            guard let originalHost = url.host, normalize(host: originalHost) != nil, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+            c.host = host
             return c.url ?? url
         }
+
         guard let dash = playback.dash else {
-            return BiliPlayback(dash: nil, fallbackURL: playback.fallbackURL.map(replace), referer: playback.referer, resumeTime: playback.resumeTime, localContext: playback.localContext)
+            let newFallbackURL = playback.fallbackURL.flatMap { url -> URL? in
+                guard let originalHost = url.host, normalize(host: originalHost) != nil else { return url }
+                return replace(url, with: normalizedHost)
+            }
+            return BiliPlayback(dash: nil, fallbackURL: newFallbackURL, referer: playback.referer, resumeTime: playback.resumeTime, localContext: playback.localContext)
         }
+
         func track(_ t: BiliDashSource.Track) -> BiliDashSource.Track {
-            BiliDashSource.Track(baseURL: replace(t.baseURL), backupURLs: t.backupURLs.map(replace), codecs: t.codecs, bandwidth: t.bandwidth, mimeType: t.mimeType, initializationRange: t.initializationRange, indexRange: t.indexRange, mediaStartOffset: t.mediaStartOffset, totalDuration: t.totalDuration, width: t.width, height: t.height)
+            let primaryURL = replace(t.baseURL, with: normalizedHost)
+            let backupURLs = backupHosts.map { replace(t.baseURL, with: $0) }
+            
+            return BiliDashSource.Track(
+                baseURL: primaryURL,
+                backupURLs: [primaryURL] + backupURLs,
+                codecs: t.codecs,
+                bandwidth: t.bandwidth,
+                mimeType: t.mimeType,
+                initializationRange: t.initializationRange,
+                indexRange: t.indexRange,
+                mediaStartOffset: t.mediaStartOffset,
+                totalDuration: t.totalDuration,
+                width: t.width,
+                height: t.height
+            )
         }
-        return BiliPlayback(dash: BiliDashSource(video: track(dash.video), audio: dash.audio.map(track)), fallbackURL: playback.fallbackURL.map(replace), referer: playback.referer, resumeTime: playback.resumeTime, localContext: playback.localContext)
+
+        let newVideoTrack = track(dash.video)
+        let newAudioTrack = dash.audio.map(track)
+
+        return BiliPlayback(
+            dash: BiliDashSource(video: newVideoTrack, audio: newAudioTrack),
+            fallbackURL: playback.fallbackURL.map { replace($0, with: normalizedHost) },
+            referer: playback.referer,
+            resumeTime: playback.resumeTime,
+            localContext: playback.localContext
+        )
     }
 
     /// Replaces only known Bilibili media CDN hosts and preserves path/query
     /// signatures, which is the key behavior of CCB's URL interception.
     func replaceMediaURL(_ url: URL) -> URL {
-        guard isEnabled, !selectedHost.isEmpty,
-              let host = url.host,
-              Self.isMediaHost(host),
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
-        components.host = selectedHost
+        guard isEnabled, 
+              let selected = UserDefaults.standard.string(forKey: Self.selectedHostKey),
+              !selected.isEmpty,
+              let normalizedHost = normalize(host: selected),
+              let originalHost = url.host,
+              normalize(host: originalHost) != nil,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.host = normalizedHost
         return components.url ?? url
     }
 
-    nonisolated static func isMediaHost(_ host: String) -> Bool {
-        let h = host.lowercased()
-        return h.contains("bilivideo.com") || h.contains("bilivideo.cn") ||
-            h.contains("acgvideo.com") || h.contains("acgvideo.cn") ||
-            h.contains("akamaized.net") || h.contains("edge.mountaintoys.cn")
+    nonisolated static let backupHosts = ["upos-sz-upcdnbda2.bilivideo.com", "upos-sz-mirrorhw.bilivideo.com"]
+    
+    nonisolated static let cdnSuffixes = ["bilivideo.com", "acgvideo.com", "acgvideo.cn"]
+    nonisolated static let hostLabelRegex = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+
+    nonisolated func normalize(host: String) -> String? {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmedHost.isEmpty, trimmedHost.count <= 253 else { return nil }
+
+        guard let suffix = Self.cdnSuffixes.first(where: { trimmedHost.hasSuffix(".\($0)") }) else {
+            return nil
+        }
+        
+        let prefix = trimmedHost.dropLast(suffix.count + 1)
+        guard !prefix.isEmpty, prefix.split(separator: ".").allSatisfy({ Self.hostLabelRegex.firstMatch(in: String($0)) != nil }) else {
+            return nil
+        }
+        
+        return trimmedHost
     }
 }

@@ -338,9 +338,19 @@ struct UPProfileView: View {
                         HStack(spacing: 6) {
                             Text(card.name)
                                 .font(PaladalaTheme.FontRole.headline)
-                                .foregroundStyle(PaladalaTheme.ink)
+                                .foregroundStyle(
+                                    vipBadgeNicknameColor(for: card.vipBadge)
+                                        ?? PaladalaTheme.ink
+                                )
                                 .textCase(.uppercase)
-                            if card.vipType > 0 {
+                            if let badge = card.vipBadge, badge.isActive {
+                                VipBadgeView(badge: badge, size: .standard)
+                            } else if card.vipType > 0 {
+                                // Legacy fallback — older persisted
+                                // `BiliUserCard`s without a decoded
+                                // `vipBadge` still render a chip
+                                // via the cheap `vipType > 0` test
+                                // the previous layout used.
                                 Image(systemName: "crown.fill")
                                     .foregroundStyle(PaladalaTheme.biliPink)
                                     .accessibilityLabel("大会员")

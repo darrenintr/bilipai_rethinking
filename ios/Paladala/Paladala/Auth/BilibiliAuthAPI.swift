@@ -80,7 +80,11 @@ struct BilibiliAuthAPI {
     }
 
     /// Step 3: with the SESSDATA cookie in hand, hit `/x/web-interface/nav`
-    /// to read the user `mid`, name, and avatar.
+    /// to read the user `mid`, name, avatar, and 大会员 badge. The badge
+    /// projection (`BiliVIPBadge`) is persisted onto the resulting
+    /// `StoredAccount` so the profile header can render the colored
+    /// chip on the very first paint after launch without a second
+    /// round-trip.
     func navInfo(cookieHeader: String) async throws -> WebQrcodeNavInfo {
         let url = apiBaseURL.appendingPathComponent("/x/web-interface/nav")
         var request = URLRequest(url: url)
@@ -91,7 +95,8 @@ struct BilibiliAuthAPI {
         return WebQrcodeNavInfo(
             mid: payload.data.mid,
             name: payload.data.uname ?? "Bilibili 用户",
-            faceURL: payload.data.faceURL
+            faceURL: payload.data.faceURL,
+            vipBadge: payload.data.vip?.badge() ?? .none
         )
     }
 
@@ -224,6 +229,11 @@ struct WebQrcodeNavInfo {
     let mid: Int64
     let name: String
     let faceURL: URL?
+    /// Decoded 大会员 badge. `.none` for accounts without a paid
+    /// membership. The login flow plumbs this into
+    /// `StoredAccount.vipBadge` so the profile chrome can
+    /// render the badge without a fresh fetch.
+    let vipBadge: BiliVIPBadge
 }
 
 private struct WebNavResponse: Decodable, Sendable {
@@ -232,6 +242,9 @@ private struct WebNavResponse: Decodable, Sendable {
         let mid: Int64
         let uname: String?
         let face: String?
+        /// 大会员 block. `nil` for non-VIP accounts (or when the
+        /// upstream omits the field, e.g. a future API drift).
+        let vip: BilibiliNavVIPDTO?
         var faceURL: URL? {
             guard let face else { return nil }
             return URL(string: face.hasPrefix("//") ? "https:\(face)" : face)

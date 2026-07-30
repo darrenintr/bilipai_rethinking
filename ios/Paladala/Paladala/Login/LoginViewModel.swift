@@ -146,7 +146,8 @@ final class LoginViewModel: ObservableObject {
                 sessData: sessData,
                 csrf: csrf,
                 buvid3: buvid3,
-                dedeUserID: dede
+                dedeUserID: dede,
+                vipBadge: info.vipBadge.isActive ? info.vipBadge : nil
             )
             authStore.completeLogin(account)
             state = .success(account)

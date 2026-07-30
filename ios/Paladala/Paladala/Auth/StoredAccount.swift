@@ -28,6 +28,14 @@ struct StoredAccount: Codable, Hashable, Identifiable {
     let dedeUserID: String?
     /// Last time the user activated this account on this device.
     var lastUsedAt: Date
+    /// Decoded 大会员 badge from the last login / `nav` refresh.
+    /// Persisted so the profile header can render the badge on the
+    /// very first paint after a fresh launch — without paying a
+    /// round-trip to `/x/web-interface/nav` for every cold start.
+    /// Optional: anonymous users and accounts without VIP simply
+    /// omit the field. The background VIP-refresh task (in
+    /// `PaladalaApp.body.onAppear`) keeps this fresh.
+    var vipBadge: BiliVIPBadge?
 
     init(
         mid: Int64,
@@ -37,7 +45,8 @@ struct StoredAccount: Codable, Hashable, Identifiable {
         csrf: String,
         buvid3: String? = nil,
         dedeUserID: String? = nil,
-        lastUsedAt: Date = Date()
+        lastUsedAt: Date = Date(),
+        vipBadge: BiliVIPBadge? = nil
     ) {
         self.mid = mid
         self.name = name
@@ -47,6 +56,7 @@ struct StoredAccount: Codable, Hashable, Identifiable {
         self.buvid3 = buvid3
         self.dedeUserID = dedeUserID
         self.lastUsedAt = lastUsedAt
+        self.vipBadge = vipBadge
     }
 }
 

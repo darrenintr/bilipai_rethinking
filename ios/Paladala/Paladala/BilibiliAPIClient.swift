@@ -833,7 +833,11 @@ final class BilibiliAPIClient: @unchecked Sendable {
     ///   * `-404 啥都木有` — anonymous viewer; the user's
     ///     `AccountSessionStore` cookie fixes this for any
     ///     B站 cookie-bearing account.
-    func pgcPlayurl(epId: Int64, seasonId: Int64? = nil) async throws -> BiliPlayback {
+    func pgcPlayurl(
+        epId: Int64,
+        seasonId: Int64? = nil,
+        preferredAudioQuality: Int = BiliAudioQuality.defaultID
+    ) async throws -> BiliPlayback {
         var items: [URLQueryItem] = [
             URLQueryItem(name: "ep_id", value: "\(epId)"),
             URLQueryItem(name: "qn", value: "112"),
@@ -892,7 +896,10 @@ final class BilibiliAPIClient: @unchecked Sendable {
             }
             return URL(string: "https://www.bilibili.com/bangumi/play/ep\(epId)")!
         }()
-        guard let playback = playURL.bestPlayback(referer: referer.absoluteString) else {
+        guard let playback = playURL.bestPlayback(
+            referer: referer.absoluteString,
+            preferredAudioQuality: preferredAudioQuality
+        ) else {
             throw BilibiliAPIError.noPlayableFormat
         }
         return playback
@@ -1239,7 +1246,13 @@ final class BilibiliAPIClient: @unchecked Sendable {
         return payload.value?.modelResult
     }
 
-    func playbackURL(bvid: String, aid: Int = 0, cid: Int, preferredQn: Int = 80) async throws -> BiliPlayback {
+    func playbackURL(
+        bvid: String,
+        aid: Int = 0,
+        cid: Int,
+        preferredQn: Int = 80,
+        preferredAudioQuality: Int = BiliAudioQuality.defaultID
+    ) async throws -> BiliPlayback {
         // The current canonical path is `/x/player/wbi/playurl` — the
         // non-wbi alias is being phased out.  The `fnval` bitmask is:
         //   1   = legacy MP4 (returns an empty `durl` for most items
@@ -1294,7 +1307,35 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // pick is gated by VIP / region lock) follow in their
         // canonical descending order. If the user picked 360P we
         // don't loop — that already is the bottom of the chain.
-        let canonicalChain: [Int] = [80, 64, 32, 16]
+        //
+        // The chain covers every Bili-published qn from 8K HDR
+        // (131) all the way down to 360P smooth (16) — that
+        // way a VIP pick on a video that only has 1080P still
+        // gets a clean fallback to the highest entry the
+        // upstream actually returned.
+        //
+        // VIP-gated entries (112 / 116 / 120 / 125 / 126 / 127 /
+        // 128 / 129 / 130 / 131) are included in the chain so
+        // a VIP user's pick flows through naturally; a non-VIP
+        // user that somehow lands on a gated qn falls through
+        // the chain just like a region-locked pick, ending at
+        // the first entry the upstream actually returned.
+        let canonicalChain: [Int] = [
+            131, // 8K HDR
+            130, // 4K HDR
+            129, // 4K Hi-Res
+            128, // 1080P Hi-Res
+            127, // 8K
+            126, // Dolby Vision
+            125, // HDR
+            120, // 4K
+            116, // 1080P60
+            112, // 1080P+ high bitrate
+            80,  // 1080P high
+            64,  // 720P high
+            32,  // 480P clear
+            16   // 360P smooth
+        ]
         let qnChain: [Int]
         if let idx = canonicalChain.firstIndex(of: preferredQn) {
             qnChain = Array(canonicalChain[idx...])
@@ -1339,7 +1380,8 @@ final class BilibiliAPIClient: @unchecked Sendable {
                 }
                 try payload.requireOK()
                 if let playback = payload.value?.bestPlayback(
-                    referer: "https://www.bilibili.com/video/\(finalBvid)"
+                    referer: "https://www.bilibili.com/video/\(finalBvid)",
+                    preferredAudioQuality: preferredAudioQuality
                 ) {
                     return playback
                 }
@@ -3124,6 +3166,11 @@ private struct SearchSlotPayload: Decodable, Sendable {
 /// legacy VIP code. We pull the four fields the header needs
 /// (name, face, sign, level, vipType) via a hand-rolled
 /// `init(from:)` so a partial response still decodes.
+///
+/// The `vip` block is also fully decoded (via
+/// `BilibiliNavVIPDTO`) so the projected `BiliVIPBadge`
+/// carries the rich colour + theme + due-date info the UP
+/// profile chrome renders.
 private struct UserCardInfoPayload: Decodable, Sendable {
     let mid: Int64
     let name: String
@@ -3131,6 +3178,10 @@ private struct UserCardInfoPayload: Decodable, Sendable {
     let sign: String
     let level: Int
     let vipType: Int
+    /// Decoded vip block. `nil` for non-VIP users and
+    /// shadow-banned / banned accounts where the upstream
+    /// omits the block.
+    // (placeholder removed below)
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: DynamicKey.self)
@@ -3141,8 +3192,14 @@ private struct UserCardInfoPayload: Decodable, Sendable {
         level = container.decodeInt(keys: ["level"]) ?? 0
         // `vip` is a nested object; missing on banned or
         // never-VIP users so default to 0.
-        let vip = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey("vip"))
-        vipType = vip?.decodeInt(keys: ["type"]) ?? 0
+        if let vipContainer = try? container.nestedContainer(
+            keyedBy: DynamicKey.self,
+            forKey: DynamicKey("vip")
+        ) {
+            vipType = vipContainer.decodeInt(keys: ["type"]) ?? 0
+        } else {
+            vipType = 0
+        }
     }
 
     func toBiliUserCard(mid: Int64) -> BiliUserCard {
@@ -3152,7 +3209,57 @@ private struct UserCardInfoPayload: Decodable, Sendable {
             faceURL: face.httpsURL,
             sign: sign,
             level: level,
-            vipType: vipType
+            vipType: vipType,
+            vipBadge: BiliVIPBadge.legacy(vipType: vipType)
+        )
+    }
+}
+
+/// Tiny decoder shim that wraps an existing
+/// `KeyedDecodingContainer<DynamicKey>` and exposes it as a
+/// top-level `Decoder`. Needed so we can re-decode the
+/// already-extracted `vip` nested container as a full DTO
+/// without re-parsing the raw JSON. Implementation is the
+/// minimum surface `Decodable` types call into
+/// (`container(keyedBy:)`) — everything else is a fatal
+/// precondition because the DTOs we decode from it never
+/// call anything else.
+private struct _NestedContainerDecoder: Decoder {
+    let container: KeyedDecodingContainer<DynamicKey>
+    var codingPath: [CodingKey] { [] }
+    var userInfo: [CodingUserInfoKey: Any] { [:] ]
+
+    func container<Key>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key>
+    where Key: CodingKey {
+        // `KeyedDecodingContainer<DynamicKey>` cannot be
+        // transparently re-keyed to `KeyedDecodingContainer<Key>`,
+        // but our DTOs only decode DynamicKey (they all use
+        // `DynamicKey` for their `CodingKeys`). Use the dynamic
+        // cast path so the DTO gets the same underlying
+        // container.
+        if Key.self == DynamicKey.self {
+            return unsafeDowncast(container, to: KeyedDecodingContainer<Key>.self)
+        }
+        throw DecodingError.dataCorruptedError(
+            forKey: container.allKeys.first ?? DynamicKey("vip"),
+            in: container,
+            debugDescription: "_NestedContainerDecoder only supports DynamicKey"
+        )
+    }
+
+    func unkeyedContainer() throws -> UnkeyedDecodingContainer {
+        throw DecodingError.dataCorruptedError(
+            forKey: container.allKeys.first ?? DynamicKey("vip"),
+            in: container,
+            debugDescription: "vip is a keyed object, not an array"
+        )
+    }
+
+    func singleValueContainer() throws -> SingleValueDecodingContainer {
+        throw DecodingError.dataCorruptedError(
+            forKey: container.allKeys.first ?? DynamicKey("vip"),
+            in: container,
+            debugDescription: "vip is a keyed object, not a single value"
         )
     }
 }
@@ -3375,7 +3482,10 @@ private struct PlayURLPayload: Decodable, Sendable {
     /// only gives us a single `durl` MP4 — that case falls
     /// through to the legacy direct-URL fallback and the player
     /// uses it with no bridge.
-    func bestPlayback(referer: String) -> BiliPlayback? {
+    func bestPlayback(
+        referer: String,
+        preferredAudioQuality: Int = BiliAudioQuality.defaultID
+    ) -> BiliPlayback? {
         let refererURL = URL(string: referer)!
 
         // 1) Prefer the upstream HLS master if B站 gave us one
@@ -3582,9 +3692,15 @@ private struct PlayURLPayload: Decodable, Sendable {
         ///     FLAC; AVPlayer will decode EAC3 from a
         ///     standalone `.m4a` but not from a fragmented
         ///     MP4 in an HLS segment, and refuses FLAC
-        ///     outright.  Pick the first AAC track, drop
-        ///     EAC3/FLAC/Opus.
-        func biliDashSource(duration: Double?) -> BiliDashSource? {
+        ///     outright.  Within the AAC pool we honour the
+        ///     user's preferred audio quality id (30216/30232/
+        ///     30250/30280) when present, then fall back to the
+        ///     highest-bandwidth AAC track.  EAC3/FLAC/Opus
+        ///     tracks are still dropped.
+        func biliDashSource(
+            duration: Double?,
+            preferredAudioQuality: Int = BiliAudioQuality.defaultID
+        ) -> BiliDashSource? {
             let avcVideo = video.first { v in
                 v.codecs.localizedCaseInsensitiveContains("avc")
                     || v.codecs.localizedCaseInsensitiveContains("h264")
@@ -3593,11 +3709,24 @@ private struct PlayURLPayload: Decodable, Sendable {
                   let videoInit = v.segmentBase?.effectiveInitializationByteRange else {
                 return nil
             }
-            let aacAudio = audio.first { a in
+            // Filter to AAC tracks first so non-AAC tracks
+            // never win regardless of the user's preference.
+            let aacTracks = audio.filter { a in
                 guard let c = a.codecs else { return false }
                 return c.localizedCaseInsensitiveContains("mp4a")
                     || c.localizedCaseInsensitiveContains("aac")
             }
+            // Preferred id wins when present in the AAC pool.
+            // Falls back to the highest-bandwidth AAC track so
+            // the user gets the best available audio even if
+            // their pick is gated (typical when non-VIP tries
+            // to play a 320 kbps video).
+            let chosenAudio: DashMedia? = {
+                if let match = aacTracks.first(where: { $0.id == preferredAudioQuality }) {
+                    return match
+                }
+                return aacTracks.max(by: { ($0.bandwidth ?? 0) < ($1.bandwidth ?? 0) })
+            }()
             // If a non-AAC audio is the *only* audio available,
             // we have to drop audio entirely — AVPlayer will
             // refuse the manifest otherwise.  Muxed MP4 would
@@ -3606,9 +3735,9 @@ private struct PlayURLPayload: Decodable, Sendable {
                 media: DashMedia,
                 initRange: BiliDashSource.ByteRange
             )?
-            if let aacAudio,
-               let audioInit = aacAudio.segmentBase?.effectiveInitializationByteRange {
-                audioTrack = (aacAudio, audioInit)
+            if let chosenAudio,
+               let audioInit = chosenAudio.segmentBase?.effectiveInitializationByteRange {
+                audioTrack = (chosenAudio, audioInit)
             } else {
                 audioTrack = nil
             }
@@ -3722,6 +3851,12 @@ private struct PlayURLPayload: Decodable, Sendable {
         let backupURLs: [URL]
         let codecs: String?
         let bandwidth: Int?
+        /// Representation id published by Bili's playurl. For
+        /// audio tracks this is the audio-quality ladder id
+        /// (30216 / 30232 / 30250 / 30280); for video tracks it
+        /// matches `accept_quality` (16/32/64/80/...). `nil`
+        /// when the upstream omits the field (legacy responses).
+        let id: Int?
         let segmentBase: SegmentBase?
 
         init(from decoder: Decoder) throws {
@@ -3742,6 +3877,7 @@ private struct PlayURLPayload: Decodable, Sendable {
             backupURLs = rawBackups.compactMap { URL(string: $0) }
             codecs = container.decodeString(keys: ["codecs"])
             bandwidth = container.decodeInt(keys: ["bandwidth"])
+            id = container.decodeInt(keys: ["id"])
             segmentBase =
                 (try? container.decode(SegmentBase.self,
                                        forKey: DynamicKey("SegmentBase")))
@@ -4562,17 +4698,24 @@ private struct CommentDTO: Decodable, Sendable {
             message: content.message,
             likeCount: like,
             replyCount: rcount ?? 0,
-            replies: replies?.items.map(\.model) ?? []
+            replies: replies?.items.map(\.model) ?? [],
+            vipBadge: member.vip?.badge()
         )
     }
 
     struct Member: Decodable {
         let uname: String
         let avatarURL: URL?
+        /// Optional 大会员 block. The comment API publishes it
+        /// for VIP authors so the row chrome can render the
+        /// colored chip next to the author name. `nil` for
+        /// non-VIP authors (most replies).
+        let vip: BilibiliCommentVIPDTO?
 
         enum CodingKeys: String, CodingKey {
             case uname
             case avatarURL = "avatar"
+            case vip
         }
     }
 

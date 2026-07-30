@@ -86,11 +86,29 @@ struct VideoCard: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
-                    Text(video.ownerName)
-                        .font(PaladalaTheme.FontRole.labelMono)
-                        .foregroundStyle(PaladalaTheme.mutedInk)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    // Owner name + optional 大会员 chip. The chip
+                    // uses the compact icon-only flavour because
+                    // the home-feed cards have a fixed name
+                    // row width; the full chip would crowd out
+                    // the playback counts below. The owner's
+                    // badge, when present, comes from the
+                    // upstream `owner` block on the feed rows
+                    // that publish it (home / recommend feed).
+                    // Falls back to plain muted text when no
+                    // badge is decoded.
+                    HStack(spacing: 4) {
+                        Text(video.ownerName)
+                            .font(PaladalaTheme.FontRole.labelMono)
+                            .foregroundStyle(
+                                vipBadgeNicknameColor(for: video.ownerVIPBadge)
+                                    ?? PaladalaTheme.mutedInk
+                            )
+                            .lineLimit(1)
+                        if let badge = video.ownerVIPBadge, badge.isActive {
+                            VipBadgeCompact(badge: badge, pointSize: 10)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                     HStack(spacing: 12) {
                         Label(video.viewCount.compactCount, systemImage: "play.fill")
                         Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
