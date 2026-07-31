@@ -206,15 +206,16 @@ final class CDNManager: ObservableObject {
         // engine reports allocation failures that way
         // rather than via `Optional`); the `prefix`
         // walk here can't actually fail for an in-memory
-        // `String`, so the `try?` keeps `allSatisfy`
-        // non-throwing by turning an allocation miss
-        // into a `false` (which then fails the guard
-        // and we treat the host as untrusted — a safe
-        // fallback). The outer `try` on `prefix.split`
-        // is the same idea: the `String.split(separator:)`
-        // overload was marked `throws` for memory-
-        // pressure parity with the regex variant.
-        guard !prefix.isEmpty, try prefix.split(separator: ".").allSatisfy({ try? Self.hostLabelRegex.firstMatch(in: String($0)) != nil }) else {
+        // `String` we've already trimmed + lowercased to
+        // a max of 253 chars, so `try!` is a sound
+        // shorthand for "the regex engine is fine on
+        // 64-byte label strings, if it ever isn't we'd
+        // rather crash than accept a bad host". The
+        // outer `try` on `prefix.split` is the same
+        // idea: the `String.split(separator:)` overload
+        // was marked `throws` for memory-pressure parity
+        // with the regex variant.
+        guard !prefix.isEmpty, try prefix.split(separator: ".").allSatisfy({ try! Self.hostLabelRegex.firstMatch(in: String($0)) != nil }) else {
             return nil
         }
         
