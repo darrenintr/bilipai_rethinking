@@ -134,7 +134,7 @@ final class CDNManager: ObservableObject {
         func track(_ t: BiliDashSource.Track) -> BiliDashSource.Track {
             let primaryURL = replace(t.baseURL, with: normalizedHost)
             let backupURLs = backupHosts.map { replace(t.baseURL, with: $0) }
-            
+
             return BiliDashSource.Track(
                 baseURL: primaryURL,
                 backupURLs: [primaryURL] + backupURLs,
@@ -146,7 +146,15 @@ final class CDNManager: ObservableObject {
                 mediaStartOffset: t.mediaStartOffset,
                 totalDuration: t.totalDuration,
                 width: t.width,
-                height: t.height
+                height: t.height,
+                // The qn id is host-agnostic; the rewrite path
+                // only touches the URL, not the representation
+                // metadata, so we forward `t.qualityId` verbatim.
+                // Without this, `BiliPlayback.selectedVideoQn`
+                // would resolve to `nil` after a CDN rewrite
+                // and the quality menu would lose the
+                // "currently selected" checkmark.
+                qualityId: t.qualityId
             )
         }
 
@@ -158,14 +166,39 @@ final class CDNManager: ObservableObject {
             fallbackURL: playback.fallbackURL.map { replace($0, with: normalizedHost) },
             referer: playback.referer,
             resumeTime: playback.resumeTime,
-            localContext: playback.localContext
+            localContext: playback.localContext,
+            // The accept-quality list is also host-agnostic
+            // (it's per-video + per-account, not per-CDN), so
+            // forward it through the rewrite so the quality
+            // menu keeps working after a manual / plugin pin
+            // swap. `acceptDescription` is the same — key
+            // it by qn so the lookup is O(1) at render time.
+            acceptQuality: playback.acceptQuality,
+            acceptDescription: playback.acceptDescription,
+            // Same rationale for the audio ladder: the
+            // upstream's audio-id list does not change
+            // when we rewrite the media host, so the audio
+            // menu's filter keeps working after a manual /
+            // plugin pin swap.
+            acceptAudioQuality: playback.acceptAudioQuality
         )
     }
 
     /// Replaces only known Bilibili media CDN hosts and preserves path/query
     /// signatures, which is the key behavior of CCB's URL interception.
+    ///
+    /// **Deprecated:** kept as a thin shim for any future
+    /// "rewrite a single URL on the fly" call site (e.g. an
+    /// in-app browser that wants to route an `<a>` href through
+    /// the user's manual host), but the active path today is
+    /// `rewrite(_:pinHost:)` which handles a full
+    /// `BiliPlayback` and the `pinHost` plugin hook. Callers
+    /// should prefer the `rewrite` overload — this method does
+    /// NOT consult the plugin pin and is therefore unsafe as a
+    /// general-purpose entry point.
+    @available(*, deprecated, message: "Use rewrite(_:pinHost:) so plugin pins are honoured.")
     func replaceMediaURL(_ url: URL) -> URL {
-        guard isEnabled, 
+        guard isEnabled,
               let selected = UserDefaults.standard.string(forKey: Self.selectedHostKey),
               !selected.isEmpty,
               let normalizedHost = normalize(host: selected),

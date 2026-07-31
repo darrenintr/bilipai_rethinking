@@ -3482,6 +3482,47 @@ private struct BiliAISummaryPayload: Decodable, Sendable {
     }
 }
 
+/// One entry in `data.accept_description` returned by
+/// `/x/player/playurl`. Used as a fallback label source for
+/// `BiliVideoQuality` entries we don't model in the enum
+/// ladder. The wire shape is roughly:
+///   {
+///     "qn": 80,
+///     "display": "1080P 高清"
+///   }
+/// `display` is the user-facing string; B站 sometimes also
+/// returns a `description` key (without the trailing `_`)
+/// in older PGC responses — we accept both.  All fields are
+/// optional so a sparse entry decodes to a usable stub
+/// instead of throwing the whole `accept_description` array.
+private struct AcceptQualityDescription: Decodable, Sendable {
+    let qn: Int
+    let display: String?
+
+    enum CodingKeys: String, CodingKey {
+        case qn
+        case display
+        // Aliases for the older surfaces / PGC paths.
+        case descriptionKey = "description"
+        case desc
+        case text
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // `qn` is the only mandatory field — without it the
+        // entry is meaningless (the menu keys by qn, not by
+        // display text).  Throw to drop the whole array on a
+        // bad entry rather than silently miss-rendering a row.
+        self.qn = try container.decode(Int.self, forKey: .qn)
+        self.display = try container.decodeIfPresent(
+            String.self, forKey: .display
+        ) ?? container.decodeIfPresent(String.self, forKey: .descriptionKey)
+            ?? container.decodeIfPresent(String.self, forKey: .desc)
+            ?? container.decodeIfPresent(String.self, forKey: .text)
+    }
+}
+
 private struct PlayURLPayload: Decodable, Sendable {
     let durl: [DURL]?
     let dash: Dash?
@@ -3504,6 +3545,39 @@ private struct PlayURLPayload: Decodable, Sendable {
     /// top level (Bili mirrors it in both the legacy `timelength`
     /// and the DASH `mediaInfo.duration` paths).
     let duration: Double?
+    /// The set of video qn values B站 is willing to serve for
+    /// this video + this account. Sourced from
+    /// `data.accept_quality` (a bare `[Int]`, e.g.
+    /// `[16, 32, 64, 80, 112, 116]` for a 1080P60 upload). The
+    /// player / quality menu use this to *only* render rows the
+    /// upstream actually returns — without it, the menu shows
+    /// every ladder entry and tapping 4K on a video that only
+    /// has 1080P forces a needless playurl round-trip that
+    /// ends in `code -62002` ("请开通大会员") for non-VIP and a
+    /// generic failure for VIP. `nil` when the upstream omits
+    /// the field (legacy PGC or future API drift) — the menu
+    /// falls back to the full ladder in that case so a missing
+    /// field is non-fatal.
+    let acceptQuality: [Int]?
+    /// Human-readable ladder the upstream publishes alongside
+    /// `accept_quality`, e.g. `{"qn": 80, "display": "1080P 高清"}`.
+    /// Used as a *fallback label* for qn values we don't model
+    /// in `BiliVideoQuality` (B站 occasionally rolls a test
+    /// ladder and the new qn shows up here before the SwiftUI
+    /// menu grows an enum case for it). `nil` when missing —
+    /// menu falls through to the bare "<qn>P" formatter.
+    let acceptDescription: [AcceptQualityDescription]?
+    /// Audio ladder the upstream is willing to serve, sourced
+    /// from `data.accept_audio_quality` (a bare `[Int]` of
+    /// audio ids — 30216 / 30232 / 30250 / 30280). The audio
+    /// quality menu reads this to *only* render rows the
+    /// server actually returned; without it, the menu
+    /// hard-codes the full 4-step ladder and tapping 320 kbps
+    /// Hi-Res on a video that only has 128 kbps AAC forces
+    /// a playurl round-trip that ends in a no-track return.
+    /// `nil` for legacy PGC / non-DASH responses (which
+    /// still surface the menu's full ladder).
+    let acceptAudioQuality: [Int]?
 
     /// Tolerant decoder.  Bilibili serves `hls` and `durl` in
     /// several observed shapes:
@@ -3558,6 +3632,41 @@ private struct PlayURLPayload: Decodable, Sendable {
         } else {
             self.duration = nil
         }
+        // `accept_quality` is a bare `[Int]` on the modern
+        // surface. We tolerate a missing field (legacy / PGC)
+        // and a single-int typo (some testing surfaces emit
+        // `80` instead of `[80]`) so one upstream glitch
+        // doesn't black-hole the menu.  Integers only —
+        // `BiliVideoQuality.rawValue` is `Int`, so anything
+        // non-integral would have no consumer.
+        if let array = try? container.decode([Int].self, forKey: DynamicKey("accept_quality")) {
+            self.acceptQuality = array
+        } else if let single = container.decodeInt(keys: ["accept_quality"]) {
+            self.acceptQuality = [single]
+        } else {
+            self.acceptQuality = nil
+        }
+        self.acceptDescription = try? container.decode(
+            [AcceptQualityDescription].self,
+            forKey: DynamicKey("accept_description")
+        )
+        // `accept_audio_quality` shares the wire shape with
+        // `accept_quality` (a bare `[Int]` of audio ids). The
+        // tolerant single-int fallback below handles the
+        // rare testing surfaces that emit `30232` instead of
+        // `[30232]`. Same "missing field is non-fatal"
+        // semantics — the audio menu falls back to the full
+        // ladder so legacy PGC / non-DASH responses still
+        // get a usable menu.
+        if let array = try? container.decode(
+            [Int].self, forKey: DynamicKey("accept_audio_quality")
+        ) {
+            self.acceptAudioQuality = array
+        } else if let single = container.decodeInt(keys: ["accept_audio_quality"]) {
+            self.acceptAudioQuality = [single]
+        } else {
+            self.acceptAudioQuality = nil
+        }
     }
 
     /// D++ path.  Return a `BiliPlayback` even if the upstream
@@ -3569,6 +3678,26 @@ private struct PlayURLPayload: Decodable, Sendable {
         preferredAudioQuality: Int = BiliAudioQuality.defaultID
     ) -> BiliPlayback? {
         let refererURL = URL(string: referer)!
+        // Project the upstream `accept_description` into a
+        // qn-keyed `[Int: String]` so the quality menu can
+        // resolve a label in O(1) without re-walking the
+        // array per render. `nil` for the legacy PGC path
+        // (the field is missing) or for an empty list (the
+        // upstream responded with an empty array — treat as
+        // missing). Entries with a nil `display` are dropped
+        // here so the menu's "label or fallback" code path
+        // is the single point of truth.
+        let acceptDescriptionByQn: [Int: String]? = {
+            guard let entries = acceptDescription, !entries.isEmpty else { return nil }
+            var out: [Int: String] = [:]
+            out.reserveCapacity(entries.count)
+            for entry in entries {
+                if let display = entry.display, !display.isEmpty {
+                    out[entry.qn] = display
+                }
+            }
+            return out.isEmpty ? nil : out
+        }()
 
         // 1) Prefer the upstream HLS master if B站 gave us one
         //    (fnval & 64).  AVPlayer consumes HLS natively and
@@ -3586,7 +3715,10 @@ private struct PlayURLPayload: Decodable, Sendable {
             return BiliPlayback(
                 dash: nil,
                 fallbackURL: url,
-                referer: refererURL
+                referer: refererURL,
+                acceptQuality: acceptQuality,
+                acceptDescription: acceptDescriptionByQn,
+                acceptAudioQuality: acceptAudioQuality
             )
         }
 
@@ -3604,7 +3736,10 @@ private struct PlayURLPayload: Decodable, Sendable {
                     "hasHls": (hls?.isEmpty ?? true) == false,
                     "dashVideoCount": dash?.video.count ?? 0,
                     "dashAudioCount": dash?.audio.count ?? 0,
-                    "durlCount": durl?.count ?? 0
+                    "durlCount": durl?.count ?? 0,
+                    "acceptQuality": acceptQuality ?? [],
+                    "acceptDescriptionCount": acceptDescription?.count ?? 0,
+                    "acceptAudioQuality": acceptAudioQuality ?? []
                 ])
 
         // 2) DASH path.  B站 ships DASH manifests for 1080P+
@@ -3635,7 +3770,10 @@ private struct PlayURLPayload: Decodable, Sendable {
             return BiliPlayback(
                 dash: dashSource,
                 fallbackURL: nil,
-                referer: refererURL
+                referer: refererURL,
+                acceptQuality: acceptQuality,
+                acceptDescription: acceptDescriptionByQn,
+                acceptAudioQuality: acceptAudioQuality
             )
         }
         // Diagnose why DASH was unusable.  This shows up in
@@ -3679,7 +3817,10 @@ private struct PlayURLPayload: Decodable, Sendable {
             return BiliPlayback(
                 dash: nil,
                 fallbackURL: url,
-                referer: refererURL
+                referer: refererURL,
+                acceptQuality: acceptQuality,
+                acceptDescription: acceptDescriptionByQn,
+                acceptAudioQuality: acceptAudioQuality
             )
         }
         return nil
@@ -3851,7 +3992,15 @@ private struct PlayURLPayload: Decodable, Sendable {
                             ?? videoInit.endOffset + 1,
                     totalDuration: totalDuration,
                     width: v.width,
-                    height: v.height
+                    height: v.height,
+                    // The video `id` matches the `accept_quality`
+                    // ladder (16/32/64/80/...) — used by
+                    // `BiliPlayback.selectedVideoQn` so the
+                    // quality menu can check the currently-
+                    // playing row when the user re-opens it
+                    // mid-playback. `nil` for legacy responses
+                    // that omit the field.
+                    qualityId: v.id
                 ),
                 audio: audioTrack.map { item in
                     let audio = item.media
@@ -3869,7 +4018,14 @@ private struct PlayURLPayload: Decodable, Sendable {
                                 ?? audioInit.endOffset + 1,
                         totalDuration: totalDuration,
                         width: nil,
-                        height: nil
+                        height: nil,
+                        // Audio `id` is the audio-quality ladder
+                        // (30216 / 30232 / 30250 / 30280). The
+                        // audio menu uses this to render the
+                        // checkmark on the currently-playing
+                        // row after the user dismisses and
+                        // re-opens the menu.
+                        qualityId: audio.id
                     )
                 }
             )
@@ -3894,6 +4050,12 @@ private struct PlayURLPayload: Decodable, Sendable {
         let segmentBase: SegmentBase?
         let width: Int?
         let height: Int?
+        /// Representation id matching the `accept_quality` ladder
+        /// (16/32/64/80/112/116/120/125/126/127/128/129/130/131).
+        /// `nil` for legacy responses that omit the field — the
+        /// quality menu then falls back to the `BiliPlayback.
+        /// preferredQn` published state.
+        let id: Int?
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: DynamicKey.self)
@@ -3920,6 +4082,12 @@ private struct PlayURLPayload: Decodable, Sendable {
             bandwidth = container.decodeInt(keys: ["bandwidth"])
             width = container.decodeInt(keys: ["width"])
             height = container.decodeInt(keys: ["height"])
+            // `id` is optional; some legacy / PGC responses
+            // omit it. `decodeInt` already treats a missing
+            // key as `nil`, so a sparse entry here is benign
+            // (the menu's fallback path is the BiliPlayback's
+            // own `preferredQn`).
+            id = container.decodeInt(keys: ["id"])
             segmentBase =
                 (try? container.decode(SegmentBase.self,
                                        forKey: DynamicKey("SegmentBase")))
