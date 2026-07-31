@@ -28,6 +28,94 @@ private struct ActivityShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
+/// Wires the 大会员 upgrade sheet plumbing onto the
+/// `VideoDetailView` body. Kept in a `ViewModifier` so the
+/// body's type-check doesn't compound across the (otherwise)
+/// already 350+-line chain — SwiftUI's type-checker has a
+/// hard time with modifier chains past ~50 deep, and the
+/// `onChange` on the ViewModel's `vipUpgradeReason` plus two
+/// separate `vipUpgradeAlert` modifiers would push the body
+/// past the threshold.
+///
+/// Why the modifier takes the *ViewModel* and the local
+/// `@State` bindings separately: the menu buttons flip the
+/// local `videoUpgradeReason` / `audioUpgradeReason` so the
+/// alert can name the specific row the user just tapped,
+/// while a *refetched* playurl that hits `-40103` /
+/// `-62002` / `-62004` / `-62012` flips the ViewModel's
+/// `vipUpgradeReason` — the `onChange` block bridges the
+/// two so the same sheet surfaces regardless of which
+/// path triggered it.
+private struct VipUpgradeSheetModifier: ViewModifier {
+    /// The view model owns the *refetch* source. We only
+    /// read `vipUpgradeReason` / `preferredQn` /
+    /// `preferredAudioQuality` from it; we never write to
+    /// anything except `vipUpgradeReason` (clearing it after
+    /// the alert presents so a follow-up failure can
+    /// re-trigger).
+    @ObservedObject var model: VideoDetailViewModel
+    /// Menu-driven reason for the video-quality sheet.
+    @Binding var videoUpgradeReason: VipUpgradeReason?
+    /// Rendered label of the gated row the user tapped
+    /// in the *video* quality menu (or the row the
+    /// ViewModel was on when a refetch failed).
+    @Binding var videoUpgradeLabel: String?
+    /// Menu-driven reason for the audio-quality sheet.
+    @Binding var audioUpgradeReason: VipUpgradeReason?
+    /// Rendered label of the gated row the user tapped
+    /// in the *audio* quality menu. Kept on a separate
+    /// binding from the video so the two sheets never
+    /// stomp each other.
+    @Binding var audioUpgradeLabel: String?
+    /// Login action (sign-in sheet) — wired from the
+    /// modifier caller because the router is `@MainActor`
+    /// and the modifier itself is a value type.
+    let onLogin: () -> Void
+    /// Upgrade action (open B站's account hub) — same
+    /// reason as `onLogin`, the modifier doesn't reach
+    /// for `UIApplication` itself.
+    let onUpgrade: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .vipUpgradeAlert(
+                reason: $videoUpgradeReason,
+                gatedLabel: videoUpgradeLabel,
+                onLogin: onLogin,
+                onUpgrade: onUpgrade
+            )
+            .vipUpgradeAlert(
+                reason: $audioUpgradeReason,
+                gatedLabel: audioUpgradeLabel,
+                onLogin: onLogin,
+                onUpgrade: onUpgrade
+            )
+            .onChange(of: model.vipUpgradeReason) { _, newValue in
+                guard let newValue else { return }
+                // Render the *current* preferred qn / audio
+                // id into the alert body so the sheet names
+                // the row the user last tried to switch to.
+                // We pick the *video* slot as the label sink
+                // because the video quality ladder is the
+                // primary VIP-gate; the audio sheet picks up
+                // its own label from the menu's own state
+                // path.
+                if let q = BiliVideoQuality(rawValue: model.preferredQn) {
+                    videoUpgradeLabel = q.title(isVIP: false)
+                } else if let a = BiliAudioQuality(rawValue: model.preferredAudioQuality) {
+                    videoUpgradeLabel = a.title + " · " + L10n.vip.lockedBadge
+                }
+                videoUpgradeReason = newValue
+                // Clear the published reason so the next
+                // refetch that hits the same code path can
+                // re-trigger the alert (otherwise SwiftUI
+                // would skip the onChange when the value
+                // didn't change).
+                model.vipUpgradeReason = nil
+            }
+    }
+}
+
 struct VideoDetailView: View {
     let video: BiliVideo
     let repository: PaladalaRepository
@@ -306,66 +394,25 @@ struct VideoDetailView: View {
         } message: {
             Text(lanShareError ?? "")
         }
-        // 大会员 upgrade sheet for the video quality menu.
-        // The video and audio menus use *separate* state so a
-        // sheet from one menu never cancels a sheet from the
-        // other; the helper itself is menu-agnostic — it just
-        // gets the rendered label so the body copy can name the
-        // specific row the user tapped.
-        //
-        // The `vipUpgradeAlert` binding is fed by *two*
-        // sources: the menu buttons (which set the local
-        // `videoUpgradeReason` / `audioUpgradeReason` so the
-        // alert can name the specific row the user just
-        // tapped) and the ViewModel's `vipUpgradeReason`,
-        // which flips when a *refetched* playurl returns
-        // `-40103` / `-62002` / `-62004` / `-62012`. The
-        // `onChange` below mirrors the ViewModel reason
-        // into the local state and lets the user dismiss
-        // the inline error banner by tapping the sheet.
-        .vipUpgradeAlert(
-            reason: $videoUpgradeReason,
-            gatedLabel: videoUpgradeLabel,
-            onLogin: { router.presentLoginSheet() },
-            onUpgrade: { UIApplication.shared.open(VipUpgradeURL.upgrade) }
+        // 大会员 upgrade sheet plumbing — kept in a
+        // `ViewModifier` so the (already 350+-line) body
+        // doesn't compound the SwiftUI type-checker cost.
+        // The modifier takes both the menu-driven
+        // bindings *and* the ViewModel-published reason
+        // so a refetch failure surfaces the same sheet
+        // the menu raises. See `VipUpgradeSheetModifier`
+        // above for the wiring.
+        .modifier(
+            VipUpgradeSheetModifier(
+                model: model,
+                videoUpgradeReason: $videoUpgradeReason,
+                videoUpgradeLabel: $videoUpgradeLabel,
+                audioUpgradeReason: $audioUpgradeReason,
+                audioUpgradeLabel: $audioUpgradeLabel,
+                onLogin: { router.presentLoginSheet() },
+                onUpgrade: { UIApplication.shared.open(VipUpgradeURL.upgrade) }
+            )
         )
-        // Same shape for the audio quality menu. Keeping the
-        // two modifiers on the root view (rather than the
-        // individual menus) so SwiftUI's alert stack sees a
-        // single modifier per concern; a second alert from
-        // the same modifier while one is already on screen
-        // would otherwise flicker between sheets.
-        .vipUpgradeAlert(
-            reason: $audioUpgradeReason,
-            gatedLabel: audioUpgradeLabel,
-            onLogin: { router.presentLoginSheet() },
-            onUpgrade: { UIApplication.shared.open(VipUpgradeURL.upgrade) }
-        )
-        // Sync the ViewModel-published upgrade reason into
-        // the local state. We pick `videoUpgradeReason` as
-        // the sink (rather than adding a third alert) so
-        // the user gets a single sheet on screen at a time;
-        // the ViewModel never sets `vipUpgradeReason`
-        // while a menu-triggered sheet is on screen, so
-        // this is safe.
-        .onChange(of: model.vipUpgradeReason) { _, newValue in
-            guard let newValue else { return }
-            // Render the *current* preferred qn / audio id
-            // into the alert body so the sheet names the
-            // row the user last tried to switch to.
-            if let q = BiliVideoQuality(rawValue: model.preferredQn) {
-                videoUpgradeLabel = q.title(isVIP: false)
-            } else if let a = BiliAudioQuality(rawValue: model.preferredAudioQuality) {
-                videoUpgradeLabel = a.title + " · " + L10n.vip.lockedBadge
-            }
-            videoUpgradeReason = newValue
-            // Clear the published reason so the next
-            // refetch that hits the same code path can
-            // re-trigger the alert (otherwise SwiftUI
-            // would skip the onChange when the value
-            // didn't change).
-            model.vipUpgradeReason = nil
-        }
         .task {
             // Hydrate the model from the persisted sort before the
             // first fetch — otherwise the in-memory `commentSort`
@@ -1253,8 +1300,18 @@ struct VideoDetailView: View {
         let activeBadge = authStore.activeAccount?.vipBadge
         return Menu {
             ForEach(BiliVideoQuality.allCases.reversed()) { quality in
+                // `let qn` is hoisted out of the `Button`
+                // closure and into the `ForEach` closure so
+                // both the action and the label closures can
+                // read it. `Button { ... } label: { ... }`
+                // uses two sibling closures — Swift's
+                // definite-init check refuses a `let qn`
+                // declared inside the action closure that is
+                // then referenced by the label closure, and
+                // the type-checker has gotten stricter about
+                // it under Swift 6.
+                let qn = quality.rawValue
                 Button {
-                    let qn = quality.rawValue
                     // Same-row tap: no-op. The check sits
                     // *before* the VIP gate so a user re-tapping
                     // their current (non-gated) row does not
@@ -1330,8 +1387,12 @@ struct VideoDetailView: View {
         let activeBadge = authStore.activeAccount?.vipBadge
         return Menu {
             ForEach(BiliAudioQuality.allCases) { audio in
+                // Hoisted for the same Swift 6 definite-init
+                // reason as `qualityMenu` — sibling closures
+                // can no longer share a `let` declared in
+                // only one of them.
+                let qn = audio.rawValue
                 Button {
-                    let qn = audio.rawValue
                     // Same-row tap: no-op (sits *before* the
                     // VIP gate, see the matching comment in
                     // `qualityMenu` for the rationale).

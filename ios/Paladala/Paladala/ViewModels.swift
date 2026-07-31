@@ -1072,6 +1072,16 @@ final class VideoDetailViewModel: ObservableObject {
                 errorMessage = "无法识别该视频（缺少 aid/bvid）。"
             case .noPlayableFormat:
                 errorMessage = "该视频的可用清晰度均不可播放（可能为地区限制或大会员专享）。"
+            case .vipRequired:
+                // Same shape as `.noPlayableFormat` from the
+                // user's perspective — every reachable qn was
+                // gated behind a 大会员 requirement. The
+                // upgrade sheet is raised by the player
+                // toolbar, not by the load path, so the
+                // inline banner is intentionally short.
+                errorMessage = L10n.vip.requiredHint
+            case .vipExpired:
+                errorMessage = L10n.vip.expiredHint
             case .invalidURL, .http:
                 errorMessage = "网络异常，请检查连接后重试。"
             case .sessionExpired:
@@ -1448,13 +1458,26 @@ final class VideoDetailViewModel: ObservableObject {
     /// exists for symmetry with the video path and to keep
     /// the inline comment from getting long.
     private func fallbackAudioQualityForVipGate(current: Int) -> Int? {
-        guard let current = BiliAudioQuality(rawValue: current), current.requiresVIP else {
-            return current?.rawValue
+        // The original `current` Int is a ladder id we may
+        // not have a `BiliAudioQuality` case for (the
+        // upstream occasionally inserts test ladders). If
+        // it doesn't map, fall back to the highest
+        // non-gated case directly.
+        guard let mapped = BiliAudioQuality(rawValue: current) else {
+            return BiliAudioQuality.allCases.first(where: { !$0.requiresVIP })?.rawValue
         }
-        for quality in BiliAudioQuality.allCases where !quality.requiresVIP {
-            return quality.rawValue
+        // If the pick itself is non-gated, return it as-is
+        // — the caller is already on a legal ladder entry
+        // and the inline error banner is the only thing
+        // that needs to change.
+        if !mapped.requiresVIP {
+            return mapped.rawValue
         }
-        return nil
+        // Otherwise walk the ladder for the first
+        // non-gated entry (always 128 kbps AAC today;
+        // using `first(where:)` rather than a hard-coded
+        // id keeps the helper ladder-driven).
+        return BiliAudioQuality.allCases.first(where: { !$0.requiresVIP })?.rawValue
     }
 
     func submitComment(repository: PaladalaRepository, message: String) async -> Bool {
