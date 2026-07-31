@@ -56,21 +56,35 @@ final class MiniPlayerStore: ObservableObject {
     private var pendingPlayback: BiliPlayback?
 
     /// Bind a new playback to the store. Idempotent: if the same
-    /// video is already bound **and the playback object is
-    /// unchanged**, the call returns without rebuilding the
-    /// controller or re-firing `WatchSession.start()`.  Equality
-    /// is by `BiliPlayback` Hashable conformance (every field
-    /// the player cares about is in the hash), so re-binding
-    /// with the same fetch result is a no-op even if the
-    /// controller's `duration` hasn't resolved yet — that path
-    /// was previously racing with `onAppear` and falling through
-    /// to a teardown + rebuild loop.
+    /// video is already bound **and the playback represents the
+    /// same playable content**, the call returns without
+    /// rebuilding the controller or re-firing `WatchSession.start()`.
+    ///
+    /// **PR-X (Issue 1 — fullscreen↔PiP "video ended" regression)**:
+    /// equality is by `BiliPlayback.contentIdentity`, NOT by the
+    /// default `Hashable` conformance.  The default hash compares
+    /// every field including the session-specific query string
+    /// inside `dash.video.baseURL` / `backupURLs` (which carry
+    /// `upsig` / `uipk` / `deadline` / `mid` / `trid` and rotate
+    /// on every B站 playurl fetch).  Before PR-X, a re-fetch of
+    /// the same video produced a `BiliPlayback` that compared
+    /// `!=` to the previously-bound one even though the actual
+    /// playable content was identical, so this method tore down
+    /// the active controller and built a new one — the user saw
+    /// a visible "video restart" when toggling fullscreen / PiP
+    /// and SwiftUI re-fired `.task` → `model.load` → new playurl.
+    /// `contentIdentity` excludes the rotating query string while
+    /// keeping the host (CDN failover matters), byte ranges, qn,
+    /// codec, dimensions, ladders, and the local download path
+    /// — so genuine quality switches / fallback swaps / download
+    /// re-opens still trigger a clean teardown + rebuild, but a
+    /// session-token-only re-fetch of the same video is a no-op.
     func bind(video: BiliVideo, playback: BiliPlayback, repository: PaladalaRepository) {
         if let current = currentVideo,
            current.id == video.id,
            let pendingPlayback,
-           pendingPlayback == playback {
-            // Same video, same playback — keep the existing
+           pendingPlayback.contentIdentity == playback.contentIdentity {
+            // Same video, same content — keep the existing
             // controller and watch session.  Hide the mini-player
             // if a previous navigation push surfaced it so the
             // inline player re-takes over.
@@ -79,7 +93,8 @@ final class MiniPlayerStore: ObservableObject {
                     isShowingMiniPlayer = false
                 }
             }
-            diagLog(.playback, "MiniPlayerStore.bind: idempotent re-bind", details: ["videoID": video.id])
+            diagLog(.playback, "MiniPlayerStore.bind: idempotent re-bind",
+                    details: ["videoID": video.id])
             return
         }
 

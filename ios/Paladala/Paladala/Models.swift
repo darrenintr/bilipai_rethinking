@@ -731,6 +731,114 @@ struct BiliPlayback: Hashable, Sendable {
     var selectedAudioQn: Int? {
         dash?.audio?.qualityId
     }
+
+    /// **PR-X (Issue 1 — fullscreen↔PiP "video ended" regression)**:
+    /// stable content-level identity hash. Two `BiliPlayback`
+    /// values are content-equivalent when they represent the same
+    /// playable content for the same video — same track
+    /// selection, same codec, same byte ranges, same ladders.
+    ///
+    /// **Intentionally EXCLUDES** the session-specific fields
+    /// inside `dash.video.baseURL` / `backupURLs` / audio URLs.
+    /// Those URLs carry `upsig` / `uipk` / `deadline` / `mid` /
+    /// `trid` and rotate on every B站 playurl fetch — so the
+    /// default `Hashable` conformance (which compares full URL
+    /// strings) sees two fetches of the same video as different
+    /// values. Before PR-X, `MiniPlayerStore.bind` would treat
+    /// that as "playback changed" and tear down the active
+    /// controller + build a new one, surfacing as a visible
+    /// "video restart" when the user toggled fullscreen / PiP
+    /// and SwiftUI re-fired `.task` → `model.load` → new
+    /// playurl. The bug was masked by the fact that Bilibili
+    /// returns the same host ladder and same byte ranges, only
+    /// the query string changes.
+    ///
+    /// `MiniPlayerStore.bind` now compares this identity instead
+    /// of the full Hashable equality, so a re-fetch for the same
+    /// video is treated as a no-op re-bind and the existing
+    /// `AVPlayerController` keeps running.
+    ///
+    /// Two playbacks that differ in `qualityId` / `codecs` /
+    /// `width` / `height` / `initRange` / `indexRange` /
+    /// `mediaStartOffset` / `totalDuration` / `acceptQuality` /
+    /// `acceptAudioQuality` / `acceptDescription` / `fallbackURL`
+    /// host / `localContext` directory DO produce different
+    /// identities — quality switches, fallback swaps, and
+    /// download re-opens still trigger a clean teardown + rebuild.
+    var contentIdentity: String {
+        var parts: [String] = []
+        if let dash {
+            parts.append("v:" + Self.trackContentIdentity(dash.video))
+            if let audio = dash.audio {
+                parts.append("a:" + Self.trackContentIdentity(audio))
+            }
+        }
+        if let fallback = fallbackURL {
+            parts.append("fb:" + Self.urlContentIdentity(fallback))
+        }
+        if let local = localContext {
+            // Local download paths vary on a per-bvid basis
+            // but NOT per-fetch — a stable identity.
+            parts.append("loc:" + local.directory.standardizedFileURL.path)
+        }
+        if let accept = acceptQuality {
+            parts.append("aq:" + accept.map(String.init).joined(separator: ","))
+        }
+        if let acceptAudio = acceptAudioQuality {
+            parts.append("aa:" + acceptAudio.map(String.init).joined(separator: ","))
+        }
+        if let desc = acceptDescription {
+            // Sort the dict so the same ladder in different
+            // iteration order still hashes to the same string.
+            let sorted = desc.sorted { $0.key < $1.key }
+            parts.append(
+                "ad:" + sorted.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+            )
+        }
+        return parts.isEmpty ? "empty" : parts.joined(separator: "|")
+    }
+
+    /// `Track` content identity — what makes one video track
+    /// "the same content" as another. Excludes the full
+    /// `baseURL` / `backupURLs` query string (session tokens)
+    /// but keeps the host + path (which DOES change with CDN
+    /// failover, and a host change means the proxy needs to
+    /// re-resolve through DNS).
+    private static func trackContentIdentity(_ t: BiliDashSource.Track) -> String {
+        let url = Self.urlContentIdentity(t.baseURL)
+        let backups = t.backupURLs
+            .map(Self.urlContentIdentity)
+            .joined(separator: ",")
+        let initRange = "\(t.initializationRange.offset):\(t.initializationRange.length)"
+        let indexRange = t.indexRange.map { "\($0.offset):\($0.length)" } ?? "nil"
+        let dims = "\(t.width ?? 0)x\(t.height ?? 0)"
+        // `%.3f` keeps the duration string stable across runs
+        // (Double toString can drift on binary boundaries).
+        return [
+            t.qualityId.map(String.init) ?? "nil",
+            t.codecs,
+            String(t.bandwidth),
+            t.mimeType,
+            dims,
+            initRange,
+            indexRange,
+            String(t.mediaStartOffset),
+            String(format: "%.3f", t.totalDuration),
+            url,
+            backups
+        ].joined(separator: ";")
+    }
+
+    /// `host + path` of the URL, deliberately dropping the
+    /// query string and fragment. The query carries
+    /// `upsig` / `uipk` / `deadline` / `mid` / `trid` which
+    /// rotate on every fetch and would otherwise break the
+    /// content-identity comparison.
+    private static func urlContentIdentity(_ url: URL) -> String {
+        let host = url.host ?? ""
+        let path = url.path
+        return host.isEmpty ? path : host + path
+    }
 }
 
 /// Pointer to an on-disk download that the local HLS proxy
