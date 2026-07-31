@@ -32,6 +32,13 @@ enum LaunchEvent {
     case firstTabInteractive(tag: MainTab)
     case proxyListenerRequested
     case proxyListenerReady
+    // Cold-launch CDN speed-test (auto-probe of the B站 media
+    // edges via `CDNManager.ensureProbedOnLaunch()`). Bookends
+    // the off-critical-path `Task.detached` in `PaladalaApp.init`
+    // so the cold-start JSONL shows how long the network probe
+    // took without polluting the launch-marker timeline.
+    case cdnProbeRequested
+    case cdnProbeReady
 
     /// The associated `tag` for cases that carry one. PR-A's plan
     /// called this out as a verify-before-saving step — the real

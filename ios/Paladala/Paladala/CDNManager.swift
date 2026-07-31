@@ -394,4 +394,161 @@ final class CDNManager: ObservableObject {
         
         return trimmedHost
     }
+
+    // MARK: - Cold-launch auto-probe
+
+    /// UserDefaults key for the wall-clock time of the last
+    /// successful cold-launch speed test.  Used by the
+    /// TTL gate inside `ensureProbedOnLaunch()` so a user
+    /// who re-opens the app within `probeTTLSeconds` does
+    /// not pay for a fresh probe + the GitHub `cdn.json`
+    /// hit that precedes it.
+    nonisolated static let lastProbedAtKey = "paladala.cdn.lastProbedAt"
+    /// UserDefaults key for the winning host of the last
+    /// probe.  Persists across launches so the very first
+    /// playback after cold-launch already has a "best known
+    /// host" to fall back on while the in-flight probe
+    /// runs.  Mirrors `lowestDelayHost` (which only lives
+    /// in memory); read via the `cachedBestHost` computed
+    /// property below.
+    nonisolated static let cachedBestHostKey = "paladala.cdn.cachedBestHost"
+    /// Six hours.  Re-probing on every cold-launch is
+    /// wasteful (the GitHub `cdn.json` fetch alone is a
+    /// ~200 ms cost, and the per-host TLS probe is another
+    /// ~1 s × 6 nodes); six hours matches the typical
+    /// "user is on the same network as the last time"
+    /// window.  The user can always re-test from the
+    /// settings page if they move networks.
+    nonisolated static let probeTTLSeconds: TimeInterval = 6 * 3600
+
+    /// In-process guard.  Set to `true` the first time
+    /// `ensureProbedOnLaunch()` actually kicks off a probe
+    /// so re-mounting the settings view, or a hot-reload
+    /// during development, does not double-fire.  Reset
+    /// on next process start (deliberate — see the
+    /// `lastProbedAtKey` UserDefaults entry for cross-launch
+    /// de-dupe).
+    private var hasProbedThisLaunch = false
+    private let probeLock = NSLock()
+
+    /// Last probe's winning host, persisted across launches.
+    /// Survives app restart; used as the fallback when
+    /// `lowestDelayHost` is `nil` (i.e. no probe has run
+    /// yet in this process).
+    var cachedBestHost: String? {
+        UserDefaults.standard.string(forKey: Self.cachedBestHostKey)
+    }
+
+    /// Best host we can name *right now*.  Order of
+    /// preference:
+    /// 1. `lowestDelayHost` — winner of the in-flight (or
+    ///    just-finished) probe this session.
+    /// 2. `cachedBestHost` — winner of a previous
+    ///    session's probe, persisted to UserDefaults.
+    ///
+    /// Distinct from `selectedHost` on purpose:
+    /// `selectedHost` is the *active* host (the user's
+    /// manual choice when `autoPickEnabled` is off, or
+    /// the auto-pick winner when it's on); this property
+    /// is the *best-known* host regardless of the
+    /// user's override.
+    var currentBestHost: String? {
+        lowestDelayHost ?? cachedBestHost
+    }
+
+    /// Cold-launch hook.  Idempotent within a process
+    /// (the in-memory `hasProbedThisLaunch` flag swallows
+    /// re-fires) and within a TTL window (the
+    /// `lastProbedAtKey` UserDefaults entry swallows
+    /// re-fires across launches).  Designed to be
+    /// called off the launch critical path:
+    ///
+    /// ```swift
+    /// Task.detached(priority: .userInitiated) {
+    ///     await CDNManager.shared.ensureProbedOnLaunch()
+    /// }
+    /// ```
+    ///
+    /// Emits two `LaunchMetrics` markers
+    /// (`.cdnProbeRequested` / `.cdnProbeReady`) so the
+    /// cold-start JSONL shows how long the network probe
+    /// took without polluting the launch-marker timeline.
+    /// Best-effort: any failure is logged via `diagLog`
+    /// and swallowed.  The caller never sees a thrown
+    /// error.
+    ///
+    /// - Parameter force: when `true`, bypass both the
+    ///   in-process and cross-launch TTL gates.  Reserved
+    ///   for the "user tapped re-test" pathway (the
+    ///   existing `CDNSettingsView` button calls
+    ///   `test(nodes:)` directly, so this is currently
+    ///   unused — kept for future settings hooks like
+    ///   "always re-probe on launch").
+    func ensureProbedOnLaunch(force: Bool = false) async {
+        probeLock.lock()
+        let alreadyProbed = hasProbedThisLaunch
+        probeLock.unlock()
+        if alreadyProbed && !force { return }
+
+        probeLock.lock()
+        hasProbedThisLaunch = true
+        probeLock.unlock()
+
+        if !force,
+           let last = UserDefaults.standard.object(forKey: Self.lastProbedAtKey) as? Date {
+            let age = Date().timeIntervalSince(last)
+            if age < Self.probeTTLSeconds {
+                diagLog(.app, "cdn.probe.skipped", details: [
+                    "reason": "fresh cache",
+                    "ageSeconds": Int(age),
+                    "ttlSeconds": Int(Self.probeTTLSeconds)
+                ])
+                return
+            }
+        }
+
+        LaunchMetrics.shared.mark(.cdnProbeRequested)
+        diagLog(.app, "cdn.probe.started", details: ["force": force])
+
+        // `nodes()` is `async` but **not** `throws` — it
+        // catches its own GitHub fetch / JSON-decode errors
+        // internally and falls back to `fallbackNodes` (the
+        // 6 hardcoded B站 edges) so the picker never sees
+        // an empty list.  The only "empty" case left is a
+        // literal zero-result array, which can't happen in
+        // practice — `fallbackNodes` is hard-coded with 6
+        // entries.  We log it anyway as a sentinel.
+        let probedNodes = await nodes()
+        guard !probedNodes.isEmpty else {
+            diagLog(.app, "cdn.probe.noNodes", details: [:])
+            LaunchMetrics.shared.mark(.cdnProbeReady)
+            return
+        }
+
+        await test(nodes: probedNodes)
+        // `test(nodes:)` already updates `selectedHost`
+        // when `autoPickEnabled` is on (and writes the
+        // akamTester.txt cache file), so we only need to
+        // persist the timestamp + winner.
+        UserDefaults.standard.set(Date(), forKey: Self.lastProbedAtKey)
+        if let best = lowestDelayHost {
+            UserDefaults.standard.set(best, forKey: Self.cachedBestHostKey)
+        }
+
+        LaunchMetrics.shared.mark(.cdnProbeReady)
+        diagLog(.app, "cdn.probe.complete", details: [
+            "nodes": probedNodes.count,
+            "best": lowestBestForLog(),
+            "autoPick": autoPickEnabled,
+            "selectedAfter": selectedHost
+        ])
+    }
+
+    /// `lowestDelayHost` is optional; the diagnostic log
+    /// wants a non-optional `"none"` placeholder.  Kept
+    /// inline to avoid exposing a `lowestDelayHostOrNil`
+    /// API just for logging.
+    private func lowestBestForLog() -> String {
+        lowestDelayHost ?? "none"
+    }
 }

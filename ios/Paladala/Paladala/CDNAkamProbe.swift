@@ -177,3 +177,136 @@ private final class ResumeLatch: @unchecked Sendable {
         return true
     }
 }
+
+// MARK: - Akamai anycast IP seed list
+
+/// Known-good anycast IPs for the B站 海外 Akamai edge
+/// (`upos-hz-mirrorakam.akamaized.net`). Seed list — we
+/// **do not** probe these directly today because iOS
+/// blocks per-IP TLS probing:
+///
+///   1. The C function `sec_protocol_options_set_server_name`
+///      is declared in `<Security/SecProtocolOptions.h>`
+///      (iOS 13+) but **not exported by the iOS Security
+///      dylib** — building an app that calls it produces
+///      `Undefined symbols for architecture arm64:
+///      _sec_protocol_options_set_server_name` at the
+///      linker step (verified on iOS 18.5 SDK with
+///      Xcode 16.4).
+///   2. `URLSession` derives the SNI from the URL host. If
+///      we substitute one of these IPs into the URL, the
+///      `ClientHello` SNI is the IP and B站's edge (cert
+///      is for `*.akamaized.net`) rejects the handshake.
+///
+/// Both gates close the "static IP list + latency test +
+/// SNI-pinned TCP" path that the desktop
+/// [BugKun/akam-proxy](https://github.com/BugKun/akam-proxy)
+/// (Node.js) and the Python
+/// [miyouzi/akamTester](https://github.com/miyouzi/akamTester)
+/// repos implement. We resolve the problem on iOS by
+/// letting `NWConnection` connect to the **host string**
+/// instead — iOS's system DNS already does PoP-aware
+/// anycast routing for akamai edges (see
+/// `TLSHandshakeProbe.probe(host:)` above), and SNI is
+/// filled in from the host for free.
+///
+/// So this list is **dormant today** — kept on disk so a
+/// future `Network.framework` rewrite of the proxy's
+/// upstream fetcher (one that uses raw
+/// `sec_protocol_options_t` *or* an `NWConnection` per IP
+/// with the host baked into the SNI via a workaround for
+/// the missing symbol) has a concrete seed to start from.
+/// The list itself is taken verbatim from
+/// `akam-proxy`'s `ip_list.txt` (BugKun, 22⭐, last
+/// touched 2020) — those are the IPs the community
+/// measured as responding to the akamai anycast for the
+/// B站 海外 mirror. Freshness is unverified; the project
+/// has been quiet for years and some entries may be
+/// recycled.
+///
+/// `nonisolated(unsafe)` is required because the array
+/// itself is `Sendable` (`[String]` is value-typed and
+/// immutable) but the `static let` initialiser is a
+/// process-wide singleton that any isolation domain can
+/// reach; Swift 6's strict concurrency rejects the
+/// default `nonisolated` for globals that aren't
+/// compile-time `let`. The contents are never mutated.
+nonisolated(unsafe) enum AkamaiIPSeedList {
+    static let ips: [String] = [
+        "202.183.253.8",
+        "195.175.116.41",
+        "202.183.253.9",
+        "95.101.128.104",
+        "23.222.29.240",
+        "23.63.74.42",
+        "23.34.61.139",
+        "95.101.128.96",
+        "182.176.156.18",
+        "23.15.179.193",
+        "23.15.179.138",
+        "200.136.36.162",
+        "210.55.204.218",
+        "109.105.109.32",
+        "23.222.29.208",
+        "203.106.94.24",
+        "23.48.39.26",
+        "24.156.130.185",
+        "146.88.61.8",
+        "146.88.61.9",
+        "182.176.156.82",
+        "110.93.233.11",
+        "23.215.131.184",
+        "23.209.183.16",
+        "182.176.156.104",
+        "104.96.221.168",
+        "63.243.242.232",
+        "23.206.194.35",
+        "193.140.13.73",
+        "193.140.13.81",
+        "203.13.161.9",
+        "67.69.196.139",
+        "23.32.3.81",
+        "204.237.143.16",
+        "63.243.242.218",
+        "124.124.252.19",
+        "104.80.88.81",
+        "24.156.130.186",
+        "172.232.0.146",
+        "2.16.106.49",
+        "23.219.93.27",
+        "95.101.1.99",
+        "210.55.204.208",
+        "124.155.223.104",
+        "23.215.131.194",
+        "59.167.22.34",
+        "163.28.5.8",
+        "188.43.72.40",
+        "2.16.106.104",
+        "200.136.36.163",
+        "23.63.74.18",
+        "23.34.61.152",
+        "110.93.233.17",
+        "195.175.116.18",
+        "67.69.196.154",
+        "188.43.72.18",
+        "109.105.109.24",
+        "95.101.0.107",
+        "110.164.253.145",
+        "23.209.183.11",
+        "23.219.93.33",
+        "59.167.22.81",
+        "172.232.0.160",
+        "203.106.94.11",
+        "204.237.143.88",
+        "23.32.3.91",
+        "104.80.88.120",
+        "163.28.5.25",
+        "104.96.221.185",
+        "203.13.161.10",
+        "182.176.156.56",
+        "110.164.253.152",
+        "124.155.223.118",
+        "23.206.194.33",
+        "124.124.252.24",
+    ]
+}

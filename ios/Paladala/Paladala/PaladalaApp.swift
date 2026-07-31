@@ -68,6 +68,22 @@ struct PaladalaApp: App {
             await LocalHLSProxyServer.prewarmProxyServer()
             LaunchMetrics.shared.mark(.proxyListenerReady)
         }
+        // Cold-launch CDN speed test.  `CDNManager.ensureProbedOnLaunch()`
+        // is idempotent (per-process flag + per-launch TTL
+        // gate) and best-effort (any error is logged via
+        // `diagLog` and swallowed), so it's safe to fire
+        // unconditionally here.  When `autoPickEnabled` is on
+        // and the probe finds a faster host, `selectedHost`
+        // flips to the winner — the very first playback after
+        // the probe finishes (typically a few hundred ms after
+        // launch) goes to the new host without any UI flow.
+        // The `.cdnProbeRequested` / `.cdnProbeReady` markers
+        // show up in `PALADALA_COLD_START_DUMP=1` runs so we
+        // can see how long the GitHub `cdn.json` fetch + 6-host
+        // TLS probe took in the field.
+        Task.detached(priority: .userInitiated) {
+            await CDNManager.shared.ensureProbedOnLaunch()
+        }
         let repo = PaladalaRepository(apiClient: client)
         // Do NOT clear `cookieProvider` here — the wired closure is
         // installed in `body.onAppear` below. Clearing it in `init`
