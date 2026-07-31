@@ -1438,9 +1438,31 @@ final class PlayerController: ObservableObject {
                     guard self.player.currentItem === item else { return }
                     if change.newValue == true {
                         self.isBuffering = false
-                        if self.playerError == nil {
-                            self.resetRecoveryAttempts(reason: "likelyToKeepUp")
+                        // **PR-X**: clear any stale
+                        // `.prolongedStall` (or other) error
+                        // now that AVPlayer reports the item
+                        // is keeping up again.  Without this
+                        // the user-facing "加载时间过长,
+                        // 可能是网络问题" overlay sticks on
+                        // screen after a brief hiccup even
+                        // though playback resumed naturally
+                        // — the `playbackStalled` handler now
+                        // debounces 5 s before publishing, but
+                        // if a genuine 5 s+ stall *did* show
+                        // the overlay and then recovered, this
+                        // branch is what auto-dismisses it.
+                        if self.playerError != nil {
+                            diagLog(.playback,
+                                    "playback_recovered_dismiss_error",
+                                    details: [
+                                        "previousError": "\(self.playerError!)"
+                                    ])
+                            self.playerError = nil
+                            if case .failed = self.playbackState {
+                                self.playbackState = .ready
+                            }
                         }
+                        self.resetRecoveryAttempts(reason: "likelyToKeepUp")
                     }
                 }
             }
@@ -1640,37 +1662,42 @@ final class PlayerController: ObservableObject {
                 }
             }
         }
-        // **B1 / C1**: subscribe to `AVPlayerItem.playbackStalledNotification`.
-        // This is Apple's own "I have given up on internal
-        // recovery" notification — it fires when `isPlaybackLikelyToKeepUp`
-        // flips to `false` for long enough that AVPlayer
-        // decides the user is going to see an indefinite
-        // spinner. Before subscribing here we relied on a
-        // hand-rolled 10 s `isPlaybackBufferEmpty` watchdog
-        // (PR-A Group 1, `stallTimerTask`) which is close
-        // but always lags Apple's own signal by at least a
-        // frame. By the time this notification lands:
+        // **B1 / C1 / PR-X**: subscribe to
+        // `AVPlayerItem.playbackStalledNotification`.  Apple's
+        // docs describe it as "posted when the item is no
+        // longer able to play because of insufficient media
+        // data" — i.e. **"stalled right now"**, NOT "Apple
+        // gave up on recovery".  Every 1-2 s network hiccup
+        // fires it, even when the player recovers naturally
+        // on the very next segment.  Pre-PR-X the handler
+        // published `.prolongedStall` immediately and the
+        // overlay stuck around after recovery because
+        // `playerError` is sticky (no KVO path clears it on
+        // natural recovery — see the `isPlaybackLikelyToKeepUp`
+        // observer at installObservers).  The fix is a
+        // 5 s debounce:
         //
-        //   1. Emit a `stall_apple_signal: playbackStalled`
-        //      diagnostic line with the surrounding state so
-        //      the operator can correlate with downstream
-        //      errors. .playback category keeps it grouped
-        //      with the other stall/recovery lines.
-        //   2. Surface it through `publishPlaybackError(...,
-        //      source: "playbackStalled")` so the existing
-        //      recovery pipeline (`seekRefresh` →
-        //      `sessionRestart`) kicks in. We pass
-        //      `allowAutomaticRecovery: false` here because
-        //      this notification already represents Apple's
-        //      recovery having failed — running our own
-        //      seek-refresh on top of it would just spin; let
-        //      the diagnostic record it and the manual retry
-        //      button take over.
+        //   1. Log `stall_apple_signal: playbackStalled` with
+        //      the surrounding state so operators can correlate.
+        //   2. Wait 5 s, then re-check `likelyToKeepUp`.  If
+        //      AVPlayer has recovered, emit
+        //      `stall_debounce_recovered` and return without
+        //      publishing any user-facing error — the brief
+        //      hiccup stays invisible to the user.
+        //   3. If we're still stalled (or seeking — let the
+        //      post-seek watchdog handle that case) after 5 s,
+        //      publish `.prolongedStall` with
+        //      `allowAutomaticRecovery: false`.  This is the
+        //      real "Apple's recovery actually gave up" case;
+        //      the 5 s threshold is shorter than the old
+        //      hand-rolled 10 s `isPlaybackBufferEmpty` watchdog
+        //      (PR-A Group 1) so the overlay surfaces earlier
+        //      when the stall is genuine, and the watchdog is
+        //      now redundant.
         //
         // The error is `.prolongedStall` deliberately so the
         // existing user-facing title ("加载时间过长,可能是
-        // 网络问题") and the dedicated 10 s thresholds stay
-        // coherent with the prior watchdog-derived path.
+        // 网络问题") stays coherent with the prior path.
         playbackStalledObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.playbackStalledNotification,
             object: item, queue: .main
@@ -1689,9 +1716,41 @@ final class PlayerController: ObservableObject {
                             "isSeeking": self.isSeeking,
                             "isBuffering": self.isBuffering
                         ])
+                // Debounce — Apple's notification is "stalled
+                // right now", not "stalled permanently".  Wait
+                // 5 s and re-check before we publish a
+                // user-facing error.  Brief hiccups recover
+                // before the timer fires, so the overlay never
+                // appears for them.  Genuine stalls surface the
+                // overlay earlier than the old 10 s watchdog.
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                guard self.player.currentItem === item else { return }
+                // Re-checked after the wait.  Three escape
+                // hatches before we publish a user-facing error:
+                //   (a) the item is no longer the current one
+                //       (we were torn down or swapped mid-stall)
+                //   (b) AVPlayer says it's keeping up now
+                //   (c) a seek is in flight — let the post-seek
+                //       re-arm logic in performSeek handle it
+                if item.isPlaybackLikelyToKeepUp {
+                    diagLog(.playback,
+                            "stall_debounce_recovered",
+                            details: [
+                                "afterSeconds": 5,
+                                "bufferEmpty": item.isPlaybackBufferEmpty
+                            ])
+                    return
+                }
+                if self.isSeeking {
+                    diagLog(.playback,
+                            "stall_debounce_skipped_seeking",
+                            details: ["afterSeconds": 5])
+                    return
+                }
                 self.publishPlaybackError(
                     .prolongedStall,
-                    source: "playbackStalled",
+                    source: "playbackStalled.debounced",
                     allowAutomaticRecovery: false
                 )
             }
