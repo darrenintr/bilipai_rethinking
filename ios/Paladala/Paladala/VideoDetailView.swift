@@ -402,6 +402,21 @@ struct VideoDetailView: View {
         // so a refetch failure surfaces the same sheet
         // the menu raises. See `VipUpgradeSheetModifier`
         // above for the wiring.
+        //
+        // `onLogin` is passed as a method reference rather
+        // than an inline closure because the modifier
+        // initializer's parameter position is *not* a
+        // `@ViewBuilder` context — the `@EnvironmentObject`
+        // dynamic member lookup that lets us write
+        // `router.presentLoginSheet()` inline at a call
+        // site of another modifier does *not* survive
+        // across the closure boundary (the compiler sees
+        // the closure as a `() -> Void` value with no
+        // `router` in scope, and the dynamic member
+        // reference fails to resolve). A method reference
+        // keeps `router` resolution inside the method's
+        // own body where the @EnvironmentObject's wrapped
+        // value access works as expected.
         .modifier(
             VipUpgradeSheetModifier(
                 model: model,
@@ -409,8 +424,8 @@ struct VideoDetailView: View {
                 videoUpgradeLabel: $videoUpgradeLabel,
                 audioUpgradeReason: $audioUpgradeReason,
                 audioUpgradeLabel: $audioUpgradeLabel,
-                onLogin: { router.presentLoginSheet() },
-                onUpgrade: { UIApplication.shared.open(VipUpgradeURL.upgrade) }
+                onLogin: presentLoginSheet,
+                onUpgrade: openVipUpgradePage
             )
         )
         .task {
@@ -1373,6 +1388,27 @@ struct VideoDetailView: View {
         // sheet copy and primary action differ.
         if let badge, badge.kind != .none, badge.isExpired { return .expired }
         return .notVIP
+    }
+
+    /// Method-reference callback for the 大会员 upgrade
+    /// sheet's "去登录" action. Lives on the view (not as
+    /// an inline closure) because the modifier's parameter
+    /// context can't resolve `@EnvironmentObject`'s dynamic
+    /// member lookup; a method reference keeps the
+    /// `router.presentLoginSheet()` call inside this method
+    /// body where the wrapped value access works.
+    private func presentLoginSheet() {
+        router.presentLoginSheet()
+    }
+
+    /// Method-reference callback for the 大会员 upgrade
+    /// sheet's "去开通/续费" action. Routes through
+    /// `UIApplication.open` because B站's account hub lives
+    /// off-app; an in-app WebView wrapper would be a
+    /// follow-up (see CHANGELOG "Unreleased — premium
+    /// quality" risk note).
+    private func openVipUpgradePage() {
+        UIApplication.shared.open(VipUpgradeURL.upgrade)
     }
 
     /// Audio quality menu, sibling of `qualityMenu`. The user

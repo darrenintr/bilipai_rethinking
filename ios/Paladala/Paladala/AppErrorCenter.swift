@@ -59,6 +59,22 @@ struct AppErrorDescriptor: Equatable, Sendable {
                     message: fallbackMessage ?? "当前视频没有可用的播放源。",
                     isRetryable: true
                 )
+            case .vipRequired, .vipExpired:
+                // Both land in `.playback` because the
+                // user-visible symptom is the same — the
+                // upstream refused to hand us a stream
+                // for the requested quality. The toolbar
+                // also raises a dedicated upgrade sheet
+                // (see `VipUpgradeSheetModifier`); this
+                // descriptor is the inline banner fallback
+                // when the sheet has been dismissed but
+                // the error is still on the model.
+                return AppErrorDescriptor(
+                    kind: .playback,
+                    title: "需要大会员",
+                    message: fallbackMessage ?? "该清晰度/音质需要大会员，开通后即可解锁。",
+                    isRetryable: false
+                )
             case .invalidURL, .missingData, .missingIdentity:
                 return AppErrorDescriptor(
                     kind: .data,
