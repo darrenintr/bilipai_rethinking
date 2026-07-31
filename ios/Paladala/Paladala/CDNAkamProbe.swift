@@ -33,6 +33,11 @@
 import Foundation
 import Network
 import CFNetwork
+// `sec_protocol_options_set_server_name` lives in Security,
+// not CFNetwork — CFNetwork is for the C-level HTTP / FTP
+// streams. Without this `import` the call resolves to
+// "cannot find X in scope" at compile time.
+import Security
 
 // MARK: - DNS resolution
 
@@ -54,10 +59,16 @@ enum DNSResolver {
     /// upstream servers is slow).
     static func resolveIPv4(_ hostname: String) async -> [String] {
         await Task.detached(priority: .userInitiated) { () -> [String] in
-            guard let cfHost = CFHostCreateWithName(nil, hostname as CFString) else {
-                return []
-            }
-            let host = cfHost.takeRetainedValue()
+            // `CFHostCreateWithName` returns `Unmanaged<CFHost>!`
+            // (an implicitly-unwrapped optional), not a regular
+            // `Optional<...>`, so `guard let ... else { return [] }`
+            // fails to compile ("initializer for conditional
+            // binding must have Optional type"). The API only
+            // produces a non-nil value for a non-nil name input
+            // (we pass `hostname as CFString` which is non-nil
+            // for any non-empty Swift `String`), so we just take
+            // the retained value directly.
+            let host = CFHostCreateWithName(nil, hostname as CFString).takeRetainedValue()
             // `CFHostStartInfoResolution` with a `nil` completion
             // callback runs synchronously. Returns false on
             // resolution failure (e.g. NXDOMAIN).
@@ -83,8 +94,15 @@ enum DNSResolver {
             data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
                 guard let base = raw.baseAddress else { return }
                 let sa = base.assumingMemoryBound(to: sockaddr.self)
-                let family = sa.pointee.sa_family
-                switch family {
+                // `sa_family` is `sa_family_t` (UInt8) on iOS,
+                // but `AF_INET` / `AF_INET6` are `Int32`
+                // constants. A direct `switch family { case
+                // AF_INET: ... }` fails to compile ("expression
+                // pattern of type 'Int32' cannot match values
+                // of type 'sa_family_t'"). Cast the family to
+                // `Int32` for the switch (it's a tiny enum so
+                // the conversion is zero-cost and total).
+                switch Int32(sa.pointee.sa_family) {
                 case AF_INET:
                     var addr = sockaddr_in()
                     memcpy(&addr, sa, MemoryLayout<sockaddr_in>.size)
@@ -172,7 +190,13 @@ enum TLSHandshakeProbe {
                         + elapsed.components.attoseconds / 1_000_000_000_000_000
                     )
                     connection.cancel()
-                    latch.tryResume {
+                    // `_ =` silences the "result of call to
+                    // 'tryResume' is unused" warning — the Bool
+                    // return value is meaningful for the timeout
+                    // path (where two callers race) but in
+                    // `.ready` / `.failed` we're the only
+                    // candidate to fire the latch.
+                    _ = latch.tryResume {
                         continuation.resume(returning: TLSProbeResult(
                             ip: ip, host: host,
                             latencyMs: max(ms, 1),
@@ -181,7 +205,7 @@ enum TLSHandshakeProbe {
                     }
                 case .failed(let err):
                     connection.cancel()
-                    latch.tryResume {
+                    _ = latch.tryResume {
                         continuation.resume(returning: TLSProbeResult(
                             ip: ip, host: host,
                             latencyMs: nil, statusCode: nil,
