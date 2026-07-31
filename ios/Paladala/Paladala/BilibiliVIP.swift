@@ -328,8 +328,42 @@ struct BilibiliNavVIPDTO: Codable, Sendable {
             borderHex: label?.borderColor ?? label?.bgColor ?? "#FB7299",
             nicknameColorHex: nicknameColor,
             kind: kind,
-            dueDate: dueDate.flatMap { $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil }
+            dueDate: BiliVIPBadge.parseBiliTimestamp(dueDate)
         )
+    }
+}
+
+// MARK: - B站 unix timestamp helper
+
+extension BiliVIPBadge {
+    /// Parse the `data.vip.due_date` field B站 publishes on
+    /// `/x/web-interface/nav`. The upstream has been observed
+    /// to switch between unix seconds and unix milliseconds
+    /// without a contract change — a value around
+    /// `1_787_942_400` (≈ 2026-08-24) lands as `1_787_942_400_000`
+    /// (≈ year 59612) on the milliseconds surface, and the
+    /// previous naïve `Date(timeIntervalSince1970:)` call
+    /// produced "到期 59612-12-25" in the profile chrome.
+    ///
+    /// Heuristic: any value at or above `1e11` (5138-09-09 in
+    /// seconds) is treated as milliseconds and divided by 1000
+    /// before the `Date` init; anything below is treated as
+    /// seconds. `1e11` is comfortably past the largest realistic
+    /// future expiry (B站 annual VIP renews 1 year out, so a
+    /// 2026 timestamp in seconds is well under `1e10`), so the
+    /// threshold does not false-positive on seconds.
+    /// `nil` for non-positive input — the upstream uses `0` as
+    /// "no expiry" and a real `0` Date would render as
+    /// 1970-01-01.
+    static func parseBiliTimestamp(_ raw: Int64?) -> Date? {
+        guard let raw, raw > 0 else { return nil }
+        let normalized: TimeInterval
+        if raw >= 100_000_000_000 {  // 1e11
+            normalized = TimeInterval(raw) / 1000.0
+        } else {
+            normalized = TimeInterval(raw)
+        }
+        return Date(timeIntervalSince1970: normalized)
     }
 }
 

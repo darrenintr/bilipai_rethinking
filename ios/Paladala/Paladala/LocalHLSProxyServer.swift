@@ -1499,6 +1499,36 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         }
     }
 
+    /// Resolve the next upstream URL a `StreamingProxyTask`
+    /// should switch to after its current `upstream` host
+    /// returned a transport-level failure (timeout, DNS,
+    /// connection lost). Pairs with `markUpstreamFailed(url:)`
+    /// — the caller MUST have already advanced the
+    /// `failoverIndex` cursor for the relevant track before
+    /// calling this helper, otherwise it returns the same
+    /// host the task is already on (and the retry becomes a
+    /// no-op).
+    ///
+    /// Returns `nil` when `upstream` doesn't belong to any
+    /// currently-loaded track (e.g. the playback was swapped
+    /// out under us). In that case the caller should fall
+    /// back to the original behaviour of marking the host
+    /// failed and continuing with the task's stored URL.
+    fileprivate func reboundUpstream(after upstream: URL) -> URL? {
+        let dash: BiliDashSource? = {
+            lock.lock(); defer { lock.unlock() }
+            return currentPlayback?.dash
+        }()
+        guard let dash else { return nil }
+        for track in [dash.video, dash.audio].compactMap({ $0 }) {
+            let candidates = [track.baseURL] + track.backupURLs
+            if candidates.contains(upstream) {
+                return activeUpstream(for: track)
+            }
+        }
+        return nil
+    }
+
     internal func setCurrentPlaybackForTest(_ playback: BiliPlayback) {
         setCurrentPlayback(playback)
     }
@@ -4396,7 +4426,14 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
     /// the Sendable storage check.
     private let server: LocalHLSProxyServer
     private let connection: NWConnection
-    private let upstream: URL
+    // `var` (not `let`) so the transport-error failover path
+    // in `didCompleteWithError` can rebind this task to the
+    // next backup host. The mutation is serialised on the
+    // `delegateQueue` (maxConcurrentOperationCount == 1),
+    // and the previous host stays accessible via the
+    // outbound URL capture if a follow-up diagnostic ever
+    // needs it.
+    private var upstream: URL
     private let request: URLRequest
     private let mode: String
     /// Short, stable ID for the TCP connection that originated
@@ -4503,6 +4540,13 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
     ) {
         self.server = server
         self.connection = connection
+        // `var` (not `let`) so the failover path in
+        // `didCompleteWithError` can swap in the next
+        // backup host after a transport-level failure
+        // instead of hammering the same hung edge.
+        // Mutations happen exclusively on the
+        // `delegateQueue` (which is serial), so the
+        // single-property mutation is race-free.
         self.upstream = upstream
         self.request = request
         self.mode = mode
@@ -5280,12 +5324,35 @@ private final class StreamingProxyTask: NSObject, URLSessionDataDelegate, @unche
                 return
             }
             // 3. Retryable transport-level failure with the
-            //    downstream still alive.  Re-issue the
-            //    request with a shifted Range header so
-            //    AVPlayer sees one continuous byte stream.
+            //    downstream still alive.  These are the
+            //    hard hangs the user-visible "Media file
+            //    not received in 11s" error traces back to
+            //    — the upstream edge has accepted the TCP
+            //    connection but never started returning
+            //    bytes, and AVPlayer's own 11s abort fires
+            //    before our per-host retry budget (3 × 10s
+            //    + backoff = ~31s) can finish.
+            //
+            //    Strategy: do **not** retry the same host
+            //    three times — that's what got us here.
+            //    Mark this host as failed so the server's
+            //    `failoverIndex` cursor advances past it,
+            //    re-resolve `self.upstream` to whatever the
+            //    cursor now points at, and schedule a
+            //    single retry on the next host.  If that
+            //    retry also fails, the next call into
+            //    `markUpstreamFailed` advances the cursor
+            //    again, so by attempt 3 we've usually
+            //    walked the whole `backupURLs` list.
             if isRetryable(nsError),
                upstreamAttempt < Self.maxRetries,
                !downstreamBroken {
+                server.markUpstreamFailed(url: upstream)
+                if let nextURL = server.reboundUpstream(
+                    after: upstream
+                ), nextURL != upstream {
+                    upstream = nextURL
+                }
                 scheduleRetry(
                     reason: nsError.localizedDescription,
                     attempt: upstreamAttempt + 1

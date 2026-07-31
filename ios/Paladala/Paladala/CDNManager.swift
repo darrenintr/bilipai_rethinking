@@ -49,12 +49,41 @@ final class CDNManager: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: Self.enabledKey) }
     }
 
+    /// Local fallback list. Used when the CCB `cdn.json`
+    /// fetch fails (offline, GitHub rate limit, 4xx / 5xx)
+    /// so the CDN picker never renders empty. The hosts
+    /// are B站's geographically-distributed media-CDN
+    /// edges that the playurl response itself typically
+    /// lists as `backup_url[]` — picking one of these
+    /// manually is the same code path the upstream uses
+    /// to recover from a flaky primary.
+    ///
+    /// Regions are kept human-readable (Chinese) because
+    /// the picker UI displays them in the row label
+    /// directly. Order matters: the first entry is the
+    /// CCB-canonical default so a fresh install lands
+    /// on the same host the upstream would have picked.
+    private static let fallbackNodes: [Node] = [
+        Node(host: "upos-sz-mirrorali.bilivideo.com", region: "默认"),
+        Node(host: "upos-sz-mirrorcosov.bilivideo.com", region: "华南 cosov"),
+        Node(host: "upos-sz-mirrorhw.bilivideo.com", region: "华东 HW"),
+        Node(host: "upos-sz-upcdnbda2.bilivideo.com", region: "华东 UP"),
+        Node(host: "upos-bj2-206-3.bilivideo.com", region: "华北"),
+    ]
+
     func nodes() async -> [Node] {
         let url = URL(string: "https://raw.githubusercontent.com/Kanda-Akihito-kun/ccb/main/data/cdn.json")!
         guard let (data, response) = try? await session.data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200,
               let map = try? JSONDecoder().decode([String: [String]].self, from: data) else {
-            return [Node(host: Self.defaultHost, region: "默认")]
+            // CCB feed unavailable. Fall back to the local
+            // list so the picker still has something to show
+            // — the previous behaviour of returning a single
+            // defaultHost node left the "测速与选择" section
+            // empty after a fetch failure, and the user
+            // couldn't actually pick a manual host even with
+            // the toggle on.
+            return Self.fallbackNodes
         }
         return map.keys.sorted().flatMap { region in
             map[region, default: []].map { Node(host: $0, region: region) }
