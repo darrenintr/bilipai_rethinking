@@ -3301,11 +3301,26 @@ private struct _NestedContainerDecoder: Decoder {
         // `KeyedDecodingContainer<DynamicKey>` cannot be
         // transparently re-keyed to `KeyedDecodingContainer<Key>`,
         // but our DTOs only decode DynamicKey (they all use
-        // `DynamicKey` for their `CodingKeys`). Use the dynamic
-        // cast path so the DTO gets the same underlying
-        // container.
+        // `DynamicKey` for their `CodingKeys`). Use a bit-level
+        // cast so the DTO gets the same underlying container.
+        //
+        // The previous implementation used `unsafeDowncast`,
+        // which Swift 5 tolerated and Swift 6 strict mode
+        // refuses because `KeyedDecodingContainer` is a
+        // *struct*, not a class — `unsafeDowncast`'s contract
+        // requires a class or class-bounded type. `unsafeBitCast`
+        // does the same memory reinterpretation but with no
+        // class constraint, and is sound here because:
+        //
+        //   • `KeyedDecodingContainer<K>` is a `@frozen` struct
+        //     generic on the `CodingKey` parameter, and the
+        //     same `K` (i.e. `DynamicKey` here) yields the same
+        //     memory layout, and
+        //   • we *check* `Key.self == DynamicKey.self` first, so
+        //     the size match is a logical guarantee, not a
+        //     coincidence.
         if Key.self == DynamicKey.self {
-            return unsafeDowncast(container, to: KeyedDecodingContainer<Key>.self)
+            return unsafeBitCast(container, to: KeyedDecodingContainer<Key>.self)
         }
         throw DecodingError.dataCorruptedError(
             forKey: container.allKeys.first ?? DynamicKey("vip"),

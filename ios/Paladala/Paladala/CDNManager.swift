@@ -179,9 +179,19 @@ final class CDNManager: ObservableObject {
     }
 
     nonisolated static let backupHosts = ["upos-sz-upcdnbda2.bilivideo.com", "upos-sz-mirrorhw.bilivideo.com"]
-    
+
     nonisolated static let cdnSuffixes = ["bilivideo.com", "acgvideo.com", "acgvideo.cn"]
-    nonisolated static let hostLabelRegex = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+    // `Regex<Substring>` isn't `Sendable` (the underlying
+    // regex engine keeps an internal cache for thread-local
+    // matchers), so a plain `nonisolated let` is rejected by
+    // Swift 6 strict concurrency. The regex literal is a
+    // compile-time constant — it never mutates at runtime —
+    // so `nonisolated(unsafe)` is the right marker: callers
+    // must not write to it, and the engine's non-Sendable
+    // cache is a "may produce data races if the regex is
+    // shared across threads" hazard the marker opts out of
+    // (acceptable here because `Regex.firstMatch` only reads).
+    nonisolated(unsafe) static let hostLabelRegex = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 
     nonisolated func normalize(host: String) -> String? {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -190,9 +200,15 @@ final class CDNManager: ObservableObject {
         guard let suffix = Self.cdnSuffixes.first(where: { trimmedHost.hasSuffix(".\($0)") }) else {
             return nil
         }
-        
+
         let prefix = trimmedHost.dropLast(suffix.count + 1)
-        guard !prefix.isEmpty, prefix.split(separator: ".").allSatisfy({ Self.hostLabelRegex.firstMatch(in: String($0)) != nil }) else {
+        // `Regex.firstMatch(in:)` is `throws` (the regex
+        // engine reports allocation failures that way
+        // rather than via `Optional`); the `prefix`
+        // walk here can't actually fail for an in-memory
+        // `String`, but the compiler insists on the
+        // explicit `try`.
+        guard !prefix.isEmpty, try prefix.split(separator: ".").allSatisfy({ Self.hostLabelRegex.firstMatch(in: String($0)) != nil }) else {
             return nil
         }
         

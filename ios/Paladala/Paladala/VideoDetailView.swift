@@ -408,7 +408,7 @@ struct VideoDetailView: View {
         // initializer's parameter position is *not* a
         // `@ViewBuilder` context — the `@EnvironmentObject`
         // dynamic member lookup that lets us write
-        // `router.presentLoginSheet()` inline at a call
+        // `router.openLogin()` inline at a call
         // site of another modifier does *not* survive
         // across the closure boundary (the compiler sees
         // the closure as a `() -> Void` value with no
@@ -1395,10 +1395,10 @@ struct VideoDetailView: View {
     /// an inline closure) because the modifier's parameter
     /// context can't resolve `@EnvironmentObject`'s dynamic
     /// member lookup; a method reference keeps the
-    /// `router.presentLoginSheet()` call inside this method
-    /// body where the wrapped value access works.
+    /// `router.openLogin()` call inside this method body
+    /// where the wrapped value access works.
     private func presentLoginSheet() {
-        router.presentLoginSheet()
+        router.openLogin()
     }
 
     /// Method-reference callback for the 大会员 upgrade

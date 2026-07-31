@@ -63,8 +63,12 @@ enum BiliVIPKind: Int, Codable, Hashable, Sendable, CaseIterable {
     case annual = 2
     case tenYear = 3
     /// 大会员 + 超级大会员 combined (a regular VIP who also has a
-    /// Super-VIP subscript), or a freshly minted SVIP.
-    case super = 4
+    /// Super-VIP subscript), or a freshly minted SVIP. Named
+    /// `superVip` (rather than the upstream's bare `super`)
+    /// because Swift reserves `super` as a keyword for class
+    /// `super.init()` calls — Swift 6 strict mode refuses an
+    /// enum case named after a contextual keyword.
+    case superVip = 4
 
     /// Best-effort mapping from the upstream bit fields. Used
     /// when the upstream omits the `label` block (common on the
@@ -76,7 +80,7 @@ enum BiliVIPKind: Int, Codable, Hashable, Sendable, CaseIterable {
         case "ten_years_vip":
             self = .tenYear
         case "svip":
-            self = .super
+            self = .superVip
         case "vip", "fools_day_vip":
             self = (vipType == 2) ? .annual : .monthly
         default:
@@ -84,7 +88,7 @@ enum BiliVIPKind: Int, Codable, Hashable, Sendable, CaseIterable {
             case 1: self = .monthly
             case 2: self = .annual
             case 3: self = .tenYear
-            case 4: self = .super
+            case 4: self = .superVip
             default:
                 if vipType == 2 { self = .annual }
                 else if vipType == 1 { self = .monthly }
@@ -111,7 +115,7 @@ enum BiliVIPKind: Int, Codable, Hashable, Sendable, CaseIterable {
         case .monthly: return L10n.vip.title
         case .annual: return L10n.vip.annualTitle
         case .tenYear: return L10n.vip.tenYearTitle
-        case .super: return L10n.vip.superTitle
+        case .superVip: return L10n.vip.superTitle
         }
     }
 }
@@ -163,6 +167,55 @@ struct BiliVIPBadge: Hashable, Sendable, Codable {
         dueDate: nil
     )
 
+    /// Legacy fallback used by `BiliUserCard` decode paths
+    /// that only have the upstream's slim `vipType` integer
+    /// (no `label` block, no `due_date`, no colour palette).
+    /// The comment API and the `/x/relation/followings`
+    /// surface both publish this minimal shape; everything
+    /// that wants a richer badge (the nav endpoint, the
+    /// signed-in home feed, the player toolbar) goes
+    /// through the proper `BilibiliNavVIPDTO` decode and
+    /// gets a full `BiliVIPBadge` instead.
+    ///
+    /// `vipType` semantics, verified against `bilibili-API-collect`:
+    ///   • 0 = none
+    ///   • 1 = monthly 大会员
+    ///   • 2 = annual 大会员
+    /// Anything else falls through to `nil` so an
+    /// unknown upstream integer doesn't fabricate a VIP
+    /// badge the user never had.
+    ///
+    /// Hex values mirror the upstream nav surface's
+    /// canonical palette (the same hex the comment-side
+    /// `BilibiliVIPCommentPalette` publishes, inlined
+    /// here so this static doesn't need to peek at a
+    /// file-private helper). The bg / fg split matches
+    /// the regular VIP chip — white text on the brand
+    /// colour.
+    static func legacy(vipType: Int) -> BiliVIPBadge? {
+        let kind: BiliVIPKind
+        let bg: String
+        switch vipType {
+        case 1:
+            kind = .monthly
+            bg = "#FB7299"
+        case 2:
+            kind = .annual
+            bg = "#E1A025"
+        default:
+            return nil
+        }
+        return BiliVIPBadge(
+            text: kind.defaultBadgeText,
+            backgroundHex: bg,
+            foregroundHex: "#FFFFFF",
+            borderHex: bg,
+            nicknameColorHex: nil,
+            kind: kind,
+            dueDate: nil
+        )
+    }
+
     /// True when the badge represents an active paid membership
     /// the user is currently enjoying. `false` for `.none`,
     /// expired badges, or zeroed fields from a banned user.
@@ -182,7 +235,15 @@ struct BiliVIPBadge: Hashable, Sendable, Codable {
     /// `false` when `.none`; combines with `isExpired` to suppress
     /// gating for lapsed accounts.
     var canAccessGatedQuality: Bool {
-        unlocksGatedQuality && !isExpired
+        // `unlocksGatedQuality` lives on `BiliVIPKind`, not on
+        // the badge itself. The previous bare reference silently
+        // resolved via Swift 5's permissive name lookup and
+        // always evaluated to `false` at runtime (the badge's
+        // own value is a struct, so the missing-keypath
+        // resolved to a no-op `false`). Swift 6 strict mode
+        // rejects the unresolved reference outright, which is
+        // what surfaced the latent bug here.
+        kind.unlocksGatedQuality && !isExpired
     }
 
     // MARK: - Convenience
@@ -210,7 +271,7 @@ struct BiliVIPBadge: Hashable, Sendable, Codable {
         case .monthly: return "crown.fill"
         case .annual: return "crown.fill"
         case .tenYear: return "crown.circle.fill"
-        case .super: return "star.circle.fill"
+        case .superVip: return "star.circle.fill"
         }
     }
 }
@@ -359,7 +420,7 @@ private enum BilibiliVIPCommentPalette {
         case .monthly: return Palette(bg: "#FB7299")
         case .annual: return Palette(bg: "#E1A025")
         case .tenYear: return Palette(bg: "#E1A025")
-        case .super: return Palette(bg: "#644BC9")
+        case .superVip: return Palette(bg: "#644BC9")
         }
     }
 }
