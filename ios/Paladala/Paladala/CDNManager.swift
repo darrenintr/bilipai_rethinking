@@ -102,40 +102,35 @@ final class CDNManager: ObservableObject {
         }
     }
 
-    /// Speed-test one node. Now uses the akamTester-style
-    /// TLS-handshake probe (Network.framework + `sec_protocol_options_set_server_name`
-    /// so the SNI is `host` even when we connect by IP) —
-    /// strictly more realistic than the old HEAD/Range
-    /// probe, which measured `URLSession`'s `connect()`
-    /// plus a 1-byte TLS round-trip and was confounded by
-    /// `URLSession`'s connection pooling on subsequent
-    /// probes to the same host. The host is resolved via
-    /// `CFHost` once per probe; we don't fall back to
-    /// system DNS (iOS doesn't expose that knob) and we
-    /// don't do "global DNS aggregation" the way the
-    /// Python `akamTester` does — that's a web-scraping
-    /// job and not feasible on iOS.
+    /// Speed-test one node. Uses the akamTester-style
+    /// TLS-handshake probe (`Network.framework` + a real
+    /// TCP+TLS connection) — strictly more realistic than
+    /// the old HEAD/Range probe, which measured
+    /// `URLSession`'s `connect()` plus a 1-byte TLS round-
+    /// trip and was confounded by `URLSession`'s connection
+    /// pooling on subsequent probes to the same host.
+    ///
+    /// We connect by **host** (not by IP). iOS's
+    /// `sec_protocol_options_set_server_name` C function
+    /// is declared in the public Security header but is
+    /// not exported at link time for iOS apps (verified
+    /// — `Undefined symbols for architecture arm64` at
+    /// the linker step), so per-IP probing with explicit
+    /// SNI is not feasible. Letting `NWConnection` take
+    /// the host string means iOS's system DNS resolves
+    /// to a (geographically close) anycast IP and the SNI
+    /// is filled in automatically from the URL host — both
+    /// pieces of the akamTester approach fall out for free.
+    /// For akamai edges (the only case where per-IP
+    /// matters) the system DNS already does PoP-aware
+    /// routing.
     func test(_ node: Node) async -> SpeedResult {
-        let ips = await DNSResolver.resolveIPv4(node.host)
-        guard !ips.isEmpty else {
+        let probe = await TLSHandshakeProbe.probe(host: node.host)
+        guard probe.isReachable else {
             return SpeedResult(node: node, latencyMs: nil, statusCode: nil,
-                               error: "DNS 解析失败")
+                               error: probe.error ?? "TLS 握手失败")
         }
-        // We probe every resolved IP and return the
-        // fastest reachable one. For a single-IP host
-        // this is the same number; for hosts that round-
-        // robin a few IPs, the best of N is a real signal.
-        var probes: [TLSProbeResult] = []
-        for ip in ips {
-            let probe = await TLSHandshakeProbe.probe(ip: ip, host: node.host)
-            probes.append(probe)
-            if probe.isReachable { break }  // short-circuit on first hit
-        }
-        guard let best = probes.first(where: { $0.isReachable }) else {
-            return SpeedResult(node: node, latencyMs: nil, statusCode: nil,
-                               error: probes.first?.error ?? "无可用 IP")
-        }
-        return SpeedResult(node: node, latencyMs: best.latencyMs,
+        return SpeedResult(node: node, latencyMs: probe.latencyMs,
                            statusCode: nil, error: nil)
     }
 
@@ -152,24 +147,17 @@ final class CDNManager: ObservableObject {
         }.min(by: { $0.1 < $1.1 })?.0
     }
 
-    /// Host → lowest-latency IP we measured for it during
-    /// the most recent test run. Keys are the host strings
-    /// from `results`; values are IPv4 strings (or `nil`
-    /// if the probe failed for that host). Consumed by
-    /// `LocalHLSProxyServer.customHostResolver` — the
-    /// proxy substitutes the IP into the upstream URL
-    /// host field when a request matches a known host.
+    /// Host → IP we *would* substitute in for that host,
+    /// if `URLSession` let us override the SNI when pinning
+    /// by IP. Today it doesn't (see `CDNAkamProbe.swift`
+    /// for the rationale: iOS doesn't export the C
+    /// `sec_protocol_options_set_server_name` symbol at
+    /// link time), so this map is empty and the proxy
+    /// resolves via system DNS as before. The hook is left
+    /// in place so a future `Network.framework` rewrite of
+    /// the proxy's upstream fetcher can wire it up without
+    /// touching the speed-test layer.
     var lowestDelayIPByHost: [String: String] {
-        // NOTE: `test(_:)` only returns the best of N IPs
-        // (it short-circuits on first hit), so the per-IP
-        // data isn't preserved at the `SpeedResult` level.
-        // A future revision that wants true per-IP "pick
-        // the best IP" should surface the IP in
-        // `SpeedResult` itself. For now the IP-to-host
-        // map is "we know there IS a fast IP" — the actual
-        // substitution still goes through system DNS,
-        // which (for akamai anycast) is geographically
-        // close enough.
         return [:]
     }
 
