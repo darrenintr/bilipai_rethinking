@@ -151,6 +151,23 @@ struct PaladalaApp: App {
                     // cookieProvider closure captures it.
                     authStore.bootstrap()
 
+                    // VIP-status silent refresh on launch. The
+                    // login flow captures a one-shot snapshot of
+                    // `data.vip` at the time of sign-in; if the
+                    // user bought / renewed a 大会员 in the
+                    // web client afterwards, the persisted badge
+                    // would stay stale until the next login. Hit
+                    // `/x/web-interface/nav` once on launch and
+                    // overwrite the Keychain copy. The call is
+                    // best-effort — `refreshActiveAccountVip()`
+                    // swallows network errors and leaves the
+                    // cached badge alone. Off the SwiftUI render
+                    // path: the explicit `Task { … }` keeps the
+                    // `.onAppear` body non-blocking and stops a
+                    // slow nav endpoint from holding up the
+                    // first-paint sequence.
+                    Task { await authStore.refreshActiveAccountVip() }
+
                     repository.apiClient.cookieProvider = { [weak authStore] in
                         authStore?.activeAccount?.cookieHeader
                     }

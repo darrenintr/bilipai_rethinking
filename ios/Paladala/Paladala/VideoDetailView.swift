@@ -139,6 +139,13 @@ struct VideoDetailView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var miniPlayerStore: MiniPlayerStore
     @EnvironmentObject private var authStore: AuthStore
+    /// Plugin manager is observed here so the toolbar's
+    /// "plugin pinning this video's CDN" indicator flips
+    /// in real time when the user toggles a plugin in
+    /// 插件中心.  `PluginManager` is a `@MainActor` global
+    /// (singleton), so the only "dependency injection" is
+    /// the read.
+    @ObservedObject private var pluginManager = PluginManager.shared
     @State private var isFullscreenPresented = false
     @State private var fullscreenTransitionUntil: Date = .distantPast
     @State private var lastFullscreenDismissedAt: Date = .distantPast
@@ -299,6 +306,30 @@ struct VideoDetailView: View {
         .navigationTitle(model.detail.ownerName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Plugin-status badge in the leading slot. The
+            // icon is hidden when no plugin is pinning this
+            // video's CDN, so the nav-bar stays clean for
+            // the 99% case. When a plugin is active, the
+            // puzzle-piece icon makes the override
+            // discoverable — the alternative was a silent
+            // override that the user could only find via
+            // 插件中心, which surfaced as a stream of
+            // "why is the manual CDN picker not working?"
+            // support tickets. Tapping the badge deep-links
+            // to the profile tab (where 插件中心 lives) so
+            // the user can toggle the plugin off in one tap.
+            ToolbarItem(placement: .topBarLeading) {
+                if let pin = activePluginPin() {
+                    Button {
+                        router.open(.profile)
+                    } label: {
+                        Image(systemName: "puzzlepiece.extension.fill")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(PaladalaTheme.biliPink)
+                    }
+                    .accessibilityLabel("插件已固定 CDN 节点 \(pin)，点击前往设置")
+                }
+            }
             // Tappable owner-name button in the nav-bar centre.
             // Uses `NavigationLink(value:)` — Apple's official
             // idiom — so the destination is registered with the
@@ -720,6 +751,23 @@ struct VideoDetailView: View {
         if model.aiSummary != nil { return true }
         if model.aiSummaryLoading { return true }
         return false
+    }
+
+    /// First enabled plugin whose `cdn.pinHost` is non-empty,
+    /// or `nil` when no plugin is overriding the CDN for this
+    /// video. Computed on every render so the toolbar's
+    /// leading puzzle-piece badge flips in real time when the
+    /// user toggles a plugin in 插件中心. Returns the
+    /// `pinHost` string (used as the badge's accessibility
+    /// label) rather than a bool so the toolbar item can
+    /// include the host in its hint.
+    private func activePluginPin() -> String? {
+        for plugin in pluginManager.plugins where plugin.enabled {
+            if let host = plugin.rules?.cdn?.pinHost, !host.isEmpty {
+                return host
+            }
+        }
+        return nil
     }
 
     private func prepareLANShare() {
@@ -1313,8 +1361,30 @@ struct VideoDetailView: View {
     private var qualityMenu: some View {
         let isVIP = authStore.activeAccount?.vipBadge?.canAccessGatedQuality == true
         let activeBadge = authStore.activeAccount?.vipBadge
+        // `BiliPlayback.acceptQuality` is the per-video
+        // server-published ladder of qn values B站 is
+        // actually willing to serve for this video + this
+        // account.  When the field is present, the menu
+        // filters `BiliVideoQuality.allCases` down to the
+        // qns B站 returned; when it is `nil` (legacy PGC,
+        // missing-field drift, or a playback that ran
+        // through the durl fallback) the menu falls back
+        // to the full ladder so an old / non-DASH response
+        // still gets the previous behaviour.  Membership
+        // gating is a *separate* concern from server-side
+        // availability and is layered on top of the
+        // accept-quality filter below.
+        let availableQns: Set<Int>? = model.playback?.acceptQuality.map { Set($0) }
+        let allLadder = BiliVideoQuality.allCases
+        let visibleLadder: [BiliVideoQuality] = {
+            if let availableQns {
+                let filtered = allLadder.filter { availableQns.contains($0.rawValue) }
+                return filtered.isEmpty ? allLadder : filtered
+            }
+            return allLadder
+        }()
         return Menu {
-            ForEach(BiliVideoQuality.allCases.reversed()) { quality in
+            ForEach(visibleLadder.reversed()) { quality in
                 // `let qn` is hoisted out of the `Button`
                 // closure and into the `ForEach` closure so
                 // both the action and the label closures can
@@ -1421,8 +1491,23 @@ struct VideoDetailView: View {
     private var audioQualityMenu: some View {
         let isVIP = authStore.activeAccount?.vipBadge?.canAccessGatedQuality == true
         let activeBadge = authStore.activeAccount?.vipBadge
+        // Sibling of the `qualityMenu` filter: the audio
+        // menu only renders ids the upstream actually
+        // returned.  `BiliPlayback.acceptAudioQuality` is
+        // the per-video server-published ladder; `nil` for
+        // legacy / non-DASH responses falls back to the
+        // full 4-step ladder so the menu still renders.
+        let availableAudioQns: Set<Int>? = model.playback?.acceptAudioQuality.map { Set($0) }
+        let allAudioLadder = BiliAudioQuality.allCases
+        let visibleAudioLadder: [BiliAudioQuality] = {
+            if let availableAudioQns {
+                let filtered = allAudioLadder.filter { availableAudioQns.contains($0.rawValue) }
+                return filtered.isEmpty ? allAudioLadder : filtered
+            }
+            return allAudioLadder
+        }()
         return Menu {
-            ForEach(BiliAudioQuality.allCases) { audio in
+            ForEach(visibleAudioLadder) { audio in
                 // Hoisted for the same Swift 6 definite-init
                 // reason as `qualityMenu` — sibling closures
                 // can no longer share a `let` declared in

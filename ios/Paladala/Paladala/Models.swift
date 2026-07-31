@@ -671,9 +671,66 @@ struct BiliPlayback: Hashable, Sendable {
     /// header checks, but no upstream network calls are made.
     var localContext: LocalPlaybackContext?
 
+    /// Video qn ladder the upstream is willing to serve for
+    /// this video + this account, sourced from
+    /// `data.accept_quality` on the playurl response. The
+    /// quality menu reads this to *only* render rows the
+    /// server actually returned — without it the menu
+    /// hard-codes the full ladder and tapping 4K on a
+    /// 1080P-only video wastes a playurl round-trip. `nil`
+    /// when the upstream omits the field; the menu falls
+    /// back to `BiliVideoQuality.allCases` in that case so
+    /// a missing field is non-fatal.
+    ///
+    /// Defaulted to `nil` so call sites that build a
+    /// `BiliPlayback` outside the playurl path
+    /// (live-playback, downloaded-video, local-only) do not
+    /// have to be updated as the field grows — they
+    /// transparently fall through to the full ladder.
+    var acceptQuality: [Int]? = nil
+
+    /// Per-qn display strings from `data.accept_description`.
+    /// Used as a fallback label for qn values the
+    /// `BiliVideoQuality` enum does not yet model (B站
+    /// occasionally rolls a test ladder that the menu
+    /// surfaces as a raw integer until a future build grows
+    /// the enum). Keyed by qn for O(1) lookup at render
+    /// time. `nil` for legacy / PGC responses that omit the
+    /// field.
+    var acceptDescription: [Int: String]? = nil
+    /// Audio ladder the upstream is willing to serve, sourced
+    /// from `data.accept_audio_quality` on the playurl
+    /// response. The audio menu reads this to *only* render
+    /// rows the server actually returned; without it the
+    /// menu hard-codes the full 4-step ladder and tapping
+    /// 320 kbps on a video that only has 128 kbps AAC forces
+    /// a no-track playurl round-trip. `nil` for legacy / PGC
+    /// responses that omit the field; the menu falls back to
+    /// `BiliAudioQuality.allCases` in that case so a missing
+    /// field is non-fatal.
+    var acceptAudioQuality: [Int]? = nil
+
     /// True if this playback can be served by the local HLS
     /// proxy.
     var isDASH: Bool { dash != nil || localContext != nil }
+
+    /// The qn value B站 returned for the *selected* video
+    /// track (`BiliDashSource.video`). The quality menu
+    /// uses this when the user re-opens the menu and the
+    /// currently-playing row is no longer in the cached
+    /// `acceptQuality` set (e.g. a session-extension
+    /// response). `nil` for the legacy `durl` path and
+    /// for downloaded videos where the qn is unknown.
+    var selectedVideoQn: Int? {
+        dash?.video.qualityId
+    }
+
+    /// The audio id B站 returned for the *selected* audio
+    /// track. Same rationale as `selectedVideoQn` for the
+    /// audio menu. `nil` for video-only downloads.
+    var selectedAudioQn: Int? {
+        dash?.audio?.qualityId
+    }
 }
 
 /// Pointer to an on-disk download that the local HLS proxy
@@ -864,6 +921,19 @@ struct BiliDashSource: Hashable, Codable, Sendable {
         /// leave these nil.
         let width: Int?
         let height: Int?
+        /// Representation id from the upstream MPD.
+        ///  * For video tracks: matches the `accept_quality`
+        ///    qn ladder (16/32/64/80/...).
+        ///  * For audio tracks: matches the audio quality
+        ///    ladder (30216 / 30232 / 30250 / 30280).
+        /// The quality / audio menu reads this so the
+        /// "currently selected" row can be checked in
+        /// `BiliPlayback.selectedVideoQn` /
+        /// `selectedAudioQn` without a network round-trip
+        /// (e.g. after the user dismisses and re-opens the
+        /// menu mid-playback). `nil` for legacy responses
+        /// that omit the field.
+        let qualityId: Int?
 
         /// All host candidates for this track — primary first,
         /// then backups in upstream's preferred order. Mirrors

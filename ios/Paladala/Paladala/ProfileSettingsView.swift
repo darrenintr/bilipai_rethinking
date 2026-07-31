@@ -81,6 +81,38 @@ struct ProfileSettingsView: View {
                 profileHeader
             }
 
+            // Account-scoped status + manual refresh. Lives
+            // immediately under the header so the user can
+            // confirm the badge without scrolling. The launch
+            // hook in `PaladalaApp.body.onAppear` already
+            // fires a silent nav refresh; this section makes
+            // the *result* visible and gives the user a way
+            // to force a fresh fetch if the cached state
+            // looks stale.
+            if authStore.activeAccount != nil {
+                Section {
+                    vipStatusRow
+                    Button {
+                        Task { await authStore.refreshActiveAccountVip() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("刷新大会员状态")
+                            if authStore.isRefreshingVip {
+                                Spacer()
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
+                    }
+                    .disabled(authStore.isRefreshingVip)
+                } header: {
+                    Text("账号")
+                } footer: {
+                    Text("从 B 站服务器拉取 大会员 状态。新开通 / 续费后可能需要几分钟生效，点此可立即刷新。")
+                }
+            }
+
             Section("常用入口") {
                 ProfileQuickActionGrid(items: [
                     // 离线缓存 is first so the downloads list is
@@ -355,6 +387,16 @@ struct ProfileSettingsView: View {
                 await profileModel.loadStats(mid: mid, repository: repository)
                 await profileModel.loadCoinBalance(repository: repository)
             }
+            // The launch-time hook in `PaladalaApp.body.onAppear`
+            // fires a silent nav refresh, but the user can be
+            // minutes late to the profile tab and meanwhile have
+            // bought a 大会员 in another client. Re-run the
+            // refresh when the profile mounts so the row above
+            // shows the *latest* badge without the user needing
+            // to tap the manual button. Idempotent on the
+            // `isRefreshingVip` latch inside `AuthStore` so a
+            // concurrent launch-time fetch is no-op-ed.
+            await authStore.refreshActiveAccountVip()
         }
     }
 
@@ -366,6 +408,58 @@ struct ProfileSettingsView: View {
             signedOutHeader
         }
     }
+
+    /// Status row for the "账号" section. Renders the active
+    /// account's 大会员 chip in the same shape `signedInHeader`
+    /// uses, plus a one-line "上次刷新" stamp so the user can
+    /// see whether the launch-time silent fetch actually ran.
+    /// `nil` for the badge is a real (and common) state — the
+    /// user has not bought a 大会员, or their membership
+    /// lapsed — so the row collapses to a plain "未开通" line
+    /// rather than hiding the section entirely.
+    @ViewBuilder
+    private var vipStatusRow: some View {
+        if let account = authStore.activeAccount {
+            if let badge = account.vipBadge, badge.isActive {
+                HStack(spacing: 10) {
+                    VipBadgeView(badge: badge, size: .standard)
+                    Text(badge.text)
+                        .font(PaladalaTheme.FontRole.bodySmall)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if badge.isExpired {
+                        Text("已到期")
+                            .font(PaladalaTheme.FontRole.labelMono)
+                            .foregroundStyle(.red)
+                    } else if let due = badge.dueDate {
+                        Text("到期 \(Self.shortDateFormatter.string(from: due))")
+                            .font(PaladalaTheme.FontRole.labelMono)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: "crown")
+                        .foregroundStyle(.secondary)
+                    Text("当前账号未开通大会员")
+                        .font(PaladalaTheme.FontRole.bodySmall)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    /// `yyyy-MM-dd` formatter shared by the VIP row and any
+    /// future "expired on" surface. Stays on a static
+    /// formatter because constructing a new `DateFormatter`
+    /// per render is one of the quieter SwiftUI perf traps.
+    private static let shortDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
 
     private var signedOutHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
