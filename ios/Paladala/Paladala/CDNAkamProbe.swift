@@ -33,11 +33,27 @@
 import Foundation
 import Network
 import CFNetwork
-// `sec_protocol_options_set_server_name` lives in Security,
-// not CFNetwork — CFNetwork is for the C-level HTTP / FTP
-// streams. Without this `import` the call resolves to
-// "cannot find X in scope" at compile time.
-import Security
+
+// `sec_protocol_options_set_server_name` is a C function
+// declared in `<Security/SecProtocolOptions.h>`. Apple's
+// iOS Security umbrella module does NOT re-export it in
+// Swift (the umbrella module map covers the keychain /
+// certificate / trust APIs but not the network-protocol
+// helpers). Even with `import Security` the call resolves
+// to "cannot find X in scope" at compile time.
+//
+// The C symbol IS present in the Security dylib — the
+// header just doesn't get re-exported. We work around this
+// by declaring a Swift shim with `@_silgen_name` that
+// resolves the C symbol at link time directly, bypassing
+// the Swift import system. The `sec_protocol_options_t`
+// type itself is exposed by `import Network` (via
+// `NWProtocolTLS.Options.securityProtocolOptions`).
+@_silgen_name("sec_protocol_options_set_server_name")
+private func _sec_protocol_options_set_server_name(
+    _ options: OpaquePointer,
+    _ server_name: CFString
+)
 
 // MARK: - DNS resolution
 
@@ -170,9 +186,15 @@ enum TLSHandshakeProbe {
         // would return `NSURLErrorServerCertificateUntrusted`
         // even on a perfectly healthy edge.
         let tlsOptions = NWProtocolTLS.Options()
-        sec_protocol_options_set_server_name(
-            tlsOptions.securityProtocolOptions,
-            host
+        // `tlsOptions.securityProtocolOptions` is a
+        // `sec_protocol_options_t` (an opaque pointer) — pass
+        // it through as an `OpaquePointer` to match the
+        // `@_silgen_name` shim. The `host as CFString` cast
+        // is required because the underlying C function
+        // takes `CFStringRef`, not a Swift `String`.
+        _sec_protocol_options_set_server_name(
+            OpaquePointer(tlsOptions.securityProtocolOptions),
+            host as CFString
         )
         let parameters = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
         let connection = NWConnection(to: NWEndpoint.hostPort(host: nwHost, port: nwPort),
