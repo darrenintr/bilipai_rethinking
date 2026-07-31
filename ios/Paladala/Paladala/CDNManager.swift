@@ -428,8 +428,15 @@ final class CDNManager: ObservableObject {
     /// on next process start (deliberate — see the
     /// `lastProbedAtKey` UserDefaults entry for cross-launch
     /// de-dupe).
+    ///
+    /// No lock around the read/write: `CDNManager` is
+    /// `@MainActor`, so every access to this property is
+    /// already serialised on the main actor.  An `NSLock`
+    /// here is both redundant and rejected by the Swift 6
+    /// "no locks in async contexts" check (Build 539 error
+    /// `instance method 'lock' is unavailable from
+    /// asynchronous contexts`).
     private var hasProbedThisLaunch = false
-    private let probeLock = NSLock()
 
     /// Last probe's winning host, persisted across launches.
     /// Survives app restart; used as the fallback when
@@ -485,14 +492,12 @@ final class CDNManager: ObservableObject {
     ///   unused — kept for future settings hooks like
     ///   "always re-probe on launch").
     func ensureProbedOnLaunch(force: Bool = false) async {
-        probeLock.lock()
-        let alreadyProbed = hasProbedThisLaunch
-        probeLock.unlock()
-        if alreadyProbed && !force { return }
-
-        probeLock.lock()
+        // Both reads/writes are on @MainActor — no lock
+        // needed (and a `NSLock` would be rejected here by
+        // the Swift 6 "no locks in async contexts" check;
+        // see the `hasProbedThisLaunch` docstring).
+        if hasProbedThisLaunch && !force { return }
         hasProbedThisLaunch = true
-        probeLock.unlock()
 
         if !force,
            let last = UserDefaults.standard.object(forKey: Self.lastProbedAtKey) as? Date {

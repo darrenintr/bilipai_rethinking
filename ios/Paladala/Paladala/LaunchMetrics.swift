@@ -219,6 +219,10 @@ final class LaunchMetrics: @unchecked Sendable {
             os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.proxyListenerRequested")
         case .proxyListenerReady:
             os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.proxyListenerReady")
+        case .cdnProbeRequested:
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.cdnProbeRequested")
+        case .cdnProbeReady:
+            os_signpost(.event, log: Self.coldStartLog, name: "ColdStart.cdnProbeReady")
         }
 
         // Sink 2: in-app log viewer. The `.app` category is
@@ -255,6 +259,8 @@ final class LaunchMetrics: @unchecked Sendable {
         case .firstTabInteractive(let tag): return "firstTabInteractive.\(tag.rawValue)"
         case .proxyListenerRequested:     return "proxyListenerRequested"
         case .proxyListenerReady:         return "proxyListenerReady"
+        case .cdnProbeRequested:          return "cdnProbeRequested"
+        case .cdnProbeReady:              return "cdnProbeReady"
         }
     }
 

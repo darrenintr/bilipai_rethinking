@@ -224,14 +224,15 @@ private final class ResumeLatch: @unchecked Sendable {
 /// has been quiet for years and some entries may be
 /// recycled.
 ///
-/// `nonisolated(unsafe)` is required because the array
-/// itself is `Sendable` (`[String]` is value-typed and
-/// immutable) but the `static let` initialiser is a
-/// process-wide singleton that any isolation domain can
-/// reach; Swift 6's strict concurrency rejects the
-/// default `nonisolated` for globals that aren't
-/// compile-time `let`. The contents are never mutated.
-nonisolated(unsafe) enum AkamaiIPSeedList {
+/// The `nonisolated` marker (no `(unsafe)`) is the right
+/// one here because the only stored property — `ips` — is
+/// a `static let [String]`, and `[String]` is itself
+/// `Sendable` (immutable value type with `Sendable`
+/// element).  `nonisolated(unsafe)` is for cases where the
+/// type is *not* actually safe to share across isolation
+/// domains; the compiler warns "no effect on enum" when
+/// the marker is used unnecessarily (Build 539).
+nonisolated enum AkamaiIPSeedList {
     static let ips: [String] = [
         "202.183.253.8",
         "195.175.116.41",
