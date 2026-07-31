@@ -164,9 +164,32 @@ struct WebQrcodePollResult {
         }
     }
 
-    /// Extract cookies from the cross-domain URL query string. Falls
-    /// back to the `Set-Cookie` response header (iOS strips these by
-    /// default, but the helper is preserved for completeness).
+    /// Extract cookies from the cross-domain URL query string.
+    /// Supplements with cookies parsed from the `Set-Cookie`
+    /// response header when the URL is missing one of the
+    /// credentials we need (most commonly `SESSDATA` — B站
+    /// has been observed to ship it via header instead of
+    /// query params when the QR-confirm flow lands through
+    /// the cross-domain SSO redirect).
+    ///
+    /// The previous implementation only consulted the
+    /// `Set-Cookie` path when the URL was *entirely* empty
+    /// (`out.isEmpty`); B站's `data.url` always carries
+    /// non-cookie query items like `gourl=`, so that branch
+    /// never fired even when SESSDATA was sitting in the
+    /// response header. Now the Set-Cookie cookies are
+    /// *merged* in — query items win on collision (so the
+    /// upstream's intended values are not overwritten) and
+    /// any credential that the URL omits falls through to
+    /// the header parser.
+    ///
+    /// Set-Cookie parsing uses Foundation's
+    /// `HTTPCookie.cookies(withResponseHeaderFields:for:)`
+    /// (RFC 6265) rather than a hand-rolled `,` split, which
+    /// broke the `Expires=Wed, 01 Jan 2026 00:00:00 GMT`
+    /// attribute (a real cookie's expiry is one field, but
+    /// naive `,` splitting tore it into two halves and
+    /// truncated every cookie that followed the expiry).
     static func cookies(
         fromPollURL urlString: String,
         response: URLResponse
@@ -178,26 +201,38 @@ struct WebQrcodePollResult {
                 out[item.name] = item.value
             }
         }
-        // Fallback / supplement: try Set-Cookie headers. iOS strips
-        // these by default but the helper stays in case a future SDK
-        // exposes them, or if someone swaps in a custom session config.
+        // Supplement: Set-Cookie header. The poll endpoint
+        // sometimes returns the auth cookies via the
+        // `Set-Cookie` response header instead of
+        // embedding them in the cross-domain `data.url`
+        // (the upstream behaviour is a moving target).
+        // iOS URLSession *does* surface Set-Cookie in
+        // `allHeaderFields` when the session is configured
+        // with `httpShouldSetCookies = false` (the existing
+        // setup) — the helper just has to ask Foundation
+        // for an RFC-6265 parse instead of slicing on `,`.
         if let http = response as? HTTPURLResponse {
-            let headers = http.allHeaderFields
-            let raw: String? = {
-                if let v = http.value(forHTTPHeaderField: "Set-Cookie"), !v.isEmpty {
-                    return v
-                }
-                return headers["Set-Cookie"] as? String
-            }()
-            if let raw, out.isEmpty {
-                for chunk in raw.split(separator: ",") {
-                    let trimmed = chunk.trimmingCharacters(in: .whitespaces)
-                    guard let first = trimmed.split(separator: ";").first else { continue }
-                    let pair = first.split(separator: "=", maxSplits: 1)
-                    guard pair.count == 2 else { continue }
-                    let name = String(pair[0]).trimmingCharacters(in: .whitespaces)
-                    let value = String(pair[1]).trimmingCharacters(in: .whitespaces)
-                    if !name.isEmpty { out[name] = value }
+            // `cookies(withResponseHeaderFields:for:)` only
+            // reads the `Set-Cookie` keys, so a single dict
+            // pull is enough. We pass a sentinel URL so the
+            // parser accepts cookies without a `Domain=`
+            // attribute (the cross-domain SSO redirect
+            // legitimately omits the domain on some B站
+            // responses); the parsed cookies' `.name` /
+            // `.value` are the only fields we use downstream.
+            let parsed = HTTPCookie.cookies(
+                withResponseHeaderFields: http.allHeaderFields as! [String: String],
+                for: URL(string: "https://passport.bilibili.com")!
+            )
+            for cookie in parsed {
+                // Query items win on collision so a
+                // B站-mandated URL-side override of any
+                // cookie is preserved. Empty values are
+                // dropped so a stray `Set-Cookie: foo=`
+                // doesn't blank a real `foo=bar` the URL
+                // already provided.
+                if !cookie.value.isEmpty, out[cookie.name] == nil {
+                    out[cookie.name] = cookie.value
                 }
             }
         }
