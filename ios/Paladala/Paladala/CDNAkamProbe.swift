@@ -186,14 +186,21 @@ enum TLSHandshakeProbe {
         // would return `NSURLErrorServerCertificateUntrusted`
         // even on a perfectly healthy edge.
         let tlsOptions = NWProtocolTLS.Options()
-        // `tlsOptions.securityProtocolOptions` is a
-        // `sec_protocol_options_t` (an opaque pointer) — pass
-        // it through as an `OpaquePointer` to match the
-        // `@_silgen_name` shim. The `host as CFString` cast
-        // is required because the underlying C function
-        // takes `CFStringRef`, not a Swift `String`.
+        // `tlsOptions.securityProtocolOptions` is typed in
+        // Swift as `sec_protocol_options_t`, which the
+        // compiler surfaces as `any OS_sec_protocol_options`
+        // — a class-bound existential, NOT a raw pointer.
+        // An `OpaquePointer(...)` initializer won't accept
+        // it ("no exact matches in call to initializer")
+        // because the init expects `UnsafeMutableRawPointer`
+        // / `UnsafeRawPointer`. The fix is `unsafeBitCast`:
+        // a class-bound existential is a single-word class
+        // reference in memory, the same layout as
+        // `OpaquePointer`, so we can reinterpret the bits
+        // directly. The C function ultimately takes a raw
+        // pointer so this matches the ABI it expects.
         _sec_protocol_options_set_server_name(
-            OpaquePointer(tlsOptions.securityProtocolOptions),
+            unsafeBitCast(tlsOptions.securityProtocolOptions, to: OpaquePointer.self),
             host as CFString
         )
         let parameters = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
