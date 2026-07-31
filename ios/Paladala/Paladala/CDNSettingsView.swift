@@ -90,24 +90,28 @@ struct CDNSettingsView: View {
                     Label(manager.isTesting ? "测速中…" : "测试当前列表", systemImage: "speedometer")
                 }
                 .disabled(manager.isTesting || visibleNodes.isEmpty)
-                if !manager.results.isEmpty {
-                    ForEach(manager.results) { result in
-                        Button {
-                            manager.selectedHost = result.node.host
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(result.node.host).font(.caption.monospaced())
-                                    Text(result.node.region).font(.caption2).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if let ms = result.latencyMs {
-                                    Text("\(ms) ms").foregroundStyle(ms < 150 ? .green : ms < 400 ? .orange : .red)
-                                } else { Text("失败").foregroundStyle(.red) }
-                                if manager.selectedHost == result.node.host { Image(systemName: "checkmark.circle.fill") }
-                            }
-                        }.buttonStyle(.plain)
+                // Node rows. The list always renders the
+                // current `visibleNodes` (CCB feed when
+                // reachable, `fallbackNodes` otherwise) so the
+                // picker is never empty after a fetch failure —
+                // a previous version of this section gated the
+                // rows on `!manager.results.isEmpty`, which
+                // meant the fallback list had no UI surface
+                // (nothing to select, no way to recover without
+                // an external speed test). Probing the network
+                // is now an *enhancement* of the row's status
+                // chip, not a prerequisite for showing the row.
+                ForEach(visibleNodes) { node in
+                    Button {
+                        manager.selectedHost = node.host
+                    } label: {
+                        NodeRow(
+                            node: node,
+                            isSelected: manager.selectedHost == node.host,
+                            probe: manager.results.first { $0.node.id == node.id }
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
             } header: { Text("测速与选择") } footer: {
                 Text("测速使用 HEAD/Range 请求，只测节点可达性和延迟，不批量下载视频；低延迟不一定代表实际视频吞吐最高，建议以播放稳定性为准。")
@@ -115,5 +119,55 @@ struct CDNSettingsView: View {
         }
         .navigationTitle("CDN 播放源")
         .task { nodes = await manager.nodes() }
+    }
+}
+
+/// One CDN host row in `CDNSettingsView`. Renders the host
+/// name + region and a status chip on the trailing side —
+/// either a latency probe (when the user has run
+/// `CDNManager.test`) or a "未测速" placeholder. Kept private
+/// to this file because the row is purely a presentation
+/// concern; `CDNManager` does not need to know about it.
+private struct NodeRow: View {
+    let node: CDNManager.Node
+    let isSelected: Bool
+    /// Latest probe result for this host, if any. The
+    /// `CDNManager.SpeedResult.id` is the `Node.id` so the
+    /// `first { ... }` lookup is O(n) but `n` is small
+    /// (≤ 40 hosts in the typical speed-test slice).
+    let probe: CDNManager.SpeedResult?
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(node.host).font(.caption.monospaced())
+                Text(node.region).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            statusChip
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(PaladalaTheme.biliPink)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusChip: some View {
+        if let probe {
+            if let ms = probe.latencyMs {
+                Text("\(ms) ms")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(ms < 150 ? .green : ms < 400 ? .orange : .red)
+            } else {
+                Text("不可达")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
+        } else {
+            Text("未测速")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 }
