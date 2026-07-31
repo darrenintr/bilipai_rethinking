@@ -93,6 +93,25 @@ struct VideoDetailView: View {
     @State private var isPreparingLANShare = false
     @State private var lanShareItem: LANShareItem?
     @State private var lanShareError: String?
+    /// 大会员 upgrade sheet state for the video-quality menu.
+    /// `nil` ⇒ no alert. The menu sets this to the matching
+    /// `VipUpgradeReason` (logged-out / not-VIP / expired) when
+    /// the user taps a gated row; the alert modifier below
+    /// presents the actual sheet. The video / audio paths use
+    /// *separate* state so a quality-menu tap does not cancel
+    /// an in-flight audio-menu alert and vice versa.
+    @State private var videoUpgradeReason: VipUpgradeReason?
+    /// Rendered label of the gated video quality the user
+    /// tapped (e.g. "4K · 大会员"). Fed into the alert body so
+    /// the sheet names the specific row the upgrade unlocks.
+    @State private var videoUpgradeLabel: String?
+    /// 大会员 upgrade sheet state for the audio-quality menu.
+    /// See `videoUpgradeReason` for the design rationale.
+    @State private var audioUpgradeReason: VipUpgradeReason?
+    /// Rendered label of the gated audio quality the user
+    /// tapped (e.g. "320K Hi-Res · 大会员"). Mirrors
+    /// `videoUpgradeLabel` for the audio menu.
+    @State private var audioUpgradeLabel: String?
     /// YouTube-style next-up overlay state. Shown briefly
     /// when the current item reaches its end (we listen for
     /// `.paladalaVideoDidPlayToEnd`). The overlay either
@@ -286,6 +305,66 @@ struct VideoDetailView: View {
             }
         } message: {
             Text(lanShareError ?? "")
+        }
+        // 大会员 upgrade sheet for the video quality menu.
+        // The video and audio menus use *separate* state so a
+        // sheet from one menu never cancels a sheet from the
+        // other; the helper itself is menu-agnostic — it just
+        // gets the rendered label so the body copy can name the
+        // specific row the user tapped.
+        //
+        // The `vipUpgradeAlert` binding is fed by *two*
+        // sources: the menu buttons (which set the local
+        // `videoUpgradeReason` / `audioUpgradeReason` so the
+        // alert can name the specific row the user just
+        // tapped) and the ViewModel's `vipUpgradeReason`,
+        // which flips when a *refetched* playurl returns
+        // `-40103` / `-62002` / `-62004` / `-62012`. The
+        // `onChange` below mirrors the ViewModel reason
+        // into the local state and lets the user dismiss
+        // the inline error banner by tapping the sheet.
+        .vipUpgradeAlert(
+            reason: $videoUpgradeReason,
+            gatedLabel: videoUpgradeLabel,
+            onLogin: { router.presentLoginSheet() },
+            onUpgrade: { UIApplication.shared.open(VipUpgradeURL.upgrade) }
+        )
+        // Same shape for the audio quality menu. Keeping the
+        // two modifiers on the root view (rather than the
+        // individual menus) so SwiftUI's alert stack sees a
+        // single modifier per concern; a second alert from
+        // the same modifier while one is already on screen
+        // would otherwise flicker between sheets.
+        .vipUpgradeAlert(
+            reason: $audioUpgradeReason,
+            gatedLabel: audioUpgradeLabel,
+            onLogin: { router.presentLoginSheet() },
+            onUpgrade: { UIApplication.shared.open(VipUpgradeURL.upgrade) }
+        )
+        // Sync the ViewModel-published upgrade reason into
+        // the local state. We pick `videoUpgradeReason` as
+        // the sink (rather than adding a third alert) so
+        // the user gets a single sheet on screen at a time;
+        // the ViewModel never sets `vipUpgradeReason`
+        // while a menu-triggered sheet is on screen, so
+        // this is safe.
+        .onChange(of: model.vipUpgradeReason) { _, newValue in
+            guard let newValue else { return }
+            // Render the *current* preferred qn / audio id
+            // into the alert body so the sheet names the
+            // row the user last tried to switch to.
+            if let q = BiliVideoQuality(rawValue: model.preferredQn) {
+                videoUpgradeLabel = q.title(isVIP: false)
+            } else if let a = BiliAudioQuality(rawValue: model.preferredAudioQuality) {
+                videoUpgradeLabel = a.title + " · " + L10n.vip.lockedBadge
+            }
+            videoUpgradeReason = newValue
+            // Clear the published reason so the next
+            // refetch that hits the same code path can
+            // re-trigger the alert (otherwise SwiftUI
+            // would skip the onChange when the value
+            // didn't change).
+            model.vipUpgradeReason = nil
         }
         .task {
             // Hydrate the model from the persisted sort before the
@@ -1160,18 +1239,43 @@ struct VideoDetailView: View {
     /// it inherits the same Liquid Glass background the rest of the
     /// toolbar uses.
     ///
-    /// VIP-gated qualities are dimmed but still listed so the
-    /// user can see what they're missing without a free
-    /// promotion wall. Tapping a gated row while non-VIP
-    /// surfaces the upgrade hint instead of refetching the
-    /// playurl.
+    /// VIP-gated qualities are dimmed but still tappable. A
+    /// tap on a gated row sets `videoUpgradeReason` (and the
+    /// matching rendered label) so the alert modifier at the
+    /// root of the view presents the upgrade sheet — the row
+    /// is **not** marked `.disabled`, on purpose: a non-VIP
+    /// user should see the upgrade path the moment they
+    /// express interest in a 4K row, not have to dig into a
+    /// hidden sub-menu. Tapping a non-gated row falls through
+    /// to the regular `setPreferredQn` refetch.
     private var qualityMenu: some View {
         let isVIP = authStore.activeAccount?.vipBadge?.canAccessGatedQuality == true
+        let activeBadge = authStore.activeAccount?.vipBadge
         return Menu {
             ForEach(BiliVideoQuality.allCases.reversed()) { quality in
                 Button {
                     let qn = quality.rawValue
+                    // Same-row tap: no-op. The check sits
+                    // *before* the VIP gate so a user re-tapping
+                    // their current (non-gated) row does not
+                    // refetch the playurl.
                     guard model.preferredQn != qn else { return }
+                    // VIP-gated path: drop the refetch and
+                    // raise the upgrade sheet. The reason
+                    // resolution follows the auth state — a
+                    // signed-out user gets `.loggedOut` (so the
+                    // sheet exposes the "去登录" branch), a
+                    // signed-in non-VIP user gets `.notVIP`,
+                    // and a user whose membership lapsed gets
+                    // `.expired`.
+                    if quality.requiresVIP && !isVIP {
+                        videoUpgradeLabel = quality.title(isVIP: false)
+                        videoUpgradeReason = Self.resolveUpgradeReason(
+                            isLoggedIn: authStore.isLoggedIn,
+                            badge: activeBadge
+                        )
+                        return
+                    }
                     storedPreferredQn = qn
                     Task { await model.setPreferredQn(qn, repository: repository) }
                 } label: {
@@ -1182,7 +1286,6 @@ struct VideoDetailView: View {
                         Text(title)
                     }
                 }
-                .disabled(quality.requiresVIP && !isVIP)
             }
         } label: {
             VStack(spacing: 6) {
@@ -1197,16 +1300,50 @@ struct VideoDetailView: View {
         .accessibilityLabel(L10n.player.quality)
     }
 
+    /// Resolve the upgrade-sheet reason from the current auth
+    /// state. Centralised so the video menu and the audio menu
+    /// make the *exact* same decision — a code path drift
+    /// between the two would let one menu show "去登录" while
+    /// the other shows "续费" for the same user, which is a
+    /// paper-cut we'd otherwise find from a bug report.
+    private static func resolveUpgradeReason(
+        isLoggedIn: Bool,
+        badge: BiliVIPBadge?
+    ) -> VipUpgradeReason {
+        if !isLoggedIn { return .loggedOut }
+        // Signed in: classify by badge state. An expired
+        // badge is *not* the same as a missing one — the
+        // sheet copy and primary action differ.
+        if let badge, badge.kind != .none, badge.isExpired { return .expired }
+        return .notVIP
+    }
+
     /// Audio quality menu, sibling of `qualityMenu`. The user
-    /// picks one of four ladder entries; non-VIP entries are
-    /// dimmed. Default state honours `model.preferredAudioQuality`.
+    /// picks one of four ladder entries; gated entries route
+    /// to the upgrade sheet (the same `VipUpgradeReason` /
+    /// `.vipUpgradeAlert` path the video menu uses — the
+    /// audio / video states are separate so a video-menu
+    /// alert and an audio-menu alert never collide).
+    /// Default state honours `model.preferredAudioQuality`.
     private var audioQualityMenu: some View {
         let isVIP = authStore.activeAccount?.vipBadge?.canAccessGatedQuality == true
+        let activeBadge = authStore.activeAccount?.vipBadge
         return Menu {
             ForEach(BiliAudioQuality.allCases) { audio in
                 Button {
                     let qn = audio.rawValue
+                    // Same-row tap: no-op (sits *before* the
+                    // VIP gate, see the matching comment in
+                    // `qualityMenu` for the rationale).
                     guard model.preferredAudioQuality != qn else { return }
+                    if audio.requiresVIP && !isVIP {
+                        audioUpgradeLabel = audio.title + " · " + L10n.vip.lockedBadge
+                        audioUpgradeReason = Self.resolveUpgradeReason(
+                            isLoggedIn: authStore.isLoggedIn,
+                            badge: activeBadge
+                        )
+                        return
+                    }
                     storedPreferredAudioQuality = qn
                     Task {
                         await model.setPreferredAudioQuality(
@@ -1223,7 +1360,6 @@ struct VideoDetailView: View {
                         Text(title)
                     }
                 }
-                .disabled(audio.requiresVIP && !isVIP)
             }
         } label: {
             VStack(spacing: 6) {

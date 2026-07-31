@@ -109,6 +109,8 @@
 		LS0000000000000000000B003 /* LoadStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS0000000000000000000F003 /* LoadStateTests.swift */; };
 		03548a6a-547b-4dbe-9c3e-0d0fac582edd /* BilibiliVIP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 198ff133-9f05-43ab-afb7-bcadae569741 /* BilibiliVIP.swift */; };
 		76ae5710-119a-49f0-80d3-20d35d8daf1e /* VipBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */; };
+		959e55c70a204884ab4886b2b9189d44 /* VipUpgradeHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7aa739f7420f4cc4bc58eece2de057e9 /* VipUpgradeHint.swift */; };
+		f274babb84a147cba9dff72e040388f0 /* VipUpgradeHintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = aaf91b529efa4218b31e48110709c58d /* VipUpgradeHintTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -220,6 +222,8 @@
 		LS0000000000000000000F003 /* LoadStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadStateTests.swift; sourceTree = "<group>"; };
 		198ff133-9f05-43ab-afb7-bcadae569741 /* BilibiliVIP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BilibiliVIP.swift; sourceTree = "<group>"; };
 		31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VipBadgeView.swift; sourceTree = "<group>"; };
+		7aa739f7420f4cc4bc58eece2de057e9 /* VipUpgradeHint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VipUpgradeHint.swift; sourceTree = "<group>"; };
+		aaf91b529efa4218b31e48110709c58d /* VipUpgradeHintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VipUpgradeHintTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -340,6 +344,7 @@
 				LS0000000000000000000F002 /* GenerationGuard.swift */,
 				198ff133-9f05-43ab-afb7-bcadae569741 /* BilibiliVIP.swift */,
 				31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */,
+				7aa739f7420f4cc4bc58eece2de057e9 /* VipUpgradeHint.swift */,
 			);
 			path = Paladala;
 			sourceTree = "<group>";
@@ -461,6 +466,7 @@
 				7E5C0A000000000000000020 /* LaunchMetricsTests.swift */,
 				7E5C0A000000000000000022 /* AppVersionTests.swift */,
 				LS0000000000000000000F003 /* LoadStateTests.swift */,
+				aaf91b529efa4218b31e48110709c58d /* VipUpgradeHintTests.swift */,
 			);
 			path = PaladalaTests;
 			sourceTree = "<group>";
@@ -729,6 +735,7 @@
 				7000000000000000000001E2 /* PluginsSettingsView.swift in Sources */,
 				03548a6a-547b-4dbe-9c3e-0d0fac582edd /* BilibiliVIP.swift in Sources */,
 				76ae5710-119a-49f0-80d3-20d35d8daf1e /* VipBadgeView.swift in Sources */,
+				959e55c70a204884ab4886b2b9189d44 /* VipUpgradeHint.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -754,6 +761,7 @@
 				7E5C0A000000000000000019 /* LaunchMetricsTests.swift in Sources */,
 				7E5C0A000000000000000021 /* AppVersionTests.swift in Sources */,
 				LS0000000000000000000B003 /* LoadStateTests.swift in Sources */,
+				f274babb84a147cba9dff72e040388f0 /* VipUpgradeHintTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

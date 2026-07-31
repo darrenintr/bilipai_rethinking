@@ -201,6 +201,33 @@ enum L10n {
         /// "你还不是大会员，登录后可享受高清画质" style hint shown
         /// when the user taps a gated quality while signed out.
         static let upgradeHint = String(localized: "vip.upgradeHint", defaultValue: "登录大会员账号后可解锁此画质")
+        /// Title of the upgrade alert shown when a signed-in,
+        /// non-VIP user picks a VIP-gated quality. Keeps the
+        /// upgrade path a single tap away from the quality menu.
+        static let requiredTitle = String(localized: "vip.requiredTitle", defaultValue: "需要大会员")
+        /// Body of the upgrade alert shown when a signed-in,
+        /// non-VIP user picks a VIP-gated quality. Mirrors the
+        /// tone of the B站 web player's "请开通大会员后重试" prompt
+        /// so the user knows the action unlocks the row they
+        /// just tapped.
+        static let requiredHint = String(localized: "vip.requiredHint", defaultValue: "该画质/音质需要开通大会员")
+        /// Title of the upgrade alert shown when a user *was* a
+        /// 大会员 but the membership has lapsed (`vip.status == 0`
+        /// or `-40103` from the playurl).
+        static let expiredTitle = String(localized: "vip.expiredTitle", defaultValue: "大会员已到期")
+        /// Body of the expired alert. Steers the user to the
+        /// renewal page rather than the login sheet (they are
+        /// already signed in; the cookie is fine).
+        static let expiredHint = String(localized: "vip.expiredHint", defaultValue: "你的大会员已到期，续费后即可解锁")
+        /// Primary action label on the upgrade alert — opens
+        /// B站's account management page where the user can
+        /// purchase / renew the membership.
+        static let actionUpgrade = String(localized: "vip.actionUpgrade", defaultValue: "去开通/续费")
+        /// Secondary action label on the upgrade alert when the
+        /// user is signed out. Opens the local login sheet so
+        /// they can sign in with a VIP account that already
+        /// has an active subscription.
+        static let actionLogin = String(localized: "vip.actionLogin", defaultValue: "去登录")
         /// Status line on the profile header — `${kind} · 到期
         /// ${date}`. Falls back to `${kind} · 已过期` when the
         /// due date is in the past.

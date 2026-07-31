@@ -24,6 +24,34 @@
 - 修改了 `project.pbxproj` 的 16 个节点(新增 `LoadState` / `GenerationGuard` / `LoadStateTests` 3 个文件 × 4 个节点,新增 `AppVersion` / `AboutView` 2 个文件 × 4 个节点,移除 FFmpeg 6 个文件 × 4 个节点)。需要 macOS 本地 `xcodebuild` 验证 project 没有损坏。
 - 新文件无 Swift 工具链本地编译验证,build 后请先在 macOS 上 `xcodebuild -scheme Paladala clean build` 一次。
 
+## Unreleased — BiliKit 接入 (premium quality)
+
+### 新增
+- **`BilibiliAPIError.vipRequired(gated:)` / `.vipExpired(gated:)`** (`BilibiliAPIClient.swift`): 新 typed error 替代 raw `.api(message)` 透传 B站 大会员业务码。`requireOK()` 检测 `-40103` (大会员已到期) / `-62002` (未开通) / `-62004` (4K 大会员限制) / `-62012` (1080P+ 大会员限制) 时抛对应 case。配套 `isVipExpiredError` 计算属性让 `setPreferredQn` 一行分支决定"去开通" / "去续费" 文案。
+- **`VipUpgradeHint.swift`** (新文件): 抽 大会员升级 sheet 公共组件。`VipUpgradeReason` 三态 (`loggedOut` / `notVIP` / `expired`) 驱动 title / body / actions;`View.vipUpgradeAlert(reason:gatedLabel:onLogin:onUpgrade:)` modifier 让 quality menu 与 audio quality menu 共享同一份升级逻辑,避免代码漂移。`VipUpgradeURL.upgrade` 固定指向 `https://account.bilibili.com/account/bigVip.html` (B站开通 / 续费落地页)。
+- **L10n.vip 新字符串** (`Localizable.swift`): `requiredTitle` / `requiredHint` / `expiredTitle` / `expiredHint` / `actionUpgrade` / `actionLogin` 共 6 条;`vipUpgradeAlert` 文案全部走 L10n,未来可翻译。
+- **`VideoDetailViewModel.vipUpgradeReason: VipUpgradeReason?`** (`ViewModels.swift`): playurl refetch 收到 `.vipRequired` / `.vipExpired` 时设置,View 用 `onChange` mirror 到本地 state 弹 alert;`.onChange` 末尾把 published 字段清回 `nil` 让下一次同码错误能再次触发 (SwiftUI onChange 在值不变时会 skip)。
+- **大会员画质 / 音质菜单交互修复** (`VideoDetailView.swift`): `qualityMenu` 与 `audioQualityMenu` 移除 `.disabled(quality.requiresVIP && !isVIP)`,gated row 改为可点击;点击后根据 `authStore.isLoggedIn` + `BiliVIPBadge` 状态算出 `VipUpgradeReason`,弹升级 sheet。`resolveUpgradeReason(isLoggedIn:badge:)` 集中判定逻辑,video / audio 两条路径走同一函数防漂移。
+
+### 行为
+- **大会员画质失败自动回滚**: `setPreferredQn` 收到 `.vipRequired` / `.vipExpired` 时,把 `preferredQn` 回滚到 canonicalChain 第一个 non-gated ladder entry,inline `errorMessage` 显示 L10n.vip.requiredHint / L10n.vip.expiredHint,`vipUpgradeReason` 触发升级 sheet。`setPreferredAudioQuality` 同样处理,fallback 到 128 kbps AAC。
+- **大会员过期 vs 未开通 文案分流**: `.vipExpired` → 单一 "去开通/续费" 按钮 (signed-in 用户直接续费);`.notVIP` → 同一按钮 (用户从未开通过);`.loggedOut` → 同时暴露 "去登录" + "去开通/续费" 两个按钮 (用户可能没账号 / 有非大会员账号)。
+- **错误码透传收口**: B站 `-40103` / `-62002` / `-62004` / `-62012` 不再以 `.api("大会员已到期")` 等 raw message 形式冒到 UI,统一走 `errorDescription` 走 L10n key。
+
+### 文件
+- 新增 `VipUpgradeHint.swift` (约 220 行) / `VipUpgradeHintTests.swift` (12 个用例覆盖 ladder gate、typed error、reason copy factory、upgrade URL)。
+- `BilibiliAPIClient.swift`: 4719 → 4753 行 (+34),`BilibiliAPIError` enum + `LocalizedError` 扩展 + `requireOK()`。
+- `Localizable.swift`: 422 → 451 行 (+29),`vip.*` 新增 6 条。
+- `VideoDetailView.swift`: 2158 → 2222 行 (+64),`videoUpgradeReason` / `audioUpgradeReason` 4 个新 `@State` + 2 个 `.vipUpgradeAlert` modifier + `onChange(of: model.vipUpgradeReason)` + `qualityMenu` / `audioQualityMenu` gated-row 路径。
+- `ViewModels.swift`: 1488 → 1566 行 (+78),`vipUpgradeReason` @Published 字段 + `setPreferredQn` / `setPreferredAudioQuality` 新增 `.vipRequired` / `.vipExpired` 分支 + `fallbackQnForVipGate` / `fallbackAudioQualityForVipGate` helper。
+- `project.pbxproj`: 8 个新节点 (2 个 build file + 2 个 file ref + 2 个 group + 2 个 sources build phase,主 App + Tests 各一份)。
+
+### 风险
+- 修改了 `project.pbxproj` 共 8 个节点 (新增 `VipUpgradeHint.swift` × 4 + `VipUpgradeHintTests.swift` × 4)。需要 macOS 本地 `xcodebuild -scheme Paladala clean build` 验证 project 没有损坏。
+- 大会员错误码矩阵基于 `bilibili-API-collect` 文档 + 单次对比实验,若 B站 加新码 (如 `-62019` 4K+HDR 联票限制) 需要补 requireOK() 分支;`setPreferredQn` 的 `switch` 已是 exhaustive,新增 case 时编译器会拦截遗漏。
+- `fallbackQnForVipGate` 跟 `BilibiliAPIClient.playbackURL` 的 canonicalChain 重复了一份常量,需要后续把 chain 提取到 `BiliVideoQuality.canonicalChain` 静态属性,避免 drift。
+- `VipUpgradeURL.upgrade` 走 `account.bilibili.com` https 链接,未安装 B站 app 时 fallback 到 Safari;后续可加 `UIApplicationOpenExternalURLOptionsKey` 检测并跳到 `bilibili://` 自定义 scheme。
+
 ## v9.1.0 (2026-07-08) — Swift 6 语言模式升级 (PR-C)
 
 ### 版本信息

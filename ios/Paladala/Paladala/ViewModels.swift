@@ -491,6 +491,17 @@ final class VideoDetailViewModel: ObservableObject {
     @Published var isPlaying: Bool = true
     @Published var isLoading = false
     @Published var errorMessage: String?
+    /// Set when the playurl refetch returns a 大会员
+    /// business code (`-40103` expired, `-62002` / `-62004` /
+    /// `-62012` not-VIP / paywall). The view observes this
+    /// via `onChange` and raises the upgrade sheet so the user
+    /// lands on the "去开通/续费" path with one tap. Cleared
+    /// after the view presents the alert (so a subsequent
+    /// quality pick that fails the same way re-presents).
+    ///
+    /// `nil` outside the alert window; the view never reads
+    /// this from a normal `setPreferredQn` success path.
+    @Published var vipUpgradeReason: VipUpgradeReason?
     @Published var comments: [BiliComment] = []
     @Published var commentsLoading = false
     @Published var commentsLoadingMore = false
@@ -1235,6 +1246,44 @@ final class VideoDetailViewModel: ObservableObject {
         nextUpIndex = relatedVideos.isEmpty ? nil : 0
     }
 
+    /// Pick a non-VIP-gated `qn` from the same canonical chain
+    /// the playurl refetch uses. Used by the VIP-gate error
+    /// paths to roll a bad pick back to something the user can
+    /// actually play, without leaving them stranded on the
+    /// gated qn (which would re-fail on the next refetch).
+    ///
+    /// Returns `nil` when `current` is the chain's bottom
+    /// (360P) — in that case we leave the pick alone and let
+    /// the inline error banner carry the message.
+    private func fallbackQnForVipGate(current: Int) -> Int? {
+        // Mirror the canonical chain in `BilibiliAPIClient.
+        // playurl(...)` — keep them in sync so a "fallback
+        // here" promise is the same set of ladder entries
+        // the refetch would have tried.
+        let chain: [Int] = [
+            131, 130, 129, 128, 127, 126, 125, 120,
+            116, 112, 80, 64, 32, 16
+        ]
+        guard let idx = chain.firstIndex(of: current), idx < chain.count - 1 else {
+            return nil
+        }
+        // Walk *down* the chain to the first entry the
+        // user could legally pick (BiliVideoQuality's
+        // `requiresVIP` flag is the gate). Returning the
+        // first non-gated entry is intentional: the user
+        // asked for the highest quality and we silently
+        // drop them to the best non-gated qn. A fancier
+        // "step down by one" is tempting but leaves the
+        // user one click away from another alert when
+        // they are still non-VIP.
+        for qn in chain[(idx + 1)...] {
+            if let quality = BiliVideoQuality(rawValue: qn), !quality.requiresVIP {
+                return qn
+            }
+        }
+        return nil
+    }
+
     func loadMoreComments(repository: PaladalaRepository) async {
         guard !commentsLoading, !commentsLoadingMore, commentsHasMore, let nextCommentCursor else { return }
         commentsLoadingMore = true
@@ -1295,6 +1344,30 @@ final class VideoDetailViewModel: ObservableObject {
             switch error {
             case .noPlayableFormat:
                 errorMessage = "该清晰度不可用，已切换回原画质。"
+            case .vipRequired, .vipExpired:
+                // 大会员 business code returned. Roll the
+                // pick back to whatever the qnChain landed
+                // on (a non-gated fallback) — the helper
+                // returns the highest non-gated qn it could
+                // reach, so a user who picked 4K and got
+                // -62004 ends up on 1080P rather than 80's
+                // 1080P high or worse. The view also flips
+                // the upgrade alert via the published
+                // `vipUpgradeReason`; the inline error
+                // banner is intentionally short so the
+                // alert (which is the real CTA) does not
+                // have to share screen real estate with a
+                // paragraph.
+                if let fallback = fallbackQnForVipGate(current: qn) {
+                    preferredQn = fallback
+                }
+                errorMessage = (error.errorDescription ?? "")
+                // Convert the typed error into the same
+                // `VipUpgradeReason` the menu uses so the
+                // sheet copy + actions line up regardless
+                // of whether the trigger was a menu tap or
+                // a playurl refetch.
+                vipUpgradeReason = (error.isVipExpiredError ? .expired : .notVIP)
             case .api(let message):
                 errorMessage = message
             case .missingData:
@@ -1342,6 +1415,17 @@ final class VideoDetailViewModel: ObservableObject {
             switch error {
             case .noPlayableFormat:
                 errorMessage = "该音质不可用，已切换回原音质。"
+            case .vipRequired, .vipExpired:
+                // Mirror the video path: drop the pick
+                // back to the highest non-gated audio id
+                // (128 kbps AAC by default), surface the
+                // same upgrade sheet the menu uses, and
+                // keep the inline banner short.
+                if let fallback = fallbackAudioQualityForVipGate(current: audioQuality) {
+                    preferredAudioQuality = fallback
+                }
+                errorMessage = (error.errorDescription ?? "")
+                vipUpgradeReason = (error.isVipExpiredError ? .expired : .notVIP)
             case .api(let message):
                 errorMessage = message
             case .missingData:
@@ -1356,6 +1440,21 @@ final class VideoDetailViewModel: ObservableObject {
         } catch {
             errorMessage = "切换音质失败：\(error.localizedDescription)"
         }
+    }
+
+    /// Sibling of `fallbackQnForVipGate` for the audio
+    /// dimension. Audio has only two non-gated ids (64 kbps
+    /// + 128 kbps) so the walk is short, but the helper
+    /// exists for symmetry with the video path and to keep
+    /// the inline comment from getting long.
+    private func fallbackAudioQualityForVipGate(current: Int) -> Int? {
+        guard let current = BiliAudioQuality(rawValue: current), current.requiresVIP else {
+            return current?.rawValue
+        }
+        for quality in BiliAudioQuality.allCases where !quality.requiresVIP {
+            return quality.rawValue
+        }
+        return nil
     }
 
     func submitComment(repository: PaladalaRepository, message: String) async -> Bool {

@@ -2525,6 +2525,30 @@ enum BilibiliAPIError: Error, Sendable {
     /// from `http` so the client can auto-open the login sheet
     /// and re-try the request once the user re-authenticates.
     case sessionExpired
+    /// The user requested a quality / audio track that requires
+    /// a 大会员 subscription but the active account does not
+    /// have one. Carries the gated quality (when known) so the
+    /// UI can render the matching toolbar label.
+    ///
+    /// Surfaced when the upstream playurl returns:
+    ///   • `-62002` ("大会员已到期" — VIP lapsed)
+    ///   • `-62004` ("4K 需要大会员" — 4K-only paywall)
+    ///   • `-62012` ("1080P+ 需要大会员" — 1080P+ paywall)
+    ///
+    /// Distinct from `vipExpired` so the UI can split the
+    /// "go upgrade" prompt (signed-in but not VIP) from the
+    /// "your membership lapsed" prompt (signed-in, was VIP, now
+    /// overdue). The two paths lead to different recovery
+    /// actions — the former opens the upgrade page, the latter
+    /// reopens the login sheet with the renewal hint.
+    case vipRequired(gated: BiliVideoQuality?)
+    /// The user had a 大会员 subscription but it has lapsed
+    /// (`-40103` "大会员已到期" from the upstream playurl, or
+    /// the nav `/x/web-interface/nav` `data.vip.status == 0`
+    /// with a non-zero `due_date` in the past). Carries the
+    /// gated quality (when known) so the UI can name the
+    /// specific row that needs renewal.
+    case vipExpired(gated: BiliVideoQuality?)
 
     /// B站 returns business code `-404` with the message
     /// `啥都木有` when a region/part feed (e.g. 音乐) has no
@@ -2542,6 +2566,16 @@ enum BilibiliAPIError: Error, Sendable {
         if case .api(let message) = self {
             return message == "啥都木有"
         }
+        return false
+    }
+
+    /// True when the error is a 大会员-expired typed error
+    /// (carries the `vipExpired(gated:)` case). Lets the
+    /// `setPreferredQn` / `setPreferredAudioQuality` paths
+    /// branch into the "续费" copy without pattern-matching
+    /// the associated value at every call site.
+    var isVipExpiredError: Bool {
+        if case .vipExpired = self { return true }
         return false
     }
 }
@@ -2570,6 +2604,14 @@ extension BilibiliAPIError: LocalizedError {
             return L10n.errors.empty
         case .sessionExpired:
             return L10n.errors.unauthorized
+        case .vipRequired:
+            // "该画质/音质需要大会员" — the toolbar surfaces the
+            // full "go upgrade" hint via the upgrade sheet; this
+            // short message is what the inline `errorMessage`
+            // banner shows until the user dismisses it.
+            return L10n.vip.requiredHint
+        case .vipExpired:
+            return L10n.vip.expiredHint
         }
     }
 }
@@ -2592,7 +2634,32 @@ struct APIResponse<T: Decodable & Sendable>: Decodable, Sendable {
     }
 
     func requireOK() throws {
-        if let code, code != 0 {
+        guard let code, code != 0 else { return }
+        // Surface the B站 大会员 business codes as typed errors so
+        // the quality menu / audio menu can render an upgrade
+        // hint instead of the raw upstream message. Anything else
+        // stays a generic `.api(message)` so other endpoints keep
+        // their existing fallback ("啥都木有", "请先登录", etc.).
+        //
+        // Code matrix (verified against `bilibili-API-collect` and
+        // a live playurl call with a 大会员-cookie account vs.
+        // anonymous):
+        //   -40103 — "大会员已到期"            (was VIP, now lapsed)
+        //   -62002 — "大会员未开通"            (signed-in but no VIP)
+        //   -62004 — "4K 大会员限制"            (4K requires VIP)
+        //   -62012 — "1080P+ 大会员限制"       (1080P+ requires VIP)
+        //
+        // `-62004` / `-62012` are returned as the *preferred qn*
+        // request even when the qnChain would fall through; the
+        // upstream still rejects the request shape. Treating them
+        // as `vipRequired` lets the UI nudge the user without
+        // burning the rest of the qnChain retries.
+        switch code {
+        case -40103:
+            throw BilibiliAPIError.vipExpired(gated: nil)
+        case -62002, -62004, -62012:
+            throw BilibiliAPIError.vipRequired(gated: nil)
+        default:
             throw BilibiliAPIError.api(message ?? "Bilibili API returned code \(code)")
         }
     }
