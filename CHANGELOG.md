@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — akamTester-style CDN probe + auto-pick
+
+### 新增
+- **`CDNAkamProbe.swift`** (`ios/Paladala/Paladala/CDNAkamProbe.swift`, 新文件, ~245 行): TLS 握手延迟探测原语,移植自 `miyouzi/akamTester` 的 `https_test(ip, host)` 思路。两个组件:
+  - `DNSResolver.resolveIPv4(_:) async`: `CFHost` 同步解析 A/AAAA 记录,`Task.detached` 防止阻塞主 actor;`AF_INET` 优先,iOS `NWConnection` 默认走 IPv4。
+  - `TLSHandshakeProbe.probe(ip:host:port:timeout:)` async: `Network.framework` `NWConnection` + `NWProtocolTLS.Options` + `sec_protocol_options_set_server_name` 显式 SNI,握手成功即 cancel,5 秒硬超时;`ResumeLatch` 包装 `withCheckedContinuation` 实现"resume once"语义。
+- **CDN 自动选优** (`CDNManager.swift`): `fallbackNodes` 增补 `upos-hz-mirrorakam.akamaized.net` (海外 akamai);`test(_:)` 重写为 DNS 解析 + 多次握手探测 + first-reachable short-circuit;新增 `lowestDelayHost: String?`、`lowestDelayIPByHost: [String: String]`、`autoPickEnabled` (UserDefaults `paladala.cdn.autoPickEnabled`)、`writeAkamTesterFile()` (写到 `Library/Caches/paladala/akamTester.txt` 供 Python repo 端交叉验证)。`test(nodes:)` 完成后若 `autoPickEnabled` 为真则 `selectedHost = lowestDelayHost`,实现"强制使用延迟最低端点"。
+- **CDN 设置页"自动选优"模块** (`CDNSettingsView.swift`): 新增 Section 包含 `自动测速切换` 开关 (`@AppStorage(CDNManager.autoPickEnabledKey)`) + `已切换到 XXX 节点` 状态行(展示最新 TLS 握手延迟)。原文案 "测速使用 HEAD/Range 请求..." 改为 "测速使用 Network.framework 真实 TCP + TLS 握手 (含 SNI),与 miyouzi/akamTester 思路一致"。
+
+### 行为
+- **延迟测量改用真实 TLS 握手**: 旧的 `URLSession` HEAD/Range 探测被 `connect()` + 1 字节 TLS round-trip 测量,且 `URLSession` 连接池对同 host 后续探测有污染;新方案用 `NWConnection` 每次新开,5 秒硬超时,信号更干净、与 akamTester 的 `https_test` 思路一致。
+- **强制使用最低延迟端点**: 开启 `自动测速切换` 后,每次 `test(nodes:)` 完成后 `selectedHost` 自动指向 `lowestDelayHost`,下一个 `BiliPlayback` 走 `rewrite(_:pinHost:)` 替换到 winner host。`LocalHLSProxyServer.customHostResolver` 钩子已就位 (host→IP 闭包),目前 iOS URLSession 无法独立设置 SNI,真正的 IP-level 锁定需要 `Network.framework` 改写 upstream fetching,留作未来工作。
+- **Akamai anycast 走系统 DNS**: `upos-hz-mirrorakam.akamaized.net` 是 anycast 域名,系统 DNS 已经会就近路由 PoP;`lowestDelayIPByHost` 当前返回空 (per-IP 数据未在 `SpeedResult` 层面保留),但 host-keyed 的 `selectedHost` 切换对 akamai 已足够准确。
+
+### 文件
+- 新增 `CDNAkamProbe.swift` (10,394 字节)。
+- `CDNManager.swift`: +99 行 (TLS probe 文档 + new computed properties + writeAkamTesterFile)。
+- `CDNSettingsView.swift`: +50 行 (自动选优 Section + auto-pick toggle + 状态行 + 文案改写)。
+- `LocalHLSProxyServer.swift`: +35 行 (`customHostResolver` locked computed property + 注释解释 URLSession SNI 限制)。
+- `project.pbxproj`: 4 个节点(`PBXBuildFile` + `PBXFileReference` + group child + Sources buildFiles)。
+
+### 风险
+- 新增 `CDNAkamProbe.swift` 无 Windows 本地编译验证 (`xcodebuild` 不可用),build 后请先在 macOS 上 `xcodebuild -scheme Paladala clean build` 一次。
+- `Network.framework` 探测在 iOS 17+ 已稳定;最低部署目标如果 < iOS 16,需要确认 `NWConnection` TLS 选项可用。
+
 ## Unreleased — Refactor pass
 
 ### 新增

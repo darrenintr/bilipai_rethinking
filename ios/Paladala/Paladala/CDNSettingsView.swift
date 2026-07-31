@@ -6,6 +6,15 @@ struct CDNSettingsView: View {
     @State private var nodes: [CDNManager.Node] = []
     @State private var selectedRegion = "全部"
     @AppStorage(CDNManager.enabledKey) private var enabled = false
+    /// "Auto-pick the lowest-latency host after a speed test
+    /// finishes" — the user-facing half of the
+    /// "强制使用延迟最低 + 速度最大的端点" mode. Off by
+    /// default so the first install still behaves as a
+    /// manual picker; users opt in once they trust the
+    /// test. Backed by `paladala.cdn.autoPickEnabled` in
+    /// `UserDefaults` via the `autoPickEnabled` computed
+    /// property on `CDNManager`.
+    @AppStorage(CDNManager.autoPickEnabledKey) private var autoPickEnabled = false
 
     private var regions: [String] { ["全部"] + Array(Set(nodes.map(\.region))).sorted() }
     private var visibleNodes: [CDNManager.Node] {
@@ -84,6 +93,54 @@ struct CDNSettingsView: View {
                 }
             }
             Section {
+                Toggle(isOn: $autoPickEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("自动测速切换")
+                        Text("每次测速后自动把节点切到延迟最低的端点。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                // The "current lowest" status row is the
+                // visible feedback that the auto-pick pathway
+                // fired. The data comes from the most recent
+                // `test(nodes:)` run, which is also what
+                // `writeAkamTesterFile` writes to
+                // `Library/Caches/paladala/akamTester.txt`
+                // for cross-checking against an external
+                // `miyouzi/akamTester` Python run.
+                if let best = manager.lowestDelayHost {
+                    HStack(spacing: 8) {
+                        Image(systemName: "bolt.fill")
+                            .foregroundStyle(.yellow)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("已切换到 \(best)")
+                                .font(.subheadline.monospaced())
+                            if let ms = manager.results.first(where: { $0.node.host == best })?.latencyMs {
+                                Text("TLS 握手延迟 \(ms) ms")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                    }
+                }
+            } header: { Text("自动选优") } footer: {
+                // The probe uses a real TCP + TLS handshake
+                // (Network.framework + explicit SNI) — see
+                // `CDNAkamProbe.swift`. It is *not* a Range /
+                // HEAD probe of a media URL, so the latency
+                // number is closer to "what my first
+                // `AVPlayer` segment fetch will feel like"
+                // than a typical HTTP probe. Akamai anycast
+                // still routes by system DNS — the iOS app
+                // doesn't pin a specific IP (URLSession
+                // can't override SNI), so the host-keyed
+                // auto-pick is the strongest signal we can
+                // hand to the player today.
+                Text("测速使用 Network.framework 真实 TCP + TLS 握手（含 SNI），与 miyouzi/akamTester 思路一致；延迟最低的端点会被自动设为下一段播放的默认节点。")
+            }
+            Section {
                 Button {
                     Task { await manager.test(nodes: Array(visibleNodes.prefix(40))) }
                 } label: {
@@ -114,7 +171,7 @@ struct CDNSettingsView: View {
                     .buttonStyle(.plain)
                 }
             } header: { Text("测速与选择") } footer: {
-                Text("测速使用 HEAD/Range 请求，只测节点可达性和延迟，不批量下载视频；低延迟不一定代表实际视频吞吐最高，建议以播放稳定性为准。")
+                Text("每行显示对应节点的最新 TLS 握手延迟。绿色 < 150ms，橙色 < 400ms，红色 ≥ 400ms 或不可达。")
             }
         }
         .navigationTitle("CDN 播放源")

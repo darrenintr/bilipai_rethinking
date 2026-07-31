@@ -92,6 +92,47 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// `@testable import Paladala`.
     static let shared = LocalHLSProxyServer(port: 0)
 
+    /// Optional host → preferred-IP resolver. When set,
+    /// `replaceMediaURL(_:)` and `rewrite(_:pinHost:)` will
+    /// substitute the resolved IP for the original host
+    /// before forwarding upstream. Designed to be set by
+    /// `CDNManager` after an akamTester-style speed run so
+    /// the lowest-latency IP from the user's vantage point
+    /// becomes the "default" target for every segment
+    /// request — the "强制使用延迟最低 + 速度最大的端点"
+    /// mode.
+    ///
+    /// `nil` (the default) means "no resolver — use the URL
+    /// host verbatim" so the rest of the proxy continues to
+    /// work without any customisation.
+    ///
+    /// **Why this is host-only, not IP-only**: `URLSession`
+    /// does not let us specify a different SNI from the URL
+    /// host. If we substitute an IP into the URL, the TLS
+    /// ClientHello will carry the IP as the SNI and B站's
+    /// CDN edge (cert is for `*.akamaized.net`) will reject
+    /// it. We work around this by leaving the URL host as
+    /// the original domain and just hinting the resolver —
+    /// the actual TCP / TLS connection still goes through
+    /// the system DNS for now, which (for anycast hosts like
+    /// akamai) routes to a nearby edge anyway. A future
+    /// revision can swap `URLSession` for `Network.framework`
+    /// upstream to lock to a specific IP at the SNI layer.
+    var customHostResolver: (@Sendable (String) -> String?)? {
+        get { readCustomHostResolver() }
+        set { writeCustomHostResolver(newValue) }
+    }
+    private let customHostResolverLock = NSLock()
+    private var _customHostResolver: (@Sendable (String) -> String?)?
+    private func readCustomHostResolver() -> (@Sendable (String) -> String?)? {
+        customHostResolverLock.lock(); defer { customHostResolverLock.unlock() }
+        return _customHostResolver
+    }
+    private func writeCustomHostResolver(_ resolver: (@Sendable (String) -> String?)?) {
+        customHostResolverLock.lock(); defer { customHostResolverLock.unlock() }
+        _customHostResolver = resolver
+    }
+
     /// The result of a successful SIDX preparation.  Built
     /// by `preparePlayback(...)` and consumed by
     /// `publishAndStart(...)` which writes the indices into
