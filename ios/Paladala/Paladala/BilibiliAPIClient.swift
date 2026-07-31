@@ -3699,6 +3699,32 @@ private struct PlayURLPayload: Decodable, Sendable {
             return out.isEmpty ? nil : out
         }()
 
+        // `accept_audio_quality` is B站's optional explicit
+        // "the audio ladder the upstream is willing to serve"
+        // declaration. In practice, **most playurl surfaces
+        // (UGC, PGC, fnval variants) omit the field entirely**
+        // — the upstream replies with `dash.audio[]` only
+        // and the caller has to derive the available ids
+        // from each audio track's `id`. Falling through to
+        // `nil` would force the audio menu back to the
+        // 4-step static ladder (a regression — the menu
+        // would happily offer 320 kbps Hi-Res on a video
+        // whose dash only has 128 kbps AAC, then fail the
+        // refetch). The `dash.audio[].id` projection is a
+        // safe fallback: B站 always emits the dash block
+        // for DASH responses, and every audio track carries
+        // its quality id.
+        let resolvedAcceptAudioQuality: [Int]? = {
+            if let explicit = acceptAudioQuality, !explicit.isEmpty {
+                return explicit
+            }
+            if let dash = self.dash, !dash.audio.isEmpty {
+                let ids = dash.audio.compactMap { $0.id }
+                return ids.isEmpty ? nil : Array(Set(ids)).sorted()
+            }
+            return nil
+        }()
+
         // 1) Prefer the upstream HLS master if B站 gave us one
         //    (fnval & 64).  AVPlayer consumes HLS natively and
         //    we just inject the `Referer` header on the
@@ -3718,7 +3744,7 @@ private struct PlayURLPayload: Decodable, Sendable {
                 referer: refererURL,
                 acceptQuality: acceptQuality,
                 acceptDescription: acceptDescriptionByQn,
-                acceptAudioQuality: acceptAudioQuality
+                acceptAudioQuality: resolvedAcceptAudioQuality
             )
         }
 
@@ -3739,7 +3765,7 @@ private struct PlayURLPayload: Decodable, Sendable {
                     "durlCount": durl?.count ?? 0,
                     "acceptQuality": acceptQuality ?? [],
                     "acceptDescriptionCount": acceptDescription?.count ?? 0,
-                    "acceptAudioQuality": acceptAudioQuality ?? []
+                    "acceptAudioQuality": resolvedAcceptAudioQuality ?? []
                 ])
 
         // 2) DASH path.  B站 ships DASH manifests for 1080P+
@@ -3773,7 +3799,7 @@ private struct PlayURLPayload: Decodable, Sendable {
                 referer: refererURL,
                 acceptQuality: acceptQuality,
                 acceptDescription: acceptDescriptionByQn,
-                acceptAudioQuality: acceptAudioQuality
+                acceptAudioQuality: resolvedAcceptAudioQuality
             )
         }
         // Diagnose why DASH was unusable.  This shows up in
@@ -3820,7 +3846,7 @@ private struct PlayURLPayload: Decodable, Sendable {
                 referer: refererURL,
                 acceptQuality: acceptQuality,
                 acceptDescription: acceptDescriptionByQn,
-                acceptAudioQuality: acceptAudioQuality
+                acceptAudioQuality: resolvedAcceptAudioQuality
             )
         }
         return nil
@@ -5314,3 +5340,4 @@ private extension Data {
         }
     }
 }
+
