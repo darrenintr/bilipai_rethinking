@@ -40,6 +40,40 @@ struct VideoCard: View {
     }
 
     var body: some View {
+        contentView
+            .frame(maxWidth: .infinity)
+            .buttonStyle(PaladalaPressBounceButtonStyle())
+            .modifier(VideoContextMenuIfAvailable(video: video, repository: repository))
+            // Impression fires once per card every time it enters
+            // the visible viewport. For long feeds this can be
+            // noisy; if analytics volume becomes a concern later,
+            // swap this for a debounced / sampled impression hook
+            // (e.g. only fire on first appearance per session,
+            // keyed by bvid in a Set).
+            .onAppear {
+                Analytics.log("card_impression", ["bvid": video.id])
+            }
+    }
+
+    /// Variant dispatcher — picks between the hard-edged Street
+    /// body and the iOS Native body.  Both branches share the
+    /// same outer modifiers (frame, button style, context menu,
+    /// impression analytics) so the change is purely visual.
+    @ViewBuilder
+    private var contentView: some View {
+        if PaladalaTheme.activeVariant == .iosNative {
+            iosNativeBody
+        } else {
+            streetBody
+        }
+    }
+
+    /// Street Minimal body — 街頭硬影視頻卡片
+    /// - 16:10 封面（保留舊邏輯）
+    /// - 1.5pt 全黑邊 + 4pt 硬陰影
+    /// - 24pt bold 標題
+    /// - mono metadata（UP 名 / 統計 / 日期）
+    private var streetBody: some View {
         Button {
             // Centralised "user tapped a card" analytics hook —
             // single point of instrumentation covers home / follow
@@ -151,17 +185,86 @@ struct VideoCard: View {
             .paladalaCardSurface(materialDesign)
             .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity)
-        .buttonStyle(PaladalaPressBounceButtonStyle())
-        .modifier(VideoContextMenuIfAvailable(video: video, repository: repository))
-        // Impression fires once per card every time it enters
-        // the visible viewport. For long feeds this can be
-        // noisy; if analytics volume becomes a concern later,
-        // swap this for a debounced / sampled impression hook
-        // (e.g. only fire on first appearance per session,
-        // keyed by bvid in a Set).
-        .onAppear {
-            Analytics.log("card_impression", ["bvid": video.id])
+    }
+
+    /// iOS Native body — 純蘋果原生視頻卡片
+    /// - 16:9 封面 + 16pt 連續圓角（行業標準比例）
+    /// - 17pt SF Pro headline 標題
+    /// - UP 名 15pt subheadline + 20pt 圓形 avatar（首字母 placeholder）
+    /// - 統計行合併為一行：`▶ 5.6K · 💬 0 · 2 週前`，12pt caption
+    /// - 0 硬陰影，0 黑邊，0 自定義顏色
+    private var iosNativeBody: some View {
+        Button {
+            Analytics.log("card_select", [
+                "bvid": video.id,
+                "duration": video.duration
+            ])
+            Haptics.tap()
+            action()
+        } label: {
+            VStack(alignment: .leading, spacing: PaladalaTheme.Spacing.s) {
+                coverImage
+                    .modifier(HeroSourceModifier(videoID: video.id, namespace: heroNamespace))
+                    .aspectRatio(16/9, contentMode: .fill)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(
+                        cornerRadius: PaladalaTheme.IOSNative.cardRadius,
+                        style: .continuous
+                    ))
+                    .overlay(alignment: .bottomTrailing) {
+                        // 系統風格時長徽章：半透明黑底 + 白字，
+                        // 不用黑底白字硬邊（避免跟卡片視覺衝突）。
+                        Text(video.duration.mmss)
+                            .font(PaladalaTheme.IOSNative.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                .black.opacity(0.75),
+                                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            )
+                            .padding(8)
+                    }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(video.title)
+                        .font(PaladalaTheme.IOSNative.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    HStack(spacing: 6) {
+                        // UP 頭像 placeholder — 20pt 圓形灰底 + 首字母
+                        // 真正的頭像 URL 暫不在 BiliVideo 數據模型上，
+                        // 後續加 ownerFaceURL 字段時可替換為 AsyncImage。
+                        Circle()
+                            .fill(Color.secondary.opacity(0.2))
+                            .frame(width: 20, height: 20)
+                            .overlay(
+                                Text(String(video.ownerName.prefix(1)))
+                                    .font(PaladalaTheme.IOSNative.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            )
+                        Text(video.ownerName)
+                            .font(PaladalaTheme.IOSNative.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    HStack(spacing: 6) {
+                        Label(video.viewCount.compactCount, systemImage: "play.fill")
+                        Text("·").foregroundStyle(.tertiary)
+                        Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
+                        if let date = video.publishDate {
+                            Text("·").foregroundStyle(.tertiary)
+                            Text(date.relativeDateLabel)
+                        }
+                    }
+                    .font(PaladalaTheme.IOSNative.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                }
+                .padding(.horizontal, 4)
+            }
+            .contentShape(Rectangle())
         }
     }
 

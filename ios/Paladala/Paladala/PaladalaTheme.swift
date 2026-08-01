@@ -1,13 +1,17 @@
 import SwiftUI
 
 /// Top-level design variant. Drives the visual language of the
-/// whole app via `PaladalaTheme`'s computed tokens. The two
-/// values intentionally model the "old vs new" toggle:
+/// whole app via `PaladalaTheme`'s computed tokens. The three
+/// values intentionally model the design-language switch:
 /// - `.streetRedesign` — the hard-edged Street Minimal language
-///   introduced in the e03bbbb3 redesign. Default.
+///   introduced in the e03bbbb3 redesign. Default, current brand.
 /// - `.classic` — the pre-redesign Liquid-Glass-on-system
 ///   language (corner radius 24, soft glass shadows, system
 ///   `Color.primary` / `.secondary` foreground, etc.).
+/// - `.iosNative` — pure Apple HIG. 連續圓角 16、0 自定義顏色、
+///   跟隨系統 tint、SF Pro text style、`.searchable` 系統搜索、
+///   `.sidebarAdaptable` iPad 自動 sidebar。給「用不慣街頭風格」
+///   的用戶的入口。
 ///
 /// Persisted to `UserDefaults` under `paladala.designVariant` so
 /// the user's choice survives relaunch. The `RootView` listens
@@ -16,14 +20,16 @@ import SwiftUI
 enum DesignVariant: String, CaseIterable, Identifiable, Sendable {
     case classic
     case streetRedesign
+    case iosNative
 
     var id: String { rawValue }
 
     /// User-facing label shown in the Settings toggle.
     var title: String {
         switch self {
-        case .classic: "经典 Liquid Glass"
-        case .streetRedesign: "街头硬影"
+        case .classic: "經典 Liquid Glass"
+        case .streetRedesign: "街頭硬影"
+        case .iosNative: "原生 iOS"
         }
     }
 
@@ -32,9 +38,11 @@ enum DesignVariant: String, CaseIterable, Identifiable, Sendable {
     var blurb: String {
         switch self {
         case .classic:
-            "还原到改版前的视觉:圆角 24、玻璃材质、系统色。"
+            "還原到改版前的視覺:圓角 24、玻璃材質、系統色。"
         case .streetRedesign:
-            "当前的硬边极简风格:无圆角、1.5pt 黑边、4pt 实心硬影。"
+            "當前的硬邊極簡風格:無圓角、1.5pt 黑邊、4pt 實心硬影。"
+        case .iosNative:
+            "純蘋果原生體驗,跟隨系統 tint、SF Pro text style、.searchable 系統搜索。"
         }
     }
 }
@@ -74,6 +82,9 @@ enum PaladalaTheme {
             })
         case .classic:
             return .primary
+        case .iosNative:
+            // 純蘋果原生：直接用 .primary，0 自定義顏色
+            return .primary
         }
     }
     static var paper: Color {
@@ -84,6 +95,9 @@ enum PaladalaTheme {
             })
         case .classic:
             return Color(uiColor: .systemBackground)
+        case .iosNative:
+            // iOS Native 用 systemGroupedBackground 當頁面底色
+            return Color(uiColor: .systemGroupedBackground)
         }
     }
     static var canvas: Color {
@@ -96,6 +110,8 @@ enum PaladalaTheme {
             })
         case .classic:
             return Color.clear
+        case .iosNative:
+            return Color(uiColor: .systemGroupedBackground)
         }
     }
     static var coolGray: Color {
@@ -107,7 +123,9 @@ enum PaladalaTheme {
                     : UIColor(red: 0.957, green: 0.957, blue: 0.957, alpha: 1)
             })
         case .classic:
-            return Color.primary.opacity(0.055)
+            return .primary.opacity(0.055)
+        case .iosNative:
+            return Color(uiColor: .secondarySystemGroupedBackground)
         }
     }
     static var mutedInk: Color {
@@ -120,18 +138,22 @@ enum PaladalaTheme {
             })
         case .classic:
             return .secondary
+        case .iosNative:
+            return .secondary
         }
     }
     static var cyan: Color {
         switch activeVariant {
         case .streetRedesign: return ink
         case .classic: return Color(red: 0.24, green: 0.78, blue: 0.94)
+        case .iosNative: return Color.accentColor
         }
     }
     static var violet: Color {
         switch activeVariant {
         case .streetRedesign: return biliPink
         case .classic: return Color(red: 0.48, green: 0.34, blue: 0.96)
+        case .iosNative: return Color(uiColor: .systemPurple)
         }
     }
 
@@ -140,6 +162,7 @@ enum PaladalaTheme {
         switch activeVariant {
         case .streetRedesign: return 0
         case .classic: return 24
+        case .iosNative: return 16
         }
     }
     static var cardRadius: CGFloat { cornerRadius }
@@ -150,48 +173,56 @@ enum PaladalaTheme {
         switch activeVariant {
         case .streetRedesign: return 1.5
         case .classic: return 0
+        case .iosNative: return 0.5
         }
     }
     static var hairlineWidth: CGFloat {
         switch activeVariant {
         case .streetRedesign: return 1
         case .classic: return 0.5
+        case .iosNative: return 0.5
         }
     }
     static var hardShadowOffset: CGFloat {
         switch activeVariant {
         case .streetRedesign: return 4
         case .classic: return 0
+        case .iosNative: return 0
         }
     }
     static var pressedOffset: CGFloat {
         switch activeVariant {
         case .streetRedesign: return 4
         case .classic: return 0
+        case .iosNative: return 0
         }
     }
     static var pageBackground: Color {
         switch activeVariant {
         case .streetRedesign: return canvas
         case .classic: return Color.clear
+        case .iosNative: return Color(uiColor: .systemGroupedBackground)
         }
     }
     static var cardBackground: Color {
         switch activeVariant {
         case .streetRedesign: return paper
         case .classic: return Color.primary.opacity(0.055)
+        case .iosNative: return Color(uiColor: .secondarySystemGroupedBackground)
         }
     }
     static var glassStroke: Color {
         switch activeVariant {
         case .streetRedesign: return ink
         case .classic: return Color.white.opacity(0.24)
+        case .iosNative: return Color(uiColor: .separator)
         }
     }
     static var glassShadow: Color {
         switch activeVariant {
         case .streetRedesign: return ink
         case .classic: return Color.black.opacity(0.08)
+        case .iosNative: return .clear
         }
     }
 
@@ -217,12 +248,13 @@ enum PaladalaTheme {
         /// 32pt — screen-edge breathing room
         static let xxxl: CGFloat = 32
         /// 48pt — zine-scale separation between editorial blocks.
-        /// Falls back to `xxxl` (32) in the classic variant where
-        /// the editorial spacing layer doesn't exist.
+        /// Falls back to `xxxl` (32) in the classic and iosNative
+        /// variants where the editorial spacing layer doesn't exist.
         static var display: CGFloat {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return 48
             case .classic: return xxxl
+            case .iosNative: return xxxl
             }
         }
 
@@ -244,6 +276,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return paper
             case .classic: return Color(uiColor: .secondarySystemGroupedBackground)
+            case .iosNative: return Color(uiColor: .secondarySystemGroupedBackground)
             }
         }
         /// Subdued surface — list rows, secondary cards.
@@ -251,6 +284,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return coolGray
             case .classic: return Color(uiColor: .tertiarySystemGroupedBackground)
+            case .iosNative: return Color(uiColor: .tertiarySystemGroupedBackground)
             }
         }
         /// Hairline border, chip stroke, divider.
@@ -258,6 +292,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return ink
             case .classic: return Color.primary.opacity(0.08)
+            case .iosNative: return Color(uiColor: .separator)
             }
         }
         /// Primary foreground (text, icon) — adaptive to colorScheme.
@@ -265,6 +300,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return ink
             case .classic: return .primary
+            case .iosNative: return .primary
             }
         }
         /// Muted foreground (subtitles, captions) — adaptive to colorScheme.
@@ -272,15 +308,24 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return mutedInk
             case .classic: return .secondary
+            case .iosNative: return .secondary
             }
         }
-        /// Accent — brand pink, used for active states and CTAs.
-        static let accent = biliPink
+        /// Accent — brand pink in Street, system accent in iOS Native.
+        /// iOS Native 模式下跟隨用戶在 iOS 設置裡選的 tint color（藍、綠、紫、灰都可）。
+        static var accent: Color {
+            switch PaladalaTheme.activeVariant {
+            case .streetRedesign: return biliPink
+            case .classic: return biliPink
+            case .iosNative: return Color.accentColor
+            }
+        }
         /// Success (download complete, etc.).
         static var success: Color {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return ink
             case .classic: return .green
+            case .iosNative: return .green
             }
         }
         /// Warning (rate-limit, slow network).
@@ -288,6 +333,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return biliPink
             case .classic: return .orange
+            case .iosNative: return .orange
             }
         }
         /// Error (network failure, parse failure).
@@ -295,6 +341,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return biliPink
             case .classic: return .red
+            case .iosNative: return .red
             }
         }
     }
@@ -314,36 +361,42 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 36, weight: .black, design: .rounded)
             case .classic: return .largeTitle
+            case .iosNative: return .largeTitle
             }
         }
         static var displayMedium: Font {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 28, weight: .black, design: .rounded)
             case .classic: return .title
+            case .iosNative: return .title
             }
         }
         static var headline: Font {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 24, weight: .bold, design: .default)
             case .classic: return .headline
+            case .iosNative: return .headline
             }
         }
         static var body: Font {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 16, weight: .regular, design: .default)
             case .classic: return .body
+            case .iosNative: return .body
             }
         }
         static var bodySmall: Font {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 14, weight: .regular, design: .default)
             case .classic: return .callout
+            case .iosNative: return .callout
             }
         }
         static var labelMono: Font {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 12, weight: .medium, design: .monospaced)
             case .classic: return .caption2
+            case .iosNative: return .caption2
             }
         }
         /// Card / row title — same weight as a section title but smaller.
@@ -351,6 +404,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 16, weight: .bold, design: .rounded)
             case .classic: return .headline
+            case .iosNative: return .headline
             }
         }
         /// Section header in a scroll view — slightly larger.
@@ -358,6 +412,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 20, weight: .black, design: .rounded)
             case .classic: return .title3.weight(.semibold)
+            case .iosNative: return .title3.weight(.semibold)
             }
         }
         /// Large icon for an empty / placeholder state.
@@ -369,6 +424,7 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return .system(size: 11, weight: .bold, design: .monospaced)
             case .classic: return .caption2.weight(.bold)
+            case .iosNative: return .caption2.weight(.bold)
             }
         }
         /// Compact monospaced caption (log viewer timestamps).
@@ -376,8 +432,84 @@ enum PaladalaTheme {
             switch PaladalaTheme.activeVariant {
             case .streetRedesign: return labelMono
             case .classic: return .system(.caption2, design: .monospaced)
+            case .iosNative: return .system(.caption2, design: .monospaced)
             }
         }
+    }
+
+    // MARK: - iOS Native tokens (集中命名空間)
+    //
+    // 給 iOS Native 變體用的 token 命名空間，方便組件直接引用而不必
+    // 判斷 activeVariant。值都是 iOS 系統色 / 系統字 / 標準圓角，
+    // 跟隨系統 theme 與 Dynamic Type。
+    //
+    // 命名衝突處理：
+    // - `ink` / `paper` / `card` 等屬性與上面 `PaladalaTheme` 平級屬性同名，
+    //   通過完整路徑 `PaladalaTheme.IOSNative.ink` 訪問避免歧義。
+    // - `title` / `headline` / `body` 等跟 `Spacing` 或 `FontRole` 同名但語義不同，
+    //   通過 namespace 區分。
+    enum IOSNative {
+        // MARK: - 顏色（全部系統色，0 自定義）
+
+        /// 主文字 / 圖標 — 自動跟隨 light/dark
+        static let ink = Color.primary
+
+        /// 頁面背景 — 跟隨系統分組背景
+        static let paper = Color(uiColor: .systemGroupedBackground)
+
+        /// 卡片背景 — 二級分組背景
+        static let card = Color(uiColor: .secondarySystemGroupedBackground)
+
+        /// 三級表面（嵌套 chip / 段）
+        static let surface = Color(uiColor: .tertiarySystemGroupedBackground)
+
+        /// 0.5pt 分隔線
+        static let separator = Color(uiColor: .separator)
+
+        /// 強調色 — 跟隨系統 tint（用戶在 iOS 設置裡改，全 app 跟隨）
+        static let tint = Color.accentColor
+
+        /// 填充色（chip 未選中、segmented control 背景）
+        static let fill = Color(uiColor: .systemFill)
+
+        // MARK: - 圓角（連續圓角）
+
+        /// 卡片圓角 16pt
+        static let cardRadius: CGFloat = 16
+
+        /// Chip 圓角 999 = capsule
+        static let chipRadius: CGFloat = 999
+
+        /// 按鈕圓角 10pt
+        static let buttonRadius: CGFloat = 10
+
+        /// Hero / 浮卡圓角 24pt
+        static let heroRadius: CGFloat = 24
+
+        /// 搜索欄圓角 12pt
+        static let searchRadius: CGFloat = 12
+
+        // MARK: - 邊框 / 陰影
+
+        /// hairline 0.5pt
+        static let hairline: CGFloat = 0.5
+
+        /// elevation 0 — iOS Native 不用硬陰影，靠 .glassEffect 自身
+        static let elevation: CGFloat = 0
+
+        // MARK: - 字體（純 SF Pro text style，0 自定義字體）
+
+        static let largeTitle:  Font = .largeTitle    // 34pt bold
+        static let title:       Font = .title         // 28pt regular
+        static let title2:      Font = .title2        // 22pt regular
+        static let title3:      Font = .title3        // 20pt regular
+        static let headline:    Font = .headline      // 17pt semibold
+        static let body:        Font = .body          // 17pt regular
+        static let callout:     Font = .callout       // 16pt regular
+        static let subheadline: Font = .subheadline   // 15pt regular
+        static let footnote:    Font = .footnote      // 13pt regular
+        static let caption:     Font = .caption       // 12pt regular
+        static let caption2:    Font = .caption2      // 11pt regular
     }
 
     // MARK: - Deprecated aliases
@@ -402,8 +534,8 @@ enum ThemeMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: "跟随系统"
-        case .light: "浅色"
+        case .system: "跟隨系統"
+        case .light: "淺色"
         case .dark: "深色"
         }
     }
@@ -461,12 +593,12 @@ extension Date {
     /// Compact Chinese relative-time label used on the home
     /// `VideoCard` date row.
     ///
-    ///  - "刚刚"  under 1 minute
-    ///  - "N 分钟前"  under 1 hour
-    ///  - "N 小时前"  under 24 hours
+    ///  - "剛剛"  under 1 minute
+    ///  - "N 分鐘前"  under 1 hour
+    ///  - "N 小時前"  under 24 hours
     ///  - "N 天前"    under 30 days
-    ///  - "N 周前"    under 12 months
-    ///  - "N 个月前"  under 12 months
+    ///  - "N 週前"    under 12 months
+    ///  - "N 個月前"  under 12 months
     ///  - "N 年前"    older
     ///  - "yyyy-MM-dd"  when the date is more than 1 year in
     ///    the past, or any future date (server clock skew)
@@ -481,7 +613,7 @@ extension Date {
         let delta = now.timeIntervalSince(self)
         // Future date — server clock skew or a scheduled premiere.
         // Fall back to a calendar string so we don't render
-        // "刚刚" for a 2099 timestamp.
+        // "剛剛" for a 2099 timestamp.
         if delta < 0 {
             return absoluteDateLabel
         }
@@ -492,22 +624,22 @@ extension Date {
         let month: TimeInterval = 30 * day
         let year: TimeInterval = 365 * day
         if delta < minute {
-            return "刚刚"
+            return "剛剛"
         }
         if delta < hour {
-            return "\(Int(delta / minute)) 分钟前"
+            return "\(Int(delta / minute)) 分鐘前"
         }
         if delta < day {
-            return "\(Int(delta / hour)) 小时前"
+            return "\(Int(delta / hour)) 小時前"
         }
         if delta < week {
             return "\(Int(delta / day)) 天前"
         }
         if delta < month {
-            return "\(Int(delta / week)) 周前"
+            return "\(Int(delta / week)) 週前"
         }
         if delta < year {
-            return "\(Int(delta / month)) 个月前"
+            return "\(Int(delta / month)) 個月前"
         }
         return "\(Int(delta / year)) 年前"
     }
