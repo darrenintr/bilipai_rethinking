@@ -2261,26 +2261,40 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // expiry needs a fresh login, not a duplicate request
         // that will also 401.
         //
-        // -403 on a WBI-signed request means our cached
-        // img/sub keys have drifted (Bilibili rotates them on
-        // a cadence that outpaces our 6h TTL).  Invalidate,
-        // re-sign with the freshly-fetched keys, and retry
-        // once.  Without this, the first stale-cache request
-        // bubbles up as `api("访问权限不足")` and the user
-        // sees a generic "评论加载失败" banner — exactly the
-        // regression Round 12's commit message flagged as
+        // WBI-signed requests get a second retry path: when
+        // the envelope code is one of the codes the upstream
+        // uses to reject a stale signature, we invalidate the
+        // cached img/sub keys, rebuild the request with the
+        // freshly-fetched ones, and send once.  Covers:
+        //   -403 访问权限不足  — explicit WBI signature reject
+        //   -352 风控          — sometimes raised when the
+        //                         upstream sees a signature it
+        //                         can't validate against a
+        //                         freshly-rotated key pair
+        //   -101 未登录        — when the upstream also strips
+        //                         the user's SESSDATA from the
+        //                         view because the request
+        //                         looked unsigned; refresh +
+        //                         retry resolves it without a
+        //                         forced re-login
+        // Without this, the first stale-cache request bubbles
+        // up as `api("访问权限不足")` and the user sees the
+        // generic "评论加载失败" banner — exactly the regression
+        // Round 12's commit message flagged as
         // out-of-scope-for-that-round.
         let initial = try await session.data(for: request)
         let resolved: (Data, URLResponse)
-        if let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode,
-           initialStatus == 412 || initialStatus == 429 {
+        let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode
+        let initialCode: Int? = (initialStatus == 200)
+            ? Self.envelopeCode(of: initial.0)
+            : nil
+        if let initialStatus, initialStatus == 412 || initialStatus == 429 {
             bpLog("GET \(request.url?.absoluteString ?? "?") returned HTTP \(initialStatus) — backoff 1.2s + retry once")
             try await Task.sleep(for: .milliseconds(1_200))
             resolved = try await session.data(for: request)
-        } else if signWithWBI,
-                  (initial.1 as? HTTPURLResponse)?.statusCode == 200,
-                  Self.envelopeCode(of: initial.0) == -403 {
-            bpLog("GET \(request.url?.absoluteString ?? "?") returned -403 — refreshing WBI keys + retry once")
+        } else if signWithWBI, let initialCode,
+                  initialCode == -403 || initialCode == -352 || initialCode == -101 {
+            bpLog("GET \(request.url?.absoluteString ?? "?") returned code \(initialCode) — refreshing WBI keys + retry once")
             await wbiSigner.invalidate()
             request = try await buildSignedRequest(
                 baseURL: baseURL,
@@ -2294,6 +2308,17 @@ final class BilibiliAPIClient: @unchecked Sendable {
             resolved = initial
         }
         let (data, response) = resolved
+        // Diagnostic: when a WBI-signed call returns a non-zero
+        // envelope code that we *didn't* retry above, log it so
+        // the diagnostic report can show what the upstream
+        // actually returned.  Cheap (one JSON decode of an
+        // envelope) and confined to the failure path — successful
+        // responses stay quiet.
+        if signWithWBI,
+           let code = Self.envelopeCode(of: data),
+           code != 0 {
+            bpLog("GET \(request.url?.absoluteString ?? "?") returned envelope code \(code) — caller will see this as BilibiliAPIError")
+        }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             bpLog("GET \(request.url?.absoluteString ?? "?") returned HTTP \(status)")
