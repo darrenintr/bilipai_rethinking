@@ -2162,26 +2162,17 @@ final class BilibiliAPIClient: @unchecked Sendable {
         try payload.requireOK()
     }
 
-    private func get<T: Decodable>(
+    /// Build a fully-signed request for `path`. Pulled out of `get<T>`
+    /// so the -403 WBI retry path can rebuild the request with fresh
+    /// keys without duplicating header/cookie/cache-bust logic. Throws
+    /// `invalidURL` if the URLComponents can't be assembled.
+    private func buildSignedRequest(
         baseURL: URL,
         path: String,
         queryItems: [URLQueryItem],
-        signWithWBI: Bool = false,
-        // Per-call Referer override. The default is the
-        // bilibili-wide `https://www.bilibili.com`; some
-        // endpoints (the suggest endpoint at
-        // `s.search.bilibili.com`) expect the matching
-        // referer (`https://search.bilibili.com`) so the
-        // upstream doesn't reject the cross-host call.
-        referer: String = "https://www.bilibili.com",
-        // Diagnostic flags: when both are set, the first 4 KB
-        // of the response body is dumped to the diagnostic log
-        // so we can see exactly what the upstream returned.
-        // Used to figure out what the playurl HLS slot is
-        // actually called.
-        dumpRawBody: Bool = false,
-        dumpTag: String = ""
-    ) async throws -> T {
+        signWithWBI: Bool,
+        referer: String
+    ) async throws -> URLRequest {
         var items = queryItems
         let isAppAPI = baseURL.host?.contains("app.bilibili.com") == true
 
@@ -2198,7 +2189,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         if signWithWBI {
             items = try await wbiSigner.sign(queryItems: items, using: session)
         }
-        
+
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
         components.queryItems = items
         guard let url = components.url else {
@@ -2220,6 +2211,48 @@ final class BilibiliAPIClient: @unchecked Sendable {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
 
+        return request
+    }
+
+    /// Read the JSON `code` field out of a Bilibili envelope without
+    /// needing `T` to be decodable. Used by `get<T>` to detect -403
+    /// (the WBI drift signature) so it can refresh keys + retry once.
+    /// Returns `nil` for non-Bilibili payloads (raw images, error
+    /// pages, etc.) — caller treats that as "not a -403, do nothing".
+    private static func envelopeCode(of data: Data) -> Int? {
+        struct Envelope: Decodable { let code: Int? }
+        return (try? JSONDecoder().decode(Envelope.self, from: data))?.code
+            .flatMap { $0 }
+    }
+
+    private func get<T: Decodable>(
+        baseURL: URL,
+        path: String,
+        queryItems: [URLQueryItem],
+        signWithWBI: Bool = false,
+        // Per-call Referer override. The default is the
+        // bilibili-wide `https://www.bilibili.com`; some
+        // endpoints (the suggest endpoint at
+        // `s.search.bilibili.com`) expect the matching
+        // referer (`https://search.bilibili.com`) so the
+        // upstream doesn't reject the cross-host call.
+        referer: String = "https://www.bilibili.com",
+        // Diagnostic flags: when both are set, the first 4 KB
+        // of the response body is dumped to the diagnostic log
+        // so we can see exactly what the upstream returned.
+        // Used to figure out what the playurl HLS slot is
+        // actually called.
+        dumpRawBody: Bool = false,
+        dumpTag: String = ""
+    ) async throws -> T {
+        var request = try await buildSignedRequest(
+            baseURL: baseURL,
+            path: path,
+            queryItems: queryItems,
+            signWithWBI: signWithWBI,
+            referer: referer
+        )
+
         // 412 (B站 风控) and 429 (rate limit) are transient
         // signals from the upstream — back off once and try
         // again.  A second failure propagates as `http` so
@@ -2227,12 +2260,35 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // 401 is intentionally NOT retried here: a session
         // expiry needs a fresh login, not a duplicate request
         // that will also 401.
+        //
+        // -403 on a WBI-signed request means our cached
+        // img/sub keys have drifted (Bilibili rotates them on
+        // a cadence that outpaces our 6h TTL).  Invalidate,
+        // re-sign with the freshly-fetched keys, and retry
+        // once.  Without this, the first stale-cache request
+        // bubbles up as `api("访问权限不足")` and the user
+        // sees a generic "评论加载失败" banner — exactly the
+        // regression Round 12's commit message flagged as
+        // out-of-scope-for-that-round.
         let initial = try await session.data(for: request)
         let resolved: (Data, URLResponse)
         if let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode,
            initialStatus == 412 || initialStatus == 429 {
-            bpLog("GET \(url.absoluteString) returned HTTP \(initialStatus) — backoff 1.2s + retry once")
+            bpLog("GET \(request.url?.absoluteString ?? "?") returned HTTP \(initialStatus) — backoff 1.2s + retry once")
             try await Task.sleep(for: .milliseconds(1_200))
+            resolved = try await session.data(for: request)
+        } else if signWithWBI,
+                  (initial.1 as? HTTPURLResponse)?.statusCode == 200,
+                  Self.envelopeCode(of: initial.0) == -403 {
+            bpLog("GET \(request.url?.absoluteString ?? "?") returned -403 — refreshing WBI keys + retry once")
+            await wbiSigner.invalidate()
+            request = try await buildSignedRequest(
+                baseURL: baseURL,
+                path: path,
+                queryItems: queryItems,
+                signWithWBI: signWithWBI,
+                referer: referer
+            )
             resolved = try await session.data(for: request)
         } else {
             resolved = initial
@@ -2240,7 +2296,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         let (data, response) = resolved
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            bpLog("GET \(url.absoluteString) returned HTTP \(status)")
+            bpLog("GET \(request.url?.absoluteString ?? "?") returned HTTP \(status)")
             // 401 = session expired.  Surface a typed error
             // (instead of the generic `http`) and let the app
             // open the login sheet.  The latch in
@@ -2272,7 +2328,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
-            bpLog("decode failed for \(url.absoluteString): \(error)\n  body: \(String(data: data.prefix(512), encoding: .utf8) ?? "<binary>")")
+            bpLog("decode failed for \(request.url?.absoluteString ?? "?"): \(error)\n  body: \(String(data: data.prefix(512), encoding: .utf8) ?? "<binary>")")
             throw error
         }
     }
@@ -2439,6 +2495,19 @@ private actor WbiSigner {
             // Non-fatal. First signed request will retry.
             bpLog("WbiSigner prewarm failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Drop the cached WBI keys. Used when the upstream tells us our
+    /// signature is no longer accepted (B站 rotates the img/sub keys on
+    /// a cadence that outpaces our per-instance cache). The next signed
+    /// request will re-fetch from `/x/web-interface/nav` and the
+    /// caller's retry will succeed.  Clears both the per-instance and
+    /// the boot-time static prewarm so a long-lived app can recover
+    /// without a relaunch.
+    func invalidate() {
+        cachedKeys = nil
+        Self.prewarmedKeys = nil
+        bpLog("WbiSigner invalidated — keys will be re-fetched on next sign")
     }
 
     func sign(queryItems: [URLQueryItem], using session: URLSession) async throws -> [URLQueryItem] {
