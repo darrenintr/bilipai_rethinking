@@ -15,6 +15,23 @@ struct OnboardingView: View {
     ]
 
     var body: some View {
+        // The two variants look completely different in the chrome
+        // (background, skip, dots, hero icon, CTA).  Forcing them
+        // through a single body would mean a lot of `if isNative`
+        // gates that obscure both paths.  The shared state lives in
+        // `currentPage`; each variant owns its own page content and
+        // page indicator.
+        if PaladalaTheme.activeVariant == .iosNative {
+            OnboardingViewNative(
+                currentPage: $currentPage,
+                pages: Self.pages
+            )
+        } else {
+            bodyStreet
+        }
+    }
+
+    private var bodyStreet: some View {
         ZStack(alignment: .topTrailing) {
             OnboardingAnimatedBackground(page: currentPage)
 
@@ -517,5 +534,337 @@ private struct OnboardingPreferencesPage: View {
             }
             .buttonStyle(.plain)
         }
+    }
+}
+
+// MARK: - iOS Native variant
+//
+// Street's onboarding carries the brand's hard-edged, mono-cap
+// visual language into the first-launch experience (uppercase
+// titles, hard-bordered hero icons, mono-spaced labels).  The iOS
+// Native variant follows HIG instead: SF Pro text styles at the
+// standard sizes, largeTitle-style hero icons on a soft
+// `systemGroupedBackground` page, and a per-page system-tint CTA
+// at the bottom.  The preferences page becomes a 設計風格 picker
+// (3 cards) + 功能開關 list of `.switch` toggles.
+
+private struct OnboardingViewNative: View {
+    @Binding var currentPage: Int
+    let pages: [OnboardingPage]
+    @AppStorage("paladala.didOnboard") private var didOnboard = false
+    @EnvironmentObject private var router: AppRouter
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea()
+
+            TabView(selection: $currentPage) {
+                ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
+                    OnboardingNativePageView(
+                        page: page,
+                        isLastPage: index == pages.count - 1,
+                        currentPageBinding: $currentPage
+                    )
+                    .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .animation(.easeOut(duration: 0.2), value: currentPage)
+
+            // Top-right "跳過" text button — HIG convention for
+            // modal onboarding flows.  Hidden on the last page
+            // where the bottom CTA replaces it.
+            if currentPage < pages.count - 1 {
+                Button {
+                    Haptics.tap()
+                    didOnboard = true
+                } label: {
+                    Text("跳過")
+                        .font(.body)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 20)
+                .padding(.top, 8)
+            }
+        }
+    }
+}
+
+private struct OnboardingNativePageView: View {
+    let page: OnboardingPage
+    let isLastPage: Bool
+    @Binding var currentPage: Int
+    @AppStorage("paladala.didOnboard") private var didOnboard = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 48)
+
+            if page.kind == .preferences {
+                // Preferences page renders its own header + content.
+                // Marketing pages render the hero + title + subtitle.
+                OnboardingNativePreferencesView()
+            } else {
+                heroIcon
+
+                Text(page.title)
+                    .font(.title.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 32)
+                    .padding(.horizontal, 16)
+
+                Text(page.subtitle)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 12)
+                    .padding(.horizontal, 32)
+
+                Spacer()
+            }
+
+            ctaButton
+                .padding(.horizontal, 24)
+                .padding(.bottom, 32)
+        }
+    }
+
+    private var heroIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(heroGradient)
+                .frame(width: 140, height: 140)
+            Image(systemName: page.symbol)
+                .font(.system(size: 64, weight: .bold))
+                .foregroundStyle(.white)
+        }
+    }
+
+    /// Per-page gradient chosen to match the page's icon.  Mirrors
+    /// the mockup's pink / purple / green swatches; the .pink and
+    /// .purple use the same starting tone as `biliPink` so the
+    /// brand still reads through the iOS Native wrapper.
+    private var heroGradient: LinearGradient {
+        switch page.symbol {
+        case "play.rectangle.on.rectangle.fill":
+            return LinearGradient(
+                colors: [
+                    Color(red: 1.0, green: 0.42, blue: 0.42),
+                    Color(red: 0.77, green: 0.27, blue: 0.41)
+                ],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+        case "pip.exit":
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.345, green: 0.337, blue: 0.839),
+                    Color(red: 0.686, green: 0.322, blue: 0.871)
+                ],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+        case "person.crop.circle.badge.checkmark":
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.204, green: 0.78, blue: 0.349),
+                    Color(red: 0.188, green: 0.69, blue: 0.314)
+                ],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+        default:
+            return LinearGradient(
+                colors: [Color.accentColor.opacity(0.85), Color.accentColor],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+        }
+    }
+
+    private var ctaButton: some View {
+        Button {
+            Haptics.tap()
+            if isLastPage {
+                didOnboard = true
+            } else {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    currentPage += 1
+                }
+            }
+        } label: {
+            Text(isLastPage ? "開始使用" : "繼續")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(
+                    Color.accentColor,
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+        }
+    }
+}
+
+private struct OnboardingNativePreferencesView: View {
+    @AppStorage("paladala.designVariant") private var designVariantRaw: String = DesignVariant.streetRedesign.rawValue
+    @AppStorage("paladala.danmakuEnabled") private var danmakuEnabled = true
+    @AppStorage("paladala.backgroundAudio") private var backgroundAudio = false
+    @AppStorage("paladala.iCloudSync") private var iCloudSync = false
+
+    private var designVariant: DesignVariant {
+        DesignVariant(rawValue: designVariantRaw) ?? .streetRedesign
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("挑你喜歡的風格")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.primary)
+                Text("選擇後可在設置中隨時切換")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 24)
+
+            sectionHeader("設計風格")
+            VStack(spacing: 8) {
+                ForEach(DesignVariant.allCases) { variant in
+                    designCard(variant)
+                }
+            }
+            .padding(.horizontal, 20)
+
+            sectionHeader("功能開關")
+            VStack(spacing: 0) {
+                toggleRow("彈幕", symbol: "text.bubble.fill", isOn: $danmakuEnabled)
+                Divider().padding(.leading, 50)
+                toggleRow("後台音頻", symbol: "speaker.wave.2.fill", isOn: $backgroundAudio)
+                Divider().padding(.leading, 50)
+                toggleRow(
+                    "iCloud 同步",
+                    symbol: "icloud.fill",
+                    isOn: $iCloudSync,
+                    disabled: !ICloudSync.shared.isAvailable
+                )
+            }
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+            .tracking(0.4)
+            .padding(.leading, 24)
+    }
+
+    private func designCard(_ variant: DesignVariant) -> some View {
+        let isSelected = (variant == designVariant)
+        return Button {
+            designVariantRaw = variant.rawValue
+            // AppStorage update is enough for the picker to
+            // re-render, but other views in the app read
+            // `PaladalaTheme.activeVariant` directly.  Calling
+            // `apply(_:)` keeps the in-memory singleton in sync
+            // so the next render of any view sees the new value.
+            PaladalaTheme.apply(variant)
+            Haptics.selection()
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(cardIconColor(variant))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: cardIconSymbol(variant))
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(variant.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(variant.blurb)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                ZStack {
+                    Circle()
+                        .strokeBorder(
+                            isSelected ? Color.accentColor : Color(uiColor: .separator),
+                            lineWidth: 1.5
+                        )
+                        .frame(width: 22, height: 22)
+                    if isSelected {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 14, height: 14)
+                    }
+                }
+            }
+            .padding(14)
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor : .clear,
+                        lineWidth: 2
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func cardIconColor(_ variant: DesignVariant) -> Color {
+        switch variant {
+        case .streetRedesign: return .black
+        case .iosNative: return Color.accentColor
+        case .classic: return Color(uiColor: .systemGray)
+        }
+    }
+
+    private func cardIconSymbol(_ variant: DesignVariant) -> String {
+        switch variant {
+        case .streetRedesign: return "rectangle"
+        case .iosNative: return "globe"
+        case .classic: return "circle.grid.cross"
+        }
+    }
+
+    private func toggleRow(
+        _ title: String,
+        symbol: String,
+        isOn: Binding<Bool>,
+        disabled: Bool = false
+    ) -> some View {
+        Toggle(isOn: isOn) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+            }
+        }
+        .toggleStyle(.switch)
+        .disabled(disabled)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .opacity(disabled ? 0.45 : 1)
     }
 }
