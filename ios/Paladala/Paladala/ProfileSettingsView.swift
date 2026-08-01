@@ -163,7 +163,10 @@ struct ProfileSettingsView: View {
                     )
                 }
                 Picker("界面设计", selection: $designVariant) {
-                    ForEach(DesignVariant.allCases) { variant in
+                    // Same legacy-classic filter as the onboarding
+                    // picker — only the two shipped design languages
+                    // are offered.
+                    ForEach(DesignVariant.userFacingCases) { variant in
                         Text(variant.title).tag(variant)
                     }
                 }

@@ -252,6 +252,8 @@ struct VideoCard: View {
                         Label(video.viewCount.compactCount, systemImage: "play.fill")
                         Text("·").foregroundStyle(.tertiary)
                         Label(video.danmakuCount.compactCount, systemImage: "text.bubble")
+                        Text("·").foregroundStyle(.tertiary)
+                        Label(video.replyCount.compactCount, systemImage: "text.bubble.fill")
                         if let date = video.publishDate {
                             Text("·").foregroundStyle(.tertiary)
                             Text(date.relativeDateLabel)

@@ -45,6 +45,17 @@ enum DesignVariant: String, CaseIterable, Identifiable, Sendable {
             "純蘋果原生體驗,跟隨系統 tint、SF Pro text style、.searchable 系統搜索。"
         }
     }
+
+    /// The two design languages the product actually ships to
+    /// end-users.  Excludes `.classic`, which is kept in the
+    /// enum only for legacy `UserDefaults` migration (older
+    /// builds persisted the variant under that rawValue).
+    /// Any new user-facing picker (onboarding, settings) should
+    /// iterate this list, not `allCases`, so `.classic` is
+    /// never re-introduced as a user choice.
+    static var userFacingCases: [DesignVariant] {
+        [.streetRedesign, .iosNative]
+    }
 }
 
 enum PaladalaTheme {

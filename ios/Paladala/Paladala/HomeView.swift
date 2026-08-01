@@ -9,6 +9,12 @@ struct HomeView: View {
     /// the navigation just falls back to the system
     /// cross-fade).
     let heroNamespace: Namespace.ID?
+    /// Number of grid columns on iPad regular-width layouts.
+    /// `PadRootView` picks 2 (sidebar visible) or 3 (sidebar
+    /// collapsed) based on `columnVisibility` so the video grid
+    /// re-flows when the user pulls the sidebar away.  Phone
+    /// layouts always use 1 column regardless of this value.
+    let iPadColumns: Int
 
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var authStore: AuthStore
@@ -23,9 +29,14 @@ struct HomeView: View {
     /// (Performance audit #2 / Polish agent).
     @ObservedObject private var downloadStore = DownloadStore.shared
 
-    init(repository: PaladalaRepository, heroNamespace: Namespace.ID? = nil) {
+    init(
+        repository: PaladalaRepository,
+        heroNamespace: Namespace.ID? = nil,
+        iPadColumns: Int = 2
+    ) {
         self.repository = repository
         self.heroNamespace = heroNamespace
+        self.iPadColumns = iPadColumns
     }
 
     /// Resolved on every call so account switches in
@@ -35,14 +46,14 @@ struct HomeView: View {
 
     private var columns: [GridItem] {
         // Street Minimal keeps the phone feed editorial and linear:
-        // one full-width card at a time. Regular-width layouts retain
-        // a two-column spread, with the same generous zine gutter used
-        // between rows. Keeping the decision at the grid boundary also
-        // makes loading skeletons and live cards follow the exact layout.
+        // one full-width card at a time. Regular-width layouts
+        // use `iPadColumns` (set by `PadRootView` to 2 with the
+        // sidebar visible or 3 when the user collapses it for
+        // more screen real estate).
         if horizontalSizeClass == .regular {
             return Array(
                 repeating: GridItem(.flexible(), spacing: 32, alignment: .top),
-                count: 2
+                count: max(2, iPadColumns)
             )
         }
         return [GridItem(.flexible(), alignment: .top)]

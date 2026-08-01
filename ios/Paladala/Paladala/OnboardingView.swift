@@ -731,7 +731,11 @@ private struct OnboardingNativePreferencesView: View {
 
             sectionHeader("設計風格")
             VStack(spacing: 8) {
-                ForEach(DesignVariant.allCases) { variant in
+                // Use the filtered user-facing list (excludes
+                // `.classic`, which only exists for legacy
+                // UserDefaults migration — see
+                // `DesignVariant.userFacingCases`).
+                ForEach(DesignVariant.userFacingCases) { variant in
                     designCard(variant)
                 }
             }

@@ -28,7 +28,18 @@ struct PaladalaApp: App {
         // Read the raw UserDefaults string instead.
         if let raw = UserDefaults.standard.string(
             forKey: "paladala.designVariant"
-        ), let variant = DesignVariant(rawValue: raw) {
+        ) {
+            // Legacy migration: pre-2026 builds let users pick
+            // `DesignVariant.classic` ("經典 Liquid Glass").
+            // That case was removed from the user-facing pickers
+            // because it duplicated the iOS Native look in a
+            // way that didn't carry its own brand.  Map any
+            // persisted "classic" to `.streetRedesign` (the
+            // default) so old installs land on a supported
+            // variant instead of a deprecated one.
+            let variant = (raw == "classic")
+                ? .streetRedesign
+                : (DesignVariant(rawValue: raw) ?? .streetRedesign)
             PaladalaTheme.apply(variant)
         }
         // PR-fix-2026-07-10: register the BG task handler during
