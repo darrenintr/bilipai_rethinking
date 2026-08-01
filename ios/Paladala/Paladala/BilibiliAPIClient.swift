@@ -2056,11 +2056,25 @@ final class BilibiliAPIClient: @unchecked Sendable {
                 merged.append(model)
             }
         }
+        // Bilibili silently returns `replies: null` (and an empty
+        // `upper.top`) for unauthenticated callers when the
+        // thread has comments — `code == 0` passes `requireOK()`,
+        // but the API refuses to hand over the actual reply
+        // list.  `cursor.allCount` still reports the true count
+        // (so the stats bar shows 12 next to the comments icon
+        // even though the list is empty).  We surface that as
+        // `missingIdentity` so the catch in `loadComments` can
+        // show "请登录后查看评论" instead of the misleading
+        // "No public comments" empty state.
+        let reportedTotal = payload.value?.cursor?.allCount ?? 0
+        if merged.isEmpty && reportedTotal > 0 {
+            throw BilibiliAPIError.missingIdentity
+        }
         return CommentPage(
             items: merged,
             next: payload.value?.cursor?.next,
             isEnd: payload.value?.cursor?.isEnd ?? true,
-            totalCount: payload.value?.cursor?.allCount ?? merged.count
+            totalCount: reportedTotal == 0 ? merged.count : reportedTotal
         )
     }
 

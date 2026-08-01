@@ -1145,7 +1145,13 @@ final class VideoDetailViewModel: ObservableObject {
             commentsHasMore = !page.isEnd && page.next != nil
             commentsTotalCount = page.totalCount
         } catch BilibiliAPIError.missingIdentity {
-            commentsErrorMessage = "评论不可用"
+            // Bilibili silently returns `replies: null` for
+            // unauthenticated callers even when the thread
+            // has comments; the API client surfaces that as
+            // `missingIdentity` so we can show a friendlier
+            // "log in" message instead of the empty-state
+            // "No public comments" placeholder.
+            commentsErrorMessage = "请登录后查看评论"
             comments = []
         } catch {
             commentsErrorMessage = "Could not load public comments."

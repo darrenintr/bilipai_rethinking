@@ -1624,7 +1624,17 @@ struct VideoDetailView: View {
                 commentSortPicker
             }
             if let error = model.commentsErrorMessage {
-                ErrorBanner(message: error)
+                // The error path covers the silent `replies: null`
+                // case where Bilibili denies the comment list to
+                // unauthenticated callers.  Surface a "登录" CTA
+                // alongside the banner so the user can recover
+                // without backing out to the profile tab.
+                ErrorBanner(
+                    message: error,
+                    primary: authStore.activeAccount == nil
+                        ? .init(label: "登录", action: { router.openLogin() })
+                        : nil
+                )
             } else if model.commentsLoading && model.comments.isEmpty {
                 CommentSkeletonRows()
             } else if model.comments.isEmpty {
