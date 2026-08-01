@@ -86,22 +86,50 @@ struct UISearchFieldBridge: UIViewRepresentable {
     /// `updateUIView` stay in lockstep.  Reads from
     /// `PaladalaTheme` at call time, so a runtime toggle of
     /// `DesignVariant` updates the bar on the next render.
+    ///
+    /// - Street: hard-edged paper background, 1.5pt ink border,
+    ///   no corner radius, custom SF-Symbol magnifier — matches
+    ///   the rest of the Street chrome.
+    /// - iOS Native: skip our custom chrome entirely.  The
+    ///   `.minimal` `UISearchBar` style already gives a soft
+    ///   rounded field with the system tint; layering our own
+    ///   ink border + zero radius on top of it produces a
+    ///   visibly square bar that doesn't match HIG.  We still
+    ///   swap the magnifier for a tinted SF Symbol so the
+    ///   iconography is consistent with the rest of the app.
     private func applyStreetChrome(to bar: UISearchBar) {
         let field = bar.searchTextField
-        field.backgroundColor = UIColor(PaladalaTheme.paper)
-        field.textColor = UIColor(PaladalaTheme.ink)
-        field.tintColor = UIColor(PaladalaTheme.biliPink)
-        field.attributedPlaceholder = NSAttributedString(
-            string: prompt,
-            attributes: [
-                .foregroundColor: UIColor(PaladalaTheme.mutedInk)
-            ]
-        )
-        field.borderStyle = .none
-        field.layer.borderColor = UIColor(PaladalaTheme.ink).cgColor
-        field.layer.borderWidth = PaladalaTheme.borderWidth
-        field.layer.cornerRadius = 0
-        field.layer.masksToBounds = true
+        if PaladalaTheme.activeVariant == .iosNative {
+            // System default chrome — `.minimal` already
+            // provides a tinted, rounded field.
+            field.backgroundColor = nil
+            field.textColor = nil
+            field.tintColor = nil
+            field.attributedPlaceholder = NSAttributedString(
+                string: prompt,
+                attributes: [.foregroundColor: UIColor.secondaryLabel]
+            )
+            field.borderStyle = .none
+            field.layer.borderColor = nil
+            field.layer.borderWidth = 0
+            field.layer.cornerRadius = 0
+            field.layer.masksToBounds = false
+        } else {
+            field.backgroundColor = UIColor(PaladalaTheme.paper)
+            field.textColor = UIColor(PaladalaTheme.ink)
+            field.tintColor = UIColor(PaladalaTheme.biliPink)
+            field.attributedPlaceholder = NSAttributedString(
+                string: prompt,
+                attributes: [
+                    .foregroundColor: UIColor(PaladalaTheme.mutedInk)
+                ]
+            )
+            field.borderStyle = .none
+            field.layer.borderColor = UIColor(PaladalaTheme.ink).cgColor
+            field.layer.borderWidth = PaladalaTheme.borderWidth
+            field.layer.cornerRadius = 0
+            field.layer.masksToBounds = true
+        }
         // Swap the default left-view icon for a tinted
         // SF Symbol so the bar matches the rest of the
         // app's iconography.

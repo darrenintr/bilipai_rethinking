@@ -864,10 +864,20 @@ struct VideoDetailView: View {
                 .textCase(.uppercase)
                 .tracking(-0.6)
                 .fixedSize(horizontal: false, vertical: true)
+            // B站-style 4-pill stats bar: 播放 / 彈幕 / 評論 / 時長.
+            // 評論 is the *comment* count (`replyCount`), distinct
+            // from 彈幕 (danmaku).  Previously the second pill was
+            // danmaku with a filled chat-bubble icon, which the
+            // user read as "comments" and expected the COMMENTS
+            // section below to show that many rows.  Adding the
+            // dedicated 評論 pill makes the mapping unambiguous.
+            // The hand.thumbsup pill was dropped to make room —
+            // likes already appear in the player chrome, and
+            // a 4-pill bar is what B站 uses.
             HStack(spacing: 8) {
                 MetricPill(systemImage: "play.fill", text: model.detail.viewCount.compactCount)
-                MetricPill(systemImage: "text.bubble.fill", text: model.detail.danmakuCount.compactCount)
-                MetricPill(systemImage: "hand.thumbsup.fill", text: model.detail.likeCount.compactCount)
+                MetricPill(systemImage: "text.bubble", text: model.detail.danmakuCount.compactCount)
+                MetricPill(systemImage: "text.bubble.fill", text: model.detail.replyCount.compactCount)
                 MetricPill(systemImage: "clock.fill", text: model.detail.duration.mmss)
             }
             if let error = model.errorMessage {
@@ -1587,12 +1597,14 @@ struct VideoDetailView: View {
     }
 
     private var commentPreview: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let isNative = PaladalaTheme.activeVariant == .iosNative
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Comments")
-                    .font(PaladalaTheme.FontRole.sectionHeader)
-                    .foregroundStyle(PaladalaTheme.ink)
-                    .textCase(.uppercase)
+                    .font(isNative ? PaladalaTheme.IOSNative.headline
+                                   : PaladalaTheme.FontRole.sectionHeader)
+                    .foregroundStyle(isNative ? .primary : PaladalaTheme.ink)
+                    .textCase(isNative ? nil : .uppercase)
                 Spacer()
                 if model.commentsLoading {
                     ProgressView()
@@ -1635,7 +1647,7 @@ struct VideoDetailView: View {
                 loadMoreFooter
             }
         }
-        .background(PaladalaTheme.paper)
+        .background(isNative ? Color.clear : PaladalaTheme.paper)
     }
 
     @State private var newCommentText = ""
