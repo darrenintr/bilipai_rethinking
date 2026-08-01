@@ -575,15 +575,21 @@ jobs:
           #    on AltStore's white UI; the repo's original SVG is left
           #    untouched (it's still used by the landing page and the
           #    iOS app icon directly).
-          python3 - <<'PY'
+          # Pass paths via env so the Python heredoc can stay single-
+          # quoted (<<'PY') and not try to expand shell variables inside
+          # the Python source. Otherwise `$GITHUB_WORKSPACE` and `$STAGE`
+          # would arrive at Python as literal strings and Path() would
+          # fail with "No such file or directory: '$GITHUB_WORKSPACE/...'".
+          GITHUB_WORKSPACE="$GITHUB_WORKSPACE" STAGE="$STAGE" python3 - <<'PY'
+          import os
           from pathlib import Path
-          svg = Path("$GITHUB_WORKSPACE/ios/Paladala/Paladala/Brand/PaladalaMark.svg").read_text()
+          svg = Path(os.environ["GITHUB_WORKSPACE"] + "/ios/Paladala/Paladala/Brand/PaladalaMark.svg").read_text()
           with_bg = svg.replace(
               'stroke-linejoin="round">',
               'stroke-linejoin="round"><rect width="140" height="140" fill="#FB7299"/>',
               1,
           )
-          Path("$STAGE/icon-bg.svg").write_text(with_bg)
+          Path(os.environ["STAGE"] + "/icon-bg.svg").write_text(with_bg)
           PY
           rsvg-convert -w 256 -h 256 "$STAGE/icon-bg.svg" -o "$STAGE/icon.png"
           echo "Generated icon.png from PaladalaMark.svg with brand-pink background"
