@@ -797,18 +797,26 @@ private struct PadSidebar: View {
 
     @ViewBuilder
     private var sidebarAvatar: some View {
+        let isNative = PaladalaTheme.activeVariant == .iosNative
         if let url = authStore.activeAccount?.faceURL {
             ResilientImage(url: url)
-                .clipShape(Rectangle())
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: isNative ? 12 : 0,
+                        style: .continuous
+                    )
+                )
                 .overlay {
-                    Rectangle()
-                        .strokeBorder(
-                            PaladalaTheme.ink,
-                            lineWidth: PaladalaTheme.borderWidth
-                        )
+                    if !isNative {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
                 }
         } else {
-            Rectangle()
+            RoundedRectangle(cornerRadius: isNative ? 12 : 0, style: .continuous)
                 .fill(PaladalaTheme.biliPink)
                 .overlay(
                     Image(systemName: "person.fill")
@@ -816,11 +824,13 @@ private struct PadSidebar: View {
                         .foregroundStyle(PaladalaTheme.ink)
                 )
                 .overlay {
-                    Rectangle()
-                        .strokeBorder(
-                            PaladalaTheme.ink,
-                            lineWidth: PaladalaTheme.borderWidth
-                        )
+                    if !isNative {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
                 }
         }
     }
@@ -865,27 +875,45 @@ private struct SidebarRow: View {
 private struct StreetSidebarSurface: ViewModifier {
     let fill: Color
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .background {
-                ZStack {
-                    Rectangle()
-                        .fill(PaladalaTheme.ink)
-                        .offset(
-                            x: PaladalaTheme.hardShadowOffset,
-                            y: PaladalaTheme.hardShadowOffset
-                        )
-                    Rectangle()
-                        .fill(fill)
-                }
-            }
-            .overlay {
-                Rectangle()
-                    .strokeBorder(
-                        PaladalaTheme.ink,
-                        lineWidth: PaladalaTheme.borderWidth
+        if PaladalaTheme.activeVariant == .iosNative {
+            // iOS Native: rounded corner, no border, no hard shadow,
+            // system `fill` background. The active tab still uses
+            // `PaladalaTheme.biliPink` as the accent fill so the
+            // "selected" affordance is preserved — the user can
+            // override via system tint if the brand color ever
+            // changes, but the active-state cue stays consistent.
+            content
+                .background(
+                    fill,
+                    in: RoundedRectangle(
+                        cornerRadius: PaladalaTheme.cornerRadius,
+                        style: PaladalaTheme.cornerStyle
                     )
-            }
+                )
+        } else {
+            content
+                .background {
+                    ZStack {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .offset(
+                                x: PaladalaTheme.hardShadowOffset,
+                                y: PaladalaTheme.hardShadowOffset
+                            )
+                        Rectangle()
+                            .fill(fill)
+                    }
+                }
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
+        }
     }
 }
 

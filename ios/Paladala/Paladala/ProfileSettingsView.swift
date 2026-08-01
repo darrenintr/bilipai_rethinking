@@ -478,17 +478,78 @@ struct ProfileSettingsView: View {
         return f
     }()
 
+    @ViewBuilder
     private var signedOutHeader: some View {
+        let isNative = PaladalaTheme.activeVariant == .iosNative
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
-                Rectangle()
+                RoundedRectangle(cornerRadius: isNative ? 16 : 0, style: .continuous)
                     .fill(PaladalaTheme.biliPink)
                     .frame(width: 62, height: 62)
                     .overlay(
                         Text("BP")
-                            .font(PaladalaTheme.FontRole.cardTitle)
-                            .foregroundStyle(PaladalaTheme.ink)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.white)
                     )
+                    .overlay {
+                        if !isNative {
+                            Rectangle()
+                                .strokeBorder(
+                                    PaladalaTheme.ink,
+                                    lineWidth: PaladalaTheme.borderWidth
+                                )
+                        }
+                    }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("未登录")
+                        .font(isNative ? PaladalaTheme.IOSNative.headline
+                                       : PaladalaTheme.FontRole.headline)
+                        .textCase(isNative ? nil : .uppercase)
+                    Text("登录后同步历史、收藏、关注和稍后再看")
+                        .font(isNative ? PaladalaTheme.IOSNative.subheadline
+                                       : PaladalaTheme.FontRole.bodySmall)
+                        .foregroundStyle(isNative ? .secondary : PaladalaTheme.mutedInk)
+                }
+            }
+            if isNative {
+                Button {
+                    router.openLogin()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "qrcode.viewfinder")
+                        Text("登录 Bilibili 账号")
+                            .font(.body.weight(.semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(.white)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color.accentColor)
+            } else {
+                Button {
+                    router.openLogin()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "qrcode.viewfinder")
+                        Text("登录 Bilibili 账号")
+                            .font(PaladalaTheme.FontRole.labelMono)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(PaladalaTheme.biliPink)
+                    .foregroundStyle(PaladalaTheme.ink)
                     .overlay {
                         Rectangle()
                             .strokeBorder(
@@ -496,72 +557,44 @@ struct ProfileSettingsView: View {
                                 lineWidth: PaladalaTheme.borderWidth
                             )
                     }
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("未登录")
-                        .font(PaladalaTheme.FontRole.headline)
-                        .textCase(.uppercase)
-                    Text("登录后同步历史、收藏、关注和稍后再看")
-                        .font(PaladalaTheme.FontRole.bodySmall)
-                        .foregroundStyle(PaladalaTheme.mutedInk)
+                    .background {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .offset(
+                                x: PaladalaTheme.hardShadowOffset,
+                                y: PaladalaTheme.hardShadowOffset
+                            )
+                    }
                 }
+                .buttonStyle(.plain)
             }
-            Button {
-                router.openLogin()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "qrcode.viewfinder")
-                    Text("登录 Bilibili 账号")
-                        .font(PaladalaTheme.FontRole.labelMono)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(PaladalaTheme.biliPink)
-                .foregroundStyle(PaladalaTheme.ink)
-                .overlay {
-                    Rectangle()
-                        .strokeBorder(
-                            PaladalaTheme.ink,
-                            lineWidth: PaladalaTheme.borderWidth
-                        )
-                }
-                .background {
-                    Rectangle()
-                        .fill(PaladalaTheme.ink)
-                        .offset(
-                            x: PaladalaTheme.hardShadowOffset,
-                            y: PaladalaTheme.hardShadowOffset
-                        )
-                }
-            }
-            .buttonStyle(.plain)
         }
         .padding(.vertical, 8)
     }
 
+    @ViewBuilder
     private func signedInHeader(account: StoredAccount) -> some View {
-        HStack(spacing: 14) {
+        let isNative = PaladalaTheme.activeVariant == .iosNative
+        let header = HStack(spacing: 14) {
             avatar(for: account)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(account.name)
-                        .font(PaladalaTheme.FontRole.headline)
+                        .font(isNative ? PaladalaTheme.IOSNative.headline
+                                       : PaladalaTheme.FontRole.headline)
                         .foregroundStyle(
                             vipBadgeNicknameColor(for: account.vipBadge)
-                                ?? PaladalaTheme.ink
+                                ?? (isNative ? Color.primary : PaladalaTheme.ink)
                         )
-                        .textCase(.uppercase)
+                        .textCase(isNative ? nil : .uppercase)
                     if let badge = account.vipBadge, badge.isActive {
                         VipBadgeView(badge: badge, size: .standard)
                     }
                 }
                 Text("UID: \(account.mid)")
-                    .font(PaladalaTheme.FontRole.labelMono)
-                    .foregroundStyle(PaladalaTheme.mutedInk)
+                    .font(isNative ? PaladalaTheme.IOSNative.footnote
+                                   : PaladalaTheme.FontRole.labelMono)
+                    .foregroundStyle(.secondary)
                 HStack(spacing: 16) {
                     ProfileStat(label: "关注", value: profileModel.followingCount)
                     ProfileStat(label: "粉丝", value: profileModel.followerCount)
@@ -588,36 +621,58 @@ struct ProfileSettingsView: View {
             }
         }
         .padding(.vertical, 8)
+        if isNative {
+            // iOS Native: card chrome around the header.  The
+            // user card on the system Settings app uses
+            // secondarySystemGroupedBackground inside a grouped
+            // page — same idiom here.
+            header
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+        } else {
+            header
+        }
     }
 
     @ViewBuilder
     private func avatar(for account: StoredAccount) -> some View {
+        let isNative = PaladalaTheme.activeVariant == .iosNative
+        let size: CGFloat = 62
         if let url = account.faceURL {
             ResilientImage(url: url, maximumPixelSize: 192)
-                .frame(width: 62, height: 62)
-                .clipShape(Rectangle())
+                .frame(width: size, height: size)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: isNative ? 16 : 0,
+                        style: .continuous
+                    )
+                )
                 .overlay {
-                    Rectangle()
-                        .strokeBorder(
-                            PaladalaTheme.ink,
-                            lineWidth: PaladalaTheme.borderWidth
-                        )
+                    if !isNative {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
                 }
         } else {
-            Rectangle()
+            RoundedRectangle(cornerRadius: isNative ? 16 : 0, style: .continuous)
                 .fill(PaladalaTheme.biliPink)
-                .frame(width: 62, height: 62)
+                .frame(width: size, height: size)
                 .overlay(
                     Text(String(account.name.prefix(1)))
                         .font(.title3.weight(.black))
                         .foregroundStyle(PaladalaTheme.ink)
                 )
                 .overlay {
-                    Rectangle()
-                        .strokeBorder(
-                            PaladalaTheme.ink,
-                            lineWidth: PaladalaTheme.borderWidth
-                        )
+                    if !isNative {
+                        Rectangle()
+                            .strokeBorder(
+                                PaladalaTheme.ink,
+                                lineWidth: PaladalaTheme.borderWidth
+                            )
+                    }
                 }
         }
     }
