@@ -306,18 +306,36 @@ extension View {
             }
     }
 
+    /// Force the navigation bar to a Street-style opaque `paper`
+    /// background.  iOS Native is a no-op so the system draws its
+    /// own default (transparent over content, blur over scroll).
+    /// Used by `HomeToolbarGlassModifier` /
+    /// `LiveToolbarGlassModifier` / `VideoToolbarGlassModifier` /
+    /// `DynamicFeedToolbarGlassModifier` (5 call sites).
     @ViewBuilder
     func paladalaNavBarGlass(_ design: MaterialDesign = .liquidGlass) -> some View {
-        self
-            .toolbarBackground(PaladalaTheme.paper, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
+        if PaladalaTheme.activeVariant == .iosNative {
+            self
+        } else {
+            self
+                .toolbarBackground(PaladalaTheme.paper, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+        }
     }
 
+    /// Force the tab bar to a Street-style opaque `paper`
+    /// background.  iOS Native is a no-op (system default tab bar
+    /// uses the iOS-tinted blur that auto-promotes to Liquid Glass
+    /// on iOS 26+).
     @ViewBuilder
     func paladalaToolbarGlass(_ design: MaterialDesign = .liquidGlass) -> some View {
-        self
-            .toolbarBackground(PaladalaTheme.paper, for: .tabBar)
-            .toolbarBackground(.visible, for: .tabBar)
+        if PaladalaTheme.activeVariant == .iosNative {
+            self
+        } else {
+            self
+                .toolbarBackground(PaladalaTheme.paper, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
+        }
     }
 
     /// List chrome — applies the variant-correct list style +

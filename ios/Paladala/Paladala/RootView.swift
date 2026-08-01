@@ -916,11 +916,18 @@ private func profileRouteView(_ route: ProfileRoute, repository: PaladalaReposit
 /// Keep the native tab bar semantics while forcing an opaque paper
 /// background and signal-pink selection. This avoids translucent
 /// material without replacing the accessible system `TabView`.
+/// iOS Native is a no-op so the system draws its default tab bar
+/// (with the user-chosen accent color tint — no pink override).
 private struct StreetTabBarModifier: ViewModifier {
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .toolbarBackground(PaladalaTheme.paper, for: .tabBar)
-            .toolbarBackground(.visible, for: .tabBar)
-            .tint(PaladalaTheme.biliPink)
+        if PaladalaTheme.activeVariant == .iosNative {
+            content
+        } else {
+            content
+                .toolbarBackground(PaladalaTheme.paper, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
+                .tint(PaladalaTheme.biliPink)
+        }
     }
 }
