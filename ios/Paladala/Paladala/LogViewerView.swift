@@ -41,6 +41,11 @@ struct LogViewerView: View {
     @State private var shareURL: URL? = nil
     @State private var copyToast: String? = nil
     @State private var showingClearConfirmation = false
+    /// Telegram 上报状态机。`isUploading` 时 toolbar 按钮
+    /// 退化为 `ProgressView`，避免用户连点。`showUploadConfirm`
+    /// 触发 `confirmationDialog`，二次确认后真正发起 POST。
+    @State private var isUploading = false
+    @State private var showUploadConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,6 +95,23 @@ struct LogViewerView: View {
                     }
                     .accessibilityLabel("分享报告")
                 }
+                // 上报日志到 Telegram channel。图标用
+                // `paperplane.fill` 与 share 图标做视觉区分
+                // —— share 是"导出到任意 App"，
+                // paperplane 是"直传到频道"。上传期间切换为
+                // 转圈进度，避免连点触发重复请求。
+                Button {
+                    showUploadConfirm = true
+                } label: {
+                    if isUploading {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                    }
+                }
+                .accessibilityLabel("上报日志到频道")
+                .disabled(isUploading)
             }
         }
         .confirmationDialog(
@@ -103,6 +125,21 @@ struct LogViewerView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("会清空当前诊断日志、磁盘历史日志和 bpLog 缓冲。")
+        }
+        // 上报日志的二次确认。放在独立 dialog 里（不与
+        // 清除日志的合并）—— 两者语义不同，分开能避免
+        // 误触。同时 `isUploading` 会让按钮 disable，
+        // 这里是最后一道用户主动确认的门槛。
+        .confirmationDialog(
+            "上传日志到频道？",
+            isPresented: $showUploadConfirm
+        ) {
+            Button("上传") {
+                Task { await uploadToTelegram() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("会把当前诊断日志（含设备信息、App 版本、bpLog 尾部）作为文件发送到 Telegram 频道。")
         }
         .overlay(alignment: .bottom) {
             if let copyToast {
@@ -245,6 +282,41 @@ struct LogViewerView: View {
         Logger.shared.clear()
         shareURL = nil
         flashToast("日志已清除")
+    }
+
+    private func uploadToTelegram() async {
+        // 锁住 isUploading：toolbar 按钮立刻变 ProgressView，
+        // 用户无法再次点击触发重复上传；defer 保证无论成功
+        // 或失败都会解锁。
+        isUploading = true
+        defer { isUploading = false }
+        // 复用既有 `export(activeAccount:)` —— 同一份文件
+        // 既供 ShareLink 也供这里。activeAccount 透传，让
+        // 日志里带上当前账号的 mid / 登录态。
+        guard let url = DiagnosticLogger.shared.export(
+            activeAccount: authStore.activeAccount
+        ) else {
+            flashToast("导出失败")
+            return
+        }
+        // caption 是 Telegram 消息下方显示的小字。带上
+        // App 版本 + build identifier，channel 端能立刻看
+        // 到是哪个构建出的报告，不用点开文件。
+        let caption =
+            "Paladala iOS — \(AppVersion.current.versionLine)"
+            + " — \(AppVersion.current.identifierDisplay)"
+        do {
+            let result = try await TelegramLogReporter.shared.upload(
+                fileURL: url, caption: caption
+            )
+            // 把 Telegram 的 message_id 拼到 toast 里——用户
+            // 与开发者同步时能直接说"我发的是 #1234"。
+            flashToast("已上传（#\(result.messageID)）")
+        } catch {
+            // `error.localizedDescription` 走 ReporterError
+            // 的中文文案，AppError 之类的也会原样上抛。
+            flashToast("上传失败：\(error.localizedDescription)")
+        }
     }
 
     private func flashToast(_ message: String) {

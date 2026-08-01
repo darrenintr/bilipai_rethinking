@@ -75,6 +75,8 @@
 		500000000000000000000555 /* PaladalaAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000554 /* PaladalaAppDelegate.swift */; };
 		500000000000000000000557 /* DownloadedVideosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000556 /* DownloadedVideosView.swift */; };
 		500000000000000000000558 /* DeepDiagnosticReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000559 /* DeepDiagnosticReportView.swift */; };
+		5000000000000000000005C1 /* TelegramLogConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5000000000000000000005C2 /* TelegramLogConfig.swift */; };
+		5000000000000000000005C3 /* TelegramLogReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5000000000000000000005C4 /* TelegramLogReporter.swift */; };
 		50000000000000000000055A /* InlineAVPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50000000000000000000055B /* InlineAVPlayerView.swift */; };
 		50000000000000000000055D /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50000000000000000000055C /* Analytics.swift */; };
 		600000000000000000000804 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 600000000000000000000901 /* PrivacyInfo.xcprivacy */; };
@@ -187,6 +189,8 @@
 		500000000000000000000554 /* PaladalaAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaAppDelegate.swift; sourceTree = "<group>"; };
 		500000000000000000000556 /* DownloadedVideosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedVideosView.swift; sourceTree = "<group>"; };
 		500000000000000000000559 /* DeepDiagnosticReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepDiagnosticReportView.swift; sourceTree = "<group>"; };
+		5000000000000000000005C2 /* TelegramLogConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelegramLogConfig.swift; sourceTree = "<group>"; };
+		5000000000000000000005C4 /* TelegramLogReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelegramLogReporter.swift; sourceTree = "<group>"; };
 		50000000000000000000055B /* InlineAVPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineAVPlayerView.swift; sourceTree = "<group>"; };
 		50000000000000000000055C /* Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Analytics.swift; sourceTree = "<group>"; };
 		600000000000000000000901 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -322,6 +326,8 @@
 				500000000000000000000554 /* PaladalaAppDelegate.swift */,
 				500000000000000000000556 /* DownloadedVideosView.swift */,
 				500000000000000000000559 /* DeepDiagnosticReportView.swift */,
+				5000000000000000000005C2 /* TelegramLogConfig.swift */,
+				5000000000000000000005C4 /* TelegramLogReporter.swift */,
 				50000000000000000000055B /* InlineAVPlayerView.swift */,
 				50000000000000000000055C /* Analytics.swift */,
 				10000000000000000000022D /* LaunchMetrics.swift */,
@@ -715,6 +721,8 @@
 				500000000000000000000555 /* PaladalaAppDelegate.swift in Sources */,
 				500000000000000000000557 /* DownloadedVideosView.swift in Sources */,
 				500000000000000000000558 /* DeepDiagnosticReportView.swift in Sources */,
+				5000000000000000000005C1 /* TelegramLogConfig.swift in Sources */,
+				5000000000000000000005C3 /* TelegramLogReporter.swift in Sources */,
 				50000000000000000000055A /* InlineAVPlayerView.swift in Sources */,
 				50000000000000000000055D /* Analytics.swift in Sources */,
 				10000000000000000000012D /* LaunchMetrics.swift in Sources */,

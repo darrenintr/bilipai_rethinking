@@ -487,3 +487,158 @@ jobs:
           files: |
             ${{ env.IPA_DIST_DIR }}/${{ env.PRODUCT_NAME }}-unsigned-${{ env.TAG }}.ipa
             ${{ env.IPA_DIST_DIR }}/checksums.txt
+
+      # ------------------------------------------------------------------
+      # AltSource publish — turn the freshly-tagged prerelease into a
+      # working AltStore / SideStore source.
+      #
+      # We push `apps.json` (the AltSource manifest) and `icon.svg` to
+      # the orphan `gh-pages` branch, which GitHub Pages serves at
+      # https://darrenintr.github.io/pure-bilibili-rethinking/apps.json
+      # once the repo's Pages setting is pointed at the branch (one-time
+      # manual step in Settings → Pages).
+      #
+      # Both steps are guarded by the same `push to working` condition
+      # as `Create prerelease` so manual `workflow_dispatch` runs that
+      # only build the IPA never accidentally publish a half-cooked
+      # source entry.
+      #
+      # We do all of this in `$RUNNER_TEMP` subdirectories so the
+      # earlier "Mirror build log to ci-logs branch" step (which runs
+      # `git reset --hard HEAD` on the workspace) can't clobber
+      # anything we've written, and so a corrupted workspace never
+      # leaks into the published source.
+      # ------------------------------------------------------------------
+      - name: Generate AltSource assets
+        if: github.event_name == 'push' && github.ref == 'refs/heads/working'
+        env:
+          TAG: ${{ env.TAG }}
+          BUNDLE_VERSION: ${{ env.BUNDLE_VERSION }}
+          MARKET_VERSION: ${{ env.MARKET_VERSION }}
+          PRODUCT_NAME: ${{ env.PRODUCT_NAME }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          STAGE="$(mktemp -d)"
+          echo "Staging AltSource build in $STAGE"
+
+          # 1. Resolve the just-built IPA — `Package unsigned IPA` wrote
+          #    it under $IPA_DIST_DIR with the tag baked into the name.
+          IPA_FILE="$GITHUB_WORKSPACE/${{ env.IPA_DIST_DIR }}/${{ env.PRODUCT_NAME }}-unsigned-${TAG}.ipa"
+          if [ ! -f "$IPA_FILE" ]; then
+            echo "::error::Expected IPA not found at $IPA_FILE"
+            exit 1
+          fi
+          # macOS uses -f%z, GNU stat uses -c%s; the runner is macos-15
+          # but we keep the fallback so this also runs on a Linux
+          # debug job if anyone ever copies the step across.
+          IPA_SIZE="$(stat -f%z "$IPA_FILE" 2>/dev/null \
+                      || stat -c%s "$IPA_FILE")"
+          echo "IPA: $IPA_FILE  ($IPA_SIZE bytes)"
+
+          # 2. Pull the previous apps.json from gh-pages. On the first
+          #    run this 404s, which is fine — the script treats an empty
+          #    file as "no history" and emits a complete schema.
+          if curl -fsSL --retry 3 --retry-delay 1 \
+              -o "$STAGE/apps.json" \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/gh-pages/apps.json"; then
+            echo "Fetched existing apps.json from gh-pages"
+          else
+            echo "No existing apps.json on gh-pages — first publish, bootstrapping from empty"
+            : > "$STAGE/apps.json"
+          fi
+
+          # 3. Copy the brand SVG so the iconURL in apps.json always
+          #    points at something the source branch actually serves.
+          cp "$GITHUB_WORKSPACE/ios/Paladala/Paladala/Brand/PaladalaMark.svg" \
+             "$STAGE/icon.svg"
+
+          # 4. Generate the merged manifest. The script de-duplicates by
+          #    buildVersion / tag, so re-running this job for the same
+          #    BUNDLE_VERSION updates the entry in place instead of
+          #    appending a duplicate.
+          python3 scripts/generate_apps_json.py \
+            --existing     "$STAGE/apps.json" \
+            --release-notes "$RUNNER_TEMP/release-notes.md" \
+            --ipa-path     "$IPA_FILE" \
+            --output       "$STAGE/apps.json.new"
+
+          # 5. Validate the output before we ever push it. The workflow
+          #    stops here if the script somehow produced malformed JSON
+          #    or stripped a required key — better to fail the job than
+          #    publish a broken source.
+          STAGE_DIR="$STAGE" python3 -c '
+          import json, os, sys
+          d = json.load(open(os.path.join(os.environ["STAGE_DIR"], "apps.json.new")))
+          required = ["name", "bundleIdentifier", "developerName", "version",
+                      "buildVersion", "versions", "news", "iconURL", "tintColor"]
+          missing = [k for k in required if k not in d]
+          if missing:
+              sys.stderr.write("::error::apps.json missing keys: " + ", ".join(missing) + "\n")
+              sys.exit(1)
+          if not d["versions"]:
+              sys.stderr.write("::error::apps.json has empty versions[]\n")
+              sys.exit(1)
+          top = d["versions"][0]
+          assert top["buildVersion"] == d["buildVersion"], "top buildVersion != versions[0].buildVersion"
+          assert top["version"] == d["version"], "top version != versions[0].version"
+          print("apps.json validated: top version=" + d["version"]
+                + " buildVersion=" + d["buildVersion"]
+                + " history=" + str(len(d["versions"])) + " entries")
+          '
+
+          mv "$STAGE/apps.json.new" "$STAGE/apps.json"
+          echo "STAGE_DIR=$STAGE" >> "$GITHUB_ENV"
+
+      - name: Publish to gh-pages branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/working'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Fresh clone in $RUNNER_TEMP so the workspace (which the
+          # earlier "Mirror build log" step can `git reset --hard HEAD`)
+          # stays intact, and so the IPA / build log artefacts in
+          # $GITHUB_WORKSPACE aren't accidentally included in the
+          # gh-pages commit.
+          PUB="$(mktemp -d)"
+          cd "$PUB"
+          git init -q -b gh-pages
+          git config user.name  "ci-altstore-bot"
+          git config user.email "ci-altstore-bot@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # If gh-pages already exists, sync it in; otherwise create an
+          # empty initial commit so `git push` can spin up the branch.
+          if git fetch --depth 1 origin gh-pages 2>/dev/null; then
+            git reset --hard origin/gh-pages
+            echo "Reset to existing origin/gh-pages"
+          else
+            echo "Branch gh-pages does not exist yet — bootstrapping"
+            git commit --allow-empty -q -m "chore: bootstrap gh-pages branch"
+          fi
+
+          # Copy (not rm -rf + cp) so any extra files a human has
+          # placed on gh-pages — extra screenshots, a custom
+          # index.html, etc. — survive this run.
+          cp "$STAGE_DIR/apps.json" apps.json
+          cp "$STAGE_DIR/icon.svg"  icon.svg
+
+          # Only commit if something actually changed. Re-running the
+          # workflow for a buildVersion that's already in apps.json
+          # will end up with a no-op diff (just _meta + a new date),
+          # so the canonical "is anything staged" check saves a
+          # pointless empty commit on the gh-pages branch.
+          git add apps.json icon.svg
+          if git diff --cached --quiet; then
+            echo "No changes to publish (apps.json already up to date)"
+          else
+            git commit -q -m "ci: update AltSource to ${TAG}"
+            git push -q origin gh-pages
+            REPO_OWNER="${GITHUB_REPOSITORY%%/*}"
+            REPO_NAME="${GITHUB_REPOSITORY#*/}"
+            echo "Published AltSource to https://${REPO_OWNER}.github.io/${REPO_NAME}/apps.json"
+          fi
