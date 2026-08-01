@@ -135,7 +135,7 @@ struct RootView: View {
                 .presentationBackground(PaladalaTheme.paper)
                 .presentationCornerRadius(0)
         }
-        .toggleStyle(toggleStyleForVariant())
+        .paladalaToggleStyle()
         .modifier(StreetTabBarModifier())
         .fullScreenCover(isPresented: Binding(
             get: { hasPresentedFirstFrame && !didOnboard },
@@ -181,20 +181,6 @@ struct RootView: View {
     /// overlay's animation key is value-based, not environment-based.
     private var miniPlayerIsShowing: Bool {
         miniPlayerStore.isShowingMiniPlayer
-    }
-
-    /// Returns the `ToggleStyle` that matches the active design
-    /// variant.  Street uses `PaladalaStreetToggleStyle` (the
-    /// 街頭硬影 hard-edged switch), iOS Native uses the system
-    /// `.switch` so the toggle renders as the rounded HIG control.
-    /// iOS Native is the common case for the user's settings,
-    /// so the default `ToggleStyle` is the iOS Native path.
-    private func toggleStyleForVariant() -> any ToggleStyle {
-        if PaladalaTheme.activeVariant == .iosNative {
-            return .switch
-        } else {
-            return PaladalaStreetToggleStyle()
-        }
     }
 
     private func handle(_ url: URL) {

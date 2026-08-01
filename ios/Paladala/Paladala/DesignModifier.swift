@@ -383,6 +383,25 @@ extension View {
         }
     }
 
+    /// Toggle style that matches the active design variant.
+    /// - Street → `PaladalaStreetToggleStyle` (硬邊開關).
+    /// - iOS Native → `.switch` (system HIG rounded control).
+    ///
+    /// We can't return `any ToggleStyle` from a helper because
+    /// SwiftUI's `.toggleStyle(_:)` modifier takes a generic
+    /// `ToggleStyle` parameter — existential types aren't
+    /// substitutable there.  Inlining the `if/else` inside a
+    /// `@ViewBuilder` extension lets each branch return the
+    /// concrete style type that SwiftUI is happy with.
+    @ViewBuilder
+    func paladalaToggleStyle() -> some View {
+        if PaladalaTheme.activeVariant == .iosNative {
+            self.toggleStyle(.switch)
+        } else {
+            self.toggleStyle(PaladalaStreetToggleStyle())
+        }
+    }
+
     @ViewBuilder
     func paladalaTabBarBehavior() -> some View {
         #if compiler(>=6.2)
