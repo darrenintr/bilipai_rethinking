@@ -63,7 +63,8 @@ https://darrenintr.github.io/pure-bilibili-rethinking/apps.json
 | `apps.json` 404 | GitHub Pages 未開 / 第一次 deploy 未完成 | 跟「一次性設定」步驟 1 開 Pages,等 1 分鐘再試 |
 | AltStore 見唔到 Paladala | 源 URL 串錯 / 個 JSON 壞咗 | 開 https://darrenintr.github.io/pure-bilibili-rethinking/apps.json 喺瀏覽器,確認係合法 JSON |
 | AltStore 見到 App 但裝唔到 | IPA download URL 失效 | 開 JSON 揾 `versions[0].downloadURL` 喺瀏覽器試下載,確認 Releases 頁仲有對應 tag |
-| 圖標唔顯示 | 個別 AltStore 版本對 SVG 支援唔好 | 暫時回退:將 `ios/Paladala/Paladala/Brand/PaladalaMark.svg` 轉做 1024×1024 PNG 上傳到 gh-pages,改 `apps.json` 入面嘅 `iconURL` 指向新嘅 PNG |
+| SideStore 連加都加唔到 | `iconURL` 喺 iOS 載唔到(必須係 PNG/JPG,SVG 唔得) | 確認 `iconURL` 係 `.png`;workflow 而家已經會 render PNG |
+| AltStore 標題有但係見唔到 App | Settings → 開咗「安裝未簽名 App」未? | AltStore 入 Settings → 開 "Install Unauthorized Apps"(需要開發者模式) |
 
 ## 想自己改 apps.json 嘅 metadata?
 

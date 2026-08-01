@@ -492,7 +492,10 @@ jobs:
       # AltSource publish — turn the freshly-tagged prerelease into a
       # working AltStore / SideStore source.
       #
-      # We push `apps.json` (the AltSource manifest) and `icon.svg` to
+      # We push `apps.json` (the AltSource manifest) and `icon.png`
+      # (a 256×256 PNG render of PaladalaMark.svg with a brand-pink
+      # background — iOS UIImage can't load SVG, so a raw icon.svg
+      # would make SideStore refuse the source at add-time) to
       # the orphan `gh-pages` branch, which GitHub Pages serves at
       # https://darrenintr.github.io/pure-bilibili-rethinking/apps.json
       # once the repo's Pages setting is pointed at the branch (one-time
@@ -509,6 +512,17 @@ jobs:
       # anything we've written, and so a corrupted workspace never
       # leaks into the published source.
       # ------------------------------------------------------------------
+      - name: Install librsvg
+        if: github.event_name == 'push' && github.ref == 'refs/heads/working'
+        # rsvg-convert is the SVG→PNG renderer used by the next step.
+        # The macos-15 runner image ships Homebrew but not librsvg;
+        # install it (cached by Homebrew, ~30 s on a cold cache).
+        run: |
+          if ! command -v rsvg-convert >/dev/null 2>&1; then
+            brew install librsvg
+          fi
+          rsvg-convert --version
+
       - name: Generate AltSource assets
         if: github.event_name == 'push' && github.ref == 'refs/heads/working'
         env:
@@ -551,10 +565,28 @@ jobs:
             : > "$STAGE/apps.json"
           fi
 
-          # 3. Copy the brand SVG so the iconURL in apps.json always
-          #    points at something the source branch actually serves.
-          cp "$GITHUB_WORKSPACE/ios/Paladala/Paladala/Brand/PaladalaMark.svg" \
-             "$STAGE/icon.svg"
+          # 3. Render the brand mark as a 256×256 PNG with a brand-pink
+          #    background. We need PNG, not SVG, because iOS UIImage
+          #    (which both AltStore and SideStore use to load source
+          #    icons) doesn't understand SVG — and SideStore in
+          #    particular rejects the source outright if it can't load
+          #    the icon at add-time. The background rect is injected
+          #    into a copy of the SVG so the white stroke stays visible
+          #    on AltStore's white UI; the repo's original SVG is left
+          #    untouched (it's still used by the landing page and the
+          #    iOS app icon directly).
+          python3 - <<'PY'
+          from pathlib import Path
+          svg = Path("$GITHUB_WORKSPACE/ios/Paladala/Paladala/Brand/PaladalaMark.svg").read_text()
+          with_bg = svg.replace(
+              'stroke-linejoin="round">',
+              'stroke-linejoin="round"><rect width="140" height="140" fill="#FB7299"/>',
+              1,
+          )
+          Path("$STAGE/icon-bg.svg").write_text(with_bg)
+          PY
+          rsvg-convert -w 256 -h 256 "$STAGE/icon-bg.svg" -o "$STAGE/icon.png"
+          echo "Generated icon.png from PaladalaMark.svg with brand-pink background"
 
           # 4. Generate the merged manifest. The script de-duplicates by
           #    buildVersion / tag, so re-running this job for the same
@@ -625,14 +657,14 @@ jobs:
           # placed on gh-pages — extra screenshots, a custom
           # index.html, etc. — survive this run.
           cp "$STAGE_DIR/apps.json" apps.json
-          cp "$STAGE_DIR/icon.svg"  icon.svg
+          cp "$STAGE_DIR/icon.png"  icon.png
 
           # Only commit if something actually changed. Re-running the
           # workflow for a buildVersion that's already in apps.json
           # will end up with a no-op diff (just _meta + a new date),
           # so the canonical "is anything staged" check saves a
           # pointless empty commit on the gh-pages branch.
-          git add apps.json icon.svg
+          git add apps.json icon.png
           if git diff --cached --quiet; then
             echo "No changes to publish (apps.json already up to date)"
           else

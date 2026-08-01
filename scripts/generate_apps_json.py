@@ -36,7 +36,13 @@ APP_META: dict[str, Any] = {
     "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
     "tintColor": "#FB7299",
     "category": "entertainment",
-    "iconURL": "https://darrenintr.github.io/pure-bilibili-rethinking/icon.svg",
+    # PNG, not SVG. iOS UIImage (and therefore both AltStore and
+    # SideStore) loads icons via UIImage, which does NOT support SVG.
+    # SideStore in particular rejects the entire source if it can't
+    # fetch the icon at add-time, so an SVG iconURL means "can't even
+    # add the source". The workflow renders the same brand mark with a
+    # brand-pink background so it reads on AltStore's white UI.
+    "iconURL": "https://darrenintr.github.io/pure-bilibili-rethinking/icon.png",
     "localizedDescription": (
         "Paladala 係一個用 SwiftUI 寫嘅第三方嗶哩嗶哩 iOS 客戶端,目標係"
         "「淨」同「快」：\n\n"
@@ -48,11 +54,11 @@ APP_META: dict[str, Any] = {
         "本 App 通過 AltStore / SideStore 源發佈,每次 push 到 `working` 分支"
         "都會自動出新版本。"
     ),
-    # Minimal placeholder; AltStore ignores this on unsigned IPAs but the
-    # field is part of the canonical schema.
-    "appPermissions": {
-        "entitlements": ["get-task-allow"],
-    },
+    # No `appPermissions` field on purpose: SideStore does strict
+    # schema validation and `appPermissions` is expected to be a
+    # {permission: description} dict. We don't have real per-permission
+    # descriptions to publish, and the field is optional, so leaving it
+    # off keeps the source compatible with both clients.
     # Add screenshot URLs once they're hosted (e.g. on gh-pages under
     # screenshots/<name>.png). Leave empty for now.
     "screenshotURLs": [],
