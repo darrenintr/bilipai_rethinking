@@ -107,81 +107,14 @@ struct MiniPlayerOverlay: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close mini-player")
             }
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(PaladalaTheme.ink)
-                    .frame(width: 34, height: 3)
-                    .offset(y: 4)
-                    .opacity(Double(dismissProgress))
-                    .accessibilityHidden(true)
-            }
-            .padding(PaladalaTheme.Spacing.m)
-            .frame(maxWidth: .infinity, minHeight: 88)
-            // iOS Native uses a 20pt continuous corner so the Liquid
-            // Glass surface reads as a floating card; Street stays
-            // on 0pt (a no-op) because the chrome is hard-edged.
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: PaladalaTheme.activeVariant == .iosNative ? 20 : 0,
-                    style: .continuous
-                )
-            )
-            .background {
-                if PaladalaTheme.activeVariant == .iosNative {
-                    // iOS Native: system Liquid Glass on iOS 26+; falls
-                    // back to secondarySystemBackground on iOS 25 and
-                    // below so the mini player still looks like a
-                    // floating surface on older devices.
-                    if #available(iOS 26.0, *) {
-                        Color.clear.glassEffect(.regular.interactive())
-                    } else {
-                        Color(uiColor: .secondarySystemBackground)
-                    }
-                } else {
-                    // Street: paper fill + 4pt ink hard shadow.
-                    ZStack {
-                        Rectangle()
-                            .fill(PaladalaTheme.ink)
-                            .offset(
-                                x: PaladalaTheme.hardShadowOffset,
-                                y: PaladalaTheme.hardShadowOffset
-                            )
-                        Rectangle()
-                            .fill(PaladalaTheme.paper)
-                    }
-                }
-            }
-            .overlay {
-                // iOS Native: no border, the Liquid Glass edge is the
-                // chrome.  Street: 1.5pt ink stroke for the hard-edged
-                // Street Minimal look.
-                if PaladalaTheme.activeVariant != .iosNative {
-                    Rectangle()
-                        .strokeBorder(
-                            PaladalaTheme.ink,
-                            lineWidth: PaladalaTheme.borderWidth
-                        )
-                }
-            }
-            .offset(y: max(0, dragOffset))
-            .scaleEffect(reduceMotion ? 1.0 : 1.0 - (dismissProgress * 0.035), anchor: .bottom)
-            .opacity(Double(1.0 - (dismissProgress * 0.18)))
-            .gesture(
-                DragGesture()
-                    .onChanged { dragOffset = $0.translation.height }
-                    .onEnded { value in
-                        if value.translation.height > 80 {
-                            Haptics.tap()
-                            store.close()
-                        }
-                        withAnimation(miniPlayerSpring) {
-                            dragOffset = 0
-                        }
-                    }
-            )
-            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Mini player for \(video.title)")
+            .modifier(MiniPlayerChromeModifier(
+                videoTitle: video.title,
+                dismissProgress: dismissProgress,
+                reduceMotion: reduceMotion,
+                miniPlayerSpring: miniPlayerSpring,
+                dragOffset: $dragOffset,
+                onClose: { store.close() }
+            ))
         }
     }
 
@@ -341,6 +274,104 @@ private struct MiniPlayerControlSurface: ViewModifier {
                         lineWidth: PaladalaTheme.borderWidth
                     )
             }
+    }
+}
+
+/// Chrome for the floating mini player.  Extracted from
+/// `MiniPlayerOverlay.body` into a `ViewModifier` because the
+/// post-HStack modifier chain (clipShape → background → overlay
+/// → offset → scaleEffect → opacity → gesture → transition →
+/// accessibility × 2) crosses Swift's 50-deep modifier type-check
+/// budget and trips the "the compiler is unable to type-check
+/// this expression in reasonable time" error.  Wrapping the
+/// chrome in a single `ViewModifier` keeps the body short and
+/// the type-checker happy.
+private struct MiniPlayerChromeModifier: ViewModifier {
+    let videoTitle: String
+    let dismissProgress: CGFloat
+    let reduceMotion: Bool
+    let miniPlayerSpring: Animation?
+    @Binding var dragOffset: CGFloat
+    let onClose: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(PaladalaTheme.ink)
+                    .frame(width: 34, height: 3)
+                    .offset(y: 4)
+                    .opacity(Double(dismissProgress))
+                    .accessibilityHidden(true)
+            }
+            .padding(PaladalaTheme.Spacing.m)
+            .frame(maxWidth: .infinity, minHeight: 88)
+            // iOS Native uses a 20pt continuous corner so the Liquid
+            // Glass surface reads as a floating card; Street stays
+            // on 0pt (a no-op) because the chrome is hard-edged.
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: PaladalaTheme.activeVariant == .iosNative ? 20 : 0,
+                    style: .continuous
+                )
+            )
+            .background { chromeBackground }
+            .overlay {
+                // iOS Native: no border, the Liquid Glass edge is the
+                // chrome.  Street: 1.5pt ink stroke for the hard-edged
+                // Street Minimal look.
+                if PaladalaTheme.activeVariant != .iosNative {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
+            }
+            .offset(y: max(0, dragOffset))
+            .scaleEffect(reduceMotion ? 1.0 : 1.0 - (dismissProgress * 0.035), anchor: .bottom)
+            .opacity(Double(1.0 - (dismissProgress * 0.18)))
+            .gesture(
+                DragGesture()
+                    .onChanged { dragOffset = $0.translation.height }
+                    .onEnded { value in
+                        if value.translation.height > 80 {
+                            Haptics.tap()
+                            onClose()
+                        }
+                        withAnimation(miniPlayerSpring) {
+                            dragOffset = 0
+                        }
+                    }
+            )
+            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Mini player for \(videoTitle)")
+    }
+
+    /// Variant-aware background.  iOS Native → system Liquid Glass
+    /// (iOS 26+) with a `secondarySystemBackground` fallback for
+    /// iOS 25 and below.  Street → paper fill + 4pt ink hard shadow.
+    @ViewBuilder
+    private var chromeBackground: some View {
+        if PaladalaTheme.activeVariant == .iosNative {
+            if #available(iOS 26.0, *) {
+                Color.clear.glassEffect(.regular.interactive())
+            } else {
+                Color(uiColor: .secondarySystemBackground)
+            }
+        } else {
+            ZStack {
+                Rectangle()
+                    .fill(PaladalaTheme.ink)
+                    .offset(
+                        x: PaladalaTheme.hardShadowOffset,
+                        y: PaladalaTheme.hardShadowOffset
+                    )
+                Rectangle()
+                    .fill(PaladalaTheme.paper)
+            }
+        }
     }
 }
 
