@@ -242,6 +242,20 @@ struct PaladalaBackdrop: View, Equatable {
 }
 
 extension View {
+    /// Card surface — the standard "panel" applied to feeds, video
+    /// cards, profile rows, and AI summary cards (15+ call sites).
+    /// Variant-aware:
+    /// - `.streetRedesign` → sharp Rectangle, 1.5pt ink border, 4pt
+    ///   hard shadow.
+    /// - `.iosNative` → continuous `RoundedRectangle(16, .continuous)`,
+    ///   no border, no hard shadow.  Fill is overridden to
+    ///   `secondarySystemGroupedBackground` so the card pops on the
+    ///   page's `systemGroupedBackground` (Apple's standard card
+    ///   convention).  All 15 current call sites pass the default
+    ///   tint, so the override is safe.
+    /// - `.classic` → shape follows theme cornerRadius; border /
+    ///   shadow still variant-driven (effectively a no-op for the
+    ///   hard shadow since classic has `hardShadowOffset == 0`).
     @ViewBuilder
     func paladalaCardSurface(
         _ design: MaterialDesign,
@@ -250,23 +264,33 @@ extension View {
         stroke: Color? = nil,
         strokeWidth: CGFloat = 0.5
     ) -> some View {
-        let shape = Rectangle()
-
+        let isNative = PaladalaTheme.activeVariant == .iosNative
+        let shape = RoundedRectangle(
+            cornerRadius: isNative ? PaladalaTheme.cornerRadius : cornerRadius,
+            style: PaladalaTheme.cornerStyle
+        )
+        let effectiveFill: Color = isNative
+            ? Color(uiColor: .secondarySystemGroupedBackground)
+            : (tint ?? PaladalaTheme.cardBackground)
         self
-            .background(tint ?? PaladalaTheme.cardBackground, in: shape)
-            .overlay(
-                shape.strokeBorder(
-                    stroke ?? PaladalaTheme.ink,
-                    lineWidth: stroke == nil ? PaladalaTheme.borderWidth : strokeWidth
-                )
-            )
-            .background {
-                shape
-                    .fill(PaladalaTheme.ink)
-                    .offset(
-                        x: PaladalaTheme.hardShadowOffset,
-                        y: PaladalaTheme.hardShadowOffset
+            .background(effectiveFill, in: shape)
+            .overlay {
+                if !isNative {
+                    shape.strokeBorder(
+                        stroke ?? PaladalaTheme.ink,
+                        lineWidth: stroke == nil ? PaladalaTheme.borderWidth : strokeWidth
                     )
+                }
+            }
+            .background {
+                if !isNative {
+                    shape
+                        .fill(PaladalaTheme.ink)
+                        .offset(
+                            x: PaladalaTheme.hardShadowOffset,
+                            y: PaladalaTheme.hardShadowOffset
+                        )
+                }
             }
     }
 

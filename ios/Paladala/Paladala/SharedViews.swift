@@ -375,16 +375,7 @@ struct LiveRoomCard: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         )
                         .clipped()
-                    Text("LIVE")
-                        .font(PaladalaTheme.FontRole.labelMono)
-                        .foregroundStyle(PaladalaTheme.paper)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(PaladalaTheme.biliPink)
-                        .overlay {
-                            Rectangle()
-                                .stroke(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
-                        }
+                    liveBadge
                         .padding(12)
                         // Apple's recommended "live" affordance —
                         // the SF Symbol pulses on a continuous loop
@@ -412,24 +403,39 @@ struct LiveRoomCard: View {
                         }
                 }
                 .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(PaladalaTheme.ink)
-                        .frame(height: PaladalaTheme.borderWidth)
+                    // The Street hairline separator under the cover.
+                    // iOS Native uses the theme's borderWidth (0.5pt)
+                    // which on iOS Native is the system separator
+                    // — already integrated into the rounded card via
+                    // `paladalaCardSurface`, so we skip it there.
+                    if PaladalaTheme.activeVariant != .iosNative {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .frame(height: PaladalaTheme.borderWidth)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text(room.title)
-                        .font(PaladalaTheme.FontRole.headline)
-                        .foregroundStyle(PaladalaTheme.ink)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
                     Text("\(room.hostName) - \(room.areaName)")
-                        .font(PaladalaTheme.FontRole.labelMono)
-                        .foregroundStyle(PaladalaTheme.mutedInk)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    Text("\(room.viewerCount.compactCount) watching")
-                        .font(PaladalaTheme.FontRole.labelMono)
-                        .foregroundStyle(PaladalaTheme.biliPink)
+                    HStack(spacing: 4) {
+                        // Red dot for "live" — HIG convention; brand
+                        // pink is reserved for action affordances.
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 6, height: 6)
+                            .accessibilityHidden(true)
+                        Text("\(room.viewerCount.compactCount) watching")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(16)
             }
@@ -439,6 +445,35 @@ struct LiveRoomCard: View {
         }
         .frame(maxWidth: .infinity)
         .buttonStyle(PaladalaPressBounceButtonStyle())
+    }
+
+    /// Street-styled "LIVE" badge: mono-cap label, pink fill, 1.5pt
+    /// ink border, no rounding.  iOS Native swaps to a red capsule
+    /// with white text (HIG convention for live indicators — see
+    /// Twitch / Apple TV live rows).
+    @ViewBuilder
+    private var liveBadge: some View {
+        if PaladalaTheme.activeVariant == .iosNative {
+            HStack(spacing: 4) {
+                Text("LIVE")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.red, in: Capsule())
+        } else {
+            Text("LIVE")
+                .font(PaladalaTheme.FontRole.labelMono)
+                .foregroundStyle(PaladalaTheme.paper)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(PaladalaTheme.biliPink)
+                .overlay {
+                    Rectangle()
+                        .stroke(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                }
+        }
     }
 }
 

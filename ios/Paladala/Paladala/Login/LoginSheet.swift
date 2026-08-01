@@ -16,24 +16,11 @@ struct LoginSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 22) {
-                explanation
-                qrCard
-                Spacer(minLength: 0)
-                footer
-            }
-            .padding(20)
-            .background(PaladalaTheme.canvas)
-            .navigationTitle("登录 Bilibili")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") {
-                        Haptics.tap()
-                        dismiss()
-                    }
-                }
+        Group {
+            if PaladalaTheme.activeVariant == .iosNative {
+                bodyNative
+            } else {
+                bodyStreet
             }
         }
         .onAppear {
@@ -58,7 +45,80 @@ struct LoginSheet: View {
         }
     }
 
-    private var explanation: some View {
+    // MARK: - Street body (existing VStack layout)
+    private var bodyStreet: some View {
+        NavigationStack {
+            VStack(spacing: 22) {
+                explanationStreet
+                qrCardStreet
+                Spacer(minLength: 0)
+                footerStreet
+            }
+            .padding(20)
+            .background(PaladalaTheme.canvas)
+            .navigationTitle("登录 Bilibili")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭") {
+                        Haptics.tap()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - iOS Native body (Form, grouped)
+    //
+    // HIG-style modal sheet: `.formStyle(.grouped)` gives the
+    // iOS-system look (rounded section cards, hairline separators,
+    // page-fitted insets) for free.  The QR card and refresh button
+    // use the iOS Native tokens directly so they look at home next
+    // to the system chrome.
+    private var bodyNative: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    explanationNative
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(
+                            EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+                        )
+                }
+                Section {
+                    qrCardNative
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 280)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(
+                            EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+                        )
+                }
+                Section {
+                    footerNative
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(
+                            EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+                        )
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("登录 Bilibili")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭") {
+                        Haptics.tap()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var explanationStreet: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("扫码登录 Paladala")
                 .font(PaladalaTheme.FontRole.displayMedium)
@@ -72,8 +132,26 @@ struct LoginSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// iOS Native title: SF Pro title style, no uppercase, primary
+    /// foreground.  The section is rendered without a `.form` card
+    /// background (see `bodyNative` — `listRowBackground(.clear)`)
+    /// so the title floats on the page's `systemGroupedBackground`.
+    private var explanationNative: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("扫码登录 Paladala")
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.primary)
+            Text("打开手机 Bilibili App，扫一扫下方二维码即可登录。登录后可查看评论、关注动态与个性化首页。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     @ViewBuilder
-    private var qrCard: some View {
+    private var qrCardStreet: some View {
         ZStack {
             Rectangle()
                 .fill(PaladalaTheme.paper)
@@ -93,48 +171,70 @@ struct LoginSheet: View {
                             y: PaladalaTheme.hardShadowOffset
                         )
                 }
-            switch model.state {
-            case .generating:
-                ProgressView()
-            case .waiting(let image, _), .scanned(let image, _):
-                Image(uiImage: image)
-                    .interpolation(.none)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(16)
-            case .expired:
-                VStack(spacing: 8) {
-                    Image(systemName: "qrcode")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text("二维码已过期")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            case .error(let message):
-                VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(PaladalaTheme.biliPink)
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 8)
-                }
-            case .success(let account):
-                VStack(spacing: 6) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(PaladalaTheme.biliPink)
-                    Text(account.name)
-                        .font(.subheadline.weight(.semibold))
-                }
+            qrCardContent
+        }
+    }
+
+    /// iOS Native QR card: 240x240 continuous RoundedRectangle(16),
+    /// `secondarySystemGroupedBackground` fill (Apple card on a
+    /// grouped page), no border, no shadow.  Same inner content as
+    /// Street — `qrCardContent` is shared.
+    @ViewBuilder
+    private var qrCardNative: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                .frame(width: 240, height: 240)
+            qrCardContent
+        }
+    }
+
+    /// Inner content driven by `model.state`.  Shared between the
+    /// Street and iOS Native QR cards so the user sees the same
+    /// QR / progress / error / success states regardless of variant.
+    @ViewBuilder
+    private var qrCardContent: some View {
+        switch model.state {
+        case .generating:
+            ProgressView()
+        case .waiting(let image, _), .scanned(let image, _):
+            Image(uiImage: image)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+                .padding(16)
+        case .expired:
+            VStack(spacing: 8) {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.secondary)
+                Text("二维码已过期")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        case .error(let message):
+            VStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(PaladalaTheme.biliPink)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+            }
+        case .success(let account):
+            VStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 40))
+                    .foregroundStyle(PaladalaTheme.biliPink)
+                Text(account.name)
+                    .font(.subheadline.weight(.semibold))
             }
         }
     }
 
-    private var footer: some View {
+    private var footerStreet: some View {
         VStack(spacing: 12) {
             Text(model.statusText)
                 .font(PaladalaTheme.FontRole.bodySmall)
@@ -148,6 +248,26 @@ struct LoginSheet: View {
                 }
                 .buttonStyle(PaladalaGlassButtonStyle(materialDesign: .liquidGlass))
             }
+        }
+    }
+
+    /// iOS Native footer: status text in `.subheadline` + system
+    /// `.bordered` refresh button (HIG standard for a secondary
+    /// action on a sheet).
+    private var footerNative: some View {
+        VStack(spacing: 14) {
+            Text(model.statusText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                model.regenerate()
+            } label: {
+                Label("刷新二维码", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .frame(maxWidth: .infinity)
         }
     }
 }
