@@ -2012,6 +2012,13 @@ final class BilibiliAPIClient: @unchecked Sendable {
         guard aid > 0 else {
             return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
         }
+        // Diagnostic: log every comment-fetch attempt so the diagnostic
+        // report can distinguish "fetch fired but failed" from "fetch
+        // never fired at all". The success path inside `get<T>` is
+        // silent (no bpLog on code: 0), so without this line a working
+        // call would leave no trace and look indistinguishable from a
+        // call that never ran.
+        bpLog("commentsPage: fetching aid=\(aid) sort=\(sort) next=\(next ?? -1) ps=\(pageSize)")
         // The current canonical path is `/x/v2/reply/wbi/main`. The
         // payload shape changed alongside it: pinned/UP主置顶 replies
         // now live under `data.upper.top` (an object keyed by rpid),
@@ -2070,6 +2077,12 @@ final class BilibiliAPIClient: @unchecked Sendable {
         if merged.isEmpty && reportedTotal > 0 {
             throw BilibiliAPIError.missingIdentity
         }
+        // Diagnostic: log how the merged result looks on the way out
+        // so we can tell the difference between "Bilibili gave us 0
+        // comments for this video" and "Bilibili gave us N but the
+        // decode dropped them".  Without this, an empty list at the
+        // UI layer looks identical to a never-fired call.
+        bpLog("commentsPage: returning \(merged.count) items, allCount=\(reportedTotal)")
         return CommentPage(
             items: merged,
             next: payload.value?.cursor?.next,
