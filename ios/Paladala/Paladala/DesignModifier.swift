@@ -320,6 +320,51 @@ extension View {
             .toolbarBackground(.visible, for: .tabBar)
     }
 
+    /// List chrome — applies the variant-correct list style +
+    /// background.  Use on the `List` (or its parent) so the rest
+    /// of the app code only has to call one modifier:
+    /// - `.streetRedesign` → `.listStyle(.plain)` on the Street
+    ///   `canvas` background.  Rows are responsible for their own
+    ///   card chrome (via `paladalaStreetPanel`).
+    /// - `.iosNative` → `.listStyle(.insetGrouped)` on
+    ///   `systemGroupedBackground`.  The system draws the rounded
+    ///   section cards and hairline separators, so rows must
+    ///   *not* apply their own `paladalaStreetPanel`.
+    @ViewBuilder
+    func paladalaListChrome() -> some View {
+        if PaladalaTheme.activeVariant == .iosNative {
+            self
+                .scrollContentBackground(.hidden)
+                .listStyle(.insetGrouped)
+                .background(Color(uiColor: .systemGroupedBackground))
+        } else {
+            self
+                .scrollContentBackground(.hidden)
+                .listStyle(.plain)
+                .background(PaladalaTheme.canvas)
+        }
+    }
+
+    /// Per-row chrome — applies the variant-correct row
+    /// background + separator visibility.  Use on each row
+    /// inside the `List` (after the row content is built).
+    /// - `.streetRedesign` → transparent row background, hidden
+    ///   separator.  Rows paint their own borders via
+    ///   `paladalaStreetPanel`.
+    /// - `.iosNative` → no-op.  The system section card and hairline
+    ///   separators are visible by default in `.insetGrouped` and
+    ///   trying to hide them would defeat the HIG card look.
+    @ViewBuilder
+    func paladalaListRowChrome() -> some View {
+        if PaladalaTheme.activeVariant == .iosNative {
+            self
+        } else {
+            self
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+        }
+    }
+
     @ViewBuilder
     func paladalaTabBarBehavior() -> some View {
         #if compiler(>=6.2)
