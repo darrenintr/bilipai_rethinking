@@ -564,7 +564,7 @@ private struct OnboardingViewNative: View {
                     OnboardingNativePageView(
                         page: page,
                         isLastPage: index == pages.count - 1,
-                        currentPageBinding: $currentPage
+                        currentPage: $currentPage
                     )
                     .tag(index)
                 }
