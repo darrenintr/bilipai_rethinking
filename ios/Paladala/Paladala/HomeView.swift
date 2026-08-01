@@ -119,7 +119,16 @@ struct HomeView: View {
                 // chrome on scroll and re-expands when the
                 // scroll returns to top. The system handles
                 // the animation; we just enable the mode.
-                .navigationBarTitleDisplayMode(.inline)
+                //
+                // iOS Native variant gets `.large` so the user
+                // sees the full 28pt title at the top of the
+                // feed (Apple's recommended top-level nav look);
+                // Street stays on `.inline` because the hard-edged
+                // style works better with a permanently compact
+                // title.
+                .navigationBarTitleDisplayMode(
+                    PaladalaTheme.activeVariant == .iosNative ? .large : .inline
+                )
                 // PR-fix-2026-07-10: replace `.searchable` with
                 // a hand-rolled `UISearchFieldBridge` so the
                 // search bar carries Street Minimal chrome

@@ -193,11 +193,11 @@ struct RootView: View {
         case "live":
             router.open(.live)
         case "music":
-            // 2026-07-13: music tab restored under the
-            // section-reintroduction project. The bangumi
-            // redirect that lived here 2026-07-11 → 2026-07-13
-            // is gone; deep links now land on the music tab.
-            router.open(.music)
+            // 2026-08: music tab removed as part of the iOS
+            // Native design variant (4-tab layout). Deep link
+            // now lands on the home feed where music lives as
+            // a category chip instead of a dedicated tab.
+            router.open(.home)
         case "settings":
             router.open(.profile)
         case "search":
@@ -474,32 +474,6 @@ private struct PhoneRootView: View {
                 }
                 .tag(MainTab.live)
 
-                LazyTab(tag: MainTab.music, activeTag: router.selectedTab) {
-                    MusicHomeView(repository: repository)
-                }
-                .tabItem {
-                    Label {
-                        Text(MainTab.music.title)
-                    } icon: {
-                        Image(systemName: MainTab.music.symbolName)
-                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.music)
-                    }
-                }
-                .tag(MainTab.music)
-
-                LazyTab(tag: MainTab.bangumi, activeTag: router.selectedTab) {
-                    BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
-                }
-                .tabItem {
-                    Label {
-                        Text(MainTab.bangumi.title)
-                    } icon: {
-                        Image(systemName: MainTab.bangumi.symbolName)
-                            .symbolEffect(.bounce, value: router.selectedTab == MainTab.bangumi)
-                    }
-                }
-                .tag(MainTab.bangumi)
-
                 LazyTab(tag: MainTab.profile, activeTag: router.selectedTab) {
                     ProfileSettingsView(repository: repository)
                 }
@@ -580,7 +554,7 @@ private struct PadRootView: View {
     /// bottom of the sidebar instead of a regular row. The five-case
     /// `MainTab` enum stays unchanged so the phone tab bar keeps
     /// working.
-    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live, .music, .bangumi]
+    private static let sidebarTabs: [MainTab] = [.home, .dynamic, .live]
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -666,14 +640,6 @@ private struct PadRootView: View {
                 LiveRoomsView(repository: repository)
                     .transition(ScreenSwitchTransition.active)
                     .id(MainTab.live)
-            case .music:
-                MusicHomeView(repository: repository)
-                    .transition(ScreenSwitchTransition.active)
-                    .id(MainTab.music)
-            case .bangumi:
-                BangumiHomeView(repository: repository, heroNamespace: heroNamespace)
-                    .transition(ScreenSwitchTransition.active)
-                    .id(MainTab.bangumi)
             case .profile:
                 ProfileSettingsView(repository: repository)
                     .transition(ScreenSwitchTransition.active)

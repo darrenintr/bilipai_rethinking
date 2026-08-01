@@ -5,8 +5,6 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
     case home
     case dynamic
     case live
-    case music
-    case bangumi
     case profile
 
     var id: String { rawValue }
@@ -19,10 +17,6 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "動態"
         case .live:
             return "直播"
-        case .music:
-            return "音樂"
-        case .bangumi:
-            return "追番"
         case .profile:
             return "我的"
         }
@@ -41,10 +35,6 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "rectangle.stack"
         case .live:
             return "play.tv"
-        case .music:
-            return "music.note"
-        case .bangumi:
-            return "play.rectangle.stack"
         case .profile:
             return "person.crop.circle"
         }
@@ -63,10 +53,6 @@ enum MainTab: String, CaseIterable, Identifiable, Codable {
             return "safari"
         case .live:
             return "dot.radiowaves.left.and.right"
-        case .music:
-            return "music.note"
-        case .bangumi:
-            return "play.rectangle.on.rectangle.fill"
         case .profile:
             return "person.crop.circle"
         }
@@ -174,8 +160,8 @@ final class AppRouter: ObservableObject {
     /// already the selected tab.
     func openBangumiTimeline() {
         diagLog(.recommendation, "AppRouter.openBangumiTimeline")
-        selectedTab = .bangumi
-        path.append(BangumiRoute.timeline)
+        selectedTab = .profile
+        path.append(ProfileRoute.bangumiTimeline)
     }
 
     func open(_ tab: MainTab) {
