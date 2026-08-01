@@ -314,15 +314,36 @@ extension View {
         isSelected: Bool,
         design: MaterialDesign
     ) -> some View {
-        self
-            .font(PaladalaTheme.FontRole.labelMono)
-            .textCase(.uppercase)
-            .foregroundStyle(isSelected ? PaladalaTheme.paper : PaladalaTheme.ink)
-            .background(isSelected ? PaladalaTheme.ink : PaladalaTheme.paper)
-            .overlay {
-                Rectangle()
-                    .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
-            }
+        if PaladalaTheme.activeVariant == .iosNative {
+            // iOS Native: capsule + systemFill background.
+            // Selected state uses Color.accentColor (follows the
+            // user's iOS tint setting).  SF Pro subheadline, no
+            // uppercase — the system visual language.
+            self
+                .font(PaladalaTheme.IOSNative.subheadline)
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(
+                    isSelected
+                        ? Color.accentColor
+                        : Color(uiColor: .systemFill)
+                )
+                .clipShape(Capsule())
+        } else {
+            // Street Minimal: hard-edged rectangle, mono uppercase
+            // label, 1.5pt ink border, paper background.  Brand
+            // language of the Street variant.
+            self
+                .font(PaladalaTheme.FontRole.labelMono)
+                .textCase(.uppercase)
+                .foregroundStyle(isSelected ? PaladalaTheme.paper : PaladalaTheme.ink)
+                .background(isSelected ? PaladalaTheme.ink : PaladalaTheme.paper)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                }
+        }
     }
 
     /// Picker-style chip. Tap to set `selection` to `value`. Renders

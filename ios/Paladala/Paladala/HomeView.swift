@@ -167,51 +167,92 @@ struct HomeView: View {
                 .toolbarBackground(.visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        // 离线缓存 quick access. Lives in the top
-                        // toolbar so the user can reach their
-                        // downloaded videos without going through
-                        // the profile tab. `.badge(Int)` gives the
-                        // iOS-standard corner pill — adapts to dark
-                        // mode + Increase Contrast automatically.
-                        Button {
-                            Haptics.tap()
-                            router.open(.downloads)
-                        } label: {
-                            Label("离线缓存", systemImage: "arrow.down.circle")
+                        if PaladalaTheme.activeVariant == .iosNative {
+                            // iOS Native: 2 icons (refresh + profile).
+                            // Downloads / short-video / notifications
+                            // live in a "..." Menu (or in the iOS Native
+                            // search suggestions).  Apple's recommended
+                            // top-level nav pattern is 1-2 toolbar icons
+                            // so the system Liquid Glass surface stays
+                            // uncluttered.
+                            Button {
+                                Haptics.tap()
+                                Task { await model.load(repository: repository, accountMid: accountMid) }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .accessibilityLabel(L10n.home.refresh)
+                            Menu {
+                                Button {
+                                    Haptics.tap()
+                                    router.open(.downloads)
+                                } label: {
+                                    Label("离线缓存", systemImage: "arrow.down.circle")
+                                }
+                                .badge(downloadStore.records.count)
+                                Button {
+                                    Haptics.tap()
+                                    isShortVideoFeedPresented = true
+                                } label: {
+                                    Label("短视频", systemImage: "rectangle.portrait.on.rectangle.portrait")
+                                }
+                                Button {
+                                    Haptics.tap()
+                                    router.open(.dynamic)
+                                } label: {
+                                    Label("动态", systemImage: "bell")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                            }
+                            .accessibilityLabel("更多")
+                            Button {
+                                Haptics.tap()
+                                router.open(.profile)
+                            } label: {
+                                Image(systemName: "person.crop.circle")
+                            }
+                            .accessibilityLabel("我的")
+                        } else {
+                            // Street Minimal: 5 icons on the right of
+                            // the nav bar.  The hard-edged toolbar chrome
+                            // is part of the brand and works well with
+                            // the rest of the Street components.
+                            Button {
+                                Haptics.tap()
+                                router.open(.downloads)
+                            } label: {
+                                Label("离线缓存", systemImage: "arrow.down.circle")
+                            }
+                            .badge(downloadStore.records.count)
+                            Button {
+                                Haptics.tap()
+                                isShortVideoFeedPresented = true
+                            } label: {
+                                Label("短视频", systemImage: "rectangle.portrait.on.rectangle.portrait")
+                            }
+                            Button {
+                                Haptics.tap()
+                                Task { await model.load(repository: repository, accountMid: accountMid) }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .accessibilityLabel(L10n.home.refresh)
+                            Button {
+                                Haptics.tap()
+                                router.open(.dynamic)
+                            } label: {
+                                Image(systemName: "bell")
+                            }
+                            .accessibilityLabel("动态")
+                            Button {
+                                Haptics.tap()
+                                router.open(.profile)
+                            } label: {
+                                Image(systemName: "person.crop.circle")
+                            }
+                            .accessibilityLabel("我的")
                         }
-                        .badge(downloadStore.records.count)
-                        Button {
-                            Haptics.tap()
-                            isShortVideoFeedPresented = true
-                        } label: {
-                            Label("短视频", systemImage: "rectangle.portrait.on.rectangle.portrait")
-                        }
-                        Button {
-                            Haptics.tap()
-                            Task { await model.load(repository: repository, accountMid: accountMid) }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .accessibilityLabel(L10n.home.refresh)
-                        Button {
-                            Haptics.tap()
-                            router.open(.dynamic)
-                        } label: {
-                            Image(systemName: "bell")
-                        }
-                        // Accessibility label for the icon-only
-                        // bell — VoiceOver previously read just
-                        // "button" (A11y audit #2).
-                        .accessibilityLabel("动态")
-                        Button {
-                            Haptics.tap()
-                            router.open(.profile)
-                        } label: {
-                            Image(systemName: "person.crop.circle")
-                        }
-                        // Same fix as the bell above — VoiceOver
-                        // reads the symbol name without context.
-                        .accessibilityLabel("我的")
                     }
                 }
                 .modifier(HomeToolbarGlassModifier(materialDesign: materialDesign))

@@ -76,6 +76,23 @@ struct ProfileSettingsView: View {
     @EnvironmentObject private var authStore: AuthStore
 
     var body: some View {
+        // iOS Native: standard .listStyle(.insetGrouped) — gives
+        // the Settings app look (rounded section cards, grouped
+        // background, hairline separators).  Street keeps the
+        // default style so the hard-edged chrome (1.5pt ink borders
+        // from `paladalaCardSurface` etc.) reads as designed.
+        let isNative = PaladalaTheme.activeVariant == .iosNative
+        Group {
+            if isNative {
+                listContent.listStyle(.insetGrouped)
+            } else {
+                listContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var listContent: some View {
         List {
             Section {
                 profileHeader

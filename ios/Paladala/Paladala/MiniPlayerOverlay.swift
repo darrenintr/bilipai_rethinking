@@ -117,24 +117,51 @@ struct MiniPlayerOverlay: View {
             }
             .padding(PaladalaTheme.Spacing.m)
             .frame(maxWidth: .infinity, minHeight: 88)
+            // iOS Native uses a 20pt continuous corner so the Liquid
+            // Glass surface reads as a floating card; Street stays
+            // on 0pt (a no-op) because the chrome is hard-edged.
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: PaladalaTheme.activeVariant == .iosNative ? 20 : 0,
+                    style: .continuous
+                )
+            )
             .background {
-                ZStack {
-                    Rectangle()
-                        .fill(PaladalaTheme.ink)
-                        .offset(
-                            x: PaladalaTheme.hardShadowOffset,
-                            y: PaladalaTheme.hardShadowOffset
-                        )
-                    Rectangle()
-                        .fill(PaladalaTheme.paper)
+                if PaladalaTheme.activeVariant == .iosNative {
+                    // iOS Native: system Liquid Glass on iOS 26+; falls
+                    // back to secondarySystemBackground on iOS 25 and
+                    // below so the mini player still looks like a
+                    // floating surface on older devices.
+                    if #available(iOS 26.0, *) {
+                        Color.clear.glassEffect(.regular.interactive())
+                    } else {
+                        Color(uiColor: .secondarySystemBackground)
+                    }
+                } else {
+                    // Street: paper fill + 4pt ink hard shadow.
+                    ZStack {
+                        Rectangle()
+                            .fill(PaladalaTheme.ink)
+                            .offset(
+                                x: PaladalaTheme.hardShadowOffset,
+                                y: PaladalaTheme.hardShadowOffset
+                            )
+                        Rectangle()
+                            .fill(PaladalaTheme.paper)
+                    }
                 }
             }
             .overlay {
-                Rectangle()
-                    .strokeBorder(
-                        PaladalaTheme.ink,
-                        lineWidth: PaladalaTheme.borderWidth
-                    )
+                // iOS Native: no border, the Liquid Glass edge is the
+                // chrome.  Street: 1.5pt ink stroke for the hard-edged
+                // Street Minimal look.
+                if PaladalaTheme.activeVariant != .iosNative {
+                    Rectangle()
+                        .strokeBorder(
+                            PaladalaTheme.ink,
+                            lineWidth: PaladalaTheme.borderWidth
+                        )
+                }
             }
             .offset(y: max(0, dragOffset))
             .scaleEffect(reduceMotion ? 1.0 : 1.0 - (dismissProgress * 0.035), anchor: .bottom)
