@@ -1128,7 +1128,10 @@ final class VideoDetailViewModel: ObservableObject {
         // or through the playback object lifecycle.
     }
 
-    private func loadComments(repository: PaladalaRepository) async {
+    /// Exposed so the COMMENTS error banner can wire its
+    /// "重试" button to a fresh fetch.  The original call
+    /// sites use the same code path internally.
+    func loadComments(repository: PaladalaRepository) async {
         commentsLoading = true
         commentsErrorMessage = nil
         nextCommentCursor = nil
@@ -1145,16 +1148,20 @@ final class VideoDetailViewModel: ObservableObject {
             commentsHasMore = !page.isEnd && page.next != nil
             commentsTotalCount = page.totalCount
         } catch BilibiliAPIError.missingIdentity {
-            // Bilibili silently returns `replies: null` for
-            // unauthenticated callers even when the thread
-            // has comments; the API client surfaces that as
-            // `missingIdentity` so we can show a friendlier
-            // "log in" message instead of the empty-state
-            // "No public comments" placeholder.
-            commentsErrorMessage = "请登录后查看评论"
+            // Bilibili silently returns `replies: null` (with
+            // `cursor.allCount > 0`) for both unauthenticated
+            // callers AND callers whose WBI signature is no
+            // longer accepted (the cookie is in `authStore`
+            // but the server still rejected the request). The
+            // API client surfaces both as `missingIdentity`.
+            // We deliberately do NOT tell the user "请登录" here
+            // because they may already be logged in (per the
+            // app) — a misleading "log in" CTA on a logged-in
+            // account is worse than a generic retry prompt.
+            commentsErrorMessage = "评论加载失败，请稍后重试"
             comments = []
         } catch {
-            commentsErrorMessage = "Could not load public comments."
+            commentsErrorMessage = "评论加载失败，请稍后重试"
             comments = []
         }
         commentsLoading = false

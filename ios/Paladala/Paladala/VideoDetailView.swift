@@ -1624,16 +1624,18 @@ struct VideoDetailView: View {
                 commentSortPicker
             }
             if let error = model.commentsErrorMessage {
-                // The error path covers the silent `replies: null`
-                // case where Bilibili denies the comment list to
-                // unauthenticated callers.  Surface a "登录" CTA
-                // alongside the banner so the user can recover
-                // without backing out to the profile tab.
+                // Show a retry button so the user can recover
+                // from a 风控 throttle or transient WBI failure
+                // without backing out of the video page.  The
+                // banner message itself stays generic — we
+                // don't know whether the cause is a stale cookie
+                // or server-side rate-limiting.
                 ErrorBanner(
                     message: error,
-                    primary: authStore.activeAccount == nil
-                        ? .init(label: "登录", action: { router.openLogin() })
-                        : nil
+                    retry: {
+                        Haptics.tap()
+                        Task { await model.loadComments(repository: repository) }
+                    }
                 )
             } else if model.commentsLoading && model.comments.isEmpty {
                 CommentSkeletonRows()
