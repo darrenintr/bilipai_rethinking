@@ -451,21 +451,53 @@ extension View {
         self.opacity(active ? 0.72 : 1)
     }
 
-    /// Opaque Street-Minimal panel for screens that do not need to preserve
-    /// the legacy `paladalaCardSurface` signature.
+    /// Card-style panel surface.  Variant-aware:
+    /// - `.streetRedesign` → sharp `RoundedRectangle(0, .continuous)`
+    ///   (= a Rectangle), 1.5pt ink border, 4pt hard shadow.
+    /// - `.iosNative` → continuous `RoundedRectangle(16, .continuous)`,
+    ///   no border, no hard shadow.  Apple-system cards rely on
+    ///   `secondarySystemGroupedBackground` vs the page's
+    ///   `systemGroupedBackground` for definition, not a stroke.
+    /// - `.classic` → soft glass; the corner radius follows the theme
+    ///   token so a future `cornerStyle` change updates both at once.
+    ///
+    /// The `fill` argument is the caller's per-screen surface tone.
+    /// For iOS Native we override it to
+    /// `secondarySystemGroupedBackground` (Apple's card-on-grouped-page
+    /// convention) so the rounded shape actually pops against the page
+    /// — `paper` (= `systemGroupedBackground` for iOS Native) would
+    /// make the card invisible.  All 9 current call sites pass
+    /// `paper`; if a future caller wants a custom iOS Native fill,
+    /// they can fork this modifier.
     func paladalaStreetPanel(
         fill: Color = PaladalaTheme.paper,
         elevated: Bool = true
     ) -> some View {
-        self
-            .background(fill)
+        let isNative = PaladalaTheme.activeVariant == .iosNative
+        let shape = RoundedRectangle(
+            cornerRadius: PaladalaTheme.cornerRadius,
+            style: PaladalaTheme.cornerStyle
+        )
+        let effectiveFill: Color = isNative
+            ? Color(uiColor: .secondarySystemGroupedBackground)
+            : fill
+        return self
+            .background(effectiveFill)
             .overlay {
-                Rectangle()
-                    .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                if !isNative {
+                    shape
+                        .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                }
             }
             .background {
-                if elevated {
-                    Rectangle()
+                // Hard shadow only renders for non-iosNative variants.
+                // iOS Native already has `hardShadowOffset == 0` (so
+                // the offset is a no-op), but skipping the whole
+                // `fill(.ink)` layer also keeps the panel from
+                // interfering with `.regularMaterial` glass backgrounds
+                // stacked above it.
+                if elevated, !isNative {
+                    shape
                         .fill(PaladalaTheme.ink)
                         .offset(
                             x: PaladalaTheme.hardShadowOffset,
@@ -481,6 +513,24 @@ extension View {
             .textCase(.uppercase)
             .foregroundStyle(PaladalaTheme.ink)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Street-style "action pill" press feedback (2pt offset + accent
+    /// fill on press).  For iOS Native this is a no-op — the system
+    /// default tap feedback (a subtle dim on press) is the HIG
+    /// convention, and the Street offset looks broken on a rounded
+    /// button.
+    ///
+    /// Apply from any `Toggle` / `Button` / `Menu` that lives inside
+    /// the player's control panel (or any other Street-styled action
+    /// row) and the variant switch handles itself.
+    @ViewBuilder
+    func paladalaActionPill(accent: Color = PaladalaTheme.biliPink) -> some View {
+        if PaladalaTheme.activeVariant == .iosNative {
+            self
+        } else {
+            self.buttonStyle(PaladalaActionPillStyle(accent: accent))
+        }
     }
 }
 

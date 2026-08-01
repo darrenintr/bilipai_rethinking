@@ -964,7 +964,7 @@ struct VideoDetailView: View {
         }
         .toggleStyle(.button)
         .disabled(model.subtitleTrack == nil)
-        .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
+        .paladalaActionPill()
         .onChange(of: model.subtitleEnabled) { _, newValue in
             storedSubtitleEnabled = newValue
         }
@@ -985,7 +985,7 @@ struct VideoDetailView: View {
             }
         }
         .toggleStyle(.button)
-        .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
+        .paladalaActionPill()
     }
 
     /// Download button.  Renders one of four labels
@@ -1009,7 +1009,7 @@ struct VideoDetailView: View {
         } label: {
             downloadButtonLabel
         }
-        .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
+        .paladalaActionPill()
         .disabled(!canStart)
         .opacity(canStart ? 1 : 0.5)
     }
@@ -1159,7 +1159,7 @@ struct VideoDetailView: View {
                     .contentTransition(.numericText(value: Double(model.coinGiven)))
             }
         }
-        .buttonStyle(PaladalaActionPillStyle(accent: PaladalaTheme.biliPink))
+        .paladalaActionPill()
         .disabled(model.coinInFlight)
     }
 
