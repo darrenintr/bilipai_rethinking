@@ -551,7 +551,7 @@ struct AppQrcodePollResult {
     ///      depth, parsed via Foundation's
     ///      `HTTPCookie.cookies(withResponseHeaderFields:for:)`
     ///      (RFC 6265, same parser the web flow uses).
-    static func cookies(
+    static fileprivate func cookies(
         fromCookieInfo cookieInfo: [TvQrcodePollResponse.TvData.Cookie]?,
         fromPollURL urlString: String?,
         response: URLResponse
