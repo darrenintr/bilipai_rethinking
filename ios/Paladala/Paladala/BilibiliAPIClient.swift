@@ -2029,11 +2029,19 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // `mode` is the Bilibili sort code: `3` is the default "热门"
         // (hot) ordering, `2` is "最新" (newest). We only emit the
         // parameter when it is non-default, so the request shape stays
-        // identical to the pre-sort codebase for hot listings.
+        // `wbi_type=2` is the B站 reply endpoint's WBI-generation
+        // marker. The endpoint silently hangs (request sent, no
+        // response) if this is missing — confirmed in 2026-08-02
+        // by Safari probing: every variant without `wbi_type=2`
+        // errored out or hung, only the URL with `wbi_type=2`
+        // returned a JSON envelope (even when the rest of the
+        // sign was wrong, hence the -403). Always required for
+        // this path as of mid-2026.
         var queryItems = [
             URLQueryItem(name: "type", value: "1"),
             URLQueryItem(name: "oid", value: "\(aid)"),
-            URLQueryItem(name: "ps", value: "\(pageSize)")
+            URLQueryItem(name: "ps", value: "\(pageSize)"),
+            URLQueryItem(name: "wbi_type", value: "2")
         ]
         if let mode = sort.apiValue {
             queryItems.append(URLQueryItem(name: "mode", value: "\(mode)"))
