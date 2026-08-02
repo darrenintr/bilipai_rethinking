@@ -586,16 +586,24 @@ jobs:
           mkdir -p release-notes
           # Capture the trigger commit's message. We deliberately
           # read it through `git log` instead of the
-          # `${{ github.event.head_commit.message }}` env var:
-          # GitHub Actions interpolates `${{ ... }}` BEFORE bash
-          # parses the script, so the message text (which may
-          # contain backticks, $(...), double quotes, or other
-          # shell metacharacters from code-formatted examples)
-          # would otherwise be parsed as live shell syntax and
-          # trigger command substitution. `git log` returns the
-          # same message for a regular commit push, and gives
-          # the most recent commit on the branch for
-          # `workflow_dispatch` reruns.
+          # github.event.head_commit.message env var:
+          # GitHub Actions interpolates workflow expressions
+          # BEFORE bash parses the script, so the message text
+          # (which may contain backticks, command substitution,
+          # double quotes, or other shell metacharacters from
+          # code-formatted examples) would otherwise be parsed
+          # as live shell syntax and trigger command
+          # substitution. `git log` returns the same message
+          # for a regular commit push, and gives the most
+          # recent commit on the branch for `workflow_dispatch`
+          # reruns.
+          #
+          # Note: keep the comments above free of the literal
+          # dollar-brace-brace pattern - the GitHub Actions
+          # YAML parser scans for workflow expressions inside
+          # block scalars (including comments) and rejects
+          # three-dot placeholders as unknown expression
+          # tokens, failing the entire workflow validation.
           COMMIT_MSG="$(git log -1 --format=%B)"
           # Strip the conventional-commit type/scope prefix
           # (`feat(ios): …`, `fix!: …`, `chore: …`) so the
