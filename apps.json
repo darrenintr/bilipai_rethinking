@@ -1,19 +1,51 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-01T13:50:26Z",
-    "githubRunId": "30702466362",
-    "githubRunNumber": "565",
-    "githubSha": "81fb7531b554cb9975e0e444420fd23e2cb681b9",
+    "generatedAt": "2026-08-02T00:44:06Z",
+    "githubRunId": "99999999",
+    "githubRunNumber": "999",
+    "githubSha": "68a57795708a6ba63cd944f700605ec9970fae7c",
     "sourceScript": "scripts/generate_apps_json.py"
   },
-  "buildVersion": "295",
-  "bundleIdentifier": "com.dt.paladala",
-  "category": "entertainment",
-  "developerName": "darrenintr",
-  "iconURL": "https://darrenintr.github.io/pure-bilibili-rethinking/icon.png",
-  "localizedDescription": "Paladala 係一個用 SwiftUI 寫嘅第三方嗶哩嗶哩 iOS 客戶端,目標係「淨」同「快」：\n\n- 內置 FFmpeg 解冩 DASH 直播流,實時彈幕接力\n- AVPlayer 全硬件加速播普通視頻,零額外依賴\n- 完整支援 B 站帳號登入、追番、動態、收藏夾、私訊\n- 影片可下載到本機離線睇\n- 對 LiveContainer 友善,塞入 LiveContainer 之後唔佔 iOS 嘅 3 app 側載限額\n\n本 App 通過 AltStore / SideStore 源發佈,每次 push 到 `working` 分支都會自動出新版本。",
+  "apps": [
+    {
+      "appPermissions": {
+        "entitlements": [
+          "get-task-allow"
+        ]
+      },
+      "bundleIdentifier": "com.dt.paladala",
+      "category": "entertainment",
+      "developerName": "darrenintr",
+      "iconURL": "https://darrenintr.github.io/pure-bilibili-rethinking/icon.png",
+      "localizedDescription": "Paladala 係一個用 SwiftUI 寫嘅第三方嗶哩嗶哩 iOS 客戶端,目標係「淨」同「快」：\n\n- 內置 FFmpeg 解冩 DASH 直播流,實時彈幕接力\n- AVPlayer 全硬件加速播普通視頻,零額外依賴\n- 完整支援 B 站帳號登入、追番、動態、收藏夾、私訊\n- 影片可下載到本機離線睇\n- 對 LiveContainer 友善,塞入 LiveContainer 之後唔佔 iOS 嘅 3 app 側載限額",
+      "name": "Paladala",
+      "screenshots": [],
+      "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
+      "tintColor": "#FB7299",
+      "versions": [
+        {
+          "buildVersion": "297",
+          "date": "2026-08-02T00:44:06Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.1.297/Paladala-unsigned-v0.5.1.297.ipa",
+          "localizedDescription": "## Based on commit\n\n- Commit: `302b68d0e0212bf4ba50d5e8efc6ad099f05e192`\n\n### Commit description\n\nfix(ci): pass workspace+stage via env to the icon generator heredoc\n\n\n### Build\n\n- Branch: `working`\n- CFBundleShortVersionString: `0.5.1`\n- CFBundleVersion: `297`\n- Workflow run: https://github.com/darrenintr/pure-bilibili-rethinking/actions/runs/30703551231",
+          "size": 3988385,
+          "version": "0.5.1"
+        }
+      ]
+    }
+  ],
+  "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 297 (68a5779)",
+      "date": "2026-08-02T00:44:06Z",
+      "identifier": "v0.5.1.297",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.1.297",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.1.297"
+    },
     {
       "caption": "Build 295 (81fb753)",
       "date": "2026-08-01T13:50:26Z",
@@ -23,18 +55,6 @@
       "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.1.295"
     }
   ],
-  "screenshotURLs": [],
-  "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
-  "tintColor": "#FB7299",
-  "version": "0.5.1",
-  "versions": [
-    {
-      "buildVersion": "295",
-      "date": "2026-08-01T13:50:26Z",
-      "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.1.295/Paladala-unsigned-v0.5.1.295.ipa",
-      "releaseNotes": "## Based on commit\n\n- Commit: `81fb7531b554cb9975e0e444420fd23e2cb681b9`\n\n### Commit description\n\nci(ios): add AltSource publish assets (apps.json generator + user docs)\n\n\n### Build\n\n- Branch: `working`\n- CFBundleShortVersionString: `0.5.1`\n- CFBundleVersion: `295`\n- Workflow run: https://github.com/darrenintr/pure-bilibili-rethinking/actions/runs/30702466362",
-      "size": 3988358,
-      "version": "0.5.1"
-    }
-  ]
+  "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端 — 自動源",
+  "tintColor": "#FB7299"
 }
