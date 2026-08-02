@@ -11,6 +11,10 @@ on:
       - 'CHANGELOG.md'
       - 'docs/**'
       - '.gemini/**'
+      # release-notes/ is written by this workflow on every
+      # run. Ignoring it prevents a feedback loop where each
+      # commit triggers a fresh CI invocation.
+      - 'release-notes/**'
 
 # Release tags are derived from the highest existing prerelease. Queue
 # every invocation so two close pushes cannot both select the same next
@@ -489,6 +493,67 @@ jobs:
             ${{ env.IPA_DIST_DIR }}/checksums.txt
 
       # ------------------------------------------------------------------
+      # Extract a clean per-version changelog from the trigger
+      # commit's message and persist it under `release-notes/` so
+      # the apps.json generator can backfill `localizedDescription`
+      # on every historical version entry (not just the latest).
+      #
+      # Plan C: the source is `github.event.head_commit.message`
+      # — the commit that triggered this push.  We strip the
+      # conventional-commit type/scope prefix from the subject
+      # line so the AltSource UI sees a friendly title like
+      # "iPad sidebar + profile user card iOS Native" instead
+      # of "polish(ios): iPad sidebar + profile user card
+      # iOS Native".  The body is kept verbatim.
+      #
+      # The file is committed back to `working` so the next run
+      # can attach this version's notes to its own historical
+      # entry.  `release-notes/**` is in `paths-ignore` so the
+      # bot commit does not trigger another CI invocation.
+      # ------------------------------------------------------------------
+      - name: Extract clean release notes for AltSource
+        if: github.event_name == 'push' && github.ref == 'refs/heads/working'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-notes
+          # Prefer the trigger commit's message; fall back to
+          # the most recent commit on the branch for
+          # `workflow_dispatch` reruns where head_commit is
+          # empty.
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if [ -z "$COMMIT_MSG" ]; then
+            COMMIT_MSG="$(git log -1 --format=%B)"
+          fi
+          # Strip the conventional-commit type/scope prefix
+          # (`feat(ios): …`, `fix!: …`, `chore: …`) so the
+          # title is reader-friendly in AltStore / SideStore.
+          SUBJECT="$(printf '%s' "$COMMIT_MSG" | head -n1)"
+          CLEAN_SUBJECT="$(printf '%s' "$SUBJECT" \
+            | sed -E 's/^[a-z]+(\([^)]+\))?(!)?: //')"
+          BODY="$(printf '%s' "$COMMIT_MSG" | sed -n '2,$p')"
+          NOTES_FILE="release-notes/v${MARKET_VERSION}.${BUNDLE_VERSION}.md"
+          {
+            printf '%s\n' "$CLEAN_SUBJECT"
+            if [ -n "$(printf '%s' "$BODY" | tr -d '[:space:]')" ]; then
+              printf '\n%s\n' "$BODY"
+            fi
+          } > "$NOTES_FILE"
+          echo "Wrote $NOTES_FILE:"
+          sed 's/^/  /' "$NOTES_FILE"
+          git config user.name  "ci-release-notes-bot"
+          git config user.email "ci-release-notes-bot@users.noreply.github.com"
+          git add "$NOTES_FILE"
+          if git diff --cached --quiet; then
+            echo "release-notes file unchanged, skipping commit"
+          else
+            git commit -m "ci: release notes for v${MARKET_VERSION}.${BUNDLE_VERSION}"
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:working
+            echo "Pushed release notes to working"
+          fi
+
+      # ------------------------------------------------------------------
       # AltSource publish — turn the freshly-tagged prerelease into a
       # working AltStore / SideStore source.
       #
@@ -597,12 +662,19 @@ jobs:
           # 4. Generate the merged manifest. The script de-duplicates by
           #    buildVersion / tag, so re-running this job for the same
           #    BUNDLE_VERSION updates the entry in place instead of
-          #    appending a duplicate.
+          #    appending a duplicate. `--release-notes-dir` points at
+          #    the `release-notes/` directory the "Extract clean release
+          #    notes" step populated; the script reads one file per
+          #    version (named `v<version>.<build>.md`) and attaches the
+          #    contents as `localizedDescription` on every entry,
+          #    historical or new, so AltStore / SideStore can show a
+          #    proper per-version changelog instead of only the latest
+          #    one.
           python3 scripts/generate_apps_json.py \
-            --existing     "$STAGE/apps.json" \
-            --release-notes "$RUNNER_TEMP/release-notes.md" \
-            --ipa-path     "$IPA_FILE" \
-            --output       "$STAGE/apps.json.new"
+            --existing          "$STAGE/apps.json" \
+            --release-notes-dir "$GITHUB_WORKSPACE/release-notes" \
+            --ipa-path          "$IPA_FILE" \
+            --output            "$STAGE/apps.json.new"
 
           # 5. Validate the output before we ever push it. The workflow
           #    stops here if the script somehow produced malformed JSON

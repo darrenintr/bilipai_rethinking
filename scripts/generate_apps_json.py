@@ -103,6 +103,53 @@ def now_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def attach_release_notes(
+    versions: list[dict[str, Any]],
+    notes_dir: Path,
+) -> list[dict[str, Any]]:
+    """For each version in `versions`, look up a matching
+    `v<version>.<build>.md` file under `notes_dir` and attach the
+    file's content as `localizedDescription`.
+
+    The lookup is by `<version>.<buildVersion>` joined with a dot
+    (e.g. version=`0.5.2`, buildVersion=`3` → `v0.5.2.3.md`).
+    Missing or empty files are skipped silently — the resulting
+    entry simply omits `localizedDescription`, which is the
+    spec-allowed behaviour for a version with no per-version
+    changelog.
+
+    Plan C wires this to a per-CI-run file written from the
+    trigger commit's message; future invocations backfill
+    historical versions as their files are committed.
+    """
+    if not notes_dir.is_dir():
+        return versions
+    out: list[dict[str, Any]] = []
+    for v in versions:
+        version = str(v.get("version", "")).strip()
+        build_version = str(v.get("buildVersion", "")).strip()
+        if not version or not build_version:
+            out.append(v)
+            continue
+        notes_file = notes_dir / f"v{version}.{build_version}.md"
+        if not notes_file.is_file():
+            out.append(v)
+            continue
+        content = notes_file.read_text(encoding="utf-8").rstrip()
+        if not content:
+            out.append(v)
+            continue
+        # Don't clobber a localizedDescription that was already
+        # set on the entry (e.g. by the legacy --release-notes
+        # CLI flag) — that flag is the explicit human override
+        # path and should win over the auto-derived file.
+        if "localizedDescription" in v:
+            out.append(v)
+            continue
+        out.append({**v, "localizedDescription": content})
+    return out
+
+
 def load_existing(path: Path) -> dict[str, Any]:
     """Load the previous apps.json, tolerating first-run / 404 cases.
 
@@ -217,6 +264,7 @@ def build_apps_json(
     run_number: str,
     ipa_path: Path,
     release_notes: str,
+    release_notes_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Construct the final apps.json per the AltSource schema:
 
@@ -248,8 +296,14 @@ def build_apps_json(
         "size": ipa_bytes,
         "downloadURL": download,
     }
-    # Per the App Versions spec the per-version changelog field is
-    # `localizedDescription`, NOT `releaseNotes` (the docs are
+    # Legacy per-invocation release notes. Kept for back-compat
+    # with manual `python3 generate_apps_json.py` invocations;
+    # the iOS CI path uses `release_notes_dir` instead so every
+    # historical version, not just the new one, gets a
+    # localizedDescription.
+    #
+    # Per the App Versions spec the per-version changelog field
+    # is `localizedDescription`, NOT `releaseNotes` (the docs are
     # explicit on this). Earlier revisions of this script used
     # `releaseNotes` and SideStore silently dropped it.
     if release_notes:
@@ -288,6 +342,18 @@ def build_apps_json(
     new_app_entry: dict[str, Any] = dict(APP_META)
     new_app_entry["versions"] = merge_versions(our_versions, new_version_entry)
 
+    # Backfill per-version `localizedDescription` from the
+    # `release-notes/` directory. Plan C: every CI run writes a
+    # `release-notes/v<version>.<build>.md` file derived from the
+    # trigger commit's message; this step walks all version
+    # entries (new + historical) and attaches the file's content
+    # so AltStore / SideStore can render a full version history
+    # with a changelog per entry instead of just the latest.
+    if release_notes_dir is not None:
+        new_app_entry["versions"] = attach_release_notes(
+            new_app_entry["versions"], release_notes_dir
+        )
+
     # Reassemble: our app first (AltStore highlights the first app),
     # then any other apps that were previously in the source.
     out["apps"] = [new_app_entry] + other_apps
@@ -316,7 +382,25 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--release-notes",
         type=Path,
         default=None,
-        help="Path to the release notes markdown (optional).",
+        help=(
+            "Path to the release notes markdown (optional, legacy). "
+            "When set, the file's contents are attached as the NEW "
+            "version's `localizedDescription`. The iOS CI path uses "
+            "`--release-notes-dir` instead so historical versions "
+            "also get per-version changelogs."
+        ),
+    )
+    p.add_argument(
+        "--release-notes-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory containing one `v<version>.<build>.md` file "
+            "per release. The script walks every version entry "
+            "(new and historical) and attaches the matching file's "
+            "content as `localizedDescription`. Missing or empty "
+            "files are skipped silently."
+        ),
     )
     p.add_argument(
         "--ipa-path",
@@ -385,6 +469,7 @@ def main(argv: list[str]) -> int:
         run_number=run_number,
         ipa_path=args.ipa_path,
         release_notes=release_notes,
+        release_notes_dir=args.release_notes_dir,
     )
 
     # ensure_ascii=False so the 繁體中文 description / subtitle don't
