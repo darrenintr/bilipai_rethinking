@@ -363,6 +363,21 @@ struct AppQrcodePollResult {
     /// the account being created. `0` on intermediate states.
     let mid: Int64
 
+    /// Mirrors `WebQrcodePollResult.state` so the existing
+    /// `LoginViewModel.pollLoop` switch handles the app endpoint
+    /// without a separate branch. The state codes are identical
+    /// between the web and app QR endpoints (both sides of B站
+    /// return 0/86038/86090/86101 with the same semantics).
+    var state: WebQrcodeState {
+        switch code {
+        case 0: return .success
+        case 86038: return .expired
+        case 86090: return .scanned
+        case 86101: return .waiting
+        default: return .error(message)
+        }
+    }
+
     /// The same `data.url` + `Set-Cookie` cookie extraction the web
     /// flow uses. Kept as a static helper so the two endpoints
     /// share the Set-Cookie / query-string fallback logic without
