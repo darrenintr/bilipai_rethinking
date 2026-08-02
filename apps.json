@@ -1,8 +1,8 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T00:44:06Z",
-    "githubRunId": "99999999",
-    "githubRunNumber": "999",
+    "generatedAt": "2026-08-02T00:44:41Z",
+    "githubRunId": "30725705136",
+    "githubRunNumber": "568",
     "githubSha": "68a57795708a6ba63cd944f700605ec9970fae7c",
     "sourceScript": "scripts/generate_apps_json.py"
   },
@@ -24,6 +24,14 @@
       "tintColor": "#FB7299",
       "versions": [
         {
+          "buildVersion": "298",
+          "date": "2026-08-02T00:44:41Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.1.298/Paladala-unsigned-v0.5.1.298.ipa",
+          "localizedDescription": "## Based on commit\n\n- Commit: `68a57795708a6ba63cd944f700605ec9970fae7c`\n\n### Commit description\n\nfix(ci): nest apps.json under apps[] per AltSource schema, validate per-app\n\n\n### Build\n\n- Branch: `working`\n- CFBundleShortVersionString: `0.5.1`\n- CFBundleVersion: `298`\n- Workflow run: https://github.com/darrenintr/pure-bilibili-rethinking/actions/runs/30725705136",
+          "size": 3988392,
+          "version": "0.5.1"
+        },
+        {
           "buildVersion": "297",
           "date": "2026-08-02T00:44:06Z",
           "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.1.297/Paladala-unsigned-v0.5.1.297.ipa",
@@ -37,6 +45,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 298 (68a5779)",
+      "date": "2026-08-02T00:44:41Z",
+      "identifier": "v0.5.1.298",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.1.298",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.1.298"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 297 (68a5779)",
