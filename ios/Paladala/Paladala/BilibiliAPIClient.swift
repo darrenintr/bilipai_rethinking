@@ -2237,13 +2237,42 @@ final class BilibiliAPIClient: @unchecked Sendable {
 
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        // 10s request timeout. `URLSessionConfiguration` has
+        // `waitsForConnectivity = true` (so the session will
+        // hold a TCP connection open during transient network
+        // drops) but no hard timeout — without this, the
+        // comments endpoint has been observed to hang
+        // indefinitely on the device with no response.
+        // Surfacing a hard timeout lets the caller show the
+        // error banner instead of an eternal spinner.
+        request.timeoutInterval = 10
         request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-
+        // Match the canonical web client header set: B站
+        // upstream appears to fingerprint non-iOS clients
+        // missing `Accept` / `Accept-Language` / `Origin` and
+        // hold the connection open (observed on
+        // `/x/v2/reply/wbi/main` with `bili-universal/iphone`
+        // UA but no Accept — web client with the same UA
+        // string and full header set works fine). Setting them
+        // here is cheap and removes a class of false-negative
+        // silent hangs.
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("zh-Hant-HK,zh-Hant;q=0.9,zh-CN;q=0.8,en-US;q=0.7,en;q=0.6", forHTTPHeaderField: "Accept-Language")
         if isAppAPI {
+            // `app.bilibili.com` hosts expect the iOS client
+            // identity headers; `api.bilibili.com` does not,
+            // matching the official app's per-host behaviour.
             request.setValue("iphone", forHTTPHeaderField: "mobi_app")
             request.setValue("ios", forHTTPHeaderField: "platform")
+        } else {
+            // `api.bilibili.com` (web API) — the web client
+            // sends an Origin matching the bilibili homepage.
+            // The session's `waitsForConnectivity = true` plus
+            // a missing Origin was reproducing the comment
+            // hang that web users never saw.
+            request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
         }
 
         if let cookie = await currentCookieHeader() {
@@ -2292,6 +2321,14 @@ final class BilibiliAPIClient: @unchecked Sendable {
             referer: referer
         )
 
+        // Request-side log so a hung request leaves a trace
+        // in the diagnostic. The bpLog on the caller side
+        // ("fetching") fires before this; if we never see
+        // "sent" below, the URLSession is the one hanging.
+        // Logs the URL only (no Cookie / SESSDATA) to avoid
+        // shipping credentials into the diagnostic file.
+        bpLog("GET sending | path=\(path) wbi=\(signWithWBI) timeout=\(request.timeoutInterval)s url=\(request.url?.absoluteString ?? "?")")
+
         // 412 (B站 风控) and 429 (rate limit) are transient
         // signals from the upstream — back off once and try
         // again.  A second failure propagates as `http` so
@@ -2321,7 +2358,18 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // generic "评论加载失败" banner — exactly the regression
         // Round 12's commit message flagged as
         // out-of-scope-for-that-round.
-        let initial = try await session.data(for: request)
+        let initial: (Data, URLResponse)
+        do {
+            initial = try await session.data(for: request)
+        } catch {
+            // Pair with the "sending" log above so a hung
+            // request (no "sent", just this "failed" with a
+            // timeout error) shows up in the diagnostic as a
+            // URLSession-level timeout rather than looking
+            // like a silent hang.
+            bpLog("GET failed | path=\(path) error=\(error)")
+            throw error
+        }
         let resolved: (Data, URLResponse)
         let initialStatus = (initial.1 as? HTTPURLResponse)?.statusCode
         let initialCode: Int? = (initialStatus == 200)
@@ -2347,6 +2395,15 @@ final class BilibiliAPIClient: @unchecked Sendable {
             resolved = initial
         }
         let (data, response) = resolved
+        // Diagnostic: pair the "sending" log above with a
+        // "sent" log so a hung request (no "sent" log) is
+        // distinguishable from a request that returned
+        // 200 but with a non-JSON body (silent "sent"). The
+        // status code is also captured here for cross-check
+        // against the 412 / 429 / 401 / WBI retry branches
+        // earlier in this function.
+        let sentStatus = (response as? HTTPURLResponse)?.statusCode ?? -1
+        bpLog("GET sent | path=\(path) status=\(sentStatus) bytes=\(data.count)")
         // Diagnostic: when a WBI-signed call returns a non-zero
         // envelope code that we *didn't* retry above, log it so
         // the diagnostic report can show what the upstream
