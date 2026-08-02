@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T02:36:56Z",
-    "githubRunId": "30729103092",
-    "githubRunNumber": "571",
-    "githubSha": "88d4dc5d4f425c1deee61f3f9a6edfb91e2146a2",
+    "generatedAt": "2026-08-02T02:59:58Z",
+    "githubRunId": "30729774846",
+    "githubRunNumber": "572",
+    "githubSha": "fddc6e37b6d37fe1764f4120e39523015c3b72c7",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "302",
+          "date": "2026-08-02T02:59:58Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.2.302/Paladala-unsigned-v0.5.2.302.ipa",
+          "localizedDescription": "auto-bump CFBundleShortVersionString on every prerelease\n\n\nThe build number (CFBundleVersion) was already auto-bumped on\nevery CI run by reading the latest prerelease tag from the GitHub\nReleases API. The marketing version (CFBundleShortVersionString)\nwas hard-coded — the in-app About page always read whatever was\ncommitted (most recently '0.5.1 TESTING') regardless of how many\nbuilds the CI had shipped. The tag-extraction regex in 'Resolve\nrelease tag' stripped the 'TESTING' suffix, so the prerelease\ntags were clean (v0.5.1.301 etc.) but the in-app display was not.\n\nThis adds a 'Bump marketing version' step right before 'Bump\nbuild number' that applies the same auto-derive logic to the\nmarketing version:\n\n  * reads the latest prerelease tag from the Releases API\n  * if the tag is v<X>.<Y>.<Z>.<N> (the active line), bumps Z\n    to Z+1 for the next prerelease\n  * falls back to the committed Info.plist's numeric prefix\n    with patch +1 when the API call fails OR the latest tag is\n    in a legacy shape (v0.4.<N>, v0.5-beta-ios-<N>, …) — never\n    regresses on a single bad run\n\nThe new value is written to Info.plist in the runner's working\ncopy only (no commit, no push) so the latest tag on the server\nremains the persistent state — same pattern as the existing\nbuild-number bump.\n\nTrade-off: every push to working ticks the marketing patch\ncomponent up by 1 (0.5.1 → 0.5.2 → 0.5.3 …). If the user wants\nto ship a real 0.6 / 1.0 release cut, they bump the major/minor\nin Info.plist by hand and the auto-derive continues from there.",
+          "size": 4008077,
+          "version": "0.5.2"
+        },
         {
           "buildVersion": "301",
           "date": "2026-08-02T02:36:56Z",
@@ -61,6 +69,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 302 (fddc6e3)",
+      "date": "2026-08-02T02:59:58Z",
+      "identifier": "v0.5.2.302",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.2.302",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.2.302"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 301 (88d4dc5)",
