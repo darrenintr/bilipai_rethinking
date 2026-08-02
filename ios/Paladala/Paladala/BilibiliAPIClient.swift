@@ -2147,7 +2147,8 @@ final class BilibiliAPIClient: @unchecked Sendable {
         let regular = payload.value?.replies?.items ?? []
         var seen = Set<Int>()
         var merged: [BiliComment] = []
-        for model in pinned + regular {
+        for dto in pinned + regular {
+            let model = dto.model
             if seen.insert(model.id).inserted {
                 merged.append(model)
             }
