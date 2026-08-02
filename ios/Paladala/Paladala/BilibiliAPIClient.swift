@@ -2055,6 +2055,24 @@ final class BilibiliAPIClient: @unchecked Sendable {
             signWithWBI: true
         )
         try payload.requireOK()
+        // Diagnostic: log the decoded payload shape so we can see
+        // exactly what B站 returned. Without this, "commentsPage:
+        // returning" silently never firing (observed in v0.5.6
+        // diagnostic) leaves us guessing whether decode produced
+        // an empty list, allCount was 0, or the function threw
+        // somewhere between requireOK and the return log.
+        // Truncate the dump to keep the diagnostic file readable.
+        if let val = payload.value {
+            let upperKeys = val.upperTop.map { "upperTop keys=\($0.values.count)" } ?? "nil"
+            let topReplies = val.topReplies.map { "topReplies items=\($0.items.count)" } ?? "nil"
+            let replies = val.replies.map { "replies items=\($0.items.count)" } ?? "nil"
+            let cursor = val.cursor.map { c in
+                "cursor next=\(c.next ?? -1) allCount=\(c.allCount) isEnd=\(c.isEnd) paginationReply=\(c.paginationReply.map { "nextOffset=\($0.nextOffset)" } ?? "nil")"
+            } ?? "nil"
+            bpLog("commentsPage: payload | upper=\(upperKeys) \(topReplies) \(replies) \(cursor)")
+        } else {
+            bpLog("commentsPage: payload | value=nil code=\(payload.code ?? -1) message=\(payload.message ?? "?")")
+        }
         // Pinned comments arrive under `top_replies` (legacy) or
         // `upper.top` (newer). Bilibili sometimes sends a thread where
         // every visible comment is pinned — without merging we'd show
@@ -2072,6 +2090,10 @@ final class BilibiliAPIClient: @unchecked Sendable {
                 merged.append(model)
             }
         }
+        // Diagnostic: log the merged result before any early-throw
+        // so we can distinguish "decode produced 0 items" from
+        // "throw missingIdentity" or "Task cancelled mid-merge".
+        bpLog("commentsPage: merged count=\(merged.count) (pinned=\(pinned.count) legacy=\(legacyPinned.count) regular=\(regular.count)) allCount=\(payload.value?.cursor?.allCount ?? 0)")
         // Bilibili silently returns `replies: null` (and an empty
         // `upper.top`) for unauthenticated callers when the
         // thread has comments — `code == 0` passes `requireOK()`,

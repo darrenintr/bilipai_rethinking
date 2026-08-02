@@ -1143,6 +1143,13 @@ final class VideoDetailViewModel: ObservableObject {
             nextCommentCursor = page.next
             commentsHasMore = !page.isEnd && page.next != nil
             commentsTotalCount = page.totalCount
+            // Diagnostic: surface the success path so we can
+            // distinguish "function returned with N items" from
+            // "function threw/cancelled before returning" (the
+            // v0.5.6 diagnostic showed 9 GET sent 200 OKs but 0
+            // commentsPage: returning logs, leaving the
+            // client-side bug invisible).
+            bpLog("loadComments: OK items=\(page.items.count) allCount=\(page.totalCount) isEnd=\(page.isEnd) hasMore=\(commentsHasMore)")
         } catch BilibiliAPIError.missingIdentity {
             // Bilibili silently returns `replies: null` (with
             // `cursor.allCount > 0`) for both unauthenticated
@@ -1154,9 +1161,25 @@ final class VideoDetailViewModel: ObservableObject {
             // because they may already be logged in (per the
             // app) — a misleading "log in" CTA on a logged-in
             // account is worse than a generic retry prompt.
+            bpLog("loadComments: caught BilibiliAPIError.missingIdentity")
             commentsErrorMessage = "评论加载失败，请稍后重试"
             comments = []
+        } catch is CancellationError {
+            // The user navigated away mid-load (typical: rapidly
+            // tapping a video, or scrolling out of a feed card).
+            // Cancellation is NOT a failure — surface it in
+            // the diagnostic so we can distinguish it from
+            // "server returned 0 comments" or "decode failed".
+            bpLog("loadComments: cancelled (user navigated away mid-fetch)")
+            commentsErrorMessage = nil
+            comments = []
         } catch {
+            // Any other failure (decoding error, URLError,
+            // BilibiliAPIError.http, etc.). Log the type and
+            // message so the next diagnostic captures the
+            // specific failure mode instead of the generic
+            // banner shown in the UI.
+            bpLog("loadComments: caught error type=\(type(of: error)) message=\(error)")
             commentsErrorMessage = "评论加载失败，请稍后重试"
             comments = []
         }
