@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T00:44:41Z",
-    "githubRunId": "30725705136",
-    "githubRunNumber": "568",
-    "githubSha": "68a57795708a6ba63cd944f700605ec9970fae7c",
+    "generatedAt": "2026-08-02T02:15:08Z",
+    "githubRunId": "30728472225",
+    "githubRunNumber": "569",
+    "githubSha": "60b763a0c2fea97519b5b55afdbc95c757c2a737",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "299",
+          "date": "2026-08-02T02:15:08Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.1.299/Paladala-unsigned-v0.5.1.299.ipa",
+          "localizedDescription": "## Based on commit\n\n- Commit: `60b763a0c2fea97519b5b55afdbc95c757c2a737`\n\n### Commit description\n\nfeat(ios): in-app update check via AltSource, AltStore URL-scheme install\n\nReplace the GitHub Releases API poll in AboutView's UpdateChecker\nwith a fetch of the same apps.json the AltStore / SideStore source\nalready serves from gh-pages. The install side now hands the\nunsigned IPA URL to a sideload store via its URL scheme\n(altstore://install?url=… or sidestore://install?url=…) instead\nof going through a Shortcut, so users without the Shortcut\ninstalled can update with one tap.\n\n* Info.plist: add LSApplicationQueriesSchemes for altstore +\n  sidestore so canOpenURL returns the right answer.\n* UpdateManager.installLatestFromStore(downloadURL:) — new main-\n  actor method that picks AltStore, falls back to SideStore, and\n  finally opens the AltSource page in Safari when neither is\n  installed. New InstallState / InstallPath enums.\n* UpdateChecker in AboutView: parse gh-pages apps.json, match\n  app by bundleIdentifier, compare full versions via\n  VersionComparator. Old GitHub ReleasePayload is gone.\n* UpdateState: updateAvailable / devBuild now carry downloadURL:\n  URL? (the unsigned IPA URL) instead of an html_url.\n* AboutView.installButton: branched on downloadURL — primary\n  path is the URL-scheme install; missing-downloadURL edge case\n  falls back to the legacy Shortcut flow so a tester with an\n  empty source still has a way forward.\n* Localizable.swift: 6 new strings (openInAltStore,\n  openInSideStore, opening, noStoreDetected, viewOnGitHub,\n  checkSourceHint).\n* AppVersionTests: round-trip a sample AltSource manifest\n  through the new decoder to guard against silent schema drift.\n\n\n### Build\n\n- Branch: `working`\n- CFBundleShortVersionString: `0.5.1`\n- CFBundleVersion: `299`\n- Workflow run: https://github.com/darrenintr/pure-bilibili-rethinking/actions/runs/30728472225",
+          "size": 4008076,
+          "version": "0.5.1"
+        },
         {
           "buildVersion": "298",
           "date": "2026-08-02T00:44:41Z",
@@ -45,6 +53,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 299 (60b763a)",
+      "date": "2026-08-02T02:15:08Z",
+      "identifier": "v0.5.1.299",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.1.299",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.1.299"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 298 (68a5779)",
