@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T07:08:44Z",
-    "githubRunId": "30737126620",
-    "githubRunNumber": "581",
-    "githubSha": "250b8dbe241802ea9ebd5eee5a694a54958cd34a",
+    "generatedAt": "2026-08-02T07:44:31Z",
+    "githubRunId": "30738300260",
+    "githubRunNumber": "583",
+    "githubSha": "940fae08acbf85c1b2fb3c8742ec0e36d79a7392",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "310",
+          "date": "2026-08-02T07:44:31Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.10.310/Paladala-unsigned-v0.5.10.310.ipa",
+          "localizedDescription": "add state property to AppQrcodePollResult\n\n\nThe v0.5.10.310 build failed at LoginViewModel.swift:95 with\n\"value of type AppQrcodePollResult has no member state\" — the\nnew struct had code/url/cookies/tokens but no parsed state\nenum, so the existing poll loop could not switch on it.\n\nAdd the same computed `state` property that WebQrcodePollResult\nalready exposes, mapping the 0/86038/86090/86101 codes to the\nshared WebQrcodeState enum. The state codes are identical\nbetween the web and app QR endpoints, so no other call-site\nchanges are needed.",
+          "size": 4046380,
+          "version": "0.5.10"
+        },
         {
           "buildVersion": "309",
           "date": "2026-08-02T07:08:44Z",
@@ -117,6 +125,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 310 (940fae0)",
+      "date": "2026-08-02T07:44:31Z",
+      "identifier": "v0.5.10.310",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.10.310",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.10.310"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 309 (250b8db)",
