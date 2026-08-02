@@ -118,4 +118,13 @@ docs/*
 !docs/superpowers/
 !docs/superpowers/specs/*.md
 !docs/superpowers/plans/*.md
+# Per-version release notes for the AltSource
+# manifest. Written by the iOS CI on every build (see
+# .github/workflows/ios-unsigned-ipa.yml "Extract clean
+# release notes for AltSource"); the apps.json generator
+# reads them back to backfill per-version
+# localizedDescription. The directory and the files
+# inside it are intentional git content, not docs.
+!release-notes/
+!release-notes/*.md
 .omx/

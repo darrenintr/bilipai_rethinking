@@ -544,7 +544,14 @@ jobs:
           sed 's/^/  /' "$NOTES_FILE"
           git config user.name  "ci-release-notes-bot"
           git config user.email "ci-release-notes-bot@users.noreply.github.com"
-          git add "$NOTES_FILE"
+          # `-f` (force-add) is a safety net: the `release-notes/`
+          # whitelist in .gitignore is the primary mechanism, but if
+          # a future change to the ignore rules accidentally re-blocks
+          # these files the CI would fail loudly with the explicit
+          # "ignored by .gitignore" hint rather than silently
+          # skipping the commit. The intent is clear — the file is
+          # meant to be committed.
+          git add -f "$NOTES_FILE"
           if git diff --cached --quiet; then
             echo "release-notes file unchanged, skipping commit"
           else
