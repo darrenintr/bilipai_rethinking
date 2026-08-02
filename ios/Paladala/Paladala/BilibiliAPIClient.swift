@@ -2032,15 +2032,64 @@ final class BilibiliAPIClient: @unchecked Sendable {
     }
 
     func commentsPage(aid: Int, nextOffset: String? = nil, sort: CommentSort = .hot) async throws -> CommentPage {
-        // Prefer the appkey+sign auth path when an access_key is
-        // available — it mirrors the official B站 iOS app and bypasses
-        // the 风控 silent-block that gates the WBI sign path on
-        // URLSession clients (iOS TLS fingerprint is not what B站's
-        // risk layer expects, so the WBI sign path returns
-        // `replies: null` for every request — see agent memory for
-        // the diagnosis). Falls back to the WBI path for web-only
-        // logins that never saw an access_key, so the change is
-        // backward-compatible.
+        guard aid > 0 else {
+            return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
+        }
+
+        // 1. Legacy pn-based path (`/x/v2/reply` with bare params
+        //    — no appkey, no sign, no access_key). This is the
+        //    only surface through which B站 currently returns
+        //    real reply data to a third-party iOS URLSession
+        //    client — the same path `guozhigq/pilipala` (open-
+        //    source Flutter B站 client) uses. Verified 2026-08-02:
+        //    returns the full reply list for `BV1paKb6iEny` (286
+        //    comments) without any appkey/sign/cookie, while the
+        //    appkey+sign path returns `replies: null` and the
+        //    WBI sign path returns `-403 访问权限不足`. SESSDATA
+        //    is auto-attached by `get(...)` when available; the
+        //    path also works anonymously for first-page reads.
+        //
+        //    Skip this path when `nextOffset` is set to a
+        //    non-integer cursor from a previous fallback fetch
+        //    — the `pagination_str` cursor can't be parsed as a
+        //    page number, so falling through here would silently
+        //    re-fetch page 1. The fallback (app/WBI) paths
+        //    understand both cursor shapes.
+        let cursorWasLegacy = (nextOffset ?? "1").allSatisfy { $0.isNumber }
+        let pn = Int(nextOffset ?? "1") ?? 1
+        if cursorWasLegacy {
+            do {
+                let legacy = try await commentsPageLegacy(
+                    aid: aid,
+                    pn: pn,
+                    sort: sort
+                )
+                if !legacy.items.isEmpty {
+                    bpLog("commentsPage: legacy returned \(legacy.items.count) of \(legacy.totalCount) total")
+                    return legacy
+                }
+                if legacy.totalCount == 0 {
+                    // Real "this video has 0 comments" — don't
+                    // waste cycles on the app/WBI fallback that
+                    // would return 0 anyway.
+                    bpLog("commentsPage: legacy returned 0 items for a 0-comment video — using verbatim")
+                    return legacy
+                }
+                bpLog("commentsPage: legacy returned 0/empty for a video with \(legacy.totalCount) comments — falling back to app path")
+            } catch {
+                bpLog("commentsPage: legacy path threw (\(error.localizedDescription)) — falling back")
+            }
+        } else {
+            bpLog("commentsPage: non-integer cursor (likely pagination_str from app/WBI fallback) — skipping legacy")
+        }
+
+        // 2. App path (appkey + sign + access_key). Pair-aligned
+        //    with the QR login, but on the current B站 back-end
+        //    the TV paired appkey is classified as a TV client
+        //    and the comments endpoint silently returns `replies:
+        //    null` even on videos with thousands of comments.
+        //    Preserved for forward compatibility in case B站
+        //    reopens the surface for non-mobile-classified apps.
         if let accessKey = await currentAppConfig()?.accessKey, !accessKey.isEmpty {
             if let page = try? await commentsPageApp(
                 aid: aid,
@@ -2050,15 +2099,73 @@ final class BilibiliAPIClient: @unchecked Sendable {
             ) {
                 return page
             }
-            // App path returned a hard error (network, decode, etc).
-            // Fall through to the WBI sign path so the user still
-            // gets the missingIdentity error instead of a crash.
             bpLog("commentsPage: app path failed, falling back to WBI sign path")
         }
         return try await commentsPageWBI(
             aid: aid,
             nextOffset: nextOffset,
             sort: sort
+        )
+    }
+
+    /// Legacy pn-based fetch — pilipala-style `/x/v2/reply` with
+    /// bare params and no signing. See the diagnostic in
+    /// `commentsPage(...)` for the full rationale. The `sort`
+    /// argument is accepted for parity with the other paths but
+    /// the upstream `sort` param is hard-coded to `"2"` (newest
+    /// first) — B站's binary `sort=2`/`sort=3` mapping for
+    /// legacy pn pagination doesn't line up cleanly with the
+    /// `mode` codes the newer `/x/v2/reply/main` endpoint uses,
+    /// and forcing a mode here would silently drop replies.
+    private func commentsPageLegacy(
+        aid: Int,
+        pn: Int,
+        sort: CommentSort
+    ) async throws -> CommentPage {
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "oid", value: "\(aid)"),
+            URLQueryItem(name: "type", value: "1"),
+            URLQueryItem(name: "pn", value: "\(pn)"),
+            URLQueryItem(name: "ps", value: "20"),
+            URLQueryItem(name: "sort", value: "2"),
+        ]
+        // `sort` is accepted for parity but not emitted — see the
+        // doc above.
+        _ = sort
+        bpLog("commentsPage(legacy): fetching aid=\(aid) pn=\(pn)")
+        let payload: APIResponse<LegacyCommentPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/v2/reply",
+            queryItems: queryItems,
+            signWithWBI: false
+        )
+        try payload.requireOK()
+        let page = payload.value?.page
+        let totalCount = page?.count ?? 0
+        bpLog("commentsPage(legacy): HTTP success code=\(payload.code ?? -1) page.count=\(totalCount) replies=\(payload.value?.replies?.items.count ?? 0)")
+        let pinned = payload.value?.topReplies?.items ?? []
+        let regular = payload.value?.replies?.items ?? []
+        var seen = Set<Int>()
+        var merged: [BiliComment] = []
+        for model in pinned + regular {
+            if seen.insert(model.id).inserted {
+                merged.append(model)
+            }
+        }
+        // pn-based pagination: next page is pn+1; treat as end
+        // when this page returned less than `ps` items, when
+        // the server reports `acount <= pn * ps`, or when we
+        // already have `acount` worth of replies rendered.
+        let acount = page?.acount ?? totalCount
+        let reachedTotal = acount > 0 && merged.count >= acount
+        let shortPage = merged.count < 20
+        let isEnd = shortPage || reachedTotal
+        let nextPn: Int? = isEnd ? nil : pn + 1
+        return CommentPage(
+            items: merged,
+            next: nextPn.map(String.init),
+            isEnd: isEnd,
+            totalCount: totalCount
         )
     }
 
@@ -5370,6 +5477,49 @@ private struct PaginationReplyDTO: Decodable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: DynamicKey.self)
         nextOffset = container.decodeString(keys: ["next_offset"]) ?? ""
+    }
+}
+
+// MARK: - Legacy reply payload (pilipala-style /x/v2/reply with pn)
+//
+// The plain `/x/v2/reply` endpoint (no appkey/sign/WBI) is the only
+// shape B站 currently returns real reply data through, when the
+// request lands from an iOS URLSession client. Same path guozhigq/
+// pilipala (open-source Flutter B站 client) uses against the same
+// B站 back-end — verified 2026-08-02: the appkey+sign path returns
+// `code:0` with `replies: null` (TV-classified appkey is rejected
+// at the comments surface), the WBI sign path returns `-403 访问
+// 权限不足` (URLSession TLS fingerprint), but the legacy pn-based
+// GET returns full reply lists with no appkey at all.
+
+private struct LegacyCommentPayload: Decodable, Sendable {
+    let replies: LenientCommentArray?
+    /// Page metadata emitted as a flat object on the legacy path,
+    /// not via the `cursor` wrapper the WBI endpoint uses. `count`
+    /// is the total reply count visible for the video (after the
+    /// server-side hot/filter pass); `acount` is the same. `num`
+    /// is the current page index, `size` is the page-size param
+    /// we sent. Decoded as optional so a future drift that drops
+    /// the field doesn't break the request.
+    let page: LegacyCommentPage?
+    /// Pinned replies occasionally still land here in the legacy
+    /// shape — we keep the key for parity with `CommentPayload`.
+    let topReplies: LenientCommentArray?
+
+    enum CodingKeys: String, CodingKey {
+        case replies, page
+        case topReplies = "top_replies"
+    }
+}
+
+private struct LegacyCommentPage: Decodable, Sendable {
+    let num: Int
+    let size: Int
+    let count: Int
+    let acount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case num, size, count, acount
     }
 }
 
