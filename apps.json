@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T07:44:31Z",
-    "githubRunId": "30738300260",
-    "githubRunNumber": "583",
-    "githubSha": "940fae08acbf85c1b2fb3c8742ec0e36d79a7392",
+    "generatedAt": "2026-08-02T12:39:23Z",
+    "githubRunId": "30748174837",
+    "githubRunNumber": "585",
+    "githubSha": "7216a8175ff3c2e0d1b060f3af07698c70aa7928",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "311",
+          "date": "2026-08-02T12:39:23Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.11.311/Paladala-unsigned-v0.5.11.311.ipa",
+          "localizedDescription": "declare AppQrcodePollResult.cookies fileprivate\n\n\nSwift requires a method's access level to be at least as\nrestrictive as the most-restrictive type in its signature.\n`static func cookies(fromCookieInfo:fromPollURL:response:)`\ntakes `[TvQrcodePollResponse.TvData.Cookie]?` — a private\nnested type — so the method body lived at internal access\nand the compiler refused to emit the binary, failing the\nCI xcodebuild step with:\n\n  error: method must be declared fileprivate because its\n         parameter uses a private type\n\nMake it fileprivate (its only caller is `appQrcodePoll`,\nwhich lives in the same file). No behaviour change.",
+          "size": 4055345,
+          "version": "0.5.11"
+        },
         {
           "buildVersion": "310",
           "date": "2026-08-02T07:44:31Z",
@@ -125,6 +133,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 311 (7216a81)",
+      "date": "2026-08-02T12:39:23Z",
+      "identifier": "v0.5.11.311",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.11.311",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.11.311"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 310 (940fae0)",
