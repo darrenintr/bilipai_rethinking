@@ -202,9 +202,18 @@ struct PaladalaApp: App {
                     // personalised feed. The closure is re-evaluated on
                     // every recommend call, so switching accounts in
                     // `ProfileSettingsView` immediately takes effect.
+                    // `accessKey` is also plumbed through here so the
+                    // appkey+sign auth path on the comments endpoint
+                    // can pick it up without re-querying the account
+                    // store on every request.
                     repository.apiClient.appConfigProvider = { [weak authStore] in
                         guard let account = authStore?.activeAccount else { return nil }
-                        return BiliAppConfig(buvid3: account.buvid3, mid: account.mid, csrf: account.csrf)
+                        return BiliAppConfig(
+                            buvid3: account.buvid3,
+                            mid: account.mid,
+                            csrf: account.csrf,
+                            accessKey: account.accessKey
+                        )
                     }
                     // Hook the follow-notification BG-task handler.
                     // The OS-level register was already done in

@@ -26,6 +26,16 @@ struct StoredAccount: Codable, Hashable, Identifiable {
     /// `DedeUserID` — sometimes set as a cookie separately; capture it
     /// when present so we can rebuild the cookie header verbatim.
     let dedeUserID: String?
+    /// `access_key` — the long-lived app-style bearer token returned
+    /// alongside SESSDATA by the official iOS QR-confirm flow
+    /// (`/x/passport-login/app/qrcode/...`). Required for the
+    /// appkey+sign auth path that the official B站 iOS app uses,
+    /// which is the only path that does NOT trip the 风控 (silent
+    /// gate) on the comments endpoint. Optional: web-only logins
+    /// never see it; the field is `nil` and the WBI sign path is
+    /// used as a fallback. Captured during `LoginViewModel.completeLogin`
+    /// and persisted via `AccountSessionStore` like every other field.
+    let accessKey: String?
     /// Last time the user activated this account on this device.
     var lastUsedAt: Date
     /// Decoded 大会员 badge from the last login / `nav` refresh.
@@ -45,6 +55,7 @@ struct StoredAccount: Codable, Hashable, Identifiable {
         csrf: String,
         buvid3: String? = nil,
         dedeUserID: String? = nil,
+        accessKey: String? = nil,
         lastUsedAt: Date = Date(),
         vipBadge: BiliVIPBadge? = nil
     ) {
@@ -55,6 +66,7 @@ struct StoredAccount: Codable, Hashable, Identifiable {
         self.csrf = csrf
         self.buvid3 = buvid3
         self.dedeUserID = dedeUserID
+        self.accessKey = accessKey
         self.lastUsedAt = lastUsedAt
         self.vipBadge = vipBadge
     }
@@ -75,5 +87,16 @@ extension StoredAccount {
             parts.append("DedeUserID=\(dedeUserID)")
         }
         return parts.joined(separator: "; ")
+    }
+
+    /// Non-nil iff this account was captured via the app QR endpoint
+    /// and the server returned the long-lived bearer token. The
+    /// comments endpoint checks this to decide between the WBI sign
+    /// path (which trips the 风控 silent-block on URLSession clients)
+    /// and the appkey+sign path (which mirrors the official B站 iOS
+    /// app and bypasses the gate).
+    var hasAppAuthCredentials: Bool {
+        guard let accessKey else { return false }
+        return !accessKey.isEmpty
     }
 }

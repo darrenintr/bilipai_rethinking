@@ -1083,6 +1083,13 @@ struct BiliAppConfig: Hashable, Sendable {
     let buvid3: String?
     let mid: Int64
     let csrf: String?
+    /// `access_key` — the long-lived bearer token issued alongside
+    /// SESSDATA by the app QR login flow. When set, commentsPage
+    /// (and any future app-auth endpoint) can switch from the WBI
+    /// sign path (which is silently gated on URLSession clients
+    /// by the B站 风控 layer) to the appkey+sign path, which the
+    /// official B站 iOS app uses and therefore bypasses the gate.
+    let accessKey: String?
 
     var isPersonalised: Bool {
         mid > 0 && (buvid3?.isEmpty == false)

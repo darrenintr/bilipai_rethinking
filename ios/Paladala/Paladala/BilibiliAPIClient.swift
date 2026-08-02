@@ -146,7 +146,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
     /// client so unit tests and the cached-`BiliAppConfig` callers
     /// can read the same placeholder value the API originally used.
     static var defaultConfig: BiliAppConfig {
-        BiliAppConfig(buvid3: nil, mid: 0, csrf: nil)
+        BiliAppConfig(buvid3: nil, mid: 0, csrf: nil, accessKey: nil)
     }
 
     init(session: URLSession? = nil) {
@@ -2009,6 +2009,134 @@ final class BilibiliAPIClient: @unchecked Sendable {
     }
 
     func commentsPage(aid: Int, nextOffset: String? = nil, sort: CommentSort = .hot) async throws -> CommentPage {
+        // Prefer the appkey+sign auth path when an access_key is
+        // available — it mirrors the official B站 iOS app and bypasses
+        // the 风控 silent-block that gates the WBI sign path on
+        // URLSession clients (iOS TLS fingerprint is not what B站's
+        // risk layer expects, so the WBI sign path returns
+        // `replies: null` for every request — see agent memory for
+        // the diagnosis). Falls back to the WBI path for web-only
+        // logins that never saw an access_key, so the change is
+        // backward-compatible.
+        if let accessKey = await currentAppConfig()?.accessKey, !accessKey.isEmpty {
+            if let page = try? await commentsPageApp(
+                aid: aid,
+                nextOffset: nextOffset,
+                sort: sort,
+                accessKey: accessKey
+            ) {
+                return page
+            }
+            // App path returned a hard error (network, decode, etc).
+            // Fall through to the WBI sign path so the user still
+            // gets the missingIdentity error instead of a crash.
+            bpLog("commentsPage: app path failed, falling back to WBI sign path")
+        }
+        return try await commentsPageWBI(
+            aid: aid,
+            nextOffset: nextOffset,
+            sort: sort
+        )
+    }
+
+    /// App-style comments fetch. Uses the `/x/v2/reply` endpoint with
+    /// `appkey + sign` + `access_key` — the same shape the official
+    /// B站 iOS app uses. Requires the caller to have a valid
+    /// `access_key` (issued by the app QR login flow).
+    private func commentsPageApp(
+        aid: Int,
+        nextOffset: String?,
+        sort: CommentSort,
+        accessKey: String
+    ) async throws -> CommentPage {
+        let offset = nextOffset ?? ""
+        let paginationStr = "{\"offset\":\"\(offset)\"}"
+        bpLog("commentsPage(app): fetching aid=\(aid) sort=\(sort) offset='\(offset)'")
+        let appConfig = await currentAppConfig() ?? BilibiliAPIClient.defaultConfig
+        let effectiveBuvid = (appConfig.buvid3?.isEmpty == false) ? appConfig.buvid3! : generateMobileBuvid()
+
+        // Build app-signed query items. The sign is over every item
+        // in the URL except `sign` itself — see `appSign(_:)` below
+        // for the exact algorithm.
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "oid", value: "\(aid)"),
+            URLQueryItem(name: "type", value: "1"),
+            URLQueryItem(name: "pagination_str", value: paginationStr),
+            URLQueryItem(name: "plat", value: "1"),
+            URLQueryItem(name: "seek_rpid", value: ""),
+            URLQueryItem(name: "web_location", value: "1315875"),
+            URLQueryItem(name: "mobi_app", value: "iphone"),
+            URLQueryItem(name: "platform", value: "ios"),
+            URLQueryItem(name: "build", value: appBuild),
+            URLQueryItem(name: "appkey", value: appKey),
+            URLQueryItem(name: "access_key", value: accessKey),
+            URLQueryItem(name: "ts", value: "\(Int(Date().timeIntervalSince1970))"),
+            URLQueryItem(name: "buvid", value: effectiveBuvid)
+        ]
+        if let mode = sort.apiValue {
+            queryItems.append(URLQueryItem(name: "mode", value: "\(mode)"))
+        }
+        queryItems.append(URLQueryItem(name: "sign", value: appSign(queryItems)))
+
+        // SESSDATA is still in the Cookie header — the B站 server
+        // accepts the appkey+sign *alongside* the SESSDATA cookie
+        // (they are different credentials, not replacements), and
+        // keeping it means any helper that re-derives a per-call
+        // user identity from the cookie header still works.
+        let payload: APIResponse<CommentPayload> = try await get(
+            baseURL: baseURL,
+            path: "/x/v2/reply",
+            queryItems: queryItems,
+            signWithWBI: false
+        )
+        try payload.requireOK()
+        // Diagnostic so we can confirm the app path actually fires
+        // and what shape B站 returns. Drop once the path is stable.
+        bpLog("commentsPage(app): HTTP success code=\(payload.code ?? -1) message=\(payload.message ?? "?")")
+        if let val = payload.value {
+            let upperKeys = val.upperTop.map { "upperTop keys=\($0.values.count)" } ?? "nil"
+            let topReplies = val.topReplies.map { "topReplies items=\($0.items.count)" } ?? "nil"
+            let replies = val.replies.map { "replies items=\($0.items.count)" } ?? "nil"
+            let cursor = val.cursor.map { c in
+                "cursor allCount=\(c.allCount) isEnd=\(c.isEnd) paginationReply=\(c.paginationReply.map { "nextOffset=\($0.nextOffset)" } ?? "nil")"
+            } ?? "nil"
+            bpLog("commentsPage(app): payload | upper=\(upperKeys) \(topReplies) \(replies) \(cursor)")
+        }
+        let pinned = payload.value?.upperTop?.values.map(\.model) ?? []
+        let legacyPinned = payload.value?.topReplies?.items.map(\.model) ?? []
+        let regular = payload.value?.replies?.items.map(\.model) ?? []
+        var seen = Set<Int>()
+        var merged: [BiliComment] = []
+        for model in pinned + legacyPinned + regular {
+            if seen.insert(model.id).inserted {
+                merged.append(model)
+            }
+        }
+        let reportedTotal = payload.value?.cursor?.allCount ?? 0
+        let nextCursor: String? = {
+            if let off = payload.value?.cursor?.paginationReply?.nextOffset,
+               !off.isEmpty {
+                return off
+            }
+            return nil
+        }()
+        let isEnd = payload.value?.cursor?.isEnd ?? true
+        bpLog("commentsPage(app): returning \(merged.count) items, allCount=\(reportedTotal)")
+        return CommentPage(
+            items: merged,
+            next: nextCursor,
+            isEnd: isEnd,
+            totalCount: reportedTotal == 0 ? merged.count : reportedTotal
+        )
+    }
+
+    /// WBI sign path for the comments endpoint — preserved as the
+    /// fallback when no `access_key` is available (web-only login).
+    private func commentsPageWBI(
+        aid: Int,
+        nextOffset: String?,
+        sort: CommentSort
+    ) async throws -> CommentPage {
         guard aid > 0 else {
             return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
         }

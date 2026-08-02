@@ -40,6 +40,16 @@ final class LoginViewModel: ObservableObject {
     }
 
     /// Generate a fresh QR code, render it, and start the polling loop.
+    /// Uses the **app** QR endpoint (`/x/passport-login/app/qrcode/...`)
+    /// rather than the web one: the user scans with the same B站 iOS
+    /// app, but the polling context identifies us as the iOS client
+    /// so the server returns the `access_key` bearer token alongside
+    /// SESSDATA. That token unlocks the appkey+sign auth path used by
+    /// the official B站 iOS app, which is the only path that bypasses
+    /// the 风控 silent-block on the comments endpoint (URLSession on
+    /// iOS does not present the browser TLS fingerprint B站's risk
+    /// layer expects, so the WBI sign path is silently gated — see
+    /// agent memory for the full diagnosis).
     func start() {
         pollTask?.cancel()
         statusText = "正在生成二维码…"
@@ -47,7 +57,7 @@ final class LoginViewModel: ObservableObject {
         pollTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let token = try await authAPI.webQrcodeGenerate()
+                let token = try await authAPI.appQrcodeGenerate()
                 guard let image = Self.renderQR(token.url) else {
                     state = .error("二维码生成失败，请重试")
                     statusText = "二维码生成失败"
@@ -81,7 +91,7 @@ final class LoginViewModel: ObservableObject {
             do {
                 try await Task.sleep(nanoseconds: 3_000_000_000)
                 if Task.isCancelled { return }
-                let result = try await authAPI.webQrcodePoll(qrcodeKey: key)
+                let result = try await authAPI.appQrcodePoll(qrcodeKey: key)
                 switch result.state {
                 case .waiting:
                     statusText = "请使用 Bilibili App 扫码登录"
@@ -93,7 +103,7 @@ final class LoginViewModel: ObservableObject {
                     statusText = "二维码已过期，请刷新"
                     return
                 case .success:
-                    await completeLogin(cookies: result.cookies)
+                    await completeLogin(cookies: result.cookies, accessKey: result.accessToken)
                     return
                 case .error(let message):
                     statusText = "登录失败：\(message)"
@@ -108,7 +118,7 @@ final class LoginViewModel: ObservableObject {
         }
     }
 
-    private func completeLogin(cookies: [String: String]) async {
+    private func completeLogin(cookies: [String: String], accessKey: String?) async {
         guard let sessData = cookies["SESSDATA"], !sessData.isEmpty,
               let csrf = cookies["bili_jct"], !csrf.isEmpty else {
             state = .error("登录成功但未返回 SESSDATA 凭证")
@@ -129,13 +139,25 @@ final class LoginViewModel: ObservableObject {
             }
         }
 
+        // Diagnostic so we can verify the access_key actually arrived
+        // on first capture — the field is the long-lived bearer token
+        // used by the appkey+sign auth path; logging just its length
+        // (never the value) keeps the diagnostic useful without
+        // shipping a credential into the log file.
+        if let accessKey, !accessKey.isEmpty {
+            bpLog("App QR login: access_key captured, length=\(accessKey.count)")
+        } else {
+            bpLog("App QR login: no access_key in response (will fall back to WBI sign path)")
+        }
+
         let cookieHeader = StoredAccount(
             mid: 0,
             name: "",
             sessData: sessData,
             csrf: csrf,
             buvid3: buvid3,
-            dedeUserID: dede
+            dedeUserID: dede,
+            accessKey: accessKey
         ).cookieHeader
         do {
             let info = try await authAPI.navInfo(cookieHeader: cookieHeader)
@@ -147,6 +169,7 @@ final class LoginViewModel: ObservableObject {
                 csrf: csrf,
                 buvid3: buvid3,
                 dedeUserID: dede,
+                accessKey: accessKey,
                 vipBadge: info.vipBadge.isActive ? info.vipBadge : nil
             )
             authStore.completeLogin(account)

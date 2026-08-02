@@ -79,6 +79,76 @@ struct BilibiliAuthAPI {
         )
     }
 
+    // MARK: - App QR login (preferred — returns access_key for appkey+sign auth)
+
+    /// Step 1 (alternate): ask the server for a fresh QR token on the
+    /// **app** endpoint. The QR code itself is identical to the web
+    /// one (so the user scans with the same B站 iOS app), but the
+    /// server-side polling context identifies us as the iOS app and
+    /// returns an `access_key` alongside SESSDATA — the long-lived
+    /// bearer token required for the appkey+sign auth path that the
+    /// official B站 iOS app uses for the comments endpoint (the WBI
+    /// sign path is gated by the 风控 silent-block on URLSession
+    /// clients, see agent memory).
+    ///
+    /// The `source` query param differentiates the polling context —
+    /// common values seen in the wild: `main-mini` (web mini),
+    /// `main_app` (iOS), `main_web` (web). Picking `main_app` aligns
+    /// the polling context with the B站 iOS app so the server issues
+    /// the matching app credentials.
+    func appQrcodeGenerate() async throws -> WebQrcodeToken {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("/x/passport-login/app/qrcode/generate"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [URLQueryItem(name: "source", value: "main_app")]
+        let url = components.url!
+        let (data, _) = try await session.data(from: url)
+        let payload = try decoder.decode(WebQrcodeGenerateResponse.self, from: data)
+        return WebQrcodeToken(
+            qrcodeKey: payload.data.qrcodeKey,
+            url: payload.data.url
+        )
+    }
+
+    /// Step 2 (alternate): poll the **app** QR endpoint. On success the
+    /// response body carries both the cross-domain cookie URL (same
+    /// format as the web endpoint, parsed via the shared `cookies`
+    /// helper below) AND a top-level `access_token` field — that token
+    /// is what the appkey+sign auth flow uses instead of SESSDATA. The
+    /// `refresh_token` is included in the same payload for long-term
+    /// session maintenance; we capture it alongside the access token so
+    /// a future silent-refresh pass can extend the session without
+    /// forcing another QR scan.
+    func appQrcodePoll(qrcodeKey: String) async throws -> AppQrcodePollResult {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("/x/passport-login/app/qrcode/poll"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [URLQueryItem(name: "qrcode_key", value: qrcodeKey)]
+        let url = components.url!
+        let (data, response) = try await session.data(from: url)
+        let payload = try decoder.decode(AppQrcodePollResponse.self, from: data)
+        // Same cookie extraction as the web endpoint — the cross-domain
+        // SSO URL embeds SESSDATA + bili_jct in the query string and
+        // we read those values out. The app endpoint adds the bearer
+        // token + refresh token on top.
+        let cookies = AppQrcodePollResult.cookies(
+            fromPollURL: payload.data.url,
+            response: response
+        )
+        return AppQrcodePollResult(
+            code: payload.data.code,
+            message: payload.data.message,
+            url: payload.data.url,
+            cookies: cookies,
+            accessToken: payload.data.accessToken,
+            refreshToken: payload.data.refreshToken,
+            expiresIn: payload.data.expiresIn,
+            mid: payload.data.mid
+        )
+    }
+
     /// Step 3: with the SESSDATA cookie in hand, hit `/x/web-interface/nav`
     /// to read the user `mid`, name, avatar, and 大会员 badge. The badge
     /// projection (`BiliVIPBadge`) is persisted onto the resulting
@@ -256,6 +326,89 @@ private struct WebQrcodePollResponse: Decodable, Sendable {
         let url: String
         enum CodingKeys: String, CodingKey {
             case code, message, url
+        }
+    }
+}
+
+// MARK: - App QR DTOs (returns access_key + refresh_token alongside cookies)
+
+/// Result of polling the app-style QR endpoint. Adds two bearer
+/// tokens to the cookies the web flow returns: `accessToken` is the
+/// short-lived (1h) bearer used for appkey+sign requests, and
+/// `refreshToken` is the long-lived (30d) refresher that the auth
+/// pipeline can later trade for a fresh access_token without
+/// forcing the user to scan the QR code again.
+struct AppQrcodePollResult {
+    /// `0` = logged in, `86038` = expired, `86090` = scanned (not
+    /// confirmed), `86101` = not scanned.
+    let code: Int
+    let message: String
+    /// On success, the cross-domain SSO URL with the cookies embedded
+    /// as query parameters. Empty on intermediate states.
+    let url: String
+    /// Cookies extracted from `data.url` (and `Set-Cookie` headers
+    /// as a fallback). Empty on intermediate states.
+    let cookies: [String: String]
+    /// `access_token` — the bearer token used in the `access_key`
+    /// query param for appkey+sign requests. `nil` on intermediate
+    /// states and on web-only logins.
+    let accessToken: String?
+    /// `refresh_token` — long-lived (typically 30 days). Captured
+    /// for future silent-refresh; not used in the first iteration.
+    let refreshToken: String?
+    /// `expires_in` — seconds until `accessToken` expires. `0` on
+    /// intermediate states.
+    let expiresIn: Int
+    /// `mid` — server-confirmed user mid, useful for sanity-checking
+    /// the account being created. `0` on intermediate states.
+    let mid: Int64
+
+    /// The same `data.url` + `Set-Cookie` cookie extraction the web
+    /// flow uses. Kept as a static helper so the two endpoints
+    /// share the Set-Cookie / query-string fallback logic without
+    /// each carrying their own copy.
+    static func cookies(
+        fromPollURL urlString: String,
+        response: URLResponse
+    ) -> [String: String] {
+        var out: [String: String] = [:]
+        if !urlString.isEmpty, let url = URLComponents(string: urlString),
+           let items = url.queryItems {
+            for item in items {
+                out[item.name] = item.value
+            }
+        }
+        if let http = response as? HTTPURLResponse {
+            let parsed = HTTPCookie.cookies(
+                withResponseHeaderFields: http.allHeaderFields as! [String: String],
+                for: URL(string: "https://passport.bilibili.com")!
+            )
+            for cookie in parsed {
+                if !cookie.value.isEmpty, out[cookie.name] == nil {
+                    out[cookie.name] = cookie.value
+                }
+            }
+        }
+        return out
+    }
+}
+
+private struct AppQrcodePollResponse: Decodable, Sendable {
+    let data: AppQrcodePollData
+    struct AppQrcodePollData: Decodable, Sendable {
+        let code: Int
+        let message: String
+        let url: String
+        let accessToken: String?
+        let refreshToken: String?
+        let expiresIn: Int
+        let mid: Int64
+        enum CodingKeys: String, CodingKey {
+            case code, message, url
+            case accessToken = "access_token"
+            case refreshToken = "refresh_token"
+            case expiresIn = "expires_in"
+            case mid
         }
     }
 }
