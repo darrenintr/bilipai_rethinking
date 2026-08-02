@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T06:33:02Z",
-    "githubRunId": "30736050764",
-    "githubRunNumber": "580",
-    "githubSha": "0fe76cf1f3c74f6e8669eaca2e0ec0f5f31509f2",
+    "generatedAt": "2026-08-02T07:08:44Z",
+    "githubRunId": "30737126620",
+    "githubRunNumber": "581",
+    "githubSha": "250b8dbe241802ea9ebd5eee5a694a54958cd34a",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "309",
+          "date": "2026-08-02T07:08:44Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.9.309/Paladala-unsigned-v0.5.9.309.ipa",
+          "localizedDescription": "recover from B站 silent WBI gate\n\n\nB站 returns 200 OK with valid cursor but empty replies when the WBI\nsignature was signed with stale img_key / sub_key. The 6 hour WbiSigner\ncache was much longer than B站 actual rotation cadence (observed\naround 10 minutes in the v0.5.8 build 308 diagnostic), so the\nexisting -403 retry path in get never tripped for this case.\n\nTwo changes:\n- commentsPage detects the silent gate signature (cursor has count\n  above zero but replies is empty), invalidates the cached WBI keys,\n  then retries the request once with a fresh sign\n- WbiSigner keyTTL reduced from 6 hours to 30 minutes as\n  belt-and-suspenders so the first request after a key rotation\n  is also fast, not just subsequent ones\n\nVerified by recomputing the diagnostic w_rid with current keys and\nseeing it does not match, confirming the keys had rotated between\nthe diagnostic and the manual test (11 minutes apart).",
+          "size": 4037837,
+          "version": "0.5.9"
+        },
         {
           "buildVersion": "308",
           "date": "2026-08-02T06:33:02Z",
@@ -109,6 +117,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 309 (250b8db)",
+      "date": "2026-08-02T07:08:44Z",
+      "identifier": "v0.5.9.309",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.9.309",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.9.309"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 308 (0fe76cf)",
