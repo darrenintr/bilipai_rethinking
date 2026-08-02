@@ -49,6 +49,72 @@ jobs:
           sw_vers
 
       # ------------------------------------------------------------------
+      # Auto-bump the marketing version (CFBundleShortVersionString)
+      # so the in-app About page, the release tag, and the AltSource
+      # manifest all see a monotonically increasing X.Y.Z without
+      # anyone having to hand-edit Info.plist on every release.
+      #
+      # Strategy: read the latest prerelease tag from the GitHub
+      # Releases API. The current release line is v<X>.<Y>.<Z>.<N>
+      # (see "Resolve release tag" below for the regex), so the
+      # next prerelease's marketing version is v<X>.<Y>.<Z+1>.
+      # The build number N is bumped separately by the step below.
+      #
+      # Fallback: if the API call fails OR the latest tag is in a
+      # legacy shape (v0.4.<N>, v0.5-beta-ios-<N>, etc.) we fall
+      # back to the committed Info.plist's numeric prefix with the
+      # patch component +1. That keeps the pipeline moving on a
+      # single bad API call, and the next successful run corrects
+      # the drift.
+      #
+      # Like the build-number bump, this mutates Info.plist in
+      # the *runner's* working copy only — no commit, no push.
+      # The latest tag on the server is the persistent state.
+      # ------------------------------------------------------------------
+      - name: Bump marketing version
+        run: |
+          set -euo pipefail
+          PLIST="$PROJECT_DIR/$PROJECT_NAME/Info.plist"
+          REPO="${{ github.repository }}"
+          LATEST_TAG="$(curl -fsSL \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/releases?per_page=1" 2>/dev/null \
+            | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            | head -n1 || true)"
+          # The grep below mirrors the one in "Resolve release tag"
+          # so a "0.5.1 TESTING" suffix in Info.plist is stripped
+          # the same way in both steps — keeps the two reads in
+          # lock-step.
+          CURRENT_MV="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$PLIST" \
+            | grep -Eo '[0-9]+(\.[0-9]+)+' | head -n1)"
+          if [ -z "$CURRENT_MV" ]; then
+            echo "::error::Could not parse CFBundleShortVersionString from $PLIST"
+            exit 1
+          fi
+          MAJOR="$(printf '%s' "$CURRENT_MV" | cut -d. -f1)"
+          MINOR="$(printf '%s' "$CURRENT_MV" | cut -d. -f2)"
+          PATCH="$(printf '%s' "$CURRENT_MV" | cut -d. -f3)"
+          FALLBACK_MV="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            MARKET_VERSION="$FALLBACK_MV"
+            echo "No latest tag from API — using fallback $MARKET_VERSION"
+          elif [[ "$LATEST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            # Active prerelease line: vX.Y.Z.N → bump Z to Z+1.
+            NEW_PATCH=$((BASH_REMATCH[3] + 1))
+            MARKET_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${NEW_PATCH}"
+            echo "Latest tag $LATEST_TAG — bumping patch to $MARKET_VERSION"
+          else
+            # Legacy tag shape (v0.4.<N>, v0.5-beta-ios-<N>, etc.)
+            # — keep the fallback so we never regress.
+            MARKET_VERSION="$FALLBACK_MV"
+            echo "Legacy tag shape $LATEST_TAG — using fallback $MARKET_VERSION"
+          fi
+          /usr/bin/plutil -replace CFBundleShortVersionString -string "$MARKET_VERSION" "$PLIST"
+          echo "MARKET_VERSION=$MARKET_VERSION" >> "$GITHUB_ENV"
+          echo "Bumped CFBundleShortVersionString: $CURRENT_MV -> $MARKET_VERSION"
+
+      # ------------------------------------------------------------------
       # Auto-increment the iOS build number so the prerelease list
       # always shows the newest at the top. We pull the highest
       # existing release sequence from the GitHub API and add 1,
