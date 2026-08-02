@@ -2282,18 +2282,39 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // silent hangs.
         request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
         request.setValue("zh-Hant-HK,zh-Hant;q=0.9,zh-CN;q=0.8,en-US;q=0.7,en;q=0.6", forHTTPHeaderField: "Accept-Language")
-        if isAppAPI {
-            // `app.bilibili.com` hosts expect the iOS client
-            // identity headers; `api.bilibili.com` does not,
-            // matching the official app's per-host behaviour.
-            request.setValue("iphone", forHTTPHeaderField: "mobi_app")
-            request.setValue("ios", forHTTPHeaderField: "platform")
-        } else {
-            // `api.bilibili.com` (web API) — the web client
-            // sends an Origin matching the bilibili homepage.
-            // The session's `waitsForConnectivity = true` plus
-            // a missing Origin was reproducing the comment
-            // hang that web users never saw.
+        // CRITICAL: send the iOS client identity headers on
+        // EVERY B站 host, not just `app.bilibili.com`. The
+        // official B站 iOS client attaches `mobi_app=iphone` and
+        // `platform=ios` to every call (including the web API
+        // at `api.bilibili.com`); B站's server uses the
+        // presence of these headers as part of its content
+        // gating logic. With the previous per-host `if/else`
+        // branching, an `api.bilibili.com` request from Paladala
+        // was mis-identified as a third-party web client even
+        // though the User-Agent string said otherwise. The
+        // server responded 200 OK with a valid `cursor` (so
+        // `code: 0` passed `requireOK()` and the WBI retry
+        // path did nothing) but the actual `replies[]` list
+        // was empty — the canonical "missingIdentity" state
+        // that we surfaced as `评论加载失败，请稍后重试`.
+        //
+        // Verified by manual test on the iPad: the official
+        // B站 iOS app installed on the same device, viewing
+        // the same video, sees the full comment list. The
+        // diagnostic for the v0.5.7 build 307 attempt showed
+        // `replies items=0 ... allCount=75` and a clean
+        // `nextOffset` cursor — i.e. the server withheld
+        // content but pretended the request succeeded.
+        request.setValue("iphone", forHTTPHeaderField: "mobi_app")
+        request.setValue("ios", forHTTPHeaderField: "platform")
+        if !isAppAPI {
+            // The web client also sends an `Origin` matching
+            // the bilibili homepage — the official iOS app
+            // omits it for the same hosts but its request is
+            // already accepted without it. Adding it here
+            // matches the canonical web client fingerprint
+            // and keeps the "no missing identity" path open
+            // for the few endpoints that do check it.
             request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
         }
 
