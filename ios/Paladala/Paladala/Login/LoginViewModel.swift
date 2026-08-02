@@ -40,16 +40,20 @@ final class LoginViewModel: ObservableObject {
     }
 
     /// Generate a fresh QR code, render it, and start the polling loop.
-    /// Uses the **app** QR endpoint (`/x/passport-login/app/qrcode/...`)
-    /// rather than the web one: the user scans with the same B站 iOS
-    /// app, but the polling context identifies us as the iOS client
-    /// so the server returns the `access_key` bearer token alongside
-    /// SESSDATA. That token unlocks the appkey+sign auth path used by
-    /// the official B站 iOS app, which is the only path that bypasses
-    /// the 风控 silent-block on the comments endpoint (URLSession on
-    /// iOS does not present the browser TLS fingerprint B站's risk
-    /// layer expects, so the WBI sign path is silently gated — see
-    /// agent memory for the full diagnosis).
+    /// Uses the **web** QR endpoint (`/x/passport-login/web/qrcode/...`).
+    ///
+    /// History: the TV-flavored endpoint
+    /// (`/x/passport-tv-login/qrcode/...`) was tried because its
+    /// `access_token` unlocks the appkey+sign auth path for the
+    /// comments endpoint. Verified 2026-08-02 that this is a dead
+    /// end: B站 classifies the TV-paired token *and* the TV login's
+    /// SESSDATA as "TV client", and the comments endpoint silently
+    /// returns `replies: null` for TV-classified callers even with
+    /// a valid signature. Meanwhile the plain `/x/v2/reply` legacy
+    /// endpoint returns real reply lists for **web**-classified
+    /// SESSDATA cookies (the shape guozhigq/pilipala uses), so the
+    /// web QR flow is the correct login surface. The appkey+sign
+    /// paths stay in the API client as forward-compat fallbacks.
     func start() {
         pollTask?.cancel()
         statusText = "正在生成二维码…"
@@ -57,7 +61,7 @@ final class LoginViewModel: ObservableObject {
         pollTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let token = try await authAPI.appQrcodeGenerate()
+                let token = try await authAPI.webQrcodeGenerate()
                 guard let image = Self.renderQR(token.url) else {
                     state = .error("二维码生成失败，请重试")
                     statusText = "二维码生成失败"
@@ -91,7 +95,7 @@ final class LoginViewModel: ObservableObject {
             do {
                 try await Task.sleep(nanoseconds: 3_000_000_000)
                 if Task.isCancelled { return }
-                let result = try await authAPI.appQrcodePoll(qrcodeKey: key)
+                let result = try await authAPI.webQrcodePoll(qrcodeKey: key)
                 switch result.state {
                 case .waiting:
                     statusText = "请使用 Bilibili App 扫码登录"
@@ -103,7 +107,10 @@ final class LoginViewModel: ObservableObject {
                     statusText = "二维码已过期，请刷新"
                     return
                 case .success:
-                    await completeLogin(cookies: result.cookies, accessKey: result.accessToken)
+                    // Web flow carries no `access_key` — the
+                    // appkey+sign path is a forward-compat fallback
+                    // (see `start()` for the full history).
+                    await completeLogin(cookies: result.cookies, accessKey: nil)
                     return
                 case .error(let message):
                     statusText = "登录失败：\(message)"
@@ -143,11 +150,12 @@ final class LoginViewModel: ObservableObject {
         // on first capture — the field is the long-lived bearer token
         // used by the appkey+sign auth path; logging just its length
         // (never the value) keeps the diagnostic useful without
-        // shipping a credential into the log file.
+        // shipping a credential into the log file. The web QR flow
+        // never returns one (nil here is the norm, not an error).
         if let accessKey, !accessKey.isEmpty {
-            bpLog("App QR login: access_key captured, length=\(accessKey.count)")
+            bpLog("QR login: access_key captured, length=\(accessKey.count)")
         } else {
-            bpLog("App QR login: no access_key in response (will fall back to WBI sign path)")
+            bpLog("QR login: web flow — no access_key (comments use the legacy /x/v2/reply path)")
         }
 
         let cookieHeader = StoredAccount(
