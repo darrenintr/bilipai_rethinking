@@ -611,21 +611,41 @@ jobs:
           STAGE_DIR="$STAGE" python3 -c '
           import json, os, sys
           d = json.load(open(os.path.join(os.environ["STAGE_DIR"], "apps.json.new")))
-          required = ["name", "bundleIdentifier", "developerName", "version",
-                      "buildVersion", "versions", "news", "iconURL", "tintColor"]
-          missing = [k for k in required if k not in d]
-          if missing:
-              sys.stderr.write("::error::apps.json missing keys: " + ", ".join(missing) + "\n")
+          # Top-level (source) required keys.
+          for k in ["name", "apps", "news"]:
+              if k not in d:
+                  sys.stderr.write("::error::apps.json missing source-level key: " + k + "\n")
+                  sys.exit(1)
+          if not d["apps"]:
+              sys.stderr.write("::error::apps.json has empty apps[]\n")
               sys.exit(1)
-          if not d["versions"]:
-              sys.stderr.write("::error::apps.json has empty versions[]\n")
+          # Each app needs the spec-mandated fields.
+          app = d["apps"][0]
+          for k in ["name", "bundleIdentifier", "developerName", "versions"]:
+              if k not in app:
+                  sys.stderr.write("::error::apps[0] missing key: " + k + "\n")
+                  sys.exit(1)
+          if not app["versions"]:
+              sys.stderr.write("::error::apps[0].versions is empty\n")
               sys.exit(1)
-          top = d["versions"][0]
-          assert top["buildVersion"] == d["buildVersion"], "top buildVersion != versions[0].buildVersion"
-          assert top["version"] == d["version"], "top version != versions[0].version"
-          print("apps.json validated: top version=" + d["version"]
-                + " buildVersion=" + d["buildVersion"]
-                + " history=" + str(len(d["versions"])) + " entries")
+          # Per spec, apps[0].versions[0] is the "latest" — make sure
+          # the new build landed there.
+          top = app["versions"][0]
+          env_mv = os.environ.get("MARKET_VERSION", "")
+          env_bv = os.environ.get("BUNDLE_VERSION", "")
+          assert top["buildVersion"] == env_bv, (
+              "versions[0].buildVersion=" + str(top["buildVersion"])
+              + " != BUNDLE_VERSION=" + env_bv
+          )
+          assert top["version"] == env_mv, (
+              "versions[0].version=" + str(top["version"])
+              + " != MARKET_VERSION=" + env_mv
+          )
+          assert top.get("downloadURL"), "versions[0].downloadURL missing"
+          assert top.get("size"), "versions[0].size missing"
+          print("apps.json validated: app=" + app["name"]
+                + " v" + top["version"] + " (build " + top["buildVersion"] + ")"
+                + " history=" + str(len(app["versions"])) + " entries")
           '
 
           mv "$STAGE/apps.json.new" "$STAGE/apps.json"

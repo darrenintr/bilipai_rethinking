@@ -27,8 +27,35 @@ from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# App metadata — change here, not in the workflow.
+# Source + App metadata — change here, not in the workflow.
+#
+# AltSource schema is TWO levels deep (see
+# https://faq.altstore.io/developers/make-a-source):
+#   • SOURCE_META populates the top-level "source" object (name,
+#     subtitle, description, tintColor, …). AltStore displays this in
+#     the source's About page.
+#   • APP_META populates each entry in the top-level `apps[]` array.
+#     Each app carries its own name, bundleIdentifier, versions[], …
+#     — fields that don't belong on the source object itself.
+# Earlier revisions of this script used a flat object (name /
+# bundleIdentifier / versions / appPermissions all at the top
+# level). AltStore's parser tolerates that; SideStore's does not and
+# silently refuses to add the source. Splitting these two dicts is
+# what fixed that.
 # ---------------------------------------------------------------------------
+SOURCE_META: dict[str, Any] = {
+    "name": "Paladala",
+    "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端 — 自動源",
+    "description": (
+        "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working "
+        "分支都會自動出新版本,呢個 apps.json 都會同步更新。"
+    ),
+    "tintColor": "#FB7299",
+    # No source-level iconURL on purpose: per spec it defaults to the
+    # first app's iconURL when omitted, so we get the same look without
+    # duplicating the URL.
+}
+
 APP_META: dict[str, Any] = {
     "name": "Paladala",
     "bundleIdentifier": "com.dt.paladala",
@@ -36,12 +63,11 @@ APP_META: dict[str, Any] = {
     "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
     "tintColor": "#FB7299",
     "category": "entertainment",
-    # PNG, not SVG. iOS UIImage (and therefore both AltStore and
-    # SideStore) loads icons via UIImage, which does NOT support SVG.
-    # SideStore in particular rejects the entire source if it can't
-    # fetch the icon at add-time, so an SVG iconURL means "can't even
-    # add the source". The workflow renders the same brand mark with a
-    # brand-pink background so it reads on AltStore's white UI.
+    # PNG, not SVG. iOS UIImage (which both AltStore and SideStore use
+    # to load source icons) doesn't support SVG; SideStore rejects the
+    # source outright if it can't fetch the icon at add-time. The
+    # workflow renders PaladalaMark.svg → icon.png with a brand-pink
+    # background so the white stroke reads on AltStore's white UI.
     "iconURL": "https://darrenintr.github.io/pure-bilibili-rethinking/icon.png",
     "localizedDescription": (
         "Paladala 係一個用 SwiftUI 寫嘅第三方嗶哩嗶哩 iOS 客戶端,目標係"
@@ -50,18 +76,25 @@ APP_META: dict[str, Any] = {
         "- AVPlayer 全硬件加速播普通視頻,零額外依賴\n"
         "- 完整支援 B 站帳號登入、追番、動態、收藏夾、私訊\n"
         "- 影片可下載到本機離線睇\n"
-        "- 對 LiveContainer 友善,塞入 LiveContainer 之後唔佔 iOS 嘅 3 app 側載限額\n\n"
-        "本 App 通過 AltStore / SideStore 源發佈,每次 push 到 `working` 分支"
-        "都會自動出新版本。"
+        "- 對 LiveContainer 友善,塞入 LiveContainer 之後唔佔 iOS 嘅 3 app 側載限額"
     ),
-    # No `appPermissions` field on purpose: SideStore does strict
-    # schema validation and `appPermissions` is expected to be a
-    # {permission: description} dict. We don't have real per-permission
-    # descriptions to publish, and the field is optional, so leaving it
-    # off keeps the source compatible with both clients.
-    # Add screenshot URLs once they're hosted (e.g. on gh-pages under
-    # screenshots/<name>.png). Leave empty for now.
-    "screenshotURLs": [],
+    # `appPermissions` lives inside the App per the AltSource spec.
+    # Format: {entitlements: [...], privacy: {...}}. Only entitlements
+    # are listed; `privacy` would describe NSUsageDescription keys but
+    # Paladala doesn't request any runtime-permission-gated APIs (the
+    # LocalHLSProxyServer only opens a loopback port).
+    # `get-task-allow` is the debug entitlement Apple injects into
+    # debug-signed builds; it's safe to advertise and matches what an
+    # unsigned IPAdoesn't actually carry — AltStore only checks this
+    # when the user enables "Install Unauthorized Apps".
+    "appPermissions": {
+        "entitlements": ["get-task-allow"],
+    },
+    # Empty for now; populate once screenshots are hosted on gh-pages
+    # under e.g. screenshots/<name>.png. Per spec, each entry is either
+    # a plain URL string (assumed 9:19.5 iPhone portrait) or an object
+    # {imageURL, width, height}.
+    "screenshots": [],
 }
 
 
@@ -185,10 +218,24 @@ def build_apps_json(
     ipa_path: Path,
     release_notes: str,
 ) -> dict[str, Any]:
-    """Construct the final apps.json: APP_META + the new version + merged
-    versions/news history. The top-level `version` / `buildVersion` always
-    reflect the freshly produced build so AltStore shows "update available"
-    the moment the source is refreshed.
+    """Construct the final apps.json per the AltSource schema:
+
+        {
+          "name": ..., "subtitle": ..., "tintColor": ...,        ← source
+          "apps": [
+            {
+              "name": ..., "bundleIdentifier": ...,               ← app
+              "versions": [{...}, ...]                            ← version
+            }
+          ],
+          "news": [...]
+        }
+
+    The latest version is always apps[0].versions[0]; per spec,
+    "AltStore uses the order to determine which version is the latest
+    release". merge_versions() prepends the new version and
+    de-duplicates by buildVersion so re-running for the same
+    BUNDLE_VERSION updates the entry in place.
     """
     iso_now = now_utc_iso()
     ipa_bytes = file_size(ipa_path)
@@ -201,35 +248,52 @@ def build_apps_json(
         "size": ipa_bytes,
         "downloadURL": download,
     }
+    # Per the App Versions spec the per-version changelog field is
+    # `localizedDescription`, NOT `releaseNotes` (the docs are
+    # explicit on this). Earlier revisions of this script used
+    # `releaseNotes` and SideStore silently dropped it.
     if release_notes:
-        new_version_entry["releaseNotes"] = release_notes
+        new_version_entry["localizedDescription"] = release_notes
 
     new_news_entry: dict[str, Any] = {
         "title": f"{APP_META['name']} {tag}",
-        "date": iso_now,
         "identifier": tag,
-        "tintColor": APP_META["tintColor"],
         "caption": f"Build {build_version} ({commit_sha[:7]})",
+        "date": iso_now,
+        "tintColor": APP_META["tintColor"],
         "url": f"https://github.com/{repo}/releases/tag/{tag}",
+        # `appID` ties the news item to the app so AltStore can show
+        # the app's info banner under the news card.
+        "appID": APP_META["bundleIdentifier"],
     }
 
-    # Start from APP_META, then layer in any history that was preserved
-    # from the previous apps.json. APP_META wins for the keys it sets, so
-    # the user can change APP_META in this script and the next push will
-    # pick it up.
-    out: dict[str, Any] = dict(APP_META)
-    out.update(
-        {
-            "version": market_version,
-            "buildVersion": build_version,
-            "versions": merge_versions(
-                list(existing.get("versions", [])), new_version_entry
-            ),
-            "news": merge_news(list(existing.get("news", [])), new_news_entry),
-        }
-    )
-    # Tag metadata for triage. AltStore ignores these; humans reading the
-    # JSON in a PR review will appreciate them.
+    # Top-level (source) — start from SOURCE_META, layer news on top.
+    out: dict[str, Any] = dict(SOURCE_META)
+    out["news"] = merge_news(list(existing.get("news", [])), new_news_entry)
+
+    # Find our app's existing versions inside the apps[] array (by
+    # bundleIdentifier). Any other apps in the source are kept
+    # untouched — we never delete apps we didn't add.
+    existing_apps = list(existing.get("apps", []))
+    our_versions: list[dict[str, Any]] = []
+    other_apps: list[dict[str, Any]] = []
+    for app in existing_apps:
+        if app.get("bundleIdentifier") == APP_META["bundleIdentifier"]:
+            our_versions = list(app.get("versions", []))
+        else:
+            other_apps.append(app)
+
+    # Build the new app entry — APP_META wins for all app-level fields,
+    # so editing APP_META in this script takes effect on next push.
+    new_app_entry: dict[str, Any] = dict(APP_META)
+    new_app_entry["versions"] = merge_versions(our_versions, new_version_entry)
+
+    # Reassemble: our app first (AltStore highlights the first app),
+    # then any other apps that were previously in the source.
+    out["apps"] = [new_app_entry] + other_apps
+
+    # Diagnostic metadata, ignored by AltStore/SideStore. Kept for
+    # humans diffing the JSON to see which CI run produced it.
     out["_meta"] = {
         "generatedAt": iso_now,
         "githubRunId": run_id,
@@ -335,9 +399,16 @@ def main(argv: list[str]) -> int:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(text, encoding="utf-8")
+    # With the nested schema, `versions` lives on each App, not at the
+    # top level. Sum across apps so the log line still tells the user
+    # how many version entries survived the merge.
+    total_versions = sum(
+        len(a.get("versions", [])) for a in apps_json.get("apps", [])
+    )
     print(
         f"Wrote {args.output} "
-        f"({len(apps_json['versions'])} version(s), "
+        f"({len(apps_json.get('apps', []))} app(s), "
+        f"{total_versions} version(s), "
         f"{len(apps_json['news'])} news item(s))"
     )
     return 0
