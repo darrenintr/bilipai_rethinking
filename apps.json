@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T02:15:08Z",
-    "githubRunId": "30728472225",
-    "githubRunNumber": "569",
-    "githubSha": "60b763a0c2fea97519b5b55afdbc95c757c2a737",
+    "generatedAt": "2026-08-02T02:36:56Z",
+    "githubRunId": "30729103092",
+    "githubRunNumber": "571",
+    "githubSha": "88d4dc5d4f425c1deee61f3f9a6edfb91e2146a2",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "301",
+          "date": "2026-08-02T02:36:56Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.1.301/Paladala-unsigned-v0.5.1.301.ipa",
+          "localizedDescription": "un-ignore release-notes/*.md so the Plan C step can commit\n\n\nBuild 8bb98176 failed in the 'Extract clean release notes' step\nwith:\n\n  The following paths are ignored by one of your .gitignore files:\n  release-notes/v0.5.1.300.md\n\nRoot cause: .gitignore's blanket '*.md' rule (added for the docs\nwhitelisting scheme) is not specific enough — it caught the\nrelease-notes markdown files the new CI step writes, and 'git add'\nrefused to stage them.\n\nTwo fixes:\n\n* .gitignore — add a '!release-notes/' and '!release-notes/*.md'\n  whitelist next to the existing docs whitelist so the files are\n  intended git content. Comment explains why they're meant to be\n  tracked (consumed by generate_apps_json.py at build time).\n\n* ios-unsigned-ipa.yml — switch 'git add' to 'git add -f' as a\n  safety net. If a future ignore-rule change accidentally re-blocks\n  these files, the failure mode becomes an explicit 'git add -f'\n  rejection rather than a silent skip-and-empty-commit; the intent\n  is loud and obvious in the step log.",
+          "size": 4008163,
+          "version": "0.5.1"
+        },
         {
           "buildVersion": "299",
           "date": "2026-08-02T02:15:08Z",
@@ -53,6 +61,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 301 (88d4dc5)",
+      "date": "2026-08-02T02:36:56Z",
+      "identifier": "v0.5.1.301",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.1.301",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.1.301"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 299 (60b763a)",
