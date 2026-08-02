@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T06:07:24Z",
-    "githubRunId": "30735275669",
-    "githubRunNumber": "578",
-    "githubSha": "f4256c3d9b1b166511f9918639939602ce9463d0",
+    "generatedAt": "2026-08-02T06:17:46Z",
+    "githubRunId": "30735581213",
+    "githubRunNumber": "579",
+    "githubSha": "7a0c38367ca4b5306bf6cafbf23cede97081ee4a",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "307",
+          "date": "2026-08-02T06:17:46Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.7.307/Paladala-unsigned-v0.5.7.307.ipa",
+          "localizedDescription": "add payload shape + loadComments error logging\n\n\nv0.5.6 build 306 diagnostic showed 9 successful GET sent 200 OK\nwith ~93KB body, but 0 commentsPage: returning logs. The\nclient-side render bug was invisible: the bpLog returning\nline never fired but no error was surfaced in the diagnostic\neither. The user re-logged in and comments still did not\nshow, but the request side now demonstrably works (200 OK).\n\nThree changes to make the next diagnostic unambiguous:\n\n1. commentsPage: log the decoded payload shape (upperTop,\n   topReplies, replies, cursor with paginationReply.nextOffset)\n   immediately after requireOK. The shape log is the single\n   most useful signal for \"why is the UI empty when the\n   response was 200\" — the most common cause is that B站\n   returns 200 with code: 0 but an empty / null replies\n   list (the canonical \"unauthenticated viewer\" trap).\n\n2. commentsPage: log the merged result count before the\n   early-throw for missingIdentity. Without this, the\n   \"is merged empty because decode produced 0 items\" vs\n   \"merged empty because Task got cancelled\" question is\n   unanswerable from the diagnostic.\n\n3. loadComments: split the catch into three branches\n   (missingIdentity, CancellationError, other) and log\n   the actual error type and message in the other branch.\n   The previous single catch silently set\n   commentsErrorMessage without telling the diagnostic\n   what went wrong.\n\nThe goal is the next diagnostic clearly attributes a\nnon-rendering comments panel to one of:\n- HTTP / WBI sign failure (already covered by request-side logs)\n- Decode failure (covered by decode failed log in get)\n- missingIdentity from B站 (covered by new bpLog)\n- Cancellation from user navigating away (covered by new bpLog)\n- Some other error type (covered by new bpLog)\n\nMemory note: the v0.5.6 \"build succeeded but client silent\non decode side\" symptom is a reusable diagnostic heuristic\n- when server is happy but UI is empty, the missing log is\nthe first thing to add.",
+          "size": 4035766,
+          "version": "0.5.7"
+        },
         {
           "buildVersion": "306",
           "date": "2026-08-02T06:07:24Z",
@@ -93,6 +101,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 307 (7a0c383)",
+      "date": "2026-08-02T06:17:46Z",
+      "identifier": "v0.5.7.307",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.7.307",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.7.307"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 306 (f4256c3)",
