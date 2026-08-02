@@ -1196,7 +1196,13 @@ struct BiliComment: Identifiable, Hashable, Sendable {
 
 struct CommentPage: Hashable, Sendable {
     let items: [BiliComment]
-    let next: Int?
+    /// Cursor for the next page, or `nil` when the page is the last.
+    /// For the main reply endpoint this is the opaque string from
+    /// `data.cursor.pagination_reply.next_offset` (round-tripped as
+    /// `pagination_str={"offset":"<next>"}`). The sub-reply endpoint
+    /// (`/x/v2/reply/reply`) does not round-trip this field — the
+    /// caller tracks its own `pn` page number.
+    let next: String?
     let isEnd: Bool
     let totalCount: Int
 }

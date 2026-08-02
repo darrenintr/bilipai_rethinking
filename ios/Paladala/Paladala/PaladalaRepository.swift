@@ -288,15 +288,15 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
         try await apiClient.livePlaybackURL(roomID: room.id)
     }
 
-    func commentsPage(for video: BiliVideo, next: Int? = nil, pageSize: Int = 20, sort: CommentSort = .hot) async throws -> CommentPage {
+    func commentsPage(for video: BiliVideo, nextOffset: String? = nil, sort: CommentSort = .hot) async throws -> CommentPage {
         let aid = video.aid
         if aid > 0 {
-            return try await apiClient.commentsPage(aid: aid, next: next, pageSize: pageSize, sort: sort)
+            return try await apiClient.commentsPage(aid: aid, nextOffset: nextOffset, sort: sort)
         }
         if !video.bvid.isEmpty {
             let detail = try await apiClient.videoDetail(bvid: video.bvid)
             if detail.aid > 0 {
-                return try await apiClient.commentsPage(aid: detail.aid, next: next, pageSize: pageSize, sort: sort)
+                return try await apiClient.commentsPage(aid: detail.aid, nextOffset: nextOffset, sort: sort)
             }
         }
         // Neither the feed entry nor the video-detail fallback produced an
