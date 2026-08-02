@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T02:59:58Z",
-    "githubRunId": "30729774846",
-    "githubRunNumber": "572",
-    "githubSha": "fddc6e37b6d37fe1764f4120e39523015c3b72c7",
+    "generatedAt": "2026-08-02T04:34:08Z",
+    "githubRunId": "30732527304",
+    "githubRunNumber": "573",
+    "githubSha": "e2771c19da6774b9bb226eeed767f21f0f55fe05",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "303",
+          "date": "2026-08-02T04:34:08Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.3.303/Paladala-unsigned-v0.5.3.303.ipa",
+          "localizedDescription": "add wbi_type=2 to commentsPage query items\n\n\nB站 silently changed the /x/v2/reply/wbi/main endpoint to\nrequire wbi_type=2 in the query string. Without it the request\nhangs at the routing layer (no 4xx/5xx, just no response), which\nis why the in-app comments fetch appeared as 'fetching forever'\neven on the latest build with all the recent WBI retry fixes\napplied.\n\nDiagnosis path (2026-08-02):\n- Safari probed the same endpoint with different query items.\n  Without wbi_type, every variant errored or hung; only\n  the URL carrying wbi_type=2 returned a JSON envelope\n  (got -403, expected without a cookie).\n- playurl (also WBI-signed) still works because that path\n  predates the wbi_type split and B站 hasn't (yet) added\n  the parameter there.\n- /x/space/nav/num was already retired upstream earlier —\n  the comments endpoint is the next in a series of silent\n  endpoint updates B站 has been pushing.\n\nAlways-required parameter for this path as of mid-2026. The\nendpoint silently hangs without it.",
+          "size": 4008197,
+          "version": "0.5.3"
+        },
         {
           "buildVersion": "302",
           "date": "2026-08-02T02:59:58Z",
@@ -69,6 +77,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 303 (e2771c1)",
+      "date": "2026-08-02T04:34:08Z",
+      "identifier": "v0.5.3.303",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.3.303",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.3.303"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 302 (fddc6e3)",
