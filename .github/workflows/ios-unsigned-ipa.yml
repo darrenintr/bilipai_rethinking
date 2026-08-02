@@ -584,14 +584,30 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-notes
-          # Prefer the trigger commit's message; fall back to
-          # the most recent commit on the branch for
-          # `workflow_dispatch` reruns where head_commit is
-          # empty.
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-          if [ -z "$COMMIT_MSG" ]; then
+          # Capture the trigger commit's message. We deliberately
+          # read it through a single-quoted heredoc to a temp
+          # file: GitHub Actions interpolates ${{ ... }} BEFORE
+          # bash parses the script, so the message text (which
+          # may contain backticks, $(...), double quotes, or
+          # other shell metacharacters from code-formatted
+          # examples) would otherwise be parsed as live shell
+          # syntax and trigger command substitution. The
+          # `<<'EOF'` delimiter keeps the body verbatim on
+          # disk; we then read it back into the variable.
+          #
+          # For `workflow_dispatch` reruns (where head_commit
+          # is empty), fall back to the most recent commit on
+          # the branch.
+          MSG_FILE="$(mktemp)"
+          cat > "$MSG_FILE" <<'GITHUB_HEAD_COMMIT_MESSAGE_EOF'
+          ${{ github.event.head_commit.message }}
+          GITHUB_HEAD_COMMIT_MESSAGE_EOF
+          if [ -s "$MSG_FILE" ] && [ -n "$(tr -d '[:space:]' < "$MSG_FILE")" ]; then
+            COMMIT_MSG="$(cat "$MSG_FILE")"
+          else
             COMMIT_MSG="$(git log -1 --format=%B)"
           fi
+          rm -f "$MSG_FILE"
           # Strip the conventional-commit type/scope prefix
           # (`feat(ios): …`, `fix!: …`, `chore: …`) so the
           # title is reader-friendly in AltStore / SideStore.
