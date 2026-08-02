@@ -13,6 +13,21 @@
 //  The download runs on a background URLSession so progress
 //  is trackable and the user can leave the app mid-download.
 //
+//  Two install paths are exposed:
+//    - `downloadAndInstallLatest()` — the legacy Shortcut-based
+//      path. Downloads the IPA into the app's Documents folder
+//      and invokes a user-installed Shortcut to hand it to
+//      SideStore. Kept around because the Shortcut path is the
+//      only way to install a freshly-downloaded IPA into
+//      SideStore without a server-side AltSource.
+//    - `installLatestFromStore(downloadURL:)` — the new path.
+//      Hands the IPA URL directly to a sideload store via its
+//      URL scheme (`altstore://install?url=…` or
+//      `sidestore://install?url=…`), which avoids the
+//      Shortcut + in-app download dance entirely. This is the
+//      path the About page's "用 AltStore 安装" button now uses.
+//
+//
 
 import Foundation
 import UIKit
@@ -25,6 +40,20 @@ final class UpdateManager: NSObject, ObservableObject {
 
     @Published var updateDownloadState: UpdateDownloadState = .idle
     @Published var downloadProgress: Double = 0
+
+    /// State of the URL-scheme-based install path. Distinct
+    /// from `updateDownloadState` (which still drives the
+    /// Shortcut path) so the two flows never share UI state
+    /// by accident.
+    @Published var installState: InstallState = .idle
+
+    /// AltSource manifest URL. Re-used by the new install
+    /// path as the Safari fallback when no sideload store is
+    /// installed — the user opens it, refreshes the source,
+    /// and installs from inside AltStore/SideStore.
+    static let altSourceURL = URL(string:
+        "https://darrenintr.github.io/pure-bilibili-rethinking/apps.json"
+    )
 
     private var downloadTask: URLSessionDownloadTask?
     private var pendingIPAURL: URL? // Store the IPA download URL to pass to Shortcut
@@ -112,6 +141,104 @@ final class UpdateManager: NSObject, ObservableObject {
         updateDownloadState = .idle
         downloadProgress = 0
         pendingIPAURL = nil
+    }
+
+    // MARK: - URL-scheme install path
+    //
+    // The new About-page flow hands the IPA URL to a sideload
+    // store (AltStore or SideStore) via its URL scheme. The
+    // store fetches the IPA itself, signs it locally, and
+    // prompts the user to install — so we never need to
+    // download the bytes in-process or invoke a Shortcut.
+    //
+    // This is the path `updateAvailable(downloadURL:)` in
+    // UpdateState drives.
+
+    /// Hand `downloadURL` to a sideload store via its URL
+    /// scheme. Tries AltStore first, falls back to
+    /// SideStore; if neither store is installed, opens the
+    /// AltSource manifest in Safari as a last-resort
+    /// fallback (the user can refresh the source there and
+    /// install from inside whichever store they end up
+    /// adding).
+    ///
+    /// `installState` is updated as the call progresses so
+    /// the About view can show a confirmation message. The
+    /// actual install dialog appears in the store app, not
+    /// in Paladala — the `opened(path:)` case just signals
+    /// that the URL-scheme handoff succeeded.
+    func installLatestFromStore(downloadURL: URL) async {
+        installState = .opening
+        bpLog("UpdateManager: installLatestFromStore \(downloadURL.absoluteString)")
+
+        let encoded = downloadURL.absoluteString
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let altStoreURL = URL(string: "altstore://install?url=\(encoded)")
+        let sideStoreURL = URL(string: "sidestore://install?url=\(encoded)")
+
+        // `withCheckedContinuation`'s body is a non-isolated
+        // closure in Swift 6, so we can't call MainActor-
+        // isolated UIApplication methods from inside it
+        // directly. Dispatch the work onto the main actor
+        // with a `Task { @MainActor in … }` — the resume
+        // happens from inside the open(_:options:
+        // completionHandler:) completion handler, which
+        // Apple documents as running on the main thread so
+        // touching `cont` (a Sendable continuation) is safe.
+        let path: InstallPath = await withCheckedContinuation { (cont: CheckedContinuation<InstallPath, Never>) in
+            Task { @MainActor in
+                // Try AltStore first. canOpenURL is the
+                // standard way to detect whether the user
+                // has installed a particular sideload
+                // store; it returns false for undeclared
+                // schemes, so the LSApplicationQueriesSchemes
+                // entry in Info.plist is what makes this
+                // work.
+                if let altStoreURL, UIApplication.shared.canOpenURL(altStoreURL) {
+                    UIApplication.shared.open(altStoreURL, options: [:]) { success in
+                        bpLog("UpdateManager: altstore:// open success=\(success)")
+                        cont.resume(returning: success ? .altStore : .none)
+                    }
+                } else if let sideStoreURL, UIApplication.shared.canOpenURL(sideStoreURL) {
+                    UIApplication.shared.open(sideStoreURL, options: [:]) { success in
+                        bpLog("UpdateManager: sidestore:// open success=\(success)")
+                        cont.resume(returning: success ? .sideStore : .none)
+                    }
+                } else if let source = Self.altSourceURL {
+                    // Neither store is installed. Fall back
+                    // to the AltSource page in Safari;
+                    // refreshing the source there is the
+                    // same flow a first-time user would use
+                    // anyway.
+                    UIApplication.shared.open(source, options: [:]) { _ in
+                        cont.resume(returning: .sourcePage)
+                    }
+                } else {
+                    cont.resume(returning: .none)
+                }
+            }
+        }
+
+        switch path {
+        case .altStore, .sideStore:
+            installState = .opened(path: path)
+        case .sourcePage:
+            // Safari fallback is the best we can do without
+            // a store installed; surface a distinct state so
+            // the UI can hint at "在 AltStore 重新整理源後
+            // 即可一鍵安裝".
+            installState = .noStoreFound
+        case .none:
+            installState = .failed("无法打開安裝頁")
+        }
+    }
+
+    /// Reset the URL-scheme install state back to idle. The
+    /// "用 AltStore 安裝" button calls this after the user
+    /// returns to the app so the same tap can re-trigger
+    /// another install attempt.
+    func resetInstallState() {
+        installState = .idle
     }
 
     // MARK: - Private
@@ -271,6 +398,36 @@ enum UpdateDownloadState: Equatable {
     case downloading
     case completed(URL)
     case failed(String)
+}
+
+// MARK: - InstallState (URL-scheme flow)
+//
+// Distinct from `UpdateDownloadState` (which drives the
+// Shortcut path) so the two flows never share UI state.
+// `opened(path:)` is reached once the URL-scheme handoff to
+// the store app has succeeded; the actual install dialog
+// appears in the store, not in Paladala.
+
+enum InstallState: Equatable {
+    case idle
+    case opening
+    case opened(path: InstallPath)
+    case noStoreFound
+    case failed(String)
+}
+
+/// Which store app received the URL-scheme handoff. Drives
+/// the confirmation label under the install button
+/// (AltStore vs SideStore) and the Safari fallback hint.
+enum InstallPath: String, Equatable, Sendable {
+    case altStore
+    case sideStore
+    /// User has neither store installed; we opened the
+    /// AltSource page in Safari as a last-resort hint.
+    case sourcePage
+    /// Handoff attempted but `open(_:options:completionHandler:)`
+    /// returned false. Treated like `.none` for state purposes.
+    case none
 }
 
 // MARK: - UpdateError

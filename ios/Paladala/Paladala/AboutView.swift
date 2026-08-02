@@ -18,6 +18,14 @@ import SwiftUI
 import UIKit
 
 struct AboutView: View {
+    /// Static fallback link to the project's GitHub Releases
+    /// tab. Shown as a secondary action on the update card
+    /// so a user without a sideload store can still grab the
+    /// IPA + changelog manually.
+    private static let gitHubReleasesURL = URL(string:
+        "https://github.com/darrenintr/pure-bilibili-rethinking/releases"
+    )
+
     @State private var version = AppVersion.current
     @State private var copyToast: String? = nil
     @State private var updateState: UpdateState = .idle
@@ -255,7 +263,7 @@ struct AboutView: View {
             }
 
             // Footer note
-            Text("对比当前版本与 GitHub 上最新的预发布版本。")
+            Text(L10n.about.checkSourceHint)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(PaladalaTheme.mutedInk)
                 .padding(.horizontal, PaladalaTheme.Spacing.l)
@@ -286,10 +294,10 @@ struct AboutView: View {
                     .foregroundStyle(PaladalaTheme.mutedInk)
             }
             .padding(PaladalaTheme.Spacing.l)
-        case .updateAvailable(let remote, let url):
-            updateAvailableCard(remote: remote, url: url)
-        case .devBuild(let remote, let url):
-            devBuildCard(remote: remote, url: url)
+        case .updateAvailable(let remote, let downloadURL):
+            updateAvailableCard(remote: remote, downloadURL: downloadURL)
+        case .devBuild(let remote, let downloadURL):
+            devBuildCard(remote: remote, downloadURL: downloadURL)
         case .failed(let message):
             HStack(spacing: PaladalaTheme.Spacing.s) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -302,7 +310,7 @@ struct AboutView: View {
         }
     }
 
-    private func updateAvailableCard(remote: String, url: URL?) -> some View {
+    private func updateAvailableCard(remote: String, downloadURL: URL?) -> some View {
         VStack(alignment: .leading, spacing: PaladalaTheme.Spacing.m) {
             HStack(spacing: PaladalaTheme.Spacing.s) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -312,18 +320,18 @@ struct AboutView: View {
                     .foregroundStyle(PaladalaTheme.ink)
             }
 
-            downloadButton
+            installButton(downloadURL: downloadURL)
 
-            downloadStatusMessages
+            installStatusMessages
 
-            if let url {
-                githubLink(url: url, label: L10n.about.viewRelease)
+            if let url = Self.gitHubReleasesURL {
+                githubLink(url: url, label: L10n.about.viewOnGitHub)
             }
         }
         .padding(PaladalaTheme.Spacing.l)
     }
 
-    private func devBuildCard(remote: String?, url: URL?) -> some View {
+    private func devBuildCard(remote: String?, downloadURL: URL?) -> some View {
         VStack(alignment: .leading, spacing: PaladalaTheme.Spacing.m) {
             HStack(spacing: PaladalaTheme.Spacing.s) {
                 Image(systemName: "hammer.fill")
@@ -339,70 +347,130 @@ struct AboutView: View {
                     .foregroundStyle(PaladalaTheme.mutedInk)
             }
 
-            downloadButton
+            installButton(downloadURL: downloadURL)
 
-            downloadStatusMessages
+            installStatusMessages
 
-            if let url {
-                githubLink(url: url, label: L10n.about.openOnGitHub)
+            if let url = Self.gitHubReleasesURL {
+                githubLink(url: url, label: L10n.about.viewOnGitHub)
             }
         }
         .padding(PaladalaTheme.Spacing.l)
     }
 
-    private var downloadButton: some View {
-        Button {
-            Task {
-                await updateManager.downloadAndInstallLatest()
+    @ViewBuilder
+    private func installButton(downloadURL: URL?) -> some View {
+        if let downloadURL {
+            Button {
+                Task {
+                    await updateManager.installLatestFromStore(downloadURL: downloadURL)
+                }
+            } label: {
+                HStack(spacing: PaladalaTheme.Spacing.s) {
+                    if updateManager.installState == .opening {
+                        ProgressView()
+                            .tint(PaladalaTheme.ink)
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    Text(installButtonLabel)
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                }
+                .foregroundStyle(PaladalaTheme.ink)
+                .padding(.horizontal, PaladalaTheme.Spacing.l)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(PaladalaTheme.biliPink)
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                }
+                .background {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(x: 3, y: 3)
+                }
             }
-        } label: {
-            HStack(spacing: PaladalaTheme.Spacing.s) {
-                if updateManager.updateDownloadState == .downloading {
-                    ProgressView()
-                        .tint(PaladalaTheme.ink)
-                        .scaleEffect(0.8)
-                } else {
+            .buttonStyle(.plain)
+            .disabled(updateManager.installState == .opening)
+        } else {
+            // No downloadURL from apps.json (source not
+            // published yet, or the manifest couldn't be
+            // parsed). Fall back to the legacy Shortcut
+            // install path so the user still has a way
+            // forward; this preserves the old behaviour
+            // for the empty-source edge case.
+            Button {
+                Task {
+                    await updateManager.downloadAndInstallLatest()
+                }
+            } label: {
+                HStack(spacing: PaladalaTheme.Spacing.s) {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.system(size: 14, weight: .bold))
+                    Text(L10n.about.openInAltStore)
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
                 }
-                Text(downloadButtonLabel)
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                if updateManager.updateDownloadState == .downloading {
-                    Text("(\(Int(updateManager.downloadProgress * 100))%)")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(PaladalaTheme.ink)
+                .padding(.horizontal, PaladalaTheme.Spacing.l)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(PaladalaTheme.biliPink.opacity(0.5))
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
+                }
+                .background {
+                    Rectangle()
+                        .fill(PaladalaTheme.ink)
+                        .offset(x: 3, y: 3)
                 }
             }
-            .foregroundStyle(PaladalaTheme.ink)
-            .padding(.horizontal, PaladalaTheme.Spacing.l)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity)
-            .background(PaladalaTheme.biliPink)
-            .overlay {
-                Rectangle()
-                    .strokeBorder(PaladalaTheme.ink, lineWidth: PaladalaTheme.borderWidth)
-            }
-            .background {
-                Rectangle()
-                    .fill(PaladalaTheme.ink)
-                    .offset(x: 3, y: 3)
-            }
+            .buttonStyle(.plain)
+            .disabled(updateManager.updateDownloadState == .downloading)
         }
-        .buttonStyle(.plain)
-        .disabled(updateManager.updateDownloadState == .downloading)
     }
 
     @ViewBuilder
-    private var downloadStatusMessages: some View {
-        if case .failed(let error) = updateManager.updateDownloadState {
+    private var installStatusMessages: some View {
+        switch updateManager.installState {
+        case .idle, .opening, .opened:
+            // No inline message for the "happy path" — the
+            // store app takes over once the URL-scheme
+            // handoff completes, so the user is already in
+            // the install dialog.
+            EmptyView()
+        case .noStoreFound:
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(L10n.about.noStoreDetected)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(PaladalaTheme.mutedInk)
+                }
+                Text("已為你打開源頁,喺 AltStore / SideStore 重新整理源後即可一鍵安裝。")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(PaladalaTheme.mutedInk)
+            }
+        case .failed(let message):
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
-                Text(error)
+                Text(message)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(PaladalaTheme.mutedInk)
             }
+        }
 
-            // Show shortcut setup button if error is about missing shortcut
+        // Legacy Shortcut path status — only relevant when
+        // the user fell back to it (no downloadURL case
+        // above). Kept here so the existing
+        // `.failed("请先安装快捷指令")` path still surfaces
+        // the setup hint.
+        if case .failed(let error) = updateManager.updateDownloadState {
             if error.contains("快捷指令") {
                 Button {
                     shortcutManager.checkAndPromptIfNeeded()
@@ -414,16 +482,6 @@ struct AboutView: View {
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(PaladalaTheme.biliPink)
                 }
-            }
-        }
-
-        if case .completed = updateManager.updateDownloadState {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Text("已调用快捷指令，请在快捷指令中完成安装")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(PaladalaTheme.mutedInk)
             }
         }
     }
@@ -441,14 +499,32 @@ struct AboutView: View {
         }
     }
 
-    private var downloadButtonLabel: String {
-        switch updateManager.updateDownloadState {
-        case .idle, .failed:
-            return "一键安装"
-        case .downloading:
-            return "准备中"
-        case .completed:
-            return "重新安装"
+    /// Label under the "用 AltStore 安装" / "用 SideStore 安装"
+    /// button. Driven by the detected install path: the
+    /// button copy tells the user which store we're handing
+    /// the install to.
+    private var installButtonLabel: String {
+        switch updateManager.installState {
+        case .opening:
+            return L10n.about.opening
+        case .opened(let path):
+            switch path {
+            case .altStore:
+                return L10n.about.openInAltStore
+            case .sideStore:
+                return L10n.about.openInSideStore
+            case .sourcePage, .none:
+                return L10n.about.openInAltStore
+            }
+        case .noStoreFound, .failed:
+            return L10n.about.openInAltStore
+        case .idle:
+            // We don't know which store is installed at
+            // this point (canOpenURL is per-tap, not
+            // cached), so render a neutral copy that works
+            // for either. The button is re-tappable; on
+            // first tap the actual store detection runs.
+            return L10n.about.openInAltStore
         }
     }
 
@@ -497,12 +573,12 @@ struct AboutView: View {
     }
 
     private func checkForUpdates() {
-        // Check if shortcut is installed, prompt if not
-        if !shortcutManager.hasInstalledShortcut {
-            shortcutManager.checkAndPromptIfNeeded()
-            return
-        }
-
+        // The new AltSource-based check does not require a
+        // Shortcut to be installed — the install path is
+        // a URL-scheme handoff to AltStore / SideStore, so
+        // the gate that used to live here (prompting the
+        // user to install a Shortcut before we even asked
+        // the server) is gone.
         updateState = .checking
         Task {
             let result = await UpdateChecker.check(current: version)
@@ -534,72 +610,92 @@ enum UpdateState: Equatable, Sendable {
     case idle
     case checking
     case upToDate(remote: String)
-    case updateAvailable(remote: String, url: URL?)
-    case devBuild(remote: String?, url: URL?)
+    /// Remote `apps.json` reports a newer version than the
+    /// local build. `downloadURL` is the unsigned IPA URL
+    /// from `versions[0]` — passed to AltStore / SideStore
+    /// via the URL-scheme install path. `remote` is the
+    /// marketing-version line shown to the user (e.g.
+    /// "0.5.2 (3)").
+    case updateAvailable(remote: String, downloadURL: URL?)
+    /// Local build is a development / sideloaded binary;
+    /// no version comparison is made, but we still surface
+    /// the latest `apps.json` entry so the tester can grab
+    /// the unsigned IPA via AltStore / SideStore.
+    case devBuild(remote: String?, downloadURL: URL?)
     case failed(String)
 }
 
 // MARK: - UpdateChecker
 
-/// Hits the GitHub Releases API for the public project repo
-/// and reports whether a newer prerelease exists.  Lives in
-/// its own type so the call site can stay a `Button { }`
-/// inside the SwiftUI view.
+/// Fetches the project's AltSource manifest from GitHub
+/// Pages and reports whether a newer entry exists in
+/// `apps[0].versions[0]`.  The same `apps.json` is what
+/// AltStore / SideStore read when the user adds the custom
+/// source, so this check is the single source of truth for
+/// "is there a newer unsigned IPA available?" — there's no
+/// reason to also poll the GitHub Releases API.
+///
+/// Lives in its own type so the call site can stay a
+/// `Button { }` inside the SwiftUI view.
 enum UpdateChecker {
 
-    private static let repoOwner = "darrenintr"
-    private static let repoName = "pure-bilibili-rethinking"
-    private static let releasesURL = URL(string:
-        "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest"
-    )
-    private static let repoURL = URL(string:
-        "https://github.com/\(repoOwner)/\(repoName)/releases"
+    private static let altSourceURL = URL(string:
+        "https://darrenintr.github.io/pure-bilibili-rethinking/apps.json"
     )
 
     /// Public entry point.  Async so the view's `Task { }`
     /// can await the result and update the UI on the main
     /// actor.
     static func check(current: AppVersionInfo) async -> UpdateState {
-        guard let releasesURL else { return .failed(L10n.about.updateFailed) }
-        var request = URLRequest(url: releasesURL)
+        guard let altSourceURL else { return .failed(L10n.about.updateFailed) }
+        var request = URLRequest(url: altSourceURL)
         request.httpMethod = "GET"
-        // Use a recognisable UA so the GitHub side (and any
-        // upstream proxy) can tell this is Paladala polling
-        // itself instead of a generic scraper.
+        // Use a recognisable UA so the gh-pages side (and
+        // any upstream cache) can tell this is Paladala
+        // polling itself.
         request.setValue("Paladala-iOS/\(current.marketingVersion)", forHTTPHeaderField: "User-Agent")
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        // GitHub Pages serves `apps.json` as
+        // `application/json` (or `text/plain` on edge
+        // misconfigurations), so accept both.
+        request.setValue("application/json, text/plain;q=0.9, */*;q=0.1", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 10
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else {
                 return .failed(L10n.about.updateFailed)
             }
-            // GitHub returns 404 when the repo has no
-            // published releases yet — treat that as "no
-            // comparison possible, dev build" rather than
-            // a hard error.
-            if http.statusCode == 404 {
-                return .devBuild(remote: nil, url: repoURL)
-            }
-            guard (200..<300).contains(http.statusCode) else {
+            let manifest = try JSONDecoder().decode(AltSourceManifest.self, from: data)
+            // The single-app case is the only one we ship
+            // today (Paladala is the only app in its
+            // AltSource), but match by bundleIdentifier to
+            // be future-proof if we ever add a sibling.
+            guard let app = manifest.apps.first(where: {
+                $0.bundleIdentifier == current.bundleId
+            }) ?? manifest.apps.first,
+                  let latest = app.versions.first,
+                  let downloadURL = URL(string: latest.downloadURL) else {
                 return .failed(L10n.about.updateFailed)
             }
-            let payload = try JSONDecoder().decode(ReleasePayload.self, from: data)
-            let remote = payload.tag_name ?? payload.name ?? "?"
-            let html = payload.html_url.flatMap(URL.init(string:))
+
+            let remoteDisplay = "\(latest.version) (\(latest.buildVersion))"
+            let localFull = "\(current.marketingVersion).\(current.buildNumber)"
+            let remoteFull = "\(latest.version).\(latest.buildVersion)"
+
             // Local dev builds never match a real release
             // line, so skip the "up to date" branch and
-            // surface the GitHub releases tab instead so a
-            // tester can grab the latest unsigned IPA.
+            // surface the latest entry as a devBuild so a
+            // tester can grab the unsigned IPA via
+            // AltStore / SideStore.
             if current.releaseType.isDevelopment {
-                return .devBuild(remote: remote, url: html ?? repoURL)
+                return .devBuild(remote: remoteDisplay, downloadURL: downloadURL)
             }
-            switch VersionComparator.compare(current.fullVersion, remote) {
+            switch VersionComparator.compare(localFull, remoteFull) {
             case .orderedAscending:
-                return .updateAvailable(remote: remote, url: html ?? repoURL)
+                return .updateAvailable(remote: remoteDisplay, downloadURL: downloadURL)
             case .orderedSame, .orderedDescending:
-                return .upToDate(remote: remote)
+                return .upToDate(remote: remoteDisplay)
             }
         } catch {
             bpLog("About: update check failed: \(error.localizedDescription)")
@@ -607,15 +703,27 @@ enum UpdateChecker {
         }
     }
 
-    /// Subset of the GitHub release JSON we care about.
-    /// `tag_name` is the canonical version source
-    /// (matches the CI workflow's release-tag step);
-    /// `html_url` is where the user lands on tap.
-    private struct ReleasePayload: Decodable {
-        let tag_name: String?
-        let name: String?
-        let html_url: String?
-        let prerelease: Bool?
+    /// Subset of the AltSource manifest we care about. See
+    /// `scripts/generate_apps_json.py` for the field shape
+    /// we actually emit; we only decode the bits the check
+    /// needs and ignore the rest.
+    ///
+    /// `internal` (not `private`) so the test target can
+    /// round-trip a sample manifest through the same
+    /// `JSONDecoder` to guard against silent schema drift.
+    struct AltSourceManifest: Decodable {
+        let apps: [AltSourceApp]
+    }
+
+    struct AltSourceApp: Decodable {
+        let bundleIdentifier: String
+        let versions: [AltSourceVersion]
+    }
+
+    struct AltSourceVersion: Decodable {
+        let version: String
+        let buildVersion: String
+        let downloadURL: String
     }
 }
 

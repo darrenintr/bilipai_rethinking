@@ -379,6 +379,33 @@ enum L10n {
         /// checker always recommends grabbing the latest
         /// release instead of trying to compare versions.
         static let devBuild = String(localized: "about.devBuild", defaultValue: "当前为开发构建，不参与版本比较")
+        /// Button label on the update-available row that
+        /// hands the install to AltStore via its URL scheme.
+        /// Rendered when AltStore is detected on the device.
+        static let openInAltStore = String(localized: "about.openInAltStore", defaultValue: "用 AltStore 安装")
+        /// Button label on the update-available row that
+        /// hands the install to SideStore via its URL scheme.
+        /// Rendered when AltStore is not installed but
+        /// SideStore is.
+        static let openInSideStore = String(localized: "about.openInSideStore", defaultValue: "用 SideStore 安装")
+        /// Inline status shown while the URL-scheme jump is
+        /// being dispatched. The actual install dialog
+        /// appears in the store app, not in Paladala.
+        static let opening = String(localized: "about.opening", defaultValue: "正在打開安裝頁…")
+        /// Status shown when neither AltStore nor SideStore
+        /// is installed on the device; the user is directed
+        /// to open the AltSource page in Safari and refresh
+        /// it from there.
+        static let noStoreDetected = String(localized: "about.noStoreDetected", defaultValue: "未檢測到 AltStore / SideStore")
+        /// Button label that opens the project's GitHub
+        /// Releases tab in Safari. Shown as a secondary
+        /// action so a user without a sideload store can
+        /// still grab the IPA + changelog manually.
+        static let viewOnGitHub = String(localized: "about.viewOnGitHub", defaultValue: "在 GitHub Releases 查看")
+        /// Footer note under the update card. Updated from
+        /// the old GitHub-API wording to reflect the new
+        /// AltSource-based check.
+        static let checkSourceHint = String(localized: "about.checkSourceHint", defaultValue: "對比當前版本與 AltSource 列表的最新條目")
         // Release-type display names.  Each value pairs with
         // `ReleaseType.displayName` in AppVersion.swift.
         static let debug = String(localized: "about.releaseType.debug", defaultValue: "调试")

@@ -73,6 +73,11 @@
     <array>
       <string>com.paladala.follow-poll</string>
     </array>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>altstore</string>
+        <string>sidestore</string>
+    </array>
     <key>LSRequiresIPhoneOS</key>
     <true />
     <key>UIApplicationSceneManifest</key>

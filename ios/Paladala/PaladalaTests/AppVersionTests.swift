@@ -113,4 +113,79 @@ final class AppVersionTests: XCTestCase {
             .orderedDescending
         )
     }
+
+    // MARK: - AltSource manifest decoder
+    //
+    // `UpdateChecker.check` decodes the gh-pages-hosted
+    // `apps.json` to figure out whether a newer unsigned
+    // IPA is available. The field set is small (version /
+    // buildVersion / downloadURL) but a silent rename in
+    // `scripts/generate_apps_json.py` would push an
+    // empty `.updateAvailable` to every user; this test
+    // round-trips a hand-rolled sample that matches the
+    // actual output shape so a future drift shows up in
+    // CI instead of in the field.
+
+    func test_altSourceManifest_decodesAppsArrayShape() throws {
+        let sample = """
+        {
+          "name": "Paladala",
+          "apps": [
+            {
+              "name": "Paladala",
+              "bundleIdentifier": "com.dt.paladala",
+              "versions": [
+                {
+                  "version": "0.5.2",
+                  "buildVersion": "3",
+                  "date": "2026-08-02T10:00:00Z",
+                  "size": 12345678,
+                  "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.2.3/Paladala-unsigned-v0.5.2.3.ipa"
+                }
+              ]
+            }
+          ],
+          "news": []
+        }
+        """
+        let data = sample.data(using: .utf8)!
+        let manifest = try JSONDecoder().decode(UpdateChecker.AltSourceManifest.self, from: data)
+        XCTAssertEqual(manifest.apps.count, 1)
+        XCTAssertEqual(manifest.apps[0].bundleIdentifier, "com.dt.paladala")
+        XCTAssertEqual(manifest.apps[0].versions.count, 1)
+        XCTAssertEqual(manifest.apps[0].versions[0].version, "0.5.2")
+        XCTAssertEqual(manifest.apps[0].versions[0].buildVersion, "3")
+        XCTAssertTrue(manifest.apps[0].versions[0].downloadURL.hasSuffix(".ipa"))
+    }
+
+    func test_altSourceManifest_ignoresExtraFields() throws {
+        // AltSource has many optional fields (subtitle,
+        // tintColor, appPermissions, …) we don't decode.
+        // Adding a new one upstream must not break the
+        // in-app check.
+        let sample = """
+        {
+          "apps": [
+            {
+              "bundleIdentifier": "com.dt.paladala",
+              "versions": [
+                {
+                  "version": "0.5.2",
+                  "buildVersion": "3",
+                  "downloadURL": "https://example.com/p.ipa",
+                  "subtitle": "ignored",
+                  "tintColor": "#FB7299",
+                  "localizedDescription": "ignored"
+                }
+              ],
+              "iconURL": "https://example.com/icon.png",
+              "category": "entertainment"
+            }
+          ]
+        }
+        """
+        let data = sample.data(using: .utf8)!
+        let manifest = try JSONDecoder().decode(UpdateChecker.AltSourceManifest.self, from: data)
+        XCTAssertEqual(manifest.apps[0].versions[0].version, "0.5.2")
+    }
 }
