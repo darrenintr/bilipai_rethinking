@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T14:03:58Z",
-    "githubRunId": "30751191811",
-    "githubRunNumber": "587",
-    "githubSha": "42046e3e73f928579be8216dee6d41416c078378",
+    "generatedAt": "2026-08-02T14:28:07Z",
+    "githubRunId": "30752086579",
+    "githubRunNumber": "588",
+    "githubSha": "8c3591faee28d2bbab3ed4c5439035d450098615",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "313",
+          "date": "2026-08-02T14:28:07Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.13.313/Paladala-unsigned-v0.5.13.313.ipa",
+          "localizedDescription": "switch QR login back to the web endpoint\n\n\nTV-endpoint login (introduced for access_key) is a dead end\nfor comments: B站 classifies the TV-paired SESSDATA and\naccess_token as \"TV client\", and the comments endpoint\nsilently returns `replies: null` for TV-classified callers\n— verified 2026-08-02 on the user's iPad with the legacy\n/x/v2/reply (255KB response, replies null) and the appkey\n+sign path (code 0, replies null), while anonymous and\nweb-classified requests return real reply lists.\n\nThe open-source Flutter client guozhigq/pilipala gets full\ncomment threads against the same B站 back-end using web-\nclassified SESSDATA + the legacy /x/v2/reply endpoint. So:\n\n  - LoginViewModel.start()  → webQrcodeGenerate()\n  - pollLoop()              → webQrcodePoll()\n  - completeLogin()         → accessKey: nil (web flow has none;\n    the appkey+sign path stays as forward-compat fallback)\n\nUsers must log out and re-scan (web QR) once, so their\npersisted SESSDATA is re-issued as a web-session cookie.",
+          "size": 4060191,
+          "version": "0.5.13"
+        },
         {
           "buildVersion": "312",
           "date": "2026-08-02T14:03:58Z",
@@ -141,6 +149,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 313 (8c3591f)",
+      "date": "2026-08-02T14:28:07Z",
+      "identifier": "v0.5.13.313",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.13.313",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.13.313"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 312 (42046e3)",
