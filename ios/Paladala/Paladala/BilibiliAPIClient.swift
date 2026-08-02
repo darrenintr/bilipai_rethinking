@@ -2048,52 +2048,120 @@ final class BilibiliAPIClient: @unchecked Sendable {
         if let mode = sort.apiValue {
             queryItems.append(URLQueryItem(name: "mode", value: "\(mode)"))
         }
-        let payload: APIResponse<CommentPayload> = try await get(
-            baseURL: baseURL,
-            path: "/x/v2/reply/wbi/main",
-            queryItems: queryItems,
-            signWithWBI: true
-        )
-        try payload.requireOK()
-        // Diagnostic: log the decoded payload shape so we can see
-        // exactly what B站 returned. Without this, "commentsPage:
-        // returning" silently never firing (observed in v0.5.6
-        // diagnostic) leaves us guessing whether decode produced
-        // an empty list, allCount was 0, or the function threw
-        // somewhere between requireOK and the return log.
-        // Truncate the dump to keep the diagnostic file readable.
-        if let val = payload.value {
-            let upperKeys = val.upperTop.map { "upperTop keys=\($0.values.count)" } ?? "nil"
-            let topReplies = val.topReplies.map { "topReplies items=\($0.items.count)" } ?? "nil"
-            let replies = val.replies.map { "replies items=\($0.items.count)" } ?? "nil"
-            let cursor = val.cursor.map { c in
-                "cursor next=\(c.next ?? -1) allCount=\(c.allCount) isEnd=\(c.isEnd) paginationReply=\(c.paginationReply.map { "nextOffset=\($0.nextOffset)" } ?? "nil")"
-            } ?? "nil"
-            bpLog("commentsPage: payload | upper=\(upperKeys) \(topReplies) \(replies) \(cursor)")
-        } else {
-            bpLog("commentsPage: payload | value=nil code=\(payload.code ?? -1) message=\(payload.message ?? "?")")
-        }
-        // Pinned comments arrive under `top_replies` (legacy) or
-        // `upper.top` (newer). Bilibili sometimes sends a thread where
-        // every visible comment is pinned — without merging we'd show
-        // an empty list. The latest WBI shape drops the nested
-        // `data.upper.top` dict (only `data.upper.mid` remains) and
-        // uses `data.top_replies` exclusively; reading either path
-        // keeps the merge defensive against older cache hits.
-        let pinned = payload.value?.upperTop?.values.map(\.model) ?? []
-        let legacyPinned = payload.value?.topReplies?.items.map(\.model) ?? []
-        let regular = payload.value?.replies?.items.map(\.model) ?? []
-        var seen = Set<Int>()
-        var merged: [BiliComment] = []
-        for model in pinned + legacyPinned + regular {
-            if seen.insert(model.id).inserted {
-                merged.append(model)
+        // Local helper: signs the query items, fires the request,
+        // and returns the merged comment list + cursor fields.
+        // Extracted so the silent-gate retry path below can re-run
+        // the same pipeline after a WbiSigner.invalidate() without
+        // duplicating the parse/merge logic.
+        //
+        // B站's WBI gate has TWO failure modes:
+        //   1. Explicit  — `code = -403` ("访问权限不足"). The
+        //      generic `get<T>` already catches this and retries
+        //      once with fresh WBI keys.
+        //   2. Silent    — `code = 0` + a valid `cursor` (so
+        //      `requireOK()` passes) + an empty `replies[]`. The
+        //      upstream returns 200 OK as if the request succeeded,
+        //      but the comment list is withheld. This happens when
+        //      the WBI signature was computed against an img_key /
+        //      sub_key pair that has since rotated server-side: the
+        //      signature is "valid in format" so the server doesn't
+        //      403, but the keys are stale so the content is gated.
+        //      The 6h `keyTTL` in `WbiSigner` was much longer than
+        //      B站's actual rotation cadence (observed ~10 min in
+        //      v0.5.8 build 308 diagnostic), so any app session
+        //      started more than ~10 min before a key rotation
+        //      would hit this path. The 200/empty payload is the
+        //      canonical "you can see metadata but not content"
+        //      signal — `cursor.allCount` reports the true reply
+        //      count (so the stats bar updates) but the body is
+        //      empty.
+        //
+        // We detect the silent mode below and recover by
+        // invalidating the cached keys + retrying once. The -403
+        // path in `get<T>` already does the same invalidate dance,
+        // but the silent mode never trips it because the status
+        // code is 200.
+        func attemptFetch() async throws -> (merged: [BiliComment], reportedTotal: Int, nextCursor: String?, isEnd: Bool) {
+            let payload: APIResponse<CommentPayload> = try await get(
+                baseURL: baseURL,
+                path: "/x/v2/reply/wbi/main",
+                queryItems: queryItems,
+                signWithWBI: true
+            )
+            try payload.requireOK()
+            // Diagnostic: log the decoded payload shape so we can see
+            // exactly what B站 returned. Without this, "commentsPage:
+            // returning" silently never firing (observed in v0.5.6
+            // diagnostic) leaves us guessing whether decode produced
+            // an empty list, allCount was 0, or the function threw
+            // somewhere between requireOK and the return log.
+            // Truncate the dump to keep the diagnostic file readable.
+            if let val = payload.value {
+                let upperKeys = val.upperTop.map { "upperTop keys=\($0.values.count)" } ?? "nil"
+                let topReplies = val.topReplies.map { "topReplies items=\($0.items.count)" } ?? "nil"
+                let replies = val.replies.map { "replies items=\($0.items.count)" } ?? "nil"
+                let cursor = val.cursor.map { c in
+                    "cursor next=\(c.next ?? -1) allCount=\(c.allCount) isEnd=\(c.isEnd) paginationReply=\(c.paginationReply.map { "nextOffset=\($0.nextOffset)" } ?? "nil")"
+                } ?? "nil"
+                bpLog("commentsPage: payload | upper=\(upperKeys) \(topReplies) \(replies) \(cursor)")
+            } else {
+                bpLog("commentsPage: payload | value=nil code=\(payload.code ?? -1) message=\(payload.message ?? "?")")
             }
+            // Pinned comments arrive under `top_replies` (legacy) or
+            // `upper.top` (newer). Bilibili sometimes sends a thread where
+            // every visible comment is pinned — without merging we'd show
+            // an empty list. The latest WBI shape drops the nested
+            // `data.upper.top` dict (only `data.upper.mid` remains) and
+            // uses `data.top_replies` exclusively; reading either path
+            // keeps the merge defensive against older cache hits.
+            let pinned = payload.value?.upperTop?.values.map(\.model) ?? []
+            let legacyPinned = payload.value?.topReplies?.items.map(\.model) ?? []
+            let regular = payload.value?.replies?.items.map(\.model) ?? []
+            var seen = Set<Int>()
+            var merged: [BiliComment] = []
+            for model in pinned + legacyPinned + regular {
+                if seen.insert(model.id).inserted {
+                    merged.append(model)
+                }
+            }
+            let reportedTotal = payload.value?.cursor?.allCount ?? 0
+            // Diagnostic: log the merged result before any early-throw
+            // so we can distinguish "decode produced 0 items" from
+            // "throw missingIdentity" or "Task cancelled mid-merge".
+            bpLog("commentsPage: merged count=\(merged.count) (pinned=\(pinned.count) legacy=\(legacyPinned.count) regular=\(regular.count)) allCount=\(reportedTotal)")
+            // Prefer the new opaque `pagination_reply.next_offset` cursor
+            // for the next page. The server still emits the legacy `next`
+            // int as a page index, but using it via `next=<int>` reproduces
+            // the hang — only the JSON cursor path is reliable.
+            let nextCursor: String? = {
+                if let off = payload.value?.cursor?.paginationReply?.nextOffset,
+                   !off.isEmpty {
+                    return off
+                }
+                return nil
+            }()
+            let isEnd = payload.value?.cursor?.isEnd ?? true
+            return (merged, reportedTotal, nextCursor, isEnd)
         }
-        // Diagnostic: log the merged result before any early-throw
-        // so we can distinguish "decode produced 0 items" from
-        // "throw missingIdentity" or "Task cancelled mid-merge".
-        bpLog("commentsPage: merged count=\(merged.count) (pinned=\(pinned.count) legacy=\(legacyPinned.count) regular=\(regular.count)) allCount=\(payload.value?.cursor?.allCount ?? 0)")
+
+        var (merged, reportedTotal, nextCursor, isEnd) = try await attemptFetch()
+        // Silent-gate recovery. See the long comment on `attemptFetch`
+        // above for why this is needed: B站's WBI validator refuses to
+        // surface content when the signature's img_key/sub_key is stale,
+        // but the response still looks successful (200 OK + valid
+        // cursor + empty replies array), so the only signal we get is
+        // `merged.isEmpty && reportedTotal > 0`. Invalidate the
+        // cached keys (forcing `sign` to re-fetch from
+        // `/x/web-interface/nav`) and retry once. If the second
+        // attempt also returns empty, fall through to the
+        // `missingIdentity` throw — at that point it's a real
+        // auth/identity issue, not a stale-key issue.
+        if merged.isEmpty && reportedTotal > 0 {
+            bpLog("commentsPage: silent gate detected (allCount=\(reportedTotal) but 0 replies) — refreshing WBI keys + retry once")
+            await wbiSigner.invalidate()
+            (merged, reportedTotal, nextCursor, isEnd) = try await attemptFetch()
+            bpLog("commentsPage: silent gate retry result items=\(merged.count) allCount=\(reportedTotal)")
+        }
         // Bilibili silently returns `replies: null` (and an empty
         // `upper.top`) for unauthenticated callers when the
         // thread has comments — `code == 0` passes `requireOK()`,
@@ -2103,23 +2171,14 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // even though the list is empty).  We surface that as
         // `missingIdentity` so the catch in `loadComments` can
         // show "请登录后查看评论" instead of the misleading
-        // "No public comments" empty state.
-        let reportedTotal = payload.value?.cursor?.allCount ?? 0
+        // "No public comments" empty state. After the silent-gate
+        // retry above, the only way to land here is if the second
+        // attempt also returned empty — i.e. the keys refresh
+        // didn't help, and the underlying issue is auth, not
+        // signature staleness.
         if merged.isEmpty && reportedTotal > 0 {
             throw BilibiliAPIError.missingIdentity
         }
-        // Prefer the new opaque `pagination_reply.next_offset` cursor
-        // for the next page. The server still emits the legacy `next`
-        // int as a page index, but using it via `next=<int>` reproduces
-        // the hang — only the JSON cursor path is reliable.
-        let nextCursor: String? = {
-            if let off = payload.value?.cursor?.paginationReply?.nextOffset,
-               !off.isEmpty {
-                return off
-            }
-            return nil
-        }()
-        let isEnd = payload.value?.cursor?.isEnd ?? true
         // Diagnostic: log how the merged result looks on the way out
         // so we can tell the difference between "Bilibili gave us 0
         // comments for this video" and "Bilibili gave us N but the
@@ -2621,7 +2680,7 @@ private actor WbiSigner {
         61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
         36, 20, 34, 44, 52
     ]
-    private let keyTTL: TimeInterval = 6 * 60 * 60
+    private let keyTTL: TimeInterval = 30 * 60
     private let navURL = URL(string: "https://api.bilibili.com/x/web-interface/nav")!
     private var cachedKeys: CachedKeys?
 
