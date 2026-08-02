@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-02T05:12:55Z",
-    "githubRunId": "30733625844",
-    "githubRunNumber": "577",
-    "githubSha": "0ab311a788140d5fbacdb6e9a900da5fd7159c6b",
+    "generatedAt": "2026-08-02T06:07:24Z",
+    "githubRunId": "30735275669",
+    "githubRunNumber": "578",
+    "githubSha": "f4256c3d9b1b166511f9918639939602ce9463d0",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "306",
+          "date": "2026-08-02T06:07:24Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.6.306/Paladala-unsigned-v0.5.6.306.ipa",
+          "localizedDescription": "add request headers + 10s timeout for web API calls\n\n\nWeb client works fine for the same aid that the app hangs on\n(verified manually in logged-in Safari). The web request carries\nAccept, Accept-Language, Accept-Encoding, and Origin headers;\nthe iOS app request did not. With bili-universal/iphone UA but\nno Accept, B站 server was holding the connection open instead of\nreturning 4xx, producing the silent-hang pattern we saw in the\ndiagnostic report.\n\nAdd the missing canonical web headers to every api.bilibili.com\nrequest and set a 10s per-request timeout. The URLSession config\nhas waitsForConnectivity = true with no hard timeout, so a\nhung request would never surface; the new timeout is the safety\nnet so the user sees the error banner instead of an eternal\nspinner.\n\nAlso add request-side diagnostic logs around the URLSession data\ncall (sending, sent, failed) so any future hang leaves a trace\nin the diagnostic file. The bpLog on the caller side (fetching\non commentsPage) already fires before; the matching sent/failed\nlog distinguishes URLSession timeout from server-side hang.\n\nChanges:\n- buildSignedRequest: add Accept, Accept-Language, Origin (for\n  non-app hosts), and request.timeoutInterval = 10\n- get: log GET sending / GET sent status=NNN bytes=NNN around\n  session.data, plus GET failed error=... for the catch branch\n\nDiagnostic: build 0.5.5.305 still hung silently on the same\naid (no GET sent / no GET failed). After this change, the same\nhang will either (a) succeed because B站 no longer hangs the\nrequest, or (b) surface a GET failed error=URLError timedOut\nafter 10s so the user sees the error banner.",
+          "size": 4034524,
+          "version": "0.5.6"
+        },
         {
           "buildVersion": "305",
           "date": "2026-08-02T05:12:55Z",
@@ -85,6 +93,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 306 (f4256c3)",
+      "date": "2026-08-02T06:07:24Z",
+      "identifier": "v0.5.6.306",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.6.306",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.6.306"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 305 (0ab311a)",
