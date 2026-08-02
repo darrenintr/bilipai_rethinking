@@ -599,15 +599,12 @@ final class VideoDetailViewModel: ObservableObject {
     /// "no summary" placeholder.
     @Published var aiSummaryUnavailable = false
 
-    private var nextCommentCursor: Int?
-    /// Fixed page size for comment fetches. The user wants pure
-    /// infinite-scroll behaviour: 20 on the first fetch, then another
-    /// 20 every time the user scrolls to the bottom — no progressive
-    /// backoff. Bumping this number would inflate memory usage
-    /// (every rendered comment is a `CommentRow` with an avatar image
-    /// and a potentially long text), so 20 stays the right default
-    /// for an iPhone-sized viewport.
-    private static let commentPageSize = 20
+    /// Opaque pagination cursor from the previous comments page, fed
+    /// back as `pagination_str={"offset":"<cursor>"}` for the next
+    /// `commentsPage` call. `nil` means "first page" and is sent as
+    /// `{"offset":""}`. See `BilibiliAPIClient.commentsPage` for the
+    /// full request shape.
+    private var nextCommentCursor: String?
 
     init(video: BiliVideo, localRecord: DownloadRecord? = nil) {
         self.detail = video
@@ -1140,7 +1137,6 @@ final class VideoDetailViewModel: ObservableObject {
         do {
             let page = try await repository.commentsPage(
                 for: detail,
-                pageSize: Self.commentPageSize,
                 sort: commentSort
             )
             comments = page.items
@@ -1314,8 +1310,7 @@ final class VideoDetailViewModel: ObservableObject {
         do {
             let page = try await repository.commentsPage(
                 for: detail,
-                next: nextCommentCursor,
-                pageSize: Self.commentPageSize,
+                nextOffset: nextCommentCursor,
                 sort: commentSort
             )
             let seen = Set(comments.map(\.id))

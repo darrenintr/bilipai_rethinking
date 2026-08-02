@@ -2008,7 +2008,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         return payload.value?.folders.map(\.model) ?? []
     }
 
-    func commentsPage(aid: Int, next: Int? = nil, pageSize: Int = 20, sort: CommentSort = .hot) async throws -> CommentPage {
+    func commentsPage(aid: Int, nextOffset: String? = nil, sort: CommentSort = .hot) async throws -> CommentPage {
         guard aid > 0 else {
             return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
         }
@@ -2018,36 +2018,35 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // silent (no bpLog on code: 0), so without this line a working
         // call would leave no trace and look indistinguishable from a
         // call that never ran.
-        bpLog("commentsPage: fetching aid=\(aid) sort=\(sort) next=\(next ?? -1) ps=\(pageSize)")
-        // The current canonical path is `/x/v2/reply/wbi/main`. The
-        // payload shape changed alongside it: pinned/UP主置顶 replies
-        // now live under `data.upper.top` (an object keyed by rpid),
-        // not the legacy `data.top_replies` array. We decode both
-        // shapes so an old cache or a flaky CDN edge that still serves
-        // the legacy field does not produce an empty list.
         //
+        // B站's reply endpoint migrated to an opaque cursor in
+        // 2026-mid. The cursor lives at
+        // `data.cursor.pagination_reply.next_offset` and is fed back
+        // into the next request as a JSON object under `pagination_str`,
+        // e.g. `pagination_str={"offset":"CAEiAggC"}`. An empty offset
+        // means "first page" and is sent as `{"offset":""}`. This
+        // replaces the old `ps=20&next=<int>` shape that hangs at the
+        // server routing layer (B站's WBI handler silently drops
+        // requests that lack the cursor object).
+        let offset = nextOffset ?? ""
+        let paginationStr = "{\"offset\":\"\(offset)\"}"
+        bpLog("commentsPage: fetching aid=\(aid) sort=\(sort) offset='\(offset)'")
         // `mode` is the Bilibili sort code: `3` is the default "热门"
         // (hot) ordering, `2` is "最新" (newest). We only emit the
         // parameter when it is non-default, so the request shape stays
-        // `wbi_type=2` is the B站 reply endpoint's WBI-generation
-        // marker. The endpoint silently hangs (request sent, no
-        // response) if this is missing — confirmed in 2026-08-02
-        // by Safari probing: every variant without `wbi_type=2`
-        // errored out or hung, only the URL with `wbi_type=2`
-        // returned a JSON envelope (even when the rest of the
-        // sign was wrong, hence the -403). Always required for
-        // this path as of mid-2026.
-        var queryItems = [
+        // as close to the canonical web client as possible.
+        var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "type", value: "1"),
             URLQueryItem(name: "oid", value: "\(aid)"),
-            URLQueryItem(name: "ps", value: "\(pageSize)"),
-            URLQueryItem(name: "wbi_type", value: "2")
+            URLQueryItem(name: "pagination_str", value: paginationStr),
+            URLQueryItem(name: "plat", value: "1"),
+            URLQueryItem(name: "web_location", value: "1315875"),
+            // The web client also sends an empty `seek_rpid` to align
+            // the WBI signature with the working browser request shape.
+            URLQueryItem(name: "seek_rpid", value: "")
         ]
         if let mode = sort.apiValue {
             queryItems.append(URLQueryItem(name: "mode", value: "\(mode)"))
-        }
-        if let next {
-            queryItems.append(URLQueryItem(name: "next", value: "\(next)"))
         }
         let payload: APIResponse<CommentPayload> = try await get(
             baseURL: baseURL,
@@ -2056,11 +2055,13 @@ final class BilibiliAPIClient: @unchecked Sendable {
             signWithWBI: true
         )
         try payload.requireOK()
-        // Pinned comments arrive under `upper.top`; regular replies under
-        // `replies`. The legacy `top_replies` array is read defensively
-        // for caches that still serve it. Bilibili sometimes sends a
-        // thread where every visible comment is pinned — without
-        // merging we'd show an empty list.
+        // Pinned comments arrive under `top_replies` (legacy) or
+        // `upper.top` (newer). Bilibili sometimes sends a thread where
+        // every visible comment is pinned — without merging we'd show
+        // an empty list. The latest WBI shape drops the nested
+        // `data.upper.top` dict (only `data.upper.mid` remains) and
+        // uses `data.top_replies` exclusively; reading either path
+        // keeps the merge defensive against older cache hits.
         let pinned = payload.value?.upperTop?.values.map(\.model) ?? []
         let legacyPinned = payload.value?.topReplies?.items.map(\.model) ?? []
         let regular = payload.value?.replies?.items.map(\.model) ?? []
@@ -2085,21 +2086,38 @@ final class BilibiliAPIClient: @unchecked Sendable {
         if merged.isEmpty && reportedTotal > 0 {
             throw BilibiliAPIError.missingIdentity
         }
+        // Prefer the new opaque `pagination_reply.next_offset` cursor
+        // for the next page. The server still emits the legacy `next`
+        // int as a page index, but using it via `next=<int>` reproduces
+        // the hang — only the JSON cursor path is reliable.
+        let nextCursor: String? = {
+            if let off = payload.value?.cursor?.paginationReply?.nextOffset,
+               !off.isEmpty {
+                return off
+            }
+            return nil
+        }()
+        let isEnd = payload.value?.cursor?.isEnd ?? true
         // Diagnostic: log how the merged result looks on the way out
         // so we can tell the difference between "Bilibili gave us 0
         // comments for this video" and "Bilibili gave us N but the
         // decode dropped them".  Without this, an empty list at the
         // UI layer looks identical to a never-fired call.
-        bpLog("commentsPage: returning \(merged.count) items, allCount=\(reportedTotal)")
+        bpLog("commentsPage: returning \(merged.count) items, allCount=\(reportedTotal), nextCursor=\(nextCursor ?? "nil")")
         return CommentPage(
             items: merged,
-            next: payload.value?.cursor?.next,
-            isEnd: payload.value?.cursor?.isEnd ?? true,
+            next: nextCursor,
+            isEnd: isEnd,
             totalCount: reportedTotal == 0 ? merged.count : reportedTotal
         )
     }
 
     func repliesPage(aid: Int, rpid: Int, pn: Int = 1, pageSize: Int = 20) async throws -> CommentPage {
+        // The sub-reply endpoint uses a plain `pn` page-number cursor,
+        // not the `pagination_str` opaque cursor of the main reply
+        // endpoint. We do not round-trip `next` through `CommentPage`
+        // for this path because `ReplyListViewModel.loadMore` tracks
+        // `pn` locally; leaving `next` nil here is intentional.
         let payload: APIResponse<CommentPayload> = try await get(
             baseURL: baseURL,
             path: "/x/v2/reply/reply",
@@ -2115,7 +2133,7 @@ final class BilibiliAPIClient: @unchecked Sendable {
         let items = payload.value?.replies?.items.map(\.model) ?? []
         return CommentPage(
             items: items,
-            next: (payload.value?.cursor?.isEnd ?? true) ? nil : pn + 1,
+            next: nil,
             isEnd: payload.value?.cursor?.isEnd ?? true,
             totalCount: payload.value?.cursor?.allCount ?? 0
         )
@@ -5016,12 +5034,32 @@ private struct CommentCursorDTO: Decodable, Sendable {
     let next: Int?
     let isEnd: Bool
     let allCount: Int
+    /// Opaque cursor for the next page. B站 introduced this in
+    /// 2026-mid; the value is fed back into the request as
+    /// `pagination_str={"offset":"<next_offset>"}`. The legacy `next`
+    /// int is also still emitted (as a page index) but using it via
+    /// the old `next=<int>` query param reproduces the silent hang.
+    let paginationReply: PaginationReplyDTO?
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: DynamicKey.self)
         next = container.decodeInt(keys: ["next"])
         isEnd = container.decodeBool(keys: ["is_end"]) ?? true
         allCount = container.decodeInt(keys: ["all_count"]) ?? 0
+        paginationReply = try? container.decode(PaginationReplyDTO.self, forKey: DynamicKey("pagination_reply"))
+    }
+}
+
+/// B站's reply cursor, nested under `data.cursor.pagination_reply`.
+/// The only field the WBI reply endpoint currently emits is
+/// `next_offset` — a base64-ish token we round-trip as the
+/// `offset` field of the next request's `pagination_str` JSON.
+private struct PaginationReplyDTO: Decodable, Sendable {
+    let nextOffset: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        nextOffset = container.decodeString(keys: ["next_offset"]) ?? ""
     }
 }
 
