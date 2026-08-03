@@ -253,8 +253,8 @@ struct AppSignedEndpoint: CommentEndpoint {
             URLQueryItem(name: "web_location", value: "1315875"),
             URLQueryItem(name: "mobi_app", value: "iphone"),
             URLQueryItem(name: "platform", value: "ios"),
-            URLQueryItem(name: "build", value: apiClient.appBuild),
-            URLQueryItem(name: "appkey", value: apiClient.appKey),
+            URLQueryItem(name: "build", value: appBuild),
+            URLQueryItem(name: "appkey", value: appKey),
             URLQueryItem(name: "access_key", value: accessKey),
             URLQueryItem(name: "ts", value: "\(Int(Date().timeIntervalSince1970))"),
             URLQueryItem(name: "buvid", value: effectiveBuvid)

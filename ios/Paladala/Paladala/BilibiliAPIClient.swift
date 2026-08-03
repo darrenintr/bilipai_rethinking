@@ -48,7 +48,10 @@ private let appSec = "59b43e04ad6965f34319062b478f83dd"
 // (TV-appkey, iOS-build) pairing, the next step is to also flip
 // `mobi_app` / `platform` here — see the call sites at the
 // per-endpoint query items.
-private let appBuild = "84900100"
+// Internal visibility: paired with `appKey` above — the comment
+// pipeline (`CommentPipeline.swift`) reads these as file-level
+// constants when building the app-signed `/x/v2/reply` query.
+let appBuild = "84900100"
 
 final class BilibiliAPIClient: @unchecked Sendable {
     // Internal visibility: the comment pipeline reads `baseURL` to
