@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-03T04:06:59Z",
-    "githubRunId": "30783386053",
-    "githubRunNumber": "592",
-    "githubSha": "85d1a830e8d6f4cad161e7dc9255da4535e844b4",
+    "generatedAt": "2026-08-03T04:38:32Z",
+    "githubRunId": "30784682095",
+    "githubRunNumber": "595",
+    "githubSha": "c825b515cc8f5594d49264aed7c98f54c2721c1f",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "318",
+          "date": "2026-08-03T04:38:32Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.18.318/Paladala-unsigned-v0.5.18.318.ipa",
+          "localizedDescription": "capture real buvid3 for anonymous users\n\n\nBilibiliAPIClient.generateMobileBuvid used a hard-coded\n\"Paladala-iOS-Device-Seed\" shared by every Paladala install.\nThe B station server fingerprints that seed and silently gates\ncomment content for anonymous users, even when all other request\ncharacteristics (User-Agent, Accept headers, Origin, mobi_app,\nplatform) match the official iOS client shape. The Mac browser\nand iPhone official app both fetch a real per-install buvid3\nfrom /x/frontend/finger/spi on first launch and reuse it across\nrequests; Paladala needs to do the same to escape the silent gate.\n\nFetch the SPI device-fingerprint pair on first launch via\nBilibiliAuthAPI.fetchDeviceID and persist the buvid3 plus buvid4\nto UserDefaults under paladala.device.buvid3 and\npaladala.device.buvid4. UserDefaults is wiped with the app\nbundle, so a fresh install triggers a new capture. The\nBilibiliAPIClient anonymous fallback now prefers the persisted\nreal fingerprint over the hard-coded seed; the hard-coded\ngenerateMobileBuvid path is kept only as a last-resort fallback\nduring the few-hundred-ms window before the launch fetch\ncompletes.\n\nThe previous two attempts (TV-QR-login and auto-show-login-\nsheet) targeted the wrong fix direction: the user does not\nneed to sign in to read comments, the client just needs a real\nper-install device fingerprint. Those two commits are\nreverted in this branch (v0.5.16 revert 34ff51cf, v0.5.17\nrevert 064ab928). The v0.5.15 chain fix that lets the WBI\nendpoint accept the .pn(1) start cursor as a silent-gate\nfallback is kept.",
+          "size": 4068674,
+          "version": "0.5.18"
+        },
         {
           "buildVersion": "316",
           "date": "2026-08-03T04:06:59Z",
@@ -173,6 +181,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 318 (c825b51)",
+      "date": "2026-08-03T04:38:32Z",
+      "identifier": "v0.5.18.318",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.18.318",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.18.318"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 316 (85d1a83)",
