@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-03T01:54:01Z",
-    "githubRunId": "30777881456",
-    "githubRunNumber": "590",
-    "githubSha": "b950097a7baf829038d3753036d87951ecb49de6",
+    "generatedAt": "2026-08-03T03:52:02Z",
+    "githubRunId": "30782771347",
+    "githubRunNumber": "591",
+    "githubSha": "c28669f9dced6fc12ef56afb97cbad90c021fc0e",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "315",
+          "date": "2026-08-03T03:52:02Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.15.315/Paladala-unsigned-v0.5.15.315.ipa",
+          "localizedDescription": "fall through to WBI on legacy silent gate\n\n\nThe legacy /x/v2/reply endpoint silently gates comment lists\n(200 OK with a non-empty page.count but an empty replies array)\nwhen B站 applies the URLSession TLS-fingerprint 風控. The\nrefactored comment endpoint chain had the WBI path skip the\nstart cursor .pn(1) entirely, so the WBI endpoint never got a\nchance to fire after a legacy silent-gate. Accept .pn(1) as\nthe empty-offset page-1 fallback so the orchestrator can walk\nthe chain to WBI on the same start cursor. Deeper pages\n(pn greater than 1) still fall through to the legacy endpoint\nbecause the pn to offset mapping is not lossless.",
+          "size": 4065243,
+          "version": "0.5.15"
+        },
         {
           "buildVersion": "314",
           "date": "2026-08-03T01:54:01Z",
@@ -157,6 +165,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 315 (c28669f)",
+      "date": "2026-08-03T03:52:02Z",
+      "identifier": "v0.5.15.315",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.15.315",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.15.315"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 314 (b950097)",
