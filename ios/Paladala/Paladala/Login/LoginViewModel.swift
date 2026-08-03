@@ -40,20 +40,33 @@ final class LoginViewModel: ObservableObject {
     }
 
     /// Generate a fresh QR code, render it, and start the polling loop.
-    /// Uses the **web** QR endpoint (`/x/passport-login/web/qrcode/...`).
+    /// Uses the **app/TV** QR endpoint (`/x/passport-tv-login/qrcode/...`).
     ///
-    /// History: the TV-flavored endpoint
-    /// (`/x/passport-tv-login/qrcode/...`) was tried because its
-    /// `access_token` unlocks the appkey+sign auth path for the
-    /// comments endpoint. Verified 2026-08-02 that this is a dead
-    /// end: B站 classifies the TV-paired token *and* the TV login's
-    /// SESSDATA as "TV client", and the comments endpoint silently
-    /// returns `replies: null` for TV-classified callers even with
-    /// a valid signature. Meanwhile the plain `/x/v2/reply` legacy
-    /// endpoint returns real reply lists for **web**-classified
-    /// SESSDATA cookies (the shape guozhigq/pilipala uses), so the
-    /// web QR flow is the correct login surface. The appkey+sign
-    /// paths stay in the API client as forward-compat fallbacks.
+    /// The TV endpoint is the only B站 login surface that issues an
+    /// `access_token` (the bearer used in the `access_key` query param
+    /// for appkey+sign requests). B站's official iOS / Android apps
+    /// also use the TV endpoint under the hood, despite the
+    /// "TV" naming — see pskdje/bilibili-API-collect
+    /// `docs/login/login_action/QR.md` §"扫码登录(TV端)".
+    ///
+    /// Why we need `access_key` at all: the comments pipeline's
+    /// LegacyPnEndpoint and WbiSignedEndpoint are both silently
+    /// gated by B站's URLSession 風控 (200 OK with valid cursor but
+    /// empty `replies[]`). The `AppSignedEndpoint` with a valid
+    /// `access_key` is the only path B站 still serves real comment
+    /// lists to a third-party iOS client. See `CommentPipeline.swift`
+    /// for the full diagnosis.
+    ///
+    /// Trade-off: the TV endpoint pairs the `access_token` with the
+    /// TV-flavored `appkey` (`tvAppKey` = `4409e2ce8ffd12b8`). Earlier
+    /// testing (v0.5.10) showed B站 classifying TV-paired tokens as
+    /// TV client and the comments endpoint returning `replies: null`
+    /// even with a valid signature. Re-trying the TV flow here
+    /// because the upstream's classification heuristic may have
+    /// loosened, and the WBI/legacy paths are confirmed dead for
+    /// URLSession clients in v0.5.15. If TV flow still gates, the
+    /// next iteration would substitute a reverse-engineered iOS
+    /// `appkey` for the minting step.
     func start() {
         pollTask?.cancel()
         statusText = "正在生成二维码…"
@@ -61,7 +74,7 @@ final class LoginViewModel: ObservableObject {
         pollTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let token = try await authAPI.webQrcodeGenerate()
+                let token = try await authAPI.appQrcodeGenerate()
                 guard let image = Self.renderQR(token.url) else {
                     state = .error("二维码生成失败，请重试")
                     statusText = "二维码生成失败"
@@ -95,7 +108,7 @@ final class LoginViewModel: ObservableObject {
             do {
                 try await Task.sleep(nanoseconds: 3_000_000_000)
                 if Task.isCancelled { return }
-                let result = try await authAPI.webQrcodePoll(qrcodeKey: key)
+                let result = try await authAPI.appQrcodePoll(qrcodeKey: key)
                 switch result.state {
                 case .waiting:
                     statusText = "请使用 Bilibili App 扫码登录"
@@ -107,10 +120,17 @@ final class LoginViewModel: ObservableObject {
                     statusText = "二维码已过期，请刷新"
                     return
                 case .success:
-                    // Web flow carries no `access_key` — the
-                    // appkey+sign path is a forward-compat fallback
-                    // (see `start()` for the full history).
-                    await completeLogin(cookies: result.cookies, accessKey: nil)
+                    // App/TV flow pairs SESSDATA with an
+                    // `access_token` — the bearer we plumb into
+                    // `StoredAccount.accessKey` so the comment
+                    // pipeline can pick `AppSignedEndpoint` over
+                    // the silently-gated WBI/legacy paths.
+                    // `result.accessToken` is `nil` on intermediate
+                    // states and on edge cases where the server
+                    // ships cookies without the bearer; `completeLogin`
+                    // logs the length (never the value) so we can
+                    // verify capture without exposing the secret.
+                    await completeLogin(cookies: result.cookies, accessKey: result.accessToken)
                     return
                 case .error(let message):
                     statusText = "登录失败：\(message)"
