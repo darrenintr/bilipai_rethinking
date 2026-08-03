@@ -365,11 +365,29 @@ struct WbiSignedEndpoint: CommentEndpoint {
         // after a `wbiSigner.invalidate()` without duplicating the
         // parse/merge logic.
         func attemptFetch() async throws -> (merged: [BiliComment], reportedTotal: Int, nextCursor: CommentCursor, isEnd: Bool) {
+            // CRITICAL: do NOT sign this request. The cross-reference
+            // open-source client `Starfallan/PiliNara`
+            // (`lib/http/reply.dart` `ReplyHttp.replyList`, the
+            // anonymous branch) hits the exact same
+            // `/x/v2/reply/wbi/main` path with a raw
+            // `pagination_str` + `mode` query and no WBI signature
+            // and gets the real reply list. With WBI signature
+            // (the previous shape, pre-v0.5.21) the server returns
+            // 200 OK with a valid cursor and an empty `replies[]` —
+            // the canonical silent-gate. The signature tokens
+            // `wts` and `w_rid` are being rejected as stale /
+            // mismatched by the per-client fingerprint layer even
+            // after `wbiSigner.invalidate()` because that layer
+            // looks at the (User-Agent, app-key, x-bili-aurora-zone,
+            // x-bili-trace-id) quartet, not the WBI keys. Dropping
+            // the signature and matching PiliNara's anonymous
+            // request shape is the only path that lands the
+            // payload.
             let payload: APIResponse<CommentPayload> = try await apiClient.get(
                 baseURL: apiClient.baseURL,
                 path: "/x/v2/reply/wbi/main",
                 queryItems: queryItems,
-                signWithWBI: true
+                signWithWBI: false
             )
             try payload.requireOK()
             // Diagnostic: log the decoded payload shape so we can see

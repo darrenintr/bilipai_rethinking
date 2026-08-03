@@ -2213,21 +2213,18 @@ final class BilibiliAPIClient: @unchecked Sendable {
         request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue(DeviceInfo.shared.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        // Aurora / app-key / env headers — cross-referenced from
-        // the open-source B站 client `guozhigq/pilipala`
-        // (`lib/http/init.dart` `setOptionsHeaders`, the same
-        // header set the web client sends from a Safari tab).
-        // B站's client-fingerprint logic appears to use the
-        // combination of these headers plus the Safari-shaped
-        // User-Agent to gate content for "real mobile browser /
-        // real official client" vs. third-party native clients.
-        // Verified 2026-08-03: same network stack, same
-        // endpoint, same B站 account, with these headers the
-        // comments load; without them the response is 200 OK
-        // with `replies: null`.
+        // Aurora / app-key / env / traceId headers — cross-referenced
+        // from `Starfallan/PiliNara/lib/common/constants.dart`
+        // `baseHeaders` and the `traceId` constant. PiliNara's
+        // open-source B站 client reaches the comments endpoint
+        // with this exact header set on every request and gets
+        // the real reply list; without `traceId` the server
+        // tracks the request as a non-official trace and gates
+        // content (200 OK with `replies: null`).
         request.setValue("android64", forHTTPHeaderField: "app-key")
         request.setValue("sh001", forHTTPHeaderField: "x-bili-aurora-zone")
         request.setValue("prod", forHTTPHeaderField: "env")
+        request.setValue("11111111111111111111111111111111:1111111111111111:0:0", forHTTPHeaderField: "x-bili-trace-id")
         // Match the canonical web client header set: B站
         // upstream appears to fingerprint non-iOS clients
         // missing `Accept` / `Accept-Language` / `Origin` and

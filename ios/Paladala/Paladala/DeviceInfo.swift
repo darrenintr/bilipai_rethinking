@@ -87,37 +87,28 @@ final class DeviceInfo: ObservableObject {
     // there is no MainActor state touched.
     nonisolated private init() {}
 
-    /// User-Agent string for outbound HTTP requests. Switched
-    /// from the bilibili-specific `bili-universal/iphone` shape
-    /// to an iOS-Safari Mobile shape on 2026-08-03 after
-    /// diagnostic evidence: B站 server fingerprints
-    /// `bili-universal/iphone` as a third-party client and
-    /// silently gates comment content (200 OK with a valid
-    /// cursor but `replies: null`). The cross-reference
-    /// open-source client `guozhigq/pilipala` (Flutter, also
-    /// unsigned, also running on URLSession) reaches the same
-    /// comments endpoint with this iOS-Safari Mobile UA and
-    /// gets the real reply list. Same network stack, different
-    /// UA — that's the only meaningful delta. The web client
-    /// and the official iOS app use the same iOS-Safari
-    /// Mobile shape (verified 2026-08-03 from a Mac browser
-    /// and an iPhone running the official app on the same IP
-    /// as the failing install: both work).
+    /// User-Agent string for outbound HTTP requests. Final
+    /// shape picked on 2026-08-03 after diffing two
+    /// working cross-reference clients (pilipala iOS-Safari
+    /// Mobile, PiliNara BiliDroid/2.0.1) and reading
+    /// `Starfallan/PiliNara/lib/common/constants.dart`. PiliNara's
+    /// `Mozilla/5.0 BiliDroid/2.0.1 (bbcallen@gmail.com) os/android
+    /// model/android_hd mobi_app/android_hd build/2001100 ...
+    /// network/2` shape is the official B站 Android HD app's
+    /// UA — it carries the `mobi_app/android_hd` and `osVer/15`
+    /// tokens that B站's per-client fingerprint logic appears
+    /// to whitelist. The previous iOS-Safari Mobile shape
+    /// (still set on pilipala) also works, but the Android HD
+    /// shape is what reaches the same `bili-universal/iphone`
+    /// path the official iOS client uses once the appkey,
+    /// `traceId`, and the `wbi/main` direct-`pagination_str`
+    /// non-signed request shape (also taken from PiliNara) are
+    /// lined up together. The `osVer` is hard-coded to 15 to
+    /// keep the per-install UA stable across iOS upgrades —
+    /// a fresh `osVer` for every install would defeat the
+    /// whole point of using a fixed fingerprint.
     nonisolated var userAgent: String {
-        let version = ProcessInfo.processInfo.operatingSystemVersion
-        let major = version.majorVersion
-        let minor = version.minorVersion
-        let iosVersion = "\(major).\(minor)"
-        // 18_0 / 18.0 / 15E148 matches the iOS-Safari Mobile
-        // shape `pilipala` ships in `Request.headerUa(type:
-        // 'mob')` for `Platform.isIOS`. B站's client-fingerprint
-        // logic appears to use the WebKit/605 + Safari/604
-        // signature to classify "real mobile browser / real
-        // official iOS client" vs. third-party native clients
-        // (which would normally ship `bili-universal/...` or
-        // a custom UA).
-        let iosVersionUnderscored = iosVersion.replacingOccurrences(of: ".", with: "_")
-        return "Mozilla/5.0 (iPhone; CPU iPhone OS \(iosVersionUnderscored) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(iosVersion) Mobile/15E148 Safari/604.1"
+        return "Mozilla/5.0 BiliDroid/2.0.1 (bbcallen@gmail.com) os/android model/android_hd mobi_app/android_hd build/2001100 channel/master innerVer/2001100 osVer/15 network/2"
     }
 
     /// Start the path monitor.  Idempotent.  We call this from
