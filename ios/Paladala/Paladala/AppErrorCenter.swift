@@ -262,6 +262,11 @@ final class AppErrorCenter: ObservableObject {
             "retryable": descriptor.isRetryable,
             "error": String(describing: source)
         ])
+        // Phase 2 fan-out to the Paladala Portal.  Fire-and-
+        // forget; the reporter batches + signs + retries on
+        // its own actor.  No-op when the toggle is off or the
+        // xcconfig secret is empty (gated inside `maybeReport`).
+        ErrorSink.maybeReport(descriptor: descriptor, context: context, source: source)
     }
 }
 

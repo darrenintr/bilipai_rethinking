@@ -198,6 +198,12 @@ final class DiagnosticLogger: ObservableObject {
         // re-route bpLog via structured concurrency; this
         // callsite is intentionally unchanged here.)
         bpLog("[\(category.rawValue)] \(message) \(details ?? [:])")
+        // Phase 2 fan-out to the Paladala Portal.  Fire-and-
+        // forget; `ReporterGate.shouldReport(...)` decides
+        // whether this category + details payload is interesting
+        // enough to send (network / auth / playback / etc.,
+        // with a recognisable error key in details).
+        ErrorSink.maybeReport(category: category, message: message, details: details)
 
         // All @Published mutations must happen on main.  Many
         // existing call sites (URLSession callbacks, AVPlayer

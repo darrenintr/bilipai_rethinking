@@ -116,6 +116,13 @@ struct PaladalaApp: App {
                 as? String ?? "?"
         ])
         DeviceInfo.shared.startIfNeeded()
+        // Boot the Paladala Portal reporter.  No-op when the
+        // Settings toggle is off OR the xcconfig secret is
+        // missing; `start()` self-guards on both.  Fire-and-
+        // forget so the launch critical path is unaffected.
+        Task.detached(priority: .utility) {
+            await LogReporter.shared.start()
+        }
         LaunchMetrics.shared.mark(.appInitComplete)
         // If the user opted in via the `PALADALA_COLD_START_DUMP=1`
         // env var (e.g. in the Xcode scheme for a perf run), write

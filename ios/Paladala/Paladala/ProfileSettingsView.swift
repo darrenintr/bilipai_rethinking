@@ -71,6 +71,11 @@ struct ProfileSettingsView: View {
     // `Analytics.log(...)` calls without uninstalling.  Survives
     // app restarts.
     @AppStorage("analytics.optIn") private var analyticsOptIn: Bool = true
+    /// Phase 2: opt-in upload of diagnostic events to the
+    /// user's Cloudflare-backed Paladala Portal.  Default
+    /// OFF — flipping the switch in Settings kicks off the
+    /// LogReporter actor; flipping back stops it.
+    @AppStorage("diag.ops.enabled") private var opsEnabled: Bool = false
 
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var authStore: AuthStore
@@ -395,6 +400,39 @@ struct ProfileSettingsView: View {
                     PluginRow(title: "GitHub 仓库", subtitle: "开源项目地址", symbol: "link")
                 }
                 .buttonStyle(.plain)
+            }
+
+            // Phase 2 — opt-in upload to Paladala Portal.
+            // Hidden behind a "开发者选项" section so casual
+            // users never see it; default OFF per the Phase 2
+            // spec.  When flipped on, the LogReporter actor
+            // starts flushing batches to the Worker's
+            // /v1/report endpoint every 30s.
+            Section {
+                Toggle(isOn: $opsEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.settings.opspadToggleTitle)
+                            .font(.subheadline)
+                        Text(L10n.settings.opspadToggleHint)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .onChange(of: opsEnabled) { _, newValue in
+                    Task.detached(priority: .utility) {
+                        if newValue {
+                            await LogReporter.shared.start()
+                        } else {
+                            await LogReporter.shared.stop()
+                        }
+                    }
+                }
+            } header: {
+                Text(L10n.settings.developerSectionTitle)
+            } footer: {
+                Text(L10n.settings.opspadSectionFooter)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
         .scrollContentBackground(.hidden)

@@ -304,6 +304,17 @@ enum L10n {
         static let diagnosticReport = String(localized: "settings.diagnosticReport", defaultValue: "深度诊断报告")
         /// Watch-later quick action — currently a placeholder.
         static let watchLaterComingSoon = String(localized: "settings.watchLaterComingSoon", defaultValue: "稍后再看 (即将推出)")
+        /// Toggle title for the developer-options section that
+        /// lets the user opt in to uploading diagnostic events
+        /// to the Cloudflare-backed Paladala Portal.
+        static let opspadToggleTitle = String(localized: "settings.opspadToggleTitle", defaultValue: "上报诊断日志到 Paladala Portal")
+        /// Toggle subtitle explaining what gets uploaded.
+        static let opspadToggleHint = String(localized: "settings.opspadToggleHint", defaultValue: "批量上传 .NETW/.AUTH/.PLAY 类别日志到你专属的 Cloudflare Worker")
+        /// Section header for the developer-only settings.
+        static let developerSectionTitle = String(localized: "settings.developerSectionTitle", defaultValue: "开发者选项")
+        /// Footer note clarifying the toggle's default-off state
+        /// and the local retention guarantee.
+        static let opspadSectionFooter = String(localized: "settings.opspadSectionFooter", defaultValue: "默认关闭。开启后，应用会把网络/认证/播放等诊断日志批量加密签名后上传到你专属的 Cloudflare Worker。本地依然保留完整的运行日志。")
     }
 
     // MARK: - About page
