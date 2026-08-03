@@ -1,0 +1,45 @@
+//
+//  Opspad.xcconfig.example
+//  Paladala
+//
+//  Template for the Paladala Portal reporter build settings.
+//  This file IS COMMITTED; copy it to the gitignored
+//  `Opspad.Debug.xcconfig` (and `Opspad.Release.xcconfig`)
+//  for your local build.
+//
+
+// HOW TO GENERATE THE SECRET
+// ==========================
+// Run:
+//   openssl rand -hex 32
+//
+// Output: a 64-character hex string.  Use it for both:
+//
+// 1. Worker (one-time, production):
+//      cd portal/worker
+//      npx wrangler secret put HMAC_SECRET
+//      # paste the hex when prompted
+//
+// 2. iOS Debug + Release xcconfigs:
+//      OPSPAD_HMAC_SECRET = <the hex>
+//    in BOTH ios/Paladala/Config/Opspad.Debug.xcconfig
+//    AND  ios/Paladala/Config/Opspad.Release.xcconfig
+//
+// The two files are gitignored — only the .example is committed.
+// Worker verifies HMAC over X-Timestamp + "." + body, matching
+// Diag/HMAC.swift's signing input byte-for-byte.
+//
+// ENDPOINT
+// ========
+// Debug:  http://localhost:8787      (wrangler dev)
+// Release: https://portal-api.darren.qzz.io
+//
+// ENABLED KEY
+// ===========
+// UserDefaults key the Settings toggle writes to.
+// Don't change unless you know why.
+//
+
+OPSPAD_HMAC_SECRET = 74be18d236ba377705e6c37a0862fe104a175ee53f0521edbd3cd11de4c7bee8
+OPSPAD_ENDPOINT = http://localhost:8787
+OPSPAD_ENABLED_KEY = diag.ops.enabled
