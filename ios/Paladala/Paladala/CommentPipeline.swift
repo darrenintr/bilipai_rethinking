@@ -556,15 +556,41 @@ struct AnonymousMainEndpoint: CommentEndpoint {
     func fetchPage(aid: Int, sort: CommentSort, cursor: CommentCursor) async throws -> CommentPage? {
         // Cursor kind guard. The /main endpoint uses
         // `pagination_str` (the opaque token) just like the
-        // WBI path. A .pn cursor (from a previous legacy
-        // fetch) doesn't translate; bail so the orchestrator
-        // can try LegacyPnEndpoint.
+        // WBI path. We accept both `.offset` (the native
+        // shape) and `.pn(1)` (the legacy endpoint's start
+        // marker, treated as `offset = ""` — same
+        // cross-endpoint silent-gate fallback that
+        // `WbiSignedEndpoint` already uses).
+        //
+        // Why accept .pn(1)? The repository's chain is
+        // walked in order: LegacyPn → AppSigned → **us** →
+        // WbiSigned. When the legacy endpoint silently
+        // gates (returns a valid `page` cursor with
+        // `replies = 0` but `allCount > 0`) the
+        // orchestrator falls through to the next endpoint
+        // carrying the original `.pn(1)` cursor — it does
+        // NOT translate the cursor between endpoints. If
+        // `WbiSignedEndpoint` were the only /offset-shaped
+        // endpoint, the chain would work, but `WbiSigned`
+        // then hits `/wbi/main` (which the v0.5.21 build
+        // 321 diagnostic showed returns explicit -403 with
+        // the BiliDroid UA). Adding `AnonymousMainEndpoint`
+        // between the app-signed and WBI paths means the
+        // chain now has *two* /offset-shaped endpoints —
+        // and only the first one (`us`) will see the
+        // `.pn(1)` cursor. So we must accept it too, or the
+        // orchestrator skips us entirely and the WBI -403
+        // is the only outcome. Deeper pages (`pn > 1`)
+        // still bail: the pn→offset mapping is not
+        // lossless and a `.pn(N)` cursor has no meaning on
+        // the opaque `pagination_str` token stream.
         let offset: String
         switch cursor {
         case .offset(let value):
             offset = value
-        case .pn:
-            return nil
+        case .pn(let value):
+            guard value == 1 else { return nil }
+            offset = ""
         case .end:
             return nil
         }
