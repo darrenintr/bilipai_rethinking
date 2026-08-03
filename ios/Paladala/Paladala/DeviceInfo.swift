@@ -105,7 +105,9 @@ final class DeviceInfo: ObservableObject {
     /// as the failing install: both work).
     nonisolated var userAgent: String {
         let version = ProcessInfo.processInfo.operatingSystemVersion
-        let iosVersion = "\(version.majorVersion).\(version.minorVersion)"
+        let major = version.majorVersion
+        let minor = version.minorVersion
+        let iosVersion = "\(major).\(minor)"
         // 18_0 / 18.0 / 15E148 matches the iOS-Safari Mobile
         // shape `pilipala` ships in `Request.headerUa(type:
         // 'mob')` for `Platform.isIOS`. B站's client-fingerprint
@@ -114,7 +116,8 @@ final class DeviceInfo: ObservableObject {
         // official iOS client" vs. third-party native clients
         // (which would normally ship `bili-universal/...` or
         // a custom UA).
-        return "Mozilla/5.0 (iPhone; CPU iPhone OS \(iosVersion.replace(".", "_")) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(iosVersion) Mobile/15E148 Safari/604.1"
+        let iosVersionUnderscored = iosVersion.replacingOccurrences(of: ".", with: "_")
+        return "Mozilla/5.0 (iPhone; CPU iPhone OS \(iosVersionUnderscored) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(iosVersion) Mobile/15E148 Safari/604.1"
     }
 
     /// Start the path monitor.  Idempotent.  We call this from
