@@ -1,0 +1,8 @@
+name = "paladala-portal"
+compatibility_date = "2025-05-01"
+pages_build_output_dir = "./dist"
+
+# Non-secret env. In production, override `PUBLIC_WORKER_URL` to the
+# deployed worker URL (e.g. https://paladala-portal.<account>.workers.dev).
+[vars]
+PUBLIC_WORKER_URL = "http://localhost:8787"

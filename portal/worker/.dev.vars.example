@@ -1,0 +1,5 @@
+# Copy this file to `.dev.vars` for local development. Never commit `.dev.vars`.
+HMAC_SECRET=replace-with-a-random-string-min-16-chars
+# Optional: TG fan-out
+# TG_BOT_TOKEN=
+# TG_CHAT_ID=

@@ -1,0 +1,127 @@
+---
+import { fetchErrorDetail, formatTimestamp } from '../../lib/worker';
+import type { ReportRecord } from '../../lib/types';
+
+const idParam = Astro.params.id;
+const id = Number(idParam);
+
+if (!Number.isFinite(id) || id <= 0) {
+  return new Response('Invalid id', { status: 400 });
+}
+
+let report: ReportRecord | null = null;
+let loadError: string | null = null;
+try {
+  report = await fetchErrorDetail(id);
+} catch (e) {
+  loadError = e instanceof Error ? e.message : String(e);
+  if (loadError.includes('not found')) {
+    return new Response('Report not found', { status: 404 });
+  }
+}
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Report #{id} - Paladala Portal</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+        margin: 0;
+        padding: 2.5rem 1.5rem;
+        max-width: 960px;
+        margin-inline: auto;
+        line-height: 1.5;
+      }
+      nav.crumbs { font-size: 0.875rem; color: #888; margin-bottom: 1rem; }
+      nav.crumbs a { color: inherit; }
+      h1 { margin: 0 0 0.5rem 0; font-size: 1.5rem; font-family: ui-monospace, monospace; }
+      .summary { padding: 1.25rem; border: 1px solid rgba(128, 128, 128, 0.18); border-radius: 12px; background: rgba(128, 128, 128, 0.04); margin-bottom: 1.5rem; }
+      .summary .pill { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 999px; background: rgba(220, 80, 80, 0.12); color: #c45858; font-family: ui-monospace, monospace; font-size: 0.75rem; }
+      .summary .msg { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.95rem; margin: 0.5rem 0 0.75rem 0; }
+      .summary .meta { color: #888; font-size: 0.875rem; }
+      .summary .meta code { font-size: 0.85em; }
+      .grid {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.5rem 1.25rem;
+        margin: 1rem 0;
+        font-size: 0.875rem;
+      }
+      .grid dt { color: #888; }
+      .grid dd { margin: 0; font-family: ui-monospace, 'SF Mono', monospace; }
+      .actions { display: flex; gap: 0.75rem; margin-top: 1rem; }
+      .btn { padding: 0.5rem 0.875rem; border-radius: 8px; border: 1px solid rgba(128,128,128,0.25); background: rgba(128,128,128,0.06); color: inherit; text-decoration: none; font-size: 0.875rem; cursor: pointer; font-family: inherit; }
+      .btn:hover { background: rgba(128,128,128,0.12); }
+      pre.stack {
+        background: rgba(128,128,128,0.06);
+        border: 1px solid rgba(128,128,128,0.15);
+        border-radius: 8px;
+        padding: 0.875rem 1rem;
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 0.8125rem;
+        line-height: 1.5;
+        overflow-x: auto;
+        white-space: pre;
+        margin: 0;
+      }
+      h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin: 1.75rem 0 0.625rem 0; }
+      .empty { padding: 3rem 1rem; text-align: center; color: #888; }
+      .error { padding: 1rem; background: rgba(220, 80, 80, 0.08); border: 1px solid rgba(220, 80, 80, 0.2); border-radius: 8px; color: #c45858; }
+    </style>
+  </head>
+  <body>
+    <nav class="crumbs"><a href="/">&larr; Back to dashboard</a></nav>
+
+    {loadError && (
+      <div class="error">Failed to load report: <code>{loadError}</code></div>
+    )}
+
+    {!report && !loadError && (
+      <div class="empty">Report #{id} not found.</div>
+    )}
+
+    {report && (
+      <>
+        <h1>#{report.id}</h1>
+        <div class="summary">
+          <span class="pill">{report.error_class}</span>
+          <p class="msg">{report.message}</p>
+          <div class="meta">
+            <strong>v{report.app_version}</strong> (build <code>{report.app_build}</code>)
+            &middot; {report.os_version}
+            {report.device_model && (<> &middot; {report.device_model}</>)}
+            {report.locale && (<> &middot; {report.locale}</>)}
+            &middot; <span title="occurrences">x{report.count}</span>
+            {report.resolved === 1 && (<> &middot; <strong style="color:#4caf50">resolved</strong></>)}
+          </div>
+
+          <dl class="grid">
+            <dt>First seen</dt><dd>{formatTimestamp(report.first_seen)}</dd>
+            <dt>Last seen</dt><dd>{formatTimestamp(report.last_seen)}</dd>
+            <dt>Received</dt><dd>{formatTimestamp(report.received_at)}</dd>
+            <dt>Session</dt><dd>{report.session_id ?? '—'}</dd>
+            <dt>Fingerprint</dt><dd style="word-break: break-all;">{report.fingerprint}</dd>
+          </dl>
+
+          {report.r2_signed_url && (
+            <div class="actions">
+              <a class="btn" href={report.r2_signed_url}>Download raw dump</a>
+            </div>
+          )}
+        </div>
+
+        {report.stacktrace && (
+          <>
+            <h2>Stacktrace</h2>
+            <pre class="stack">{report.stacktrace}</pre>
+          </>
+        )}
+      </>
+    )}
+  </body>
+</html>

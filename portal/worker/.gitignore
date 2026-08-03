@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+.dev.vars
+dev.db
+dev.db-journal
+dev.db-shm
+dev.db-wal
+dist/
+*.log
+.DS_Store

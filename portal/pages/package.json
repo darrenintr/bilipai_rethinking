@@ -1,0 +1,20 @@
+{
+  "name": "paladala-portal-pages",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "deploy": "wrangler pages deploy ./dist --project-name=paladala-portal"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^11.2.0",
+    "astro": "^4.16.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "wrangler": "^3.78.0"
+  }
+}

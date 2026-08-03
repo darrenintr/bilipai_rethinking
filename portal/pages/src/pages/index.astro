@@ -1,0 +1,136 @@
+---
+import { fetchErrors, formatTimestamp, truncate } from '../lib/worker';
+
+// SSR-style data load: works in dev, and at build time in static mode.
+// In static mode, this runs at build time — for "always-fresh" data, see
+// the `live()` helper below which fetches client-side after page load.
+let reports: import('../lib/types').ReportRecord[] = [];
+let loadError: string | null = null;
+try {
+  const res = await fetchErrors({ limit: 50 });
+  reports = res.reports;
+} catch (e) {
+  loadError = e instanceof Error ? e.message : String(e);
+}
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Paladala Developer Portal</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+        margin: 0;
+        padding: 2.5rem 1.5rem;
+        max-width: 1280px;
+        margin-inline: auto;
+        line-height: 1.5;
+      }
+      h1 { margin: 0 0 0.25rem 0; font-size: 1.75rem; }
+      .meta { color: #888; font-size: 0.875rem; margin-bottom: 1.5rem; }
+      .meta code { font-size: 0.85em; }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+      }
+      .stat {
+        padding: 0.875rem 1rem;
+        border: 1px solid rgba(128, 128, 128, 0.18);
+        border-radius: 12px;
+        background: rgba(128, 128, 128, 0.04);
+      }
+      .stat .label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+      .stat .value { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 0.125rem; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 0.625rem 0.75rem; border-bottom: 1px solid rgba(128,128,128,0.15); }
+      th { font-weight: 600; font-size: 0.8125rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+      td.message { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.875rem; }
+      td.count { font-variant-numeric: tabular-nums; text-align: right; }
+      .pill { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 999px; background: rgba(128,128,128,0.12); font-size: 0.75rem; font-family: ui-monospace, monospace; }
+      .pill.error { background: rgba(220, 80, 80, 0.12); color: #c45858; }
+      .pill.resolved { background: rgba(80, 180, 80, 0.12); color: #4caf50; }
+      a { color: inherit; }
+      a:hover { text-decoration: underline; }
+      .empty { padding: 3rem 1rem; text-align: center; color: #888; }
+      .error { padding: 1rem; background: rgba(220, 80, 80, 0.08); border: 1px solid rgba(220, 80, 80, 0.2); border-radius: 8px; color: #c45858; }
+    </style>
+  </head>
+  <body>
+    <h1>Paladala Developer Portal</h1>
+    <p class="meta">
+      Phase 1 · Triage MVP · Build at <code id="built-at">—</code>
+    </p>
+
+    <div class="stats" id="stats">
+      <div class="stat"><div class="label">Reports</div><div class="value" id="stat-total">—</div></div>
+      <div class="stat"><div class="label">Unique</div><div class="value" id="stat-unique">—</div></div>
+      <div class="stat"><div class="label">Open</div><div class="value" id="stat-open">—</div></div>
+      <div class="stat"><div class="label">Last 24h</div><div class="value" id="stat-recent">—</div></div>
+    </div>
+
+    {loadError && (
+      <div class="error">Failed to load reports: <code>{loadError}</code></div>
+    )}
+
+    {reports.length === 0 && !loadError && (
+      <div class="empty">No reports yet. Once users start hitting the report button, you'll see them here.</div>
+    )}
+
+    {reports.length > 0 && (
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Class</th>
+            <th>Message</th>
+            <th>Build</th>
+            <th>OS</th>
+            <th>Last seen</th>
+            <th style="text-align:right">Count</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reports.map((r) => (
+            <tr>
+              <td><a href={`/error/${r.id}`}>#{r.id}</a></td>
+              <td><span class="pill error">{r.error_class}</span></td>
+              <td class="message">{truncate(r.message, 100)}</td>
+              <td><code>{r.app_build}</code></td>
+              <td>{r.os_version}</td>
+              <td>{formatTimestamp(r.last_seen)}</td>
+              <td class="count">{r.count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+
+    <script>
+      // Hydrate stats with aggregate counts. In a future phase, add a
+      // /api/stats endpoint to back this; for now derive from the same
+      // /api/errors list (it already returns up to 50 rows).
+      document.getElementById('built-at')!.textContent = new Date().toISOString();
+      const rows = Array.from(document.querySelectorAll('tbody tr'));
+      const total = rows.length;
+      const unique = new Set(rows.map((r) => r.querySelector('td:nth-child(4)')!.textContent)).size;
+      const open = rows.length; // all unresolved for Phase 1
+      const recentCutoff = Date.now() - 86_400_000;
+      const recent = rows.filter((r) => {
+        const tds = r.querySelectorAll('td');
+        const lastText = tds[tds.length - 2]?.textContent ?? '';
+        const d = new Date(lastText + ' UTC');
+        return !isNaN(d.getTime()) && d.getTime() > recentCutoff;
+      }).length;
+      document.getElementById('stat-total')!.textContent = String(total);
+      document.getElementById('stat-unique')!.textContent = String(unique);
+      document.getElementById('stat-open')!.textContent = String(open);
+      document.getElementById('stat-recent')!.textContent = String(recent);
+    </script>
+  </body>
+</html>

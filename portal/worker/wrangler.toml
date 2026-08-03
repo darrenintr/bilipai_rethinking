@@ -1,0 +1,58 @@
+name = "paladala-portal"
+main = "src/index.ts"
+compatibility_date = "2025-05-01"
+
+# D1 binding (run `wrangler d1 create paladala-portal` to get an id, paste below)
+[[d1_databases]]
+binding = "DB"
+database_name = "paladala-portal"
+database_id = "3f04d81c-3361-41fd-a6b7-a5555b6fcf08"
+
+# Same binding for the production env (wrangler 4.x does not
+# inherit bindings from the top level into named envs).
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "paladala-portal"
+database_id = "3f04d81c-3361-41fd-a6b7-a5555b6fcf08"
+
+# R2 binding (run `wrangler r2 bucket create paladala-diagnostics`)
+[[r2_buckets]]
+binding = "DIAGNOSTICS"
+bucket_name = "paladala-diagnostics"
+
+# Same binding for the production env.
+[[env.production.r2_buckets]]
+binding = "DIAGNOSTICS"
+bucket_name = "paladala-diagnostics"
+
+# KV (run `wrangler kv namespace create ALLOWLIST`); dev uses miniflare's
+# in-memory KV so no id is required for `wrangler dev`
+# [[kv_namespaces]]
+# binding = "ALLOWLIST"
+# id = "REPLACE_AFTER_wrangler_kv_create"
+
+# Non-secret config (visible in deployed code, do not put secrets here).
+# `ALLOWED_ORIGIN` is the Pages origin the dashboard SPA fetches from;
+# CORS preflight is honoured only for this value.  iOS ingest
+# (`POST /v1/report`) is unaffected by CORS so a stale value here
+# doesn't break the reporter — only the dashboard.
+#
+# Personal-tool setup: we use a single Worker (`paladala-portal`,
+# top-level deploy) instead of wrangler envs, so this value is what
+# the live Worker serves.  `wrangler dev` overrides it back to
+# `http://localhost:4321` automatically (Workers dev tools inject a
+# local origin).
+[vars]
+ENVIRONMENT = "production"
+MIN_APP_BUILD = "0.5.0"
+ALLOWED_ORIGIN = "https://paladala-portal.pages.dev"
+
+# Observability (Workers Logs)
+[observability]
+enabled = true
+
+# Secrets are set via `wrangler secret put` (prod) or `.dev.vars` (local dev).
+# Required:
+#   - HMAC_SECRET
+# Optional:
+#   - TG_BOT_TOKEN, TG_CHAT_ID  (fan-out backup to Telegram)
