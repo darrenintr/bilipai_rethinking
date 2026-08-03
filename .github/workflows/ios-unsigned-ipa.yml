@@ -327,6 +327,47 @@ jobs:
           echo "FFMPEG_LIB=${FFMPEG_DIR}/lib" >> "$GITHUB_ENV"
           echo "FFmpeg archives present at ${FFMPEG_DIR}/lib"
 
+      # ------------------------------------------------------------------
+      # Phase 2: Paladala Portal reporter — write the gitignored
+      # `Opspad.{Debug,Release}.xcconfig` files from the
+      # `OPSPAD_HMAC_SECRET` repo secret so the iOS reporter has a
+      # signing key at build time.  Without this step, both xcconfigs
+      # stay empty (they're gitignored) and the LogReporter actor is a
+      # permanent no-op (`OPSPAD_HMAC_SECRET == ""` fails the start()
+      # guard).
+      #
+      # Required repo secret: `OPSPAD_HMAC_SECRET` (64-char hex from
+      # `openssl rand -hex 32`).  Add at Settings → Secrets → Actions.
+      # Same value must also be set as `HMAC_SECRET` on the Worker via
+      # `wrangler secret put HMAC_SECRET`.
+      #
+      # The secret is passed via the step's `env:` block (not inline
+      # `${{ ... }}`) so a value containing `$`, backticks, or newlines
+      # cannot be parsed as live shell syntax.  Printf is used instead
+      # of heredoc to avoid the same injection surface.
+      # ------------------------------------------------------------------
+      - name: Write Opspad xcconfig from secret
+        env:
+          OPSPAD_HMAC_SECRET: ${{ secrets.OPSPAD_HMAC_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "$OPSPAD_HMAC_SECRET" ]; then
+            echo "::error::OPSPAD_HMAC_SECRET repo secret is not set. Add it in Settings → Secrets and Variables → Actions, or the Paladala Portal reporter will be a silent no-op in the shipped IPA."
+            exit 1
+          fi
+          mkdir -p ios/Paladala/Config
+          {
+            printf 'OPSPAD_HMAC_SECRET = %s\n'  "$OPSPAD_HMAC_SECRET"
+            printf 'OPSPAD_ENDPOINT = https://paladala-portal.darrenintr.workers.dev\n'
+            printf 'OPSPAD_ENABLED_KEY = diag.ops.enabled\n'
+          } > ios/Paladala/Config/Opspad.Release.xcconfig
+          {
+            printf 'OPSPAD_HMAC_SECRET = %s\n'  "$OPSPAD_HMAC_SECRET"
+            printf 'OPSPAD_ENDPOINT = http://localhost:8787\n'
+            printf 'OPSPAD_ENABLED_KEY = diag.ops.enabled\n'
+          } > ios/Paladala/Config/Opspad.Debug.xcconfig
+          echo "Wrote Opspad.{Debug,Release}.xcconfig from OPSPAD_HMAC_SECRET secret (length=${#OPSPAD_HMAC_SECRET})"
+
       - name: Build device app without signing
         run: |
           set -uo pipefail
