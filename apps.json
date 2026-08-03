@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-03T06:56:45Z",
-    "githubRunId": "30791658097",
-    "githubRunNumber": "602",
-    "githubSha": "6d608086a150f11dbc4c4e2478bcac5a4c78864c",
+    "generatedAt": "2026-08-03T07:14:53Z",
+    "githubRunId": "30792778649",
+    "githubRunNumber": "604",
+    "githubSha": "6bd394a543fb6a679c8f027fd75e0f5137d5cecf",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "324",
+          "date": "2026-08-03T07:14:53Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.24.324/Paladala-unsigned-v0.5.24.324.ipa",
+          "localizedDescription": "move FailableDecodable diag counter to file-scope enum\n\n\nSwift does not allow `static var` (a stored property)\ninside a generic type — only computed `static var` and\n`static let` are legal on a generic struct. The v0.5.24\nbuild 324 attempt failed with:\n\n  error: static stored properties not supported in\n         generic types\n   at CommentPipeline.swift:962:36\n  error: generic parameter 'T' could not be inferred\n   at CommentPipeline.swift:784:9   (the call site)\n\nThe fix is a non-generic file-scope enum\n(`FailableDecodableDiag`) that owns the\n`failureCount` mutable storage. The generic\n`FailableDecodable<T>` struct's `init(from:)` increments\n`FailableDecodableDiag.failureCount` and the comment\nfetch path resets it via\n`FailableDecodableDiag.failureCount = 0`. Same\nrate-limit contract (3 lines per fetch), just living\non a non-generic type. No behaviour change.",
+          "size": 4074918,
+          "version": "0.5.24"
+        },
         {
           "buildVersion": "323",
           "date": "2026-08-03T06:56:45Z",
@@ -221,6 +229,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 324 (6bd394a)",
+      "date": "2026-08-03T07:14:53Z",
+      "identifier": "v0.5.24.324",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.24.324",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.24.324"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 323 (6d60808)",
