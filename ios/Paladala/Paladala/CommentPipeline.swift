@@ -314,18 +314,37 @@ struct WbiSignedEndpoint: CommentEndpoint {
     let apiClient: BilibiliAPIClient
 
     func fetchPage(aid: Int, sort: CommentSort, cursor: CommentCursor) async throws -> CommentPage? {
-        // Only .offset cursors are understood here. A .pn cursor is
-        // legacy and belongs to the legacy endpoint.
+        // Only `.offset` cursors are understood here. A `.pn` cursor is
+        // normally legacy and belongs to the legacy endpoint.
+        //
+        // Cross-endpoint silent-gate fallback: when the legacy endpoint
+        // returns a non-nil page with `items: []` but `totalCount > 0`
+        // (the URLSession TLS-fingerprint 風控 B站 applies to non-Safari
+        // clients), the repository walks the chain to this endpoint
+        // with the same `.pn(1)` start cursor. The WBI page-1 shape is
+        // `pagination_str = {"offset":""}`, so accept `.pn(1)` here as
+        // the empty-offset page-1 fallback. Deeper pages (`pn > 1`) still
+        // fall through to the legacy endpoint because the pn→offset
+        // mapping is not lossless — a `.pn(N)` cursor is meaningless to
+        // B站's opaque offset token stream and silently re-issuing it
+        // here would risk duplicate pages after a successful WBI read.
         let offset: String
+        let isLegacyPn1Fallback: Bool
         switch cursor {
-        case .pn:
-            return nil
+        case .pn(let value):
+            guard value == 1 else { return nil }
+            offset = ""
+            isLegacyPn1Fallback = true
         case .offset(let value):
             offset = value
+            isLegacyPn1Fallback = false
         case .end:
             return nil
         }
         let paginationStr = "{\"offset\":\"\(offset)\"}"
+        if isLegacyPn1Fallback {
+            bpLog("commentsPage: WBI accepting legacy .pn(1) as offset='' (silent-gate fallback)")
+        }
         bpLog("commentsPage: fetching aid=\(aid) sort=\(sort) offset='\(offset)'")
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "type", value: "1"),
