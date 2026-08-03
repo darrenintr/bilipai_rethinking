@@ -178,6 +178,42 @@ struct PaladalaApp: App {
                     // cookieProvider closure captures it.
                     authStore.bootstrap()
 
+                    // Anonymous buvid3 capture. `BilibiliAPIClient
+                    // .generateMobileBuvid()` falls back to a
+                    // hard-coded "Paladala-iOS-Device-Seed" shared
+                    // by every install — B 站 server fingerprints
+                    // that seed and silently gates comment content
+                    // for anonymous users. The official iOS app and
+                    // every working third-party client (e.g.
+                    // guozhigq/pilipala) fetch a real
+                    // `/x/frontend/finger/spi` device fingerprint
+                    // on first launch and reuse it across requests.
+                    // Do the same here so anonymous reads stop
+                    // triggering the per-fingerprint silent gate.
+                    // Fire-and-forget so the first render does not
+                    // pay the network hop; the next comment fetch
+                    // (typically within a few hundred ms) sees the
+                    // persisted value via `DeviceInfo
+                    // .persistedBuvid3`. Errors are logged so a
+                    // regression is diagnosable from the in-app
+                    // log export.
+                    if DeviceInfo.shared.persistedBuvid3 == nil {
+                        let api = BilibiliAuthAPI()
+                        Task {
+                            do {
+                                let ids = try await api.fetchDeviceID()
+                                await MainActor.run {
+                                    DeviceInfo.shared.setBuvids(
+                                        buvid3: ids.buvid3,
+                                        buvid4: ids.buvid4
+                                    )
+                                }
+                            } catch {
+                                bpLog("PaladalaApp: anonymous buvid3 fetch failed: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+
                     // VIP-status silent refresh on launch. The
                     // login flow captures a one-shot snapshot of
                     // `data.vip` at the time of sign-in; if the

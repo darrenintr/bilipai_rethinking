@@ -39,6 +39,45 @@ final class DeviceInfo: ObservableObject {
 
     @Published private(set) var networkType: String = "Unknown"
 
+    /// B 站 device-fingerprint cookie (`buvid3`). Persisted in
+    /// `UserDefaults` because the value must survive across
+    /// reinstalls on iOS 26 (whose Keychain retains unsigned-IPA
+    /// entries across uninstall — a behavior change from iOS 18
+    /// and earlier). `UserDefaults` is wiped with the app bundle,
+    /// so the first launch after a reinstall will refresh the
+    /// value via `BilibiliAuthAPI.fetchDeviceID()`.
+    ///
+    /// The previous implementation in `BilibiliAPIClient
+    /// .generateMobileBuvid()` used a hard-coded
+    /// `"Paladala-iOS-Device-Seed"` shared by every install; B
+    /// 站 server fingerprints that seed and silently gates
+    /// comment content for anonymous users. The Mac browser,
+    /// iPhone official app, and iPad Safari all use a unique
+    /// per-install buvid3 fetched from
+    /// `/x/frontend/finger/spi` on first launch; Paladala
+    /// needs to do the same to escape the silent-gate.
+    nonisolated static let buvid3DefaultsKey = "paladala.device.buvid3"
+    nonisolated static let buvid4DefaultsKey = "paladala.device.buvid4"
+
+    /// Thread-safe read of the persisted buvid3. Callers in
+    /// non-MainActor contexts (e.g. `BilibiliAPIClient.get`)
+    /// can use this without hopping to the main actor. Returns
+    /// `nil` on first launch / after a fresh install.
+    nonisolated var persistedBuvid3: String? {
+        UserDefaults.standard.string(forKey: Self.buvid3DefaultsKey)
+    }
+
+    /// Persist a freshly-fetched SPI device-fingerprint pair.
+    /// `MainActor` because the underlying `UserDefaults` write
+    /// should be serialised with the rest of the @MainActor
+    /// state mutations during the launch sequence.
+    @MainActor
+    func setBuvids(buvid3: String, buvid4: String) {
+        UserDefaults.standard.set(buvid3, forKey: Self.buvid3DefaultsKey)
+        UserDefaults.standard.set(buvid4, forKey: Self.buvid4DefaultsKey)
+        bpLog("DeviceInfo: buvid3 captured, length=\(buvid3.count)")
+    }
+
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "Paladala.deviceInfo.net")
     private var started = false

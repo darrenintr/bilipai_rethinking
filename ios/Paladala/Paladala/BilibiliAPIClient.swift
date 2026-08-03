@@ -408,7 +408,28 @@ final class BilibiliAPIClient: @unchecked Sendable {
         
         // Mobile BUVID starts with XY (MAC) or XX (ID). Official iOS app
         // typically uses XY + MD5 hash.
-        let effectiveBuvid = config.buvid3?.hasPrefix("XY") == true ? config.buvid3! : generateMobileBuvid()
+        let effectiveBuvid: String
+        if let stored = config.buvid3, stored.hasPrefix("XY"), stored.count > 30 {
+            effectiveBuvid = stored
+        } else if let deviceBuvid = DeviceInfo.shared.persistedBuvid3,
+                  deviceBuvid.hasPrefix("XY"), deviceBuvid.count > 30 {
+            // Anonymous fallback path. The legacy
+            // `generateMobileBuvid()` used a hard-coded
+            // "Paladala-iOS-Device-Seed" shared by every
+            // install — B 站 server fingerprints that seed
+            // and silently gates comment content. Once
+            // `DeviceInfo.setBuvids(buvid3:buvid4:)` has
+            // captured a real SPI-fetched fingerprint on
+            // launch, prefer it. Falls through to
+            // `generateMobileBuvid()` only when the launch
+            // fetch is still in flight (a few hundred ms on
+            // cold start) or has failed — strictly better
+            // than returning a wrong buvid3 that the
+            // server's per-SPI-fingerprint gate keys on.
+            effectiveBuvid = deviceBuvid
+        } else {
+            effectiveBuvid = generateMobileBuvid()
+        }
         let personalMid = config.mid > 0 ? "\(config.mid)" : nil
 
         var queryItems = [
