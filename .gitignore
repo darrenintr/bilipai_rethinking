@@ -118,6 +118,14 @@ docs/*
 !docs/superpowers/
 !docs/superpowers/specs/*.md
 !docs/superpowers/plans/*.md
+!docs/portal/
+!docs/portal/specs/*.md
+!docs/portal/plans/*.md
+
+# Per-developer secrets for the Paladala Portal reporter.
+# The .example is committed; the real xcconfigs are not.
+ios/Paladala/Config/Opspad.Debug.xcconfig
+ios/Paladala/Config/Opspad.Release.xcconfig
 # Per-version release notes for the AltSource
 # manifest. Written by the iOS CI on every build (see
 # .github/workflows/ios-unsigned-ipa.yml "Extract clean
