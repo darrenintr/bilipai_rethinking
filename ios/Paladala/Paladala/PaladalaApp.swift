@@ -178,6 +178,30 @@ struct PaladalaApp: App {
                     // cookieProvider closure captures it.
                     authStore.bootstrap()
 
+                    // PR-fix-2026-08-03: iOS 26 retains unsigned-IPA
+                    // Keychain entries across uninstall (verified on
+                    // build 23G5057c, iPadOS 26.6). A user who logged
+                    // in on a build that did not capture `access_key`
+                    // (pre-v0.5.16 web-QR flow) will see their old
+                    // account restored on the next install — and the
+                    // comment pipeline's AppSignedEndpoint silently
+                    // skips because the stored access_key is nil. The
+                    // app then falls through to the WBI / legacy paths
+                    // which B站 has also started silently gating. To
+                    // make the user-visible failure actionable, auto-
+                    // present the login sheet on launch whenever the
+                    // active account lacks an access_key. The user
+                    // scans the same QR as before; behind the scenes
+                    // the v0.5.16 TV endpoint captures a real
+                    // `access_token`, completeLogin writes it back to
+                    // the Keychain, and AppSignedEndpoint starts
+                    // firing on the next comments load. No user
+                    // button hunt; the prompt is the screen.
+                    if let acct = authStore.activeAccount, !acct.hasAccessKey {
+                        bpLog("PaladalaApp: active account mid=\(acct.mid) missing access_key — auto-presenting login sheet")
+                        router.isLoginSheetPresented = true
+                    }
+
                     // VIP-status silent refresh on launch. The
                     // login flow captures a one-shot snapshot of
                     // `data.vip` at the time of sign-in; if the
