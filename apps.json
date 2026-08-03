@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-03T06:47:55Z",
-    "githubRunId": "30791191162",
-    "githubRunNumber": "601",
-    "githubSha": "fb17f023680cf7584c57d2d836e2e03f5e05198d",
+    "generatedAt": "2026-08-03T06:56:45Z",
+    "githubRunId": "30791658097",
+    "githubRunNumber": "602",
+    "githubSha": "6d608086a150f11dbc4c4e2478bcac5a4c78864c",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "323",
+          "date": "2026-08-03T06:56:45Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.23.323/Paladala-unsigned-v0.5.23.323.ipa",
+          "localizedDescription": "AnonymousMainEndpoint must accept .pn(1) cursor\n\n\nThe v0.5.22 build 322 diagnostic showed\n`commentsPage(legacy): HTTP success code=0 page.count=2080\nreplies=0` followed by `commentsPage: endpoint\nWbiSignedEndpoint threw (访问权限不足) — continuing`\n— but NO `commentsPage(anon-main):` log. The new\nendpoint was never reached.\n\nRoot cause: the chain walks LegacyPn → AppSigned →\nAnonymousMain → WbiSigned, and when the legacy\nendpoint silently gates (empty `replies` + non-zero\n`allCount`) the orchestrator falls through to the next\nendpoint carrying the original `.pn(1)` cursor — it\ndoes NOT translate the cursor between endpoints. My\n`AnonymousMainEndpoint` cursor guard rejected `.pn`\ncursors with `return nil`, so the orchestrator skipped\nit and went straight to WbiSigned, which is the very\n/WBI/ path we know returns -403.\n\nThe legacy /pn(1)/ start cursor IS the WBI\nsilent-gate fallback shape (`pagination_str = {\"offset\":\"\"}`)\n— `WbiSignedEndpoint` already accepts it for exactly\nthis reason. `AnonymousMainEndpoint` should too, since\nboth endpoints share the same `pagination_str` cursor\nshape. Accept `.pn(1)` as `offset = \"\"`; deeper\n`.pn(N)` pages still bail because the pn→offset\nmapping is not lossless.\n\nAfter this fix the chain becomes:\n  legacy (empty/silent)\n  → appSigned (decline — no access_key)\n  → **us (try /main with offset=\"\")**\n  → wbiSigned (try /wbi/main with offset=\"\")\n\nSo a logged-in user will hit the new anonymous path\nbefore the WBI fallback, and a not-logged-in user\nwill hit it as their primary path.",
+          "size": 4071923,
+          "version": "0.5.23"
+        },
         {
           "buildVersion": "322",
           "date": "2026-08-03T06:47:55Z",
@@ -213,6 +221,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 323 (6d60808)",
+      "date": "2026-08-03T06:56:45Z",
+      "identifier": "v0.5.23.323",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.23.323",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.23.323"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 322 (fb17f02)",
