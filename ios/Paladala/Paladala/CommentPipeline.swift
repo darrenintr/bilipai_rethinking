@@ -24,8 +24,9 @@
 //   3. `LegacyPnEndpoint`         — `/x/v2/reply` (pn-based, anonymous-friendly)
 //   4. `AppSignedEndpoint`        — `/x/v2/reply` (appkey+sign+access_key)
 //   5. `WbiSignedEndpoint`        — `/x/v2/reply/wbi/main` (silent-gate aware)
-//   6. `CommentRepository`        — orchestrator that walks the chain
-//   7. DTO / decode helpers       — shared by all three endpoints
+//   6. `AnonymousMainEndpoint`    — `/x/v2/reply/main` (PiliNara anonymous shape)
+//   7. `CommentRepository`        — orchestrator that walks the chain
+//   8. DTO / decode helpers       — shared by all four endpoints
 
 import Foundation
 
@@ -485,7 +486,186 @@ struct WbiSignedEndpoint: CommentEndpoint {
     }
 }
 
-// MARK: - 6. CommentRepository
+// MARK: - 6. AnonymousMainEndpoint
+//
+// `/x/v2/reply/main` (NOT `/wbi/main`) with the request shape the
+// open-source B站 client `Starfallan/PiliNara` uses for its
+// anonymous read path (`lib/http/reply.dart` `ReplyHttp.replyList`,
+// the `!isLogin` branch, hitting `'${Api.replyList}/main'` where
+// `Api.replyList = '/x/v2/reply'` — so the resolved URL is
+// `/x/v2/reply/main`).
+//
+// PiliNara's anonymous options object is:
+//
+//   Options(
+//     headers: {...Constants.baseHeaders, 'cookie': ''},
+//     extra: {'account': const NoAccount()},
+//   )
+//
+// where `Constants.baseHeaders = {env: prod, app-key: android64,
+// x-bili-aurora-zone: sh001}` and the User-Agent is
+// `BiliDroid/2.0.1 (bbcallen@gmail.com) os/android ...` plus the
+// constant `x-bili-trace-id: 11111111...:11111111:0:0`. The query
+// payload is just `oid`, `type`, `pagination_str` and `mode`
+// (PiliNara always sends `mode: sort + 2` — `2` for time-sorted,
+// `3` for hot-sorted). No `wts` / `w_rid`, no appkey/sign, no
+// `access_key`, no SESSDATA.
+//
+// We already set the User-Agent / baseHeaders / traceId via
+// `buildSignedRequest`; this endpoint's job is just to flip the
+// `anonymousRequest` flag on `get<T>` (which drops `mobi_app=iphone`
+// / `platform=ios` / web `Origin` and forces an empty `Cookie`
+// header — see `BilibiliAPIClient.buildSignedRequest`) and to call
+// the `/main` endpoint instead of the `/wbi/main` one.
+//
+// Why a separate endpoint and not just a flag on the WBI one?
+// `WbiSignedEndpoint` was specifically designed to hit
+// `/x/v2/reply/wbi/main` with WBI sign + silent-gate recovery; mixing
+// the two would conflate "the `/wbi/main` validator accepts the
+// request and returns a valid cursor" with "the `/main` validator
+// returns the same shape but with content instead of an empty
+// replies list". A separate struct keeps the diagnostic logs
+// (`commentsPage(anon-main): ...` vs `commentsPage: ...`) easy to
+// grep and the next time B站 drifts `/wbi/main` or `/main` we have
+// only one site to fix in either direction.
+//
+// Why a new endpoint, period? `WbiSignedEndpoint` was hitting
+// `/x/v2/reply/wbi/main` and the v0.5.21 build 321 diagnostic
+// showed the server now returns explicit -403 "访问权限不足" with
+// 53 bytes on that path. The previous round stripped the
+// legacy-shape query params (`plat`, `web_location`, `seek_rpid`)
+// and BiliDroid UA, which was a delta but not the right one. The
+// `WbiSignedEndpoint` was effectively asking the server "treat this
+// as a WBI validator call" and the server said "no". The new
+// `/x/v2/reply/main` is the PiliNara-validated path; we expect
+// 200 OK + cursor + a non-empty `replies[]` if the fingerprint
+// shape is right. If it still returns -403 we'll know the
+// remaining delta is something else (cookie, accept-encoding,
+// brotli body, HTTP/2 fingerprint, etc.) because the
+// request shape will now be byte-for-byte equivalent to PiliNara's.
+//
+// Cursor: only `.offset` is understood — this endpoint's anonymous
+// shape is the same opaque-`pagination_str` cursor as the WBI path.
+// A `.pn` cursor (the legacy endpoint's) returns nil so the
+// repository walks the chain to LegacyPnEndpoint. This matches
+// `WbiSignedEndpoint`'s cursor-kind guard exactly.
+
+struct AnonymousMainEndpoint: CommentEndpoint {
+    let apiClient: BilibiliAPIClient
+
+    func fetchPage(aid: Int, sort: CommentSort, cursor: CommentCursor) async throws -> CommentPage? {
+        // Cursor kind guard. The /main endpoint uses
+        // `pagination_str` (the opaque token) just like the
+        // WBI path. A .pn cursor (from a previous legacy
+        // fetch) doesn't translate; bail so the orchestrator
+        // can try LegacyPnEndpoint.
+        let offset: String
+        switch cursor {
+        case .offset(let value):
+            offset = value
+        case .pn:
+            return nil
+        case .end:
+            return nil
+        }
+        let paginationStr = "{\"offset\":\"\(offset)\"}"
+        // PiliNara always sends `mode`; their default
+        // `sort` parameter is `1` and the wire value is
+        // `sort + 2`, so the default `mode` is `3` (hot).
+        // We map the same: `.hot` → 3, `.newest` → 2.
+        // There's no "no `mode`" option in PiliNara's
+        // anonymous shape, so unlike WbiSignedEndpoint we
+        // always append it.
+        let mode: Int = (sort == .newest) ? 2 : 3
+        bpLog("commentsPage(anon-main): fetching aid=\(aid) sort=\(sort) mode=\(mode) offset='\(offset)'")
+        let payload: APIResponse<CommentPayload>
+        do {
+            payload = try await apiClient.get(
+                baseURL: apiClient.baseURL,
+                path: "/x/v2/reply/main",
+                queryItems: [
+                    URLQueryItem(name: "oid", value: "\(aid)"),
+                    URLQueryItem(name: "type", value: "1"),
+                    URLQueryItem(name: "pagination_str", value: paginationStr),
+                    URLQueryItem(name: "mode", value: "\(mode)"),
+                ],
+                signWithWBI: false,
+                // Force the PiliNara anonymous request shape:
+                // drop the iOS identity headers, send an
+                // empty `Cookie` (so the SESSDATA in the
+                // user's cookie jar doesn't auto-classify the
+                // call as "logged-in third-party client" and
+                // route us to the gated branch).
+                anonymousRequest: true,
+                // Dump the raw response body so we can
+                // confirm the server is returning real
+                // content (vs another -403 envelope in a
+                // different shape). The dump goes to
+                // `diagLog(.playback, ...)` under
+                // `comments-raw-anon-main`; the byte count
+                // alone is a strong signal — a populated
+                // reply list is well over 4 KB.
+                dumpRawBody: true,
+                dumpTag: "comments-raw-anon-main"
+            )
+        } catch {
+            // Diagnostic pair with the "fetching" log so
+            // the failure mode is visible in the diagnostic
+            // export. We deliberately let the throw
+            // propagate so the repository walks the chain
+            // to the WBI endpoint — if `/main` rejects us
+            // with -403 the WBI path (or vice versa) is
+            // still worth trying on the same fetch.
+            bpLog("commentsPage(anon-main): fetch threw (\(error.localizedDescription))")
+            throw error
+        }
+        // The /main endpoint uses the same
+        // `CommentPayload` shape (replies / top_replies /
+        // upper.top / cursor) as /wbi/main, so the
+        // `CommentPageDecoder.decode(payload:)` from the
+        // WBI path works here unchanged.
+        if let val = payload.value {
+            let upperKeys = val.upperTop.map { "upperTop keys=\($0.values.count)" } ?? "nil"
+            let topReplies = val.topReplies.map { "topReplies items=\($0.items.count)" } ?? "nil"
+            let replies = val.replies.map { "replies items=\($0.items.count)" } ?? "nil"
+            let cursorDesc = val.cursor.map { c in
+                "cursor next=\(c.next ?? -1) allCount=\(c.allCount) isEnd=\(c.isEnd) paginationReply=\(c.paginationReply.map { "nextOffset=\($0.nextOffset)" } ?? "nil")"
+            } ?? "nil"
+            bpLog("commentsPage(anon-main): payload | upper=\(upperKeys) \(topReplies) \(replies) \(cursorDesc)")
+        } else {
+            bpLog("commentsPage(anon-main): payload | value=nil code=\(payload.code ?? -1) message=\(payload.message ?? "?")")
+        }
+        let result = CommentPageDecoder.decode(payload: payload.value)
+        let reportedTotal = result.totalCount
+        let merged = result.items
+        let nextCursor: CommentCursor? = result.next
+        let isEnd = result.isEnd
+        bpLog("commentsPage(anon-main): merged count=\(merged.count) allCount=\(reportedTotal) isEnd=\(isEnd) nextCursor=\(nextCursor.map(String.init(describing:)) ?? "nil")")
+        // We intentionally do NOT raise `missingIdentity` on
+        // the same `merged.isEmpty && reportedTotal > 0`
+        // pattern that `WbiSignedEndpoint` uses. The
+        // `missingIdentity` UX ("请登录后查看评论") is wrong
+        // for this endpoint — by design it IS the
+        // not-logged-in path. If the server returned
+        // 200 OK + cursor but still withheld the
+        // `replies[]`, fall through to the next endpoint
+        // (WBI) by returning the page as-is. The
+        // orchestrator will then walk to the WBI path and
+        // either succeed or surface the proper error from
+        // there. This keeps the per-endpoint error policy
+        // local instead of letting one endpoint's UX
+        // assumption leak into the next one's behavior.
+        let nextCursorOptional: CommentCursor? = (nextCursor == .end) ? nil : nextCursor
+        return CommentPage(
+            items: merged,
+            next: nextCursorOptional,
+            isEnd: isEnd,
+            totalCount: reportedTotal == 0 ? merged.count : reportedTotal
+        )
+    }
+}
+
+// MARK: - 7. CommentRepository
 //
 // Owns the ordered list of `CommentEndpoint` strategies and walks the
 // chain on every fetch. The ordering is meaningful:
@@ -500,7 +680,19 @@ struct WbiSignedEndpoint: CommentEndpoint {
 //      classified as a TV client by B站's server so it returns
 //      `replies: null` even on comment-rich videos; kept for forward
 //      compatibility in case B站 reopens the surface.
-//   3. WbiSignedEndpoint — the universal fallback. Includes the
+//   3. AnonymousMainEndpoint — the PiliNara-port anonymous read path
+//      at `/x/v2/reply/main`. Sits between the app-signed path
+//      (logged-in only) and the WBI path so a not-logged-in user
+//      hits it before the WBI fallback. Sends BiliDroid UA +
+//      empty cookie (no SESSDATA) so the server's per-client
+//      fingerprint layer classifies the call as a BiliDroid
+//      not-signed-in client. This is the path the v0.5.21 build
+//      321 diagnostic surfaced the need for: the WBI path
+//      (`/x/v2/reply/wbi/main`) now returns explicit -403
+//      "访问权限不足" with the BiliDroid UA, but the
+//      `/x/v2/reply/main` path is unsigned-friendly and (per
+//      PiliNara) returns the real reply list.
+//   4. WbiSignedEndpoint — the universal fallback. Includes the
 //      silent-gate recovery internally.
 //
 // The repository is an `actor` so the endpoint list is safe to mutate
@@ -517,7 +709,7 @@ actor CommentRepository {
         self.endpoints = endpoints
     }
 
-    /// Convenience factory that wires the three endpoints in the
+    /// Convenience factory that wires the four endpoints in the
     /// canonical order against the given `BilibiliAPIClient`.
     static func defaultChain(apiClient: BilibiliAPIClient) -> CommentRepository {
         let chain: [CommentEndpoint] = [
@@ -526,6 +718,15 @@ actor CommentRepository {
                 guard let apiClient else { return nil }
                 return await apiClient.currentAppConfig()?.accessKey
             },
+            // AnonymousMainEndpoint sits between the
+            // app-signed path (which only fires for
+            // logged-in users with an `access_key`) and
+            // the WBI path so a not-logged-in user hits
+            // it before the WBI fallback. The /main
+            // endpoint accepts unsigned requests and is
+            // the one PiliNara's anonymous path uses; it
+            // works anonymously, no SESSDATA required.
+            AnonymousMainEndpoint(apiClient: apiClient),
             WbiSignedEndpoint(apiClient: apiClient),
         ]
         return CommentRepository(endpoints: chain)
@@ -571,12 +772,12 @@ actor CommentRepository {
     }
 }
 
-// MARK: - 7. DTO / decode helpers
+// MARK: - 8. DTO / decode helpers
 //
-// Shared by all three endpoints. Living next to the endpoints means
+// Shared by all four endpoints. Living next to the endpoints means
 // a cursor-shape drift in B站's response only needs to be fixed in
 // one place — every endpoint already calls `CommentPageDecoder
-// .decode(...)` for the WBI/App payload shape, and
+// .decode(...)` for the WBI/App/AnonMain payload shape, and
 // `LegacyPnEndpoint.mergeReplies(...)` for the legacy payload shape.
 
 /// Mirrors `BilibiliAPIClient`'s `CommentPayload` (the WBI / app

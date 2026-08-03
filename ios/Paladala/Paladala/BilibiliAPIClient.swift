@@ -2169,12 +2169,30 @@ final class BilibiliAPIClient: @unchecked Sendable {
     /// so the -403 WBI retry path can rebuild the request with fresh
     /// keys without duplicating header/cookie/cache-bust logic. Throws
     /// `invalidURL` if the URLComponents can't be assembled.
+    ///
+    /// `anonymousRequest` strips the iOS-client identity signals and
+    /// forces an empty `Cookie` header — used by
+    /// `AnonymousMainEndpoint` (and any future "B站 app-fingerprint"
+    /// endpoint) to match the open-source B站 client
+    /// `Starfallan/PiliNara`'s anonymous request shape. With
+    /// BiliDroid User-Agent + `app-key` + `x-bili-aurora-zone` +
+    /// `x-bili-trace-id` already set, sending the iOS-shape
+    /// `mobi_app=iphone` / `platform=ios` / `Origin` headers at the
+    /// same time is a fingerprint contradiction: the server reads it
+    /// as a "third-party client pretending to be Android-HD" and
+    /// returns -403 "访问权限不足" on the WBI comments endpoint.
+    /// The empty `Cookie` is the matching PiliNara behavior — its
+    /// anonymous options object sets `cookie: ''` explicitly so the
+    /// server never sees a SESSDATA on the request (which would
+    /// otherwise re-classify the call as a logged-in third-party
+    /// client and gate it through a different code path).
     private func buildSignedRequest(
         baseURL: URL,
         path: String,
         queryItems: [URLQueryItem],
         signWithWBI: Bool,
-        referer: String
+        referer: String,
+        anonymousRequest: Bool = false
     ) async throws -> URLRequest {
         var items = queryItems
         let isAppAPI = baseURL.host?.contains("app.bilibili.com") == true
@@ -2259,9 +2277,24 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // `replies items=0 ... allCount=75` and a clean
         // `nextOffset` cursor — i.e. the server withheld
         // content but pretended the request succeeded.
-        request.setValue("iphone", forHTTPHeaderField: "mobi_app")
-        request.setValue("ios", forHTTPHeaderField: "platform")
-        if !isAppAPI {
+        //
+        // SKIPPED entirely when `anonymousRequest` is true —
+        // see the long comment on `buildSignedRequest` above.
+        // The new `AnonymousMainEndpoint` ships the
+        // BiliDroid/2.0.1 User-Agent + `app-key`/`env`/
+        // `x-bili-aurora-zone`/`x-bili-trace-id` headers, and
+        // also sending `mobi_app=iphone`+`platform=ios` would
+        // tell the server the client is simultaneously an
+        // iOS-shape and Android-HD-shape client, which the
+        // gating layer rejects with -403 on
+        // `/x/v2/reply/wbi/main` and (presumably) the same on
+        // `/x/v2/reply/main`. Drop the iOS headers for this
+        // path.
+        if !anonymousRequest {
+            request.setValue("iphone", forHTTPHeaderField: "mobi_app")
+            request.setValue("ios", forHTTPHeaderField: "platform")
+        }
+        if !anonymousRequest, !isAppAPI {
             // The web client also sends an `Origin` matching
             // the bilibili homepage — the official iOS app
             // omits it for the same hosts but its request is
@@ -2272,7 +2305,25 @@ final class BilibiliAPIClient: @unchecked Sendable {
             request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
         }
 
-        if let cookie = await currentCookieHeader() {
+        if anonymousRequest {
+            // Anonymous requests must NOT carry a SESSDATA.
+            // PiliNara's anonymous options object (its
+            // `lib/http/reply.dart` `Options(headers: {...,
+            // 'cookie': ''})`) sets the `Cookie` header to an
+            // explicit empty string rather than omitting the
+            // header. URLSession treats `setValue("", ...)` as
+            // "send the header with an empty value" which is
+            // exactly what the server expects. We mirror that
+            // so the request looks like a true
+            // not-signed-in caller, even when the user has an
+            // active SESSDATA in `HTTPCookieStorage` from a
+            // previous session — the WebKit/iOS cookie store
+            // would otherwise auto-attach the cookie and
+            // re-classify the request as a logged-in
+            // third-party client, which B站 gates
+            // differently.
+            request.setValue("", forHTTPHeaderField: "Cookie")
+        } else if let cookie = await currentCookieHeader() {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
 
@@ -2315,14 +2366,26 @@ final class BilibiliAPIClient: @unchecked Sendable {
         // Used to figure out what the playurl HLS slot is
         // actually called.
         dumpRawBody: Bool = false,
-        dumpTag: String = ""
+        dumpTag: String = "",
+        // Anonymous request mode — see the long comment on
+        // `buildSignedRequest`. Skips iOS-shape identity
+        // headers (`mobi_app=iphone`, `platform=ios`, web
+        // `Origin`) and forces an empty `Cookie` so the call
+        // looks like a BiliDroid-shape not-signed-in client,
+        // matching the open-source B站 client
+        // `Starfallan/PiliNara` (which uses this shape to
+        // reach the comments endpoint without an
+        // `access_key`). Used by `AnonymousMainEndpoint` to
+        // hit `/x/v2/reply/main` anonymously.
+        anonymousRequest: Bool = false
     ) async throws -> T {
         var request = try await buildSignedRequest(
             baseURL: baseURL,
             path: path,
             queryItems: queryItems,
             signWithWBI: signWithWBI,
-            referer: referer
+            referer: referer,
+            anonymousRequest: anonymousRequest
         )
 
         // Request-side log so a hung request leaves a trace
@@ -2392,7 +2455,8 @@ final class BilibiliAPIClient: @unchecked Sendable {
                 path: path,
                 queryItems: queryItems,
                 signWithWBI: signWithWBI,
-                referer: referer
+                referer: referer,
+                anonymousRequest: anonymousRequest
             )
             resolved = try await session.data(for: request)
         } else {
