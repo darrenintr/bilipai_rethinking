@@ -590,13 +590,6 @@ struct AnonymousMainEndpoint: CommentEndpoint {
                     URLQueryItem(name: "mode", value: "\(mode)"),
                 ],
                 signWithWBI: false,
-                // Force the PiliNara anonymous request shape:
-                // drop the iOS identity headers, send an
-                // empty `Cookie` (so the SESSDATA in the
-                // user's cookie jar doesn't auto-classify the
-                // call as "logged-in third-party client" and
-                // route us to the gated branch).
-                anonymousRequest: true,
                 // Dump the raw response body so we can
                 // confirm the server is returning real
                 // content (vs another -403 envelope in a
@@ -604,9 +597,19 @@ struct AnonymousMainEndpoint: CommentEndpoint {
                 // `diagLog(.playback, ...)` under
                 // `comments-raw-anon-main`; the byte count
                 // alone is a strong signal — a populated
-                // reply list is well over 4 KB.
+                // reply list is well over 4 KB. Must come
+                // before `anonymousRequest` because Swift
+                // requires labeled args to follow the
+                // declaration order in `get<T>`.
                 dumpRawBody: true,
-                dumpTag: "comments-raw-anon-main"
+                dumpTag: "comments-raw-anon-main",
+                // Force the PiliNara anonymous request shape:
+                // drop the iOS identity headers, send an
+                // empty `Cookie` (so the SESSDATA in the
+                // user's cookie jar doesn't auto-classify the
+                // call as "logged-in third-party client" and
+                // route us to the gated branch).
+                anonymousRequest: true
             )
         } catch {
             // Diagnostic pair with the "fetching" log so
