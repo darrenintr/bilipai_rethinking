@@ -387,17 +387,32 @@ struct BilibiliNavVIPLabelDTO: Codable, Sendable {
     }
 }
 
-/// Wire shape of `member.vip` returned by `/x/v2/reply/wbi/main`.
-/// Slimmer than the nav surface — no nested `label`, only the
-/// free-form `label` string. We decode it as a DTO and project
-/// to a `BiliVIPBadge` via the same surface as the nav shape.
+/// Wire shape of `member.vip` returned by `/x/v2/reply/wbi/main`
+/// and `/x/v2/reply/main`. Slimmer than the nav surface — the
+/// nav surface has a nested `label.theme_type`; the comment
+/// surface puts the free-form label either as a string OR as
+/// an object with a nested `text` field, depending on the
+/// endpoint:
+///   - `/x/v2/reply/wbi/main`: `label: "年度大会员"` (plain
+///     string, the historical shape)
+///   - `/x/v2/reply/main` (the PiliNara-port anonymous path
+///     added in v0.5.22): `label: { text: "年度大会员", path:
+///     "...", label_theme: "annual_vip", bg_color: "...", ... }`
+///
+/// Both shapes carry the same user-facing label text. The
+/// custom `init(from:)` below tries the string shape first and
+/// falls back to the object-with-`text` shape so the same
+/// DTO works for either endpoint and the legacy WBI path
+/// doesn't regress.
 struct BilibiliCommentVIPDTO: Codable, Sendable {
     let vipType: Int?
     let vipStatus: Int?
     let vipPayType: Int?
     let themeType: Int?
     /// Free-form label text only present on the comment surface
-    /// (e.g. "大会员", "年度大会员", "").
+    /// (e.g. "大会员", "年度大会员", ""). Pulled out of either
+    /// the bare-string shape or the `{text: "..."}` object
+    /// shape by the custom `init(from:)` below.
     let label: String?
 
     enum CodingKeys: String, CodingKey {
@@ -406,6 +421,50 @@ struct BilibiliCommentVIPDTO: Codable, Sendable {
         case vipPayType = "vip_pay_type"
         case themeType = "theme_type"
         case label
+    }
+
+    /// Sub-keys for the `{text: "..."}` object shape. Only
+    /// `text` is read; `path` / `label_theme` / `bg_color` /
+    /// etc. are not surfaced in the UI.
+    private enum LabelObjectKeys: String, CodingKey {
+        case text
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        vipType = try container.decodeIfPresent(Int.self, forKey: .vipType)
+        vipStatus = try container.decodeIfPresent(Int.self, forKey: .vipStatus)
+        vipPayType = try container.decodeIfPresent(Int.self, forKey: .vipPayType)
+        themeType = try container.decodeIfPresent(Int.self, forKey: .themeType)
+        // Try the WBI bare-string shape first. If that
+        // fails (e.g. the field is a JSON object instead of
+        // a string — the PiliNara-port /main endpoint does
+        // this), fall through to the object shape and pull
+        // `text` out. Either path leaves `label` nil if the
+        // field is absent or unrecognisable.
+        if let labelString = try? container.decode(String.self, forKey: .label) {
+            label = labelString
+        } else if let labelObject = try? container.nestedContainer(
+            keyedBy: LabelObjectKeys.self, forKey: .label
+        ) {
+            label = try? labelObject.decode(String.self, forKey: .text)
+        } else {
+            label = nil
+        }
+    }
+
+    /// Explicit memberwise init so the synthesized `init(from:)`
+    /// above doesn't shadow it — the synthesized Codable
+    /// `init(from:)` is the only decoder entry point, but
+    /// `init(vipType:vipStatus:vipPayType:themeType:label:)`
+    /// is convenient for tests and call sites that build a DTO
+    /// by hand (e.g. unit tests that don't need real wire data).
+    init(vipType: Int?, vipStatus: Int?, vipPayType: Int?, themeType: Int?, label: String?) {
+        self.vipType = vipType
+        self.vipStatus = vipStatus
+        self.vipPayType = vipPayType
+        self.themeType = themeType
+        self.label = label
     }
 
     func badge() -> BiliVIPBadge {
