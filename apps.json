@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-03T04:38:32Z",
-    "githubRunId": "30784682095",
-    "githubRunNumber": "595",
-    "githubSha": "c825b515cc8f5594d49264aed7c98f54c2721c1f",
+    "generatedAt": "2026-08-03T04:53:11Z",
+    "githubRunId": "30785523486",
+    "githubRunNumber": "597",
+    "githubSha": "c8e7c3c904f0301051665e3bfa956485d5fdddd4",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "319",
+          "date": "2026-08-03T04:53:11Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.19.319/Paladala-unsigned-v0.5.19.319.ipa",
+          "localizedDescription": "use non-mutating String replacement in userAgent\n\n\nThe v0.5.19 build failed to compile because DeviceInfo.userAgent\ncalled `iosVersion.replace(\".\", with: \"_\")` on a `let`\nconstant — `String.replace` is a mutating method and Swift\nrejects the call. Switched to the non-mutating\n`replacingOccurrences(of:with:)` form, hoisted the underscored\niOS version into a separate `let` so the format string can\nstill interpolate it. No behavior change otherwise.",
+          "size": 4069197,
+          "version": "0.5.19"
+        },
         {
           "buildVersion": "318",
           "date": "2026-08-03T04:38:32Z",
@@ -181,6 +189,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 319 (c8e7c3c)",
+      "date": "2026-08-03T04:53:11Z",
+      "identifier": "v0.5.19.319",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.19.319",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.19.319"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 318 (c825b51)",
