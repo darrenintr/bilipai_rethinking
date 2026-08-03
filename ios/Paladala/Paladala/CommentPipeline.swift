@@ -771,17 +771,17 @@ actor CommentRepository {
         guard !cursor.isEnd else {
             return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
         }
-        // Reset the `FailableDecodable` failure counter so
-        // the per-item diagnostic log surfaces the first
-        // 3 wire-shape mismatches of *this* fetch only.
-        // Without this, the cap is consumed by earlier
-        // fetches and a fresh comment-page decode drift
-        // (the v0.5.23 build 323 case — see
-        // `BilibiliCommentVIPDTO`) ships silently. The
-        // counter is process-global so the reset must be
-        // called explicitly at the boundary of every
-        // fetch.
-        FailableDecodable.resetFailureCount()
+        // Reset the `FailableDecodableDiag` failure
+        // counter so the per-item diagnostic log
+        // surfaces the first 3 wire-shape mismatches of
+        // *this* fetch only. Without this, the cap is
+        // consumed by earlier fetches and a fresh
+        // comment-page decode drift (the v0.5.23 build
+        // 323 case — see `BilibiliCommentVIPDTO`) ships
+        // silently. The counter is process-global so the
+        // reset must be called explicitly at the boundary
+        // of every fetch.
+        FailableDecodableDiag.failureCount = 0
         var lastError: Error?
         for endpoint in endpoints {
             do {
@@ -921,6 +921,28 @@ struct LenientCommentArray: Decodable, Sendable {
     }
 }
 
+/// File-scope rate-limit state for `FailableDecodable`'s
+/// per-item diagnostic log. Lives in a non-generic enum
+/// because Swift does not allow `static var` (a stored
+/// property) inside a generic struct — only computed
+/// properties are allowed there. Keeping the counter
+/// at file scope (instead of on the generic type) also
+/// makes the "one counter for the whole process" model
+/// obvious to the next reader. See the long comment on
+/// the call sites (`FailableDecodable.init` and
+/// `CommentRepository.fetchPage`) for the rate-limit
+/// contract.
+fileprivate enum FailableDecodableDiag {
+    /// Mutable counter (file-scope so a `static var` is
+    /// legal). Only touched on the caller of
+    /// `FailableDecodable.init` (decode thread) and
+    /// `FailableDecodable.resetFailureCount` (also
+    /// decode thread / main actor for the comment
+    /// repository) so no atomicity is needed — Swift
+    /// global `var` with single-thread access is fine.
+    nonisolated(unsafe) static var failureCount: Int = 0
+}
+
 struct FailableDecodable<T: Decodable>: Decodable {
     let value: T?
 
@@ -938,35 +960,20 @@ struct FailableDecodable<T: Decodable>: Decodable {
             // every comment into `value=nil` silently)
             // doesn't have to be re-debugged from
             // scratch. The log line is rate-limited to
-            // 3 per decoder run via the static counter
-            // below — a 20-comment page with all-failed
-            // items would otherwise spam the diagnostic
-            // with 20 identical lines. The first 3 are
-            // always enough to see the underlying error;
-            // the cap just stops the log file from
-            // blowing up.
-            FailableDecodable.failureCount += 1
-            if FailableDecodable.failureCount <= 3 {
+            // 3 per decoder run via the file-scope
+            // counter in `FailableDecodableDiag` — a
+            // 20-comment page with all-failed items
+            // would otherwise spam the diagnostic with
+            // 20 identical lines. The first 3 are always
+            // enough to see the underlying error; the
+            // cap just stops the log file from blowing
+            // up.
+            FailableDecodableDiag.failureCount += 1
+            if FailableDecodableDiag.failureCount <= 3 {
                 bpLog("FailableDecodable<\(String(describing: T.self))> dropped an element: \(error)")
             }
             self.value = nil
         }
-    }
-
-    /// Per-process counter so a burst of dropped items
-    /// doesn't spam the diagnostic. Reset on every
-    /// `FailableDecodable.resetFailureCount()` call from
-    /// the comment fetch path (one reset per fetchPage),
-    /// so the first 3 errors of every page are surfaced
-    /// and subsequent ones suppressed.
-    nonisolated(unsafe) static var failureCount: Int = 0
-
-    /// Call before starting a new decode run (e.g. at the
-    /// top of every comment fetchPage) so the first
-    /// 3 failures of each fetch are logged fresh, not
-    /// gated by failures from earlier fetches.
-    static func resetFailureCount() {
-        failureCount = 0
     }
 }
 
