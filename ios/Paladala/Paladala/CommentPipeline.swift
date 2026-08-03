@@ -346,15 +346,22 @@ struct WbiSignedEndpoint: CommentEndpoint {
             bpLog("commentsPage: WBI accepting legacy .pn(1) as offset='' (silent-gate fallback)")
         }
         bpLog("commentsPage: fetching aid=\(aid) sort=\(sort) offset='\(offset)'")
+        // Cross-reference: PiliNara's anonymous comment request
+        // (`lib/http/reply.dart` `ReplyHttp.replyList`, the
+        // anonymous branch) hits `/x/v2/reply/wbi/main` with
+        // only `oid`, `type`, `pagination_str`, and `mode`. The
+        // extra `plat=1`, `web_location=1315875`, `seek_rpid=`
+        // params Paladala had been sending came from the legacy
+        // web-client request shape; PiliNara's evidence says
+        // B站 treats those params as a per-platform fingerprint
+        // hint, and `1315875` (the iOS web client location) on
+        // an Android-HD UA triggers explicit -403 "访问权限不足"
+        // instead of the previous silent gate. Drop them to
+        // match the working anonymous path.
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "type", value: "1"),
             URLQueryItem(name: "oid", value: "\(aid)"),
-            URLQueryItem(name: "pagination_str", value: paginationStr),
-            URLQueryItem(name: "plat", value: "1"),
-            URLQueryItem(name: "web_location", value: "1315875"),
-            // The web client also sends an empty `seek_rpid` to align
-            // the WBI signature with the working browser request shape.
-            URLQueryItem(name: "seek_rpid", value: "")
+            URLQueryItem(name: "pagination_str", value: paginationStr)
         ]
         if let mode = sort.apiValue {
             queryItems.append(URLQueryItem(name: "mode", value: "\(mode)"))
