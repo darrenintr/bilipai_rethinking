@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-03T06:02:09Z",
-    "githubRunId": "30788680144",
-    "githubRunNumber": "599",
-    "githubSha": "b34d60989a226a3e93488f039849283915aac434",
+    "generatedAt": "2026-08-03T06:47:55Z",
+    "githubRunId": "30791191162",
+    "githubRunNumber": "601",
+    "githubSha": "fb17f023680cf7584c57d2d836e2e03f5e05198d",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "322",
+          "date": "2026-08-03T06:47:55Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.22.322/Paladala-unsigned-v0.5.22.322.ipa",
+          "localizedDescription": "pass dumpRawBody/dumpTag before anonymousRequest\n\n\nSwift requires labeled arguments to follow the declaration\norder in the callee. `get<T>` declares\n`dumpRawBody, dumpTag, anonymousRequest` in that order, so\nthe new `AnonymousMainEndpoint.fetchPage` call had to put\n`dumpRawBody: true, dumpTag: \"comments-raw-anon-main\"`\nbefore `anonymousRequest: true`. The v0.5.22 build 322\nattempt failed with:\n\n  error: argument 'dumpRawBody' must precede argument\n         'anonymousRequest'\n\nat CommentPipeline.swift:608:17. Reorder, push, CI\nre-runs. No logic change.",
+          "size": 4072094,
+          "version": "0.5.22"
+        },
         {
           "buildVersion": "321",
           "date": "2026-08-03T06:02:09Z",
@@ -205,6 +213,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 322 (fb17f02)",
+      "date": "2026-08-03T06:47:55Z",
+      "identifier": "v0.5.22.322",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.22.322",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.22.322"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 321 (b34d609)",
