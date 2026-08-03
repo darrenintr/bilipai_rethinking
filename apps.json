@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-03T03:52:02Z",
-    "githubRunId": "30782771347",
-    "githubRunNumber": "591",
-    "githubSha": "c28669f9dced6fc12ef56afb97cbad90c021fc0e",
+    "generatedAt": "2026-08-03T04:06:59Z",
+    "githubRunId": "30783386053",
+    "githubRunNumber": "592",
+    "githubSha": "85d1a830e8d6f4cad161e7dc9255da4535e844b4",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "316",
+          "date": "2026-08-03T04:06:59Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.16.316/Paladala-unsigned-v0.5.16.316.ipa",
+          "localizedDescription": "re-enable TV QR login to capture access_key\n\n\nThe web QR flow (LoginViewModel.start -> webQrcodeGenerate) issues\nSESSDATA only. The app/TV flow at /x/passport-tv-login/qrcode\nadditionally issues an access_token which the comment pipeline's\nAppSignedEndpoint consumes as the access_key query param. v0.5.12\n(8c3591fa) switched the login back to the web endpoint after\nverifying that TV-paired tokens triggered B站's TV-client\nclassification on the comments endpoint, but in v0.5.15 the legacy\nand WBI paths are now both silently gated by B站's URLSession\nfingerprint 風控. AppSignedEndpoint is the only path still serving\nreal comment lists to a third-party iOS client, so we have to give\nit the bearer token. Switch the QR generate + poll endpoints back\nto the app/TV variants and plumb result.accessToken into\ncompleteLogin. If TV classification still gates the comments\nendpoint, the next iteration swaps the minting appkey for a\nreverse-engineered iOS one.",
+          "size": 4077605,
+          "version": "0.5.16"
+        },
         {
           "buildVersion": "315",
           "date": "2026-08-03T03:52:02Z",
@@ -165,6 +173,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 316 (85d1a83)",
+      "date": "2026-08-03T04:06:59Z",
+      "identifier": "v0.5.16.316",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.16.316",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.16.316"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 315 (c28669f)",
