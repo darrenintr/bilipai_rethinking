@@ -4,10 +4,18 @@ import SwiftUI
 final class PaladalaRepository: ObservableObject, @unchecked Sendable {
     let apiClient: BilibiliAPIClient
     private let bundled: BundledFeedService
+    /// Comment fetch pipeline. Wraps the three upstream endpoint
+    /// strategies (legacy pn, appkey+sign, WBI sign) behind a single
+    /// `fetchPage(aid:sort:cursor:)` surface. The actor serializes
+    /// concurrent comment fetches so two `VideoDetailViewModel`s
+    /// navigating in rapid succession can never race over the
+    /// `wbiSigner.invalidate()` recovery path.
+    private let commentRepository: CommentRepository
 
     init(apiClient: BilibiliAPIClient, bundled: BundledFeedService = BundledFeedService()) {
         self.apiClient = apiClient
         self.bundled = bundled
+        self.commentRepository = CommentRepository.defaultChain(apiClient: apiClient)
     }
 
     /// Hook a callback that fires when the underlying `apiClient`
@@ -288,15 +296,32 @@ final class PaladalaRepository: ObservableObject, @unchecked Sendable {
         try await apiClient.livePlaybackURL(roomID: room.id)
     }
 
-    func commentsPage(for video: BiliVideo, nextOffset: String? = nil, sort: CommentSort = .hot) async throws -> CommentPage {
+    /// Fetch one page of comments for the given video.
+    ///
+    /// The `cursor` argument is the next-page marker returned by the
+    /// previous fetch (or `CommentCursor.start` for the first page).
+    /// The repository walks the comment endpoint chain and returns
+    /// the first non-empty result; the returned `next` field is the
+    /// cursor for the *next* page, or `nil` when the page is the
+    /// last one.
+    ///
+    /// `CommentCursor` is a sum type so a cursor from one endpoint
+    /// family (e.g. WBI's opaque `pagination_str`) cannot be silently
+    /// fed to another (legacy pn) — the policy is enforced at the
+    /// protocol layer, not by string inspection.
+    func commentsPage(
+        for video: BiliVideo,
+        sort: CommentSort = .hot,
+        cursor: CommentCursor = .start
+    ) async throws -> CommentPage {
         let aid = video.aid
         if aid > 0 {
-            return try await apiClient.commentsPage(aid: aid, nextOffset: nextOffset, sort: sort)
+            return try await commentRepository.fetchPage(aid: aid, sort: sort, cursor: cursor)
         }
         if !video.bvid.isEmpty {
             let detail = try await apiClient.videoDetail(bvid: video.bvid)
             if detail.aid > 0 {
-                return try await apiClient.commentsPage(aid: detail.aid, nextOffset: nextOffset, sort: sort)
+                return try await commentRepository.fetchPage(aid: detail.aid, sort: sort, cursor: cursor)
             }
         }
         // Neither the feed entry nor the video-detail fallback produced an

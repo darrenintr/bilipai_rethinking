@@ -1204,12 +1204,13 @@ struct BiliComment: Identifiable, Hashable, Sendable {
 struct CommentPage: Hashable, Sendable {
     let items: [BiliComment]
     /// Cursor for the next page, or `nil` when the page is the last.
-    /// For the main reply endpoint this is the opaque string from
-    /// `data.cursor.pagination_reply.next_offset` (round-tripped as
-    /// `pagination_str={"offset":"<next>"}`). The sub-reply endpoint
-    /// (`/x/v2/reply/reply`) does not round-trip this field — the
-    /// caller tracks its own `pn` page number.
-    let next: String?
+    /// The cursor is a `CommentCursor` sum type so the endpoint
+    /// family is part of the type system — a `.pn` cursor cannot be
+    /// fed into a WBI endpoint by mistake. The sub-reply endpoint
+    /// (`/x/v2/reply/reply`) does not round-trip this field —
+    /// `ReplyListViewModel.loadMore` tracks its own `pn` page
+    /// number, so the sub-reply path leaves `next` nil.
+    let next: CommentCursor?
     let isEnd: Bool
     let totalCount: Int
 }

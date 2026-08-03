@@ -14,6 +14,7 @@
 		100000000000000000000105 /* BilibiliAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000205 /* BilibiliAPIClient.swift */; };
 		100000000000000000000106 /* PaladalaRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000206 /* PaladalaRepository.swift */; };
 		100000000000000000000107 /* ViewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000207 /* ViewModels.swift */; };
+		100000000000000000000130 /* CommentPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000230 /* CommentPipeline.swift */; };
 		100000000000000000000108 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000208 /* RootView.swift */; };
 		100000000000000000000109 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000209 /* HomeView.swift */; };
 		FA00000000000000000000B1 /* UISearchFieldBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA00000000000000000000F1 /* UISearchFieldBridge.swift */; };
@@ -125,6 +126,7 @@
 		100000000000000000000205 /* BilibiliAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BilibiliAPIClient.swift; sourceTree = "<group>"; };
 		100000000000000000000206 /* PaladalaRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaRepository.swift; sourceTree = "<group>"; };
 		100000000000000000000207 /* ViewModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels.swift; sourceTree = "<group>"; };
+		100000000000000000000230 /* CommentPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentPipeline.swift; sourceTree = "<group>"; };
 		100000000000000000000208 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		100000000000000000000209 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		FA00000000000000000000F1 /* UISearchFieldBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UISearchFieldBridge.swift; sourceTree = "<group>"; };
@@ -277,6 +279,7 @@
 				100000000000000000000205 /* BilibiliAPIClient.swift */,
 				100000000000000000000206 /* PaladalaRepository.swift */,
 				100000000000000000000207 /* ViewModels.swift */,
+				100000000000000000000230 /* CommentPipeline.swift */,
 				100000000000000000000208 /* RootView.swift */,
 				100000000000000000000209 /* HomeView.swift */,
 				FA00000000000000000000F1 /* UISearchFieldBridge.swift */,
@@ -665,6 +668,7 @@
 				100000000000000000000105 /* BilibiliAPIClient.swift in Sources */,
 				100000000000000000000106 /* PaladalaRepository.swift in Sources */,
 				100000000000000000000107 /* ViewModels.swift in Sources */,
+				100000000000000000000130 /* CommentPipeline.swift in Sources */,
 				100000000000000000000108 /* RootView.swift in Sources */,
 				100000000000000000000109 /* HomeView.swift in Sources */,
 				FA00000000000000000000B1 /* UISearchFieldBridge.swift in Sources */,

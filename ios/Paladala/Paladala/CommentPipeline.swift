@@ -1,0 +1,776 @@
+// CommentPipeline.swift
+//
+// Single place that owns the comments fetch flow.
+//
+// Why this exists:
+//
+// Before the refactor, `BilibiliAPIClient.commentsPage(...)` was a single
+// 100+ line function that fanned out across three upstream endpoints
+// (legacy pn, appkey+sign, WBI sign) with two cursor shapes (Int pn and
+// opaque `pagination_str`) interleaved. The endpoint choice was wired
+// into control flow, the silent-gate retry was a nested closure, and
+// each path re-implemented the same dedup/merge logic.
+//
+// The new pipeline mirrors the layout used by the open-source Flutter
+// Bilibili client `guozhigq/pilipala` (their `reply/index.dart` flow):
+// a single typed cursor, a chain of swappable endpoints, and a single
+// decode helper that all three endpoints share. The ViewModel /
+// Repository no longer know which endpoint spoke back — they only see
+// `CommentPage` + `CommentCursor`.
+//
+// File layout:
+//   1. `CommentCursor`            — sum type for the page cursor
+//   2. `CommentEndpoint` protocol — one method, one result, swappable
+//   3. `LegacyPnEndpoint`         — `/x/v2/reply` (pn-based, anonymous-friendly)
+//   4. `AppSignedEndpoint`        — `/x/v2/reply` (appkey+sign+access_key)
+//   5. `WbiSignedEndpoint`        — `/x/v2/reply/wbi/main` (silent-gate aware)
+//   6. `CommentRepository`        — orchestrator that walks the chain
+//   7. DTO / decode helpers       — shared by all three endpoints
+
+import Foundation
+
+// MARK: - 1. CommentCursor
+//
+// Bilibili serves the comment list with two incompatible cursor shapes:
+//
+//   • Legacy `/x/v2/reply` accepts an integer `pn` page number and
+//     returns a flat `page.{count, acount, num}` block. The cursor is
+//     purely local — `pn + 1`.
+//
+//   • App / WBI endpoints require a JSON `pagination_str` blob
+//     (`{"offset":"<opaque>"}`) and return the next cursor inside
+//     `data.cursor.pagination_reply.next_offset`. The cursor is opaque —
+//     the server decides what it means.
+//
+// Mixing the two was the root cause of the original bug: a `next` cursor
+// produced by the WBI path (a base64-ish token) was fed back into the
+// legacy path via `Int("...")`, which silently fell back to page 1.
+// Encoding the cursor as a sum type makes that bug unrepresentable —
+// an endpoint that does not accept a given cursor kind returns `nil`
+// and the repository walks the chain to the next endpoint that does.
+
+enum CommentCursor: Hashable, Sendable {
+    /// Legacy `/x/v2/reply` integer page number. `pn = 1` is the first page.
+    case pn(Int)
+    /// Opaque `pagination_str` blob used by the app + WBI endpoints.
+    /// The wrapped string is the value of `data.cursor.pagination_reply
+    /// .next_offset` returned by the previous request, or empty for the
+    /// first page.
+    case offset(String)
+    /// Sentinel for "no more pages". Set by the repository when the
+    /// previous page reported `isEnd`, so the ViewModel can rely on a
+    /// single `nextCommentCursor` field without a separate `hasMore` flag.
+    case end
+
+    /// Convenience start marker. The legacy pn path treats this as page 1;
+    /// the app / WBI path treats it as `{"offset":""}`.
+    static let start: CommentCursor = .pn(1)
+
+    /// Compare two cursors for "feed me the next page" semantics. The
+    /// repository walks the endpoints in order and stops at the first one
+    /// that returns a non-empty page. The actual cursor kind the
+    /// endpoint will receive depends on which endpoint it is.
+    var isEnd: Bool {
+        if case .end = self { return true }
+        return false
+    }
+}
+
+// MARK: - 2. CommentEndpoint
+//
+// Each endpoint owns its own request shape, sign algorithm, and decode
+// path. The protocol surface is intentionally minimal so the
+// `CommentRepository` orchestrator can treat them as a uniform list.
+//
+// `CommentCursor` is intentionally nullable: an endpoint that does not
+// accept a given cursor kind (e.g. WBI receives a `.pn` cursor from a
+// previous fallback fetch) returns `nil` so the repository knows to try
+// the next endpoint. The orchestrator never has to inspect the cursor
+// kind — it just keeps walking the chain until one returns a result.
+
+protocol CommentEndpoint: Sendable {
+    /// Fetch one page of replies.
+    ///
+    /// - Returns: `CommentPage` on success, `nil` when this endpoint is
+    ///   not applicable to the current cursor / account state (e.g. the
+    ///   app path has no `access_key`, or the cursor is from a different
+    ///   endpoint family). `nil` is the orchestrator's "try the next one"
+    ///   signal and is **not** an error.
+    /// - Throws: real failures (network, decode, -403, etc.) so the
+    ///   orchestrator can surface a typed error to the ViewModel.
+    func fetchPage(aid: Int, sort: CommentSort, cursor: CommentCursor) async throws -> CommentPage?
+}
+
+// MARK: - 3. LegacyPnEndpoint
+//
+// The `/x/v2/reply` endpoint with bare query params (no appkey, no sign,
+// no WBI). This is the only surface through which B站 currently returns
+// real reply data to a third-party iOS URLSession client — the same
+// path `guozhigq/pilipala` (open-source Flutter B站 client) uses.
+// Verified 2026-08-02: returns the full reply list for `BV1paKb6iEny`
+// (286 comments) without any appkey/sign/cookie, while the appkey+sign
+// path returns `replies: null` and the WBI sign path returns `-403
+// 访问权限不足`. SESSDATA is still auto-attached by `get(...)` when
+// available; the path also works anonymously for first-page reads.
+//
+// Only accepts `.pn` cursors. If the caller passes a `.offset` cursor
+// (from a previous WBI fetch), this endpoint returns `nil` so the
+// repository walks the chain to the WBI endpoint that does accept it.
+
+struct LegacyPnEndpoint: CommentEndpoint {
+    let apiClient: BilibiliAPIClient
+    let pageSize: Int
+
+    init(apiClient: BilibiliAPIClient, pageSize: Int = 20) {
+        self.apiClient = apiClient
+        self.pageSize = pageSize
+    }
+
+    func fetchPage(aid: Int, sort: CommentSort, cursor: CommentCursor) async throws -> CommentPage? {
+        // Cursor kind guard. A .pn cursor is the only shape this endpoint
+        // understands. Any other kind means the caller came from a
+        // different endpoint family and we should not try to re-decode it
+        // here — the orchestrator will pick the right endpoint.
+        let pn: Int
+        switch cursor {
+        case .pn(let value):
+            pn = value
+        case .offset, .end:
+            return nil
+        }
+        let queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "oid", value: "\(aid)"),
+            URLQueryItem(name: "type", value: "1"),
+            URLQueryItem(name: "pn", value: "\(pn)"),
+            URLQueryItem(name: "ps", value: "\(pageSize)"),
+            // `sort` is accepted at the API surface for parity with the
+            // other endpoints but the upstream `sort` param is hard-coded
+            // to `"2"` (newest first) — B站's binary `sort=2`/`sort=3`
+            // mapping for legacy pn pagination does not line up cleanly
+            // with the `mode` codes the newer `/x/v2/reply/main` endpoint
+            // uses, and forcing a mode here would silently drop replies.
+            URLQueryItem(name: "sort", value: "2"),
+        ]
+        bpLog("commentsPage(legacy): fetching aid=\(aid) pn=\(pn)")
+        let payload: APIResponse<LegacyCommentPayload> = try await apiClient.get(
+            baseURL: apiClient.baseURL,
+            path: "/x/v2/reply",
+            queryItems: queryItems,
+            signWithWBI: false
+        )
+        try payload.requireOK()
+        guard let value = payload.value else {
+            return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
+        }
+        let totalCount = value.page?.count ?? 0
+        bpLog("commentsPage(legacy): HTTP success code=\(payload.code ?? -1) page.count=\(totalCount) replies=\(value.replies?.items.count ?? 0)")
+        let merged = Self.mergeReplies(
+            pinned: value.topReplies?.items ?? [],
+            regular: value.replies?.items ?? []
+        )
+        // pn-based pagination: next page is pn+1; treat as end when
+        // this page returned fewer than `ps` items, when the server
+        // reports `acount <= pn * ps`, or when we already have
+        // `acount` worth of replies rendered.
+        let acount = value.page?.acount ?? totalCount
+        let reachedTotal = acount > 0 && merged.count >= acount
+        let shortPage = merged.count < pageSize
+        let isEnd = shortPage || reachedTotal
+        let nextCursor: CommentCursor? = isEnd ? nil : .pn(pn + 1)
+        return CommentPage(
+            items: merged,
+            next: nextCursor,
+            isEnd: isEnd,
+            totalCount: totalCount
+        )
+    }
+
+    /// Shared dedup helper. The legacy payload has only one pinned slot
+    /// (`top_replies`), so the merge is simpler than the WBI payload —
+    /// but the same `Set<Int>` dedup strategy is used so the result
+    /// matches what the WBI path returns for the same upstream.
+    static func mergeReplies(pinned: [CommentDTO], regular: [CommentDTO]) -> [BiliComment] {
+        var seen = Set<Int>()
+        var merged: [BiliComment] = []
+        for dto in pinned + regular {
+            let model = dto.model
+            if seen.insert(model.id).inserted {
+                merged.append(model)
+            }
+        }
+        return merged
+    }
+}
+
+// MARK: - 4. AppSignedEndpoint
+//
+// `/x/v2/reply` with `appkey + sign + access_key`. The same shape the
+// official B站 iOS app uses. Requires a valid `access_key` issued by
+// the app QR login flow.
+//
+// On the current B站 back-end the TV-paired appkey is classified as a
+// TV client and the comments endpoint silently returns `replies: null`
+// even on videos with thousands of comments. The endpoint is preserved
+// for forward compatibility in case B站 reopens the surface for
+// non-mobile-classified apps.
+
+struct AppSignedEndpoint: CommentEndpoint {
+    let apiClient: BilibiliAPIClient
+    /// `access_key` from the active account. When `nil` this endpoint
+    /// is a no-op — the repository walks the chain to the WBI endpoint.
+    let accessKeyProvider: @Sendable () async -> String?
+
+    init(apiClient: BilibiliAPIClient, accessKeyProvider: @escaping @Sendable () async -> String?) {
+        self.apiClient = apiClient
+        self.accessKeyProvider = accessKeyProvider
+    }
+
+    func fetchPage(aid: Int, sort: CommentSort, cursor: CommentCursor) async throws -> CommentPage? {
+        let accessKey = await accessKeyProvider()
+        guard let accessKey, !accessKey.isEmpty else { return nil }
+        // App endpoints use the opaque `pagination_str` cursor. The
+        // legacy .pn cursor is not understood here, so we skip the
+        // endpoint and let the orchestrator fall back to the WBI path.
+        let offset: String
+        switch cursor {
+        case .pn:
+            return nil
+        case .offset(let value):
+            offset = value
+        case .end:
+            return nil
+        }
+        let paginationStr = "{\"offset\":\"\(offset)\"}"
+        bpLog("commentsPage(app): fetching aid=\(aid) sort=\(sort) offset='\(offset)'")
+        let appConfig = await apiClient.currentAppConfig() ?? BilibiliAPIClient.defaultConfig
+        let effectiveBuvid = (appConfig.buvid3?.isEmpty == false) ? appConfig.buvid3! : apiClient.generateMobileBuvid()
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "oid", value: "\(aid)"),
+            URLQueryItem(name: "type", value: "1"),
+            URLQueryItem(name: "pagination_str", value: paginationStr),
+            URLQueryItem(name: "plat", value: "1"),
+            URLQueryItem(name: "seek_rpid", value: ""),
+            URLQueryItem(name: "web_location", value: "1315875"),
+            URLQueryItem(name: "mobi_app", value: "iphone"),
+            URLQueryItem(name: "platform", value: "ios"),
+            URLQueryItem(name: "build", value: apiClient.appBuild),
+            URLQueryItem(name: "appkey", value: apiClient.appKey),
+            URLQueryItem(name: "access_key", value: accessKey),
+            URLQueryItem(name: "ts", value: "\(Int(Date().timeIntervalSince1970))"),
+            URLQueryItem(name: "buvid", value: effectiveBuvid)
+        ]
+        if let mode = sort.apiValue {
+            queryItems.append(URLQueryItem(name: "mode", value: "\(mode)"))
+        }
+        queryItems.append(URLQueryItem(name: "sign", value: apiClient.appSign(queryItems)))
+        let payload: APIResponse<CommentPayload> = try await apiClient.get(
+            baseURL: apiClient.baseURL,
+            path: "/x/v2/reply",
+            queryItems: queryItems,
+            signWithWBI: false
+        )
+        try payload.requireOK()
+        // Diagnostic so we can confirm the app path actually fires
+        // and what shape B站 returns. Drop once the path is stable.
+        bpLog("commentsPage(app): HTTP success code=\(payload.code ?? -1) message=\(payload.message ?? "?")")
+        if let val = payload.value {
+            let upperKeys = val.upperTop.map { "upperTop keys=\($0.values.count)" } ?? "nil"
+            let topReplies = val.topReplies.map { "topReplies items=\($0.items.count)" } ?? "nil"
+            let replies = val.replies.map { "replies items=\($0.items.count)" } ?? "nil"
+            let cursor = val.cursor.map { c in
+                "cursor allCount=\(c.allCount) isEnd=\(c.isEnd) paginationReply=\(c.paginationReply.map { "nextOffset=\($0.nextOffset)" } ?? "nil")"
+            } ?? "nil"
+            bpLog("commentsPage(app): payload | upper=\(upperKeys) \(topReplies) \(replies) \(cursor)")
+        }
+        return CommentPageDecoder.decode(payload: payload.value)
+    }
+}
+
+// MARK: - 5. WbiSignedEndpoint
+//
+// `/x/v2/reply/wbi/main` with a WBI-signed query. The fallback used by
+// every iOS client because it does not require an `access_key` — the
+// WBI signature is derived from the public img/sub keys served by
+// `/x/web-interface/nav`.
+//
+// B站's WBI gate has TWO failure modes (see the long comment on
+// `attemptFetch`):
+//   1. Explicit — `code = -403` ("访问权限不足"). Generic `get<T>`
+//      already catches this and retries once with fresh WBI keys.
+//   2. Silent   — `code = 0` + a valid `cursor` (so `requireOK()`
+//      passes) + an empty `replies[]`. The upstream returns 200 OK as
+//      if the request succeeded, but the comment list is withheld. This
+//      happens when the WBI signature was computed against an
+//      img_key / sub_key pair that has since rotated server-side. The
+//      recovery is invalidate-the-cached-keys + retry once.
+//
+// The endpoint encapsulates the silent-gate recovery internally — the
+// repository only sees two outcomes: a successful `CommentPage` or a
+// thrown `BilibiliAPIError.missingIdentity` (signaling the second
+// retry also returned empty — i.e. the keys refresh didn't help and
+// the underlying issue is auth, not signature staleness).
+
+struct WbiSignedEndpoint: CommentEndpoint {
+    let apiClient: BilibiliAPIClient
+
+    func fetchPage(aid: Int, sort: CommentSort, cursor: CommentCursor) async throws -> CommentPage? {
+        // Only .offset cursors are understood here. A .pn cursor is
+        // legacy and belongs to the legacy endpoint.
+        let offset: String
+        switch cursor {
+        case .pn:
+            return nil
+        case .offset(let value):
+            offset = value
+        case .end:
+            return nil
+        }
+        let paginationStr = "{\"offset\":\"\(offset)\"}"
+        bpLog("commentsPage: fetching aid=\(aid) sort=\(sort) offset='\(offset)'")
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "type", value: "1"),
+            URLQueryItem(name: "oid", value: "\(aid)"),
+            URLQueryItem(name: "pagination_str", value: paginationStr),
+            URLQueryItem(name: "plat", value: "1"),
+            URLQueryItem(name: "web_location", value: "1315875"),
+            // The web client also sends an empty `seek_rpid` to align
+            // the WBI signature with the working browser request shape.
+            URLQueryItem(name: "seek_rpid", value: "")
+        ]
+        if let mode = sort.apiValue {
+            queryItems.append(URLQueryItem(name: "mode", value: "\(mode)"))
+        }
+        // Local helper: signs the query items, fires the request, and
+        // returns the merged comment list + cursor fields. Extracted so
+        // the silent-gate retry path below can re-run the same pipeline
+        // after a `wbiSigner.invalidate()` without duplicating the
+        // parse/merge logic.
+        func attemptFetch() async throws -> (merged: [BiliComment], reportedTotal: Int, nextCursor: CommentCursor, isEnd: Bool) {
+            let payload: APIResponse<CommentPayload> = try await apiClient.get(
+                baseURL: apiClient.baseURL,
+                path: "/x/v2/reply/wbi/main",
+                queryItems: queryItems,
+                signWithWBI: true
+            )
+            try payload.requireOK()
+            // Diagnostic: log the decoded payload shape so we can see
+            // exactly what B站 returned. Without this, "commentsPage:
+            // returning" silently never firing (observed in v0.5.6
+            // diagnostic) leaves us guessing whether decode produced
+            // an empty list, allCount was 0, or the function threw
+            // somewhere between requireOK and the return log.
+            // Truncate the dump to keep the diagnostic file readable.
+            if let val = payload.value {
+                let upperKeys = val.upperTop.map { "upperTop keys=\($0.values.count)" } ?? "nil"
+                let topReplies = val.topReplies.map { "topReplies items=\($0.items.count)" } ?? "nil"
+                let replies = val.replies.map { "replies items=\($0.items.count)" } ?? "nil"
+                let cursor = val.cursor.map { c in
+                    "cursor next=\(c.next ?? -1) allCount=\(c.allCount) isEnd=\(c.isEnd) paginationReply=\(c.paginationReply.map { "nextOffset=\($0.nextOffset)" } ?? "nil")"
+                } ?? "nil"
+                bpLog("commentsPage: payload | upper=\(upperKeys) \(topReplies) \(replies) \(cursor)")
+            } else {
+                bpLog("commentsPage: payload | value=nil code=\(payload.code ?? -1) message=\(payload.message ?? "?")")
+            }
+            let result = CommentPageDecoder.decode(payload: payload.value)
+            let reportedTotal = result.totalCount
+            let merged = result.items
+            // `CommentPageDecoder` already maps the upstream
+            // `pagination_reply.next_offset` cursor into a `CommentCursor`
+            // (the `.offset` case). The `next` field is `nil` when the
+            // upstream did not return a cursor or reported the page as
+            // the last one — both cases mean "no more pages" for the
+            // caller.
+            let nextCursor: CommentCursor? = result.next
+            let isEnd = result.isEnd
+            bpLog("commentsPage: merged count=\(merged.count) allCount=\(reportedTotal) isEnd=\(isEnd) nextCursor=\(nextCursor.map(String.init(describing:)) ?? "nil")")
+            return (merged, reportedTotal, nextCursor ?? .end, isEnd)
+        }
+        var (merged, reportedTotal, nextCursor, isEnd) = try await attemptFetch()
+        // Silent-gate recovery. See the long comment on the struct
+        // above for why this is needed: B站's WBI validator refuses
+        // to surface content when the signature's img_key/sub_key is
+        // stale, but the response still looks successful (200 OK +
+        // valid cursor + empty replies array), so the only signal we
+        // get is `merged.isEmpty && reportedTotal > 0`. Invalidate
+        // the cached keys (forcing `sign` to re-fetch from
+        // `/x/web-interface/nav`) and retry once. If the second
+        // attempt also returns empty, fall through to the
+        // `missingIdentity` throw — at that point it's a real
+        // auth/identity issue, not a stale-key issue.
+        if merged.isEmpty && reportedTotal > 0 {
+            bpLog("commentsPage: silent gate detected (allCount=\(reportedTotal) but 0 replies) — refreshing WBI keys + retry once")
+            await apiClient.invalidateWBISigner()
+            (merged, reportedTotal, nextCursor, isEnd) = try await attemptFetch()
+            bpLog("commentsPage: silent gate retry result items=\(merged.count) allCount=\(reportedTotal)")
+        }
+        // Bilibili silently returns `replies: null` (and an empty
+        // `upper.top`) for unauthenticated callers when the
+        // thread has comments — `code == 0` passes `requireOK()`,
+        // but the API refuses to hand over the actual reply
+        // list.  `cursor.allCount` still reports the true count
+        // (so the stats bar shows 12 next to the comments icon
+        // even though the list is empty).  We surface that as
+        // `missingIdentity` so the caller can show "请登录后查
+        // 看评论" instead of the misleading "No public comments"
+        // empty state. After the silent-gate retry above, the
+        // only way to land here is if the second attempt also
+        // returned empty — i.e. the keys refresh didn't help,
+        // and the underlying issue is auth, not signature
+        // staleness.
+        if merged.isEmpty && reportedTotal > 0 {
+            throw BilibiliAPIError.missingIdentity
+        }
+        // Diagnostic: log how the merged result looks on the way out
+        // so we can tell the difference between "Bilibili gave us 0
+        // comments for this video" and "Bilibili gave us N but the
+        // decode dropped them".  Without this, an empty list at the
+        // UI layer looks identical to a never-fired call.
+        bpLog("commentsPage: returning \(merged.count) items, allCount=\(reportedTotal), nextCursor=\(nextCursor == .end ? "nil" : String(describing: nextCursor))")
+        // Map the `.end` sentinel back to `nil` so the ViewModel's
+        // simple `page.next != nil` guard behaves correctly. The
+        // sentinel exists inside the pipeline so the orchestrator
+        // can short-circuit with a single type check, but the
+        // published `CommentPage` API stays `Optional`-shaped.
+        let nextCursorOptional: CommentCursor? = (nextCursor == .end) ? nil : nextCursor
+        return CommentPage(
+            items: merged,
+            next: nextCursorOptional,
+            isEnd: isEnd,
+            totalCount: reportedTotal == 0 ? merged.count : reportedTotal
+        )
+    }
+}
+
+// MARK: - 6. CommentRepository
+//
+// Owns the ordered list of `CommentEndpoint` strategies and walks the
+// chain on every fetch. The ordering is meaningful:
+//
+//   1. LegacyPnEndpoint — fastest path, works anonymously, only
+//      requirement is the body responds with a real reply list. The
+//      ship-from-cursor guard makes it skip if the previous cursor was
+//      from the WBI path's `pagination_str` shape (so cursor kind
+//      mismatch is caught at the protocol layer, not silently coerced).
+//   2. AppSignedEndpoint — only kicks in when the user has an
+//      `access_key`; silently returns `nil` otherwise. Currently
+//      classified as a TV client by B站's server so it returns
+//      `replies: null` even on comment-rich videos; kept for forward
+//      compatibility in case B站 reopens the surface.
+//   3. WbiSignedEndpoint — the universal fallback. Includes the
+//      silent-gate recovery internally.
+//
+// The repository is an `actor` so the endpoint list is safe to mutate
+// from `init` (e.g. a future config page that lets the user re-order
+// strategies) and so concurrent `fetchPage` calls do not race over the
+// internal cursor state. Single-call serialization is intentional:
+// ordering endpoint selection per-call is deterministic and matches
+// the original waterfall's behavior.
+
+actor CommentRepository {
+    private let endpoints: [CommentEndpoint]
+
+    init(endpoints: [CommentEndpoint]) {
+        self.endpoints = endpoints
+    }
+
+    /// Convenience factory that wires the three endpoints in the
+    /// canonical order against the given `BilibiliAPIClient`.
+    static func defaultChain(apiClient: BilibiliAPIClient) -> CommentRepository {
+        let chain: [CommentEndpoint] = [
+            LegacyPnEndpoint(apiClient: apiClient),
+            AppSignedEndpoint(apiClient: apiClient) { [weak apiClient] in
+                guard let apiClient else { return nil }
+                return await apiClient.currentAppConfig()?.accessKey
+            },
+            WbiSignedEndpoint(apiClient: apiClient),
+        ]
+        return CommentRepository(endpoints: chain)
+    }
+
+    /// Fetch one page. Walks the endpoint chain. Returns the first
+    /// non-empty result. Returns an empty `CommentPage` (with
+    /// `isEnd = true`) when every endpoint declined or returned empty
+    /// for a video that genuinely has zero comments — the caller
+    /// distinguishes the "0 comments" vs "all endpoints failed" case
+    /// by the thrown error.
+    func fetchPage(aid: Int, sort: CommentSort, cursor: CommentCursor) async throws -> CommentPage {
+        guard !cursor.isEnd else {
+            return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
+        }
+        var lastError: Error?
+        for endpoint in endpoints {
+            do {
+                if let page = try await endpoint.fetchPage(aid: aid, sort: sort, cursor: cursor),
+                   !page.items.isEmpty {
+                    return page
+                }
+                // nil = endpoint declined (wrong cursor kind, no
+                // access_key, …). Empty array = endpoint accepted
+                // but the video has no comments yet — return it
+                // verbatim so the caller does not waste cycles on
+                // the next endpoint.
+            } catch {
+                lastError = error
+                bpLog("commentsPage: endpoint \(type(of: endpoint)) threw (\(error.localizedDescription)) — continuing")
+            }
+        }
+        // All endpoints returned nil or empty. If one of them threw,
+        // propagate the failure so the caller can distinguish from
+        // "this video has 0 comments really".
+        if let lastError {
+            throw lastError
+        }
+        // No endpoint threw and no endpoint returned a page. Treat
+        // as a no-content result.
+        bpLog("commentsPage: all endpoints declined/empty — returning empty page")
+        return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
+    }
+}
+
+// MARK: - 7. DTO / decode helpers
+//
+// Shared by all three endpoints. Living next to the endpoints means
+// a cursor-shape drift in B站's response only needs to be fixed in
+// one place — every endpoint already calls `CommentPageDecoder
+// .decode(...)` for the WBI/App payload shape, and
+// `LegacyPnEndpoint.mergeReplies(...)` for the legacy payload shape.
+
+/// Mirrors `BilibiliAPIClient`'s `CommentPayload` (the WBI / app
+/// shape). New WBI responses deliver pinned comments under
+/// `upper.top` (a dict keyed by rpid); the legacy `top_replies` array
+/// is kept for older cache hits.
+struct CommentPayload: Decodable, Sendable {
+    let replies: LenientCommentArray?
+    let topReplies: LenientCommentArray?
+    let upperTop: PinnedCommentDict?
+    let cursor: CommentCursorDTO?
+
+    enum CodingKeys: String, CodingKey {
+        case replies
+        case topReplies = "top_replies"
+        case upper
+        case cursor
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        replies = try container.decodeIfPresent(LenientCommentArray.self, forKey: .replies)
+        topReplies = try container.decodeIfPresent(LenientCommentArray.self, forKey: .topReplies)
+        cursor = try? container.decode(CommentCursorDTO.self, forKey: .cursor)
+        if let upper = try? container.nestedContainer(keyedBy: DynamicKey.self, forKey: .upper) {
+            upperTop = try? upper.decode(PinnedCommentDict.self, forKey: DynamicKey("top"))
+        } else {
+            upperTop = nil
+        }
+    }
+}
+
+/// Mirrors `BilibiliAPIClient`'s `LegacyCommentPayload`. Plain
+/// `/x/v2/reply` (no appkey/sign/WBI) only — this is the only shape
+/// B站 currently returns real reply data through, when the request
+/// lands from an iOS URLSession client. Same path
+/// `guozhigq/pilipala` (open-source Flutter B站 client) uses.
+struct LegacyCommentPayload: Decodable, Sendable {
+    let replies: LenientCommentArray?
+    let page: LegacyCommentPage?
+    let topReplies: LenientCommentArray?
+
+    enum CodingKeys: String, CodingKey {
+        case replies, page
+        case topReplies = "top_replies"
+    }
+}
+
+struct LegacyCommentPage: Decodable, Sendable {
+    let num: Int
+    let size: Int
+    let count: Int
+    let acount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case num, size, count, acount
+    }
+}
+
+struct CommentCursorDTO: Decodable, Sendable {
+    let next: Int?
+    let isEnd: Bool
+    let allCount: Int
+    let paginationReply: PaginationReplyDTO?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        next = container.decodeInt(keys: ["next"])
+        isEnd = container.decodeBool(keys: ["is_end"]) ?? true
+        allCount = container.decodeInt(keys: ["all_count"]) ?? 0
+        paginationReply = try? container.decode(PaginationReplyDTO.self, forKey: DynamicKey("pagination_reply"))
+    }
+}
+
+struct PaginationReplyDTO: Decodable, Sendable {
+    let nextOffset: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+        nextOffset = container.decodeString(keys: ["next_offset"]) ?? ""
+    }
+}
+
+struct PinnedCommentDict: Decodable, Sendable {
+    let values: [CommentDTO]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode([String: FailableDecodable<CommentDTO>].self)
+        values = raw.values.compactMap(\.value)
+    }
+}
+
+struct LenientCommentArray: Decodable, Sendable {
+    let items: [CommentDTO]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode([FailableDecodable<CommentDTO>].self)
+        self.items = raw.compactMap(\.value)
+    }
+}
+
+struct FailableDecodable<T: Decodable>: Decodable {
+    let value: T?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        do {
+            self.value = try container.decode(T.self)
+        } catch {
+            // Drop this element and keep going.
+            self.value = nil
+        }
+    }
+}
+
+extension FailableDecodable: Sendable where T: Sendable {}
+
+struct CommentDTO: Decodable, Sendable {
+    let rpid: Int
+    let member: Member
+    let content: Content
+    let like: Int
+    let rcount: Int?
+    let replies: LenientCommentArray?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rpid = try container.decode(Int.self, forKey: .rpid)
+        member = try container.decode(Member.self, forKey: .member)
+        content = try container.decode(Content.self, forKey: .content)
+        like = try container.decodeIfPresent(Int.self, forKey: .like) ?? 0
+        rcount = try container.decodeIfPresent(Int.self, forKey: .rcount)
+        replies = try container.decodeIfPresent(LenientCommentArray.self, forKey: .replies)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case rpid
+        case member
+        case content
+        case like
+        case rcount
+        case replies
+    }
+
+    var model: BiliComment {
+        BiliComment(
+            id: rpid,
+            authorName: member.uname,
+            avatarURL: member.avatarURL,
+            message: content.message,
+            likeCount: like,
+            replyCount: rcount ?? 0,
+            replies: replies?.items.map(\.model) ?? [],
+            vipBadge: member.vip?.badge()
+        )
+    }
+
+    struct Member: Decodable {
+        let uname: String
+        let avatarURL: URL?
+        let vip: BilibiliCommentVIPDTO?
+
+        enum CodingKeys: String, CodingKey {
+            case uname
+            case avatarURL = "avatar"
+            case vip
+        }
+    }
+
+    /// Bilibili reply `content` shapes are not uniform. Text replies have
+    /// `message`; image replies have `pictures`; at-mentions have
+    /// `at_name_to_mid`; emotes have `emote`; vote replies have `vote`.
+    /// We accept whichever field is present and synthesise a label for
+    /// the non-text cases so the row still renders instead of failing
+    /// the whole thread.
+    struct Content: Decodable {
+        let message: String
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicKey.self)
+            if let raw = try? container.decode(String.self, forKey: DynamicKey("message")) {
+                message = raw.strippingHTML
+            } else if container.contains(DynamicKey("pictures")) {
+                message = "[图片评论]"
+            } else if container.contains(DynamicKey("vote")) {
+                message = "[投票]"
+            } else if container.contains(DynamicKey("emote")) {
+                message = "[表情]"
+            } else if container.contains(DynamicKey("at_name_to_mid")) {
+                message = "[at 消息]"
+            } else {
+                message = ""
+            }
+        }
+    }
+}
+
+/// Decodes the WBI / app payload shape into a `CommentPage`. The
+/// pinned-comment merge logic (legacy `top_replies` + newer
+/// `upper.top`) is shared between the WBI and app endpoints — both
+/// call this helper so a future pinned-comment render change only
+/// needs to be fixed in one place.
+enum CommentPageDecoder {
+    static func decode(payload: CommentPayload?) -> CommentPage {
+        guard let payload else {
+            return CommentPage(items: [], next: nil, isEnd: true, totalCount: 0)
+        }
+        // Pinned comments arrive under `top_replies` (legacy) or
+        // `upper.top` (newer). Bilibili sometimes sends a thread where
+        // every visible comment is pinned — without merging we'd show
+        // an empty list. The latest WBI shape drops the nested
+        // `data.upper.top` dict (only `data.upper.mid` remains) and
+        // uses `data.top_replies` exclusively; reading either path
+        // keeps the merge defensive against older cache hits.
+        let pinned = payload.upperTop?.values.map(\.model) ?? []
+        let legacyPinned = payload.topReplies?.items.map(\.model) ?? []
+        let regular = payload.replies?.items.map(\.model) ?? []
+        var seen = Set<Int>()
+        var merged: [BiliComment] = []
+        for model in pinned + legacyPinned + regular {
+            if seen.insert(model.id).inserted {
+                merged.append(model)
+            }
+        }
+        let reportedTotal = payload.cursor?.allCount ?? 0
+        let nextCursor: CommentCursor? = {
+            guard let off = payload.cursor?.paginationReply?.nextOffset,
+                  !off.isEmpty else { return nil }
+            return .offset(off)
+        }()
+        let isEnd = payload.cursor?.isEnd ?? true
+        return CommentPage(
+            items: merged,
+            next: nextCursor,
+            isEnd: isEnd,
+            totalCount: reportedTotal == 0 ? merged.count : reportedTotal
+        )
+    }
+}

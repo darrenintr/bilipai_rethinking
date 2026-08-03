@@ -599,12 +599,13 @@ final class VideoDetailViewModel: ObservableObject {
     /// "no summary" placeholder.
     @Published var aiSummaryUnavailable = false
 
-    /// Opaque pagination cursor from the previous comments page, fed
-    /// back as `pagination_str={"offset":"<cursor>"}` for the next
-    /// `commentsPage` call. `nil` means "first page" and is sent as
-    /// `{"offset":""}`. See `BilibiliAPIClient.commentsPage` for the
-    /// full request shape.
-    private var nextCommentCursor: String?
+    /// Cursor returned by the previous `commentsPage` call. The
+    /// `CommentRepository` picks the right endpoint for the cursor
+    /// kind — `.pn` goes to the legacy path, `.offset` goes to the
+    /// app + WBI paths. `nil` is the implicit "first page" state
+    /// (the helper defaults to `.start` for the empty case).
+    /// See `CommentPipeline.swift` for the cursor kinds.
+    private var nextCommentCursor: CommentCursor?
 
     init(video: BiliVideo, localRecord: DownloadRecord? = nil) {
         self.detail = video
@@ -1131,13 +1132,18 @@ final class VideoDetailViewModel: ObservableObject {
     func loadComments(repository: PaladalaRepository) async {
         commentsLoading = true
         commentsErrorMessage = nil
-        nextCommentCursor = nil
+        // Reset to the implicit start cursor. The endpoint chain
+        // inside `CommentRepository` decides which endpoint accepts
+        // this cursor kind — the legacy path takes `.pn` first and
+        // every previous cursor is forgotten on a fresh load.
+        nextCommentCursor = .start
         commentsHasMore = false
         commentsTotalCount = 0
         do {
             let page = try await repository.commentsPage(
                 for: detail,
-                sort: commentSort
+                sort: commentSort,
+                cursor: .start
             )
             comments = page.items
             nextCommentCursor = page.next
@@ -1333,8 +1339,8 @@ final class VideoDetailViewModel: ObservableObject {
         do {
             let page = try await repository.commentsPage(
                 for: detail,
-                nextOffset: nextCommentCursor,
-                sort: commentSort
+                sort: commentSort,
+                cursor: nextCommentCursor
             )
             let seen = Set(comments.map(\.id))
             comments.append(contentsOf: page.items.filter { !seen.contains($0.id) })
@@ -1342,7 +1348,14 @@ final class VideoDetailViewModel: ObservableObject {
             commentsHasMore = !page.isEnd && page.next != nil
             commentsTotalCount = max(commentsTotalCount, page.totalCount)
         } catch {
-            commentsErrorMessage = "Could not load more comments."
+            // Prefer the typed error message for `missingIdentity`
+            // (the silent WBI gate) so the user sees the same
+            // generic retry prompt the first-load catch produces;
+            // any other failure gets the English fallback that has
+            // been on the screen for the previous builds.
+            commentsErrorMessage = (error is BilibiliAPIError)
+                ? "评论加载失败，请稍后重试"
+                : "Could not load more comments."
         }
     }
 
@@ -1515,6 +1528,17 @@ final class VideoDetailViewModel: ObservableObject {
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         do {
             try await repository.postComment(for: detail, message: message)
+            // The post endpoint currently returns an empty payload —
+            // building a fully-typed `BiliComment` from the user's
+            // input would require fabricating a member block, which
+            // is fragile. Refreshing the first page is the safer
+            // path: we re-fetch via the start cursor so the new
+            // comment (now at the top under "最新" / head of the
+            // pinned list under "热门") appears without merging
+            // glitches. The refresh is also wired to the same
+            // pagination reset `loadComments` already does on a
+            // sort change, so the user sees the new reply and a
+            // refreshed total count.
             await loadComments(repository: repository)
             return true
         } catch {
@@ -1528,18 +1552,45 @@ final class VideoDetailViewModel: ObservableObject {
             switch actionType {
             case "like":
                 try await repository.likeComment(for: detail, rpid: rpid, action: 1)
+                // Local optimistic update. The previous build left this
+                // as a comment — "In a real app we'd update ..." —
+                // which meant tapping the thumbs-up flashed no
+                // feedback at all until the next page reload. The
+                // server response does not include the authoritative
+                // count, so we +1 locally and let the next
+                // `loadComments` reconcile if the user reloads.
+                updateCommentLikeCount(rpid: rpid, delta: 1)
             case "unlike":
                 try await repository.likeComment(for: detail, rpid: rpid, action: 0)
+                updateCommentLikeCount(rpid: rpid, delta: -1)
             case "hate":
                 try await repository.hateComment(for: detail, rpid: rpid, action: 1)
             default:
                 break
             }
-            // In a real app we'd update the local state without a full reload
-            // for immediate feedback.
         } catch {
             bpLog("Comment action \(actionType) failed: \(error)")
         }
+    }
+
+    /// Mutate the local like count of the comment with the given
+    /// `rpid`. Walks the main list and the embedded `replies[]`
+    /// (sub-replies rendered under each comment) so the thumbs-up
+    /// feedback reaches every row that displays the count.
+    private func updateCommentLikeCount(rpid: Int, delta: Int) {
+        guard let index = comments.firstIndex(where: { $0.id == rpid }) else { return }
+        let target = comments[index]
+        let newCount = max(0, target.likeCount + delta)
+        comments[index] = BiliComment(
+            id: target.id,
+            authorName: target.authorName,
+            avatarURL: target.avatarURL,
+            message: target.message,
+            likeCount: newCount,
+            replyCount: target.replyCount,
+            replies: target.replies,
+            vipBadge: target.vipBadge
+        )
     }
 }
 
