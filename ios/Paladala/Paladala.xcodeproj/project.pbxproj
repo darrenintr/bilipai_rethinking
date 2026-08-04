@@ -373,6 +373,14 @@
 				198ff133-9f05-43ab-afb7-bcadae569741 /* BilibiliVIP.swift */,
 				31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */,
 				7aa739f7420f4cc4bc58eece2de057e9 /* VipUpgradeHint.swift */,
+				OP0000000000000000000F001 /* Diag */,
+			);
+			path = Paladala;
+			sourceTree = "<group>";
+		};
+		OP0000000000000000000F001 /* Diag */ = {
+			isa = PBXGroup;
+			children = (
 				OP0000000000000000000F101 /* HMAC.swift */,
 				OP0000000000000000000F111 /* ReportPayload.swift */,
 				OP0000000000000000000F121 /* LogReporterConfig.swift */,
@@ -380,7 +388,7 @@
 				OP0000000000000000000F141 /* ErrorSink.swift */,
 				OP0000000000000000000F151 /* LogReporter.swift */,
 			);
-			path = Paladala;
+			path = Diag;
 			sourceTree = "<group>";
 		};
 		100000000000000000000403 /* Products */ = {
