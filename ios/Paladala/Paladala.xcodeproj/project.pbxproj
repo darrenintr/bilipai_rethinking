@@ -784,6 +784,12 @@
 				03548a6a-547b-4dbe-9c3e-0d0fac582edd /* BilibiliVIP.swift in Sources */,
 				76ae5710-119a-49f0-80d3-20d35d8daf1e /* VipBadgeView.swift in Sources */,
 				959e55c70a204884ab4886b2b9189d44 /* VipUpgradeHint.swift in Sources */,
+				OP0000000000000000000F102 /* HMAC.swift in Sources */,
+				OP0000000000000000000F112 /* ReportPayload.swift in Sources */,
+				OP0000000000000000000F122 /* LogReporterConfig.swift in Sources */,
+				OP0000000000000000000F132 /* ReporterGate.swift in Sources */,
+				OP0000000000000000000F142 /* ErrorSink.swift in Sources */,
+				OP0000000000000000000F152 /* LogReporter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
