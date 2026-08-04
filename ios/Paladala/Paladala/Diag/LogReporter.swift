@@ -74,7 +74,7 @@ actor LogReporter {
         }
         let ts = Int64(Date().timeIntervalSince1970 * 1000)
         let signingInput = Data("\(ts).".utf8) + body
-        let signature = HMAC.sha256Hex(secret: LogReporterConfig.sharedSecret, signingInput)
+        let signature = HMACSigner.sha256Hex(secret: LogReporterConfig.sharedSecret, signingInput)
 
         // Attempt 1 is immediate; subsequent attempts back off
         // 1s / 4s / 16s.  Each attempt reuses the same body +

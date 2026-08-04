@@ -40,7 +40,11 @@ enum ReporterGate {
         // signal — otherwise we'd fire on every routine
         // `diagLog(.network, "DNS cache cleared")` etc.
         let errorKeys: Set<String> = ["error", "err", "status", "exception", "fatal"]
-        let keys = (details?.keys ?? []).map { $0.lowercased() }
+        // `details?.keys` is `Dictionary<String, Any>.Keys?` — wrap with
+        // `.map` (which unwraps the optional) and `?? []` gives a clean
+        // empty-fallback.  The old `?? []` literal couldn't bridge
+        // `Dictionary.Keys` to `[Any]`.
+        let keys = details?.keys.map { $0.lowercased() } ?? []
         return keys.contains { errorKeys.contains($0) }
     }
 }

@@ -20,6 +20,16 @@ enum ErrorSink {
     /// AppErrorCenter only fires for normalised user-facing
     /// errors (BilibiliAPIError / URLError / DecodingError /
     /// CocoaError), so we always report.
+    ///
+    /// `@MainActor` is required because we read
+    /// `UIDevice.current.systemVersion` / `UIDevice.current.model`,
+    /// which Swift 6 marks as main-actor-isolated. Both callers
+    /// (`AppErrorCenter.log` and `DiagnosticLogger.log`) already
+    /// run on the main thread in practice (see DiagnosticLogger's
+    /// "@Published mutations must happen on main" comment), so
+    /// promoting the requirement from implicit to explicit is
+    /// just a compile-time annotation, not a behaviour change.
+    @MainActor
     static func maybeReport(descriptor: AppErrorDescriptor,
                             context: String,
                             source: Error) {
@@ -59,6 +69,8 @@ enum ErrorSink {
 
     /// From `DiagnosticLogger.log(_:_:details:)`.  Filtered
     /// by `ReporterGate.shouldReport(...)`.
+    /// See the first overload for why this is `@MainActor`.
+    @MainActor
     static func maybeReport(category: DiagnosticLogger.Category,
                             message: String,
                             details: [String: Any]?) {
