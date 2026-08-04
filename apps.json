@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-03T07:14:53Z",
-    "githubRunId": "30792778649",
-    "githubRunNumber": "604",
-    "githubSha": "6bd394a543fb6a679c8f027fd75e0f5137d5cecf",
+    "generatedAt": "2026-08-04T08:11:57Z",
+    "githubRunId": "30890700152",
+    "githubRunNumber": "609",
+    "githubSha": "0c7b64cc4593942eed949738d20b331c3f8d141f",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "325",
+          "date": "2026-08-04T08:11:57Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.25.325/Paladala-unsigned-v0.5.25.325.ipa",
+          "localizedDescription": "Diag/*.swift compile errors after pbxproj wiring\n\n\nBuild #608 (b6426222) compiled past pbxproj (Diag files\nwere found and the Sources phase emitted them) and into\nswift type checking, where three files failed:\n\n  Diag/HMAC.swift:28:19:\n    error: cannot specialize non-generic type 'HMAC'\n  Diag/ReporterGate.swift:43:38:\n    error: cannot convert value of type '[Any]' to\n    expected argument type 'Dictionary<String, Any>.Keys'\n  Diag/ErrorSink.swift:46/49/79/82:\n    error: main actor-isolated property 'systemVersion' /\n    'model' / 'current' can not be referenced from a\n    nonisolated context  (x6)\n\nFixes:\n\n1. HMAC.swift\n   Renamed the local `enum HMAC` to `enum HMACSigner`.\n   Inside the body, `HMAC<SHA256>.authenticationCode(...)`\n   was resolving to the local non-generic enum first, so\n   the `HMAC<SHA256>` specialization failed. Changing the\n   self name frees up `HMAC<SHA256>` to resolve to\n   `CryptoKit.HMAC<SHA256>`, and the body now uses\n   `CryptoKit.HMAC<SHA256>.authenticationCode(...)`\n   explicitly so the resolution is unambiguous regardless\n   of import order. The only call site (LogReporter.swift:77)\n   is updated from `HMAC.sha256Hex(...)` to\n   `HMACSigner.sha256Hex(...)`.\n\n2. ReporterGate.swift\n   The old `(details?.keys ?? []).map { $0.lowercased() }`\n   bridged `Dictionary<String, Any>.Keys?` to `[Any]` via\n   the empty-array literal, which the compiler rejected\n   (\"cannot convert value of type '[Any]' to expected\n   argument type 'Dictionary<String, Any>.Keys'\").\n   `details?.keys.map { $0.lowercased() } ?? []` is the\n   type-correct form: `.map` on an optional unwraps it\n   and `?? []` falls back to a clean empty array.\n\n3. ErrorSink.swift\n   Both `maybeReport(...)` overloads access\n   `UIDevice.current.systemVersion` / `.model`. Swift 6\n   marks `UIDevice.current` as main-actor-isolated, so\n   the static funcs must declare `@MainActor` to read\n   those properties. Both call sites\n   (`AppErrorCenter.log` in AppErrorCenter.swift and\n   `DiagnosticLogger.log` in DiagnosticLogger.swift) are\n   already inside `@MainActor`-isolated classes, so the\n   new annotation does not require any caller change.\n   The actual report hand-off still happens via\n   `Task.detached { ... }` so the LogReporter actor\n   itself runs off the main thread as before.\n\nNo new types, no protocol changes, no Sources phase\ntweak. CI re-runs; this is the last class of issue from\nthe portal wiring chain.",
+          "size": 4110327,
+          "version": "0.5.25"
+        },
         {
           "buildVersion": "324",
           "date": "2026-08-03T07:14:53Z",
@@ -229,6 +237,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 325 (0c7b64c)",
+      "date": "2026-08-04T08:11:57Z",
+      "identifier": "v0.5.25.325",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.25.325",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.25.325"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 324 (6bd394a)",
