@@ -400,8 +400,33 @@ actor PlaybackPrefetchManager {
         let key = Self.cacheKey(bvid: bvid, qn: qn, cid: cid)
         defer { inFlight.removeValue(forKey: key) }
 
+        // **PR-C (Phase 2 — fix, take 3)**: convert the
+        // bpLog at this entry to diagLog so the next
+        // diagnostic always shows whether `runPrefetch`
+        // actually started (vs being silently skipped),
+        // and how big the upstream target is.  bpLog
+        // gets truncated by `Logger.shared.logs.suffix(100)`
+        // during hot-path video sessions; diagLog is
+        // persisted to disk and dumped verbatim.
+        diagLog(.playback, "PlaybackPrefetchManager.runPrefetch started",
+                details: [
+                    "bvid": bvid,
+                    "qn": String(qn),
+                    "cid": String(cid),
+                    "videoSizeBytes":
+                        String(playback.dash?.video.size ?? 0),
+                    "audioSizeBytes":
+                        String(playback.dash?.audio?.size ?? 0)
+                ])
+
         guard let dash = playback.dash else {
-            bpLog("PlaybackPrefetchManager.runPrefetch skipped: no dash")
+            diagLog(.playback,
+                    "PlaybackPrefetchManager.runPrefetch skipped: no dash",
+                    details: [
+                        "bvid": bvid,
+                        "qn": String(qn),
+                        "cid": String(cid)
+                    ])
             return
         }
 
@@ -416,6 +441,14 @@ actor PlaybackPrefetchManager {
             )
         } catch {
             bpLog("PlaybackPrefetchManager staging mkdir failed: \(error)")
+            diagLog(.playback,
+                    "PlaybackPrefetchManager staging mkdir failed",
+                    details: [
+                        "bvid": bvid,
+                        "qn": String(qn),
+                        "cid": String(cid),
+                        "error": String(describing: error)
+                    ])
             return
         }
 
@@ -448,6 +481,14 @@ actor PlaybackPrefetchManager {
         guard case .success(let videoSize) = videoR else {
             bpLog("PlaybackPrefetchManager video download failed: "
                   + "\(String(describing: videoR))")
+            diagLog(.playback,
+                    "PlaybackPrefetchManager video download failed",
+                    details: [
+                        "bvid": bvid,
+                        "qn": String(qn),
+                        "cid": String(cid),
+                        "result": String(describing: videoR)
+                    ])
             try? FileManager.default.removeItem(at: staging)
             return
         }
@@ -461,6 +502,14 @@ actor PlaybackPrefetchManager {
         case .failure(let e):
             bpLog("PlaybackPrefetchManager audio download failed "
                   + "(continuing video-only): \(e)")
+            diagLog(.playback,
+                    "PlaybackPrefetchManager audio download failed",
+                    details: [
+                        "bvid": bvid,
+                        "qn": String(qn),
+                        "cid": String(cid),
+                        "error": String(describing: e)
+                    ])
             audioSize = nil
             try? FileManager.default.removeItem(at: audioStaging)
         }
@@ -474,6 +523,14 @@ actor PlaybackPrefetchManager {
             try FileManager.default.moveItem(at: staging, to: finalDir)
         } catch {
             bpLog("PlaybackPrefetchManager commit rename failed: \(error)")
+            diagLog(.playback,
+                    "PlaybackPrefetchManager commit rename failed",
+                    details: [
+                        "bvid": bvid,
+                        "qn": String(qn),
+                        "cid": String(cid),
+                        "error": String(describing: error)
+                    ])
             try? FileManager.default.removeItem(at: staging)
             return
         }
@@ -497,6 +554,13 @@ actor PlaybackPrefetchManager {
         bpLog("PlaybackPrefetchManager committed: "
               + "key=\(key) video=\(videoSize) audio=\(audioSize ?? -1) "
               + "total=\(totalBytes)")
+        diagLog(.playback, "PlaybackPrefetchManager committed",
+                details: [
+                    "key": key,
+                    "videoSize": String(videoSize),
+                    "audioSize": String(audioSize ?? -1),
+                    "cacheTotal": String(totalBytes)
+                ])
     }
 
     /// Run one upstream download, return Result so

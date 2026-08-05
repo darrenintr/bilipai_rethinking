@@ -4468,7 +4468,32 @@ fileprivate func proxySegmentRange(
         guard let attrs = try? FileManager.default
                 .attributesOfItem(atPath: fileURL.path),
               let totalSize = (attrs[.size] as? Int64)
-        else { return nil }
+        else {
+            // **PR-C (Phase 2 — fix, take 3)**: log a
+            // local-cache miss so the next diagnostic
+            // shows whether the segment fell through to
+            // the B站 Range path because the cache file
+            // didn't exist yet (prefetch hasn't reached
+            // that range), the cache dir is missing, or
+            // an I/O error happened.  One line per miss
+            // is high-cardinality but it's the only way
+            // to disambiguate "AVPlayer kept streaming
+            // from upstream" from "AVPlayer used local
+            // cache but the bytes were wrong" once the
+            // `served from local cache` log has the
+            // miss count next to it.
+            diagLog(.playback,
+                    "LocalHLSProxyServer /segment local cache miss",
+                    details: [
+                        "key": key,
+                        "kind": kind == .video ? "video" : "audio",
+                        "range":
+                            "\(absRange.lowerBound)"
+                            + "-\(absRange.upperBound - 1)",
+                        "filePath": fileURL.path
+                    ])
+            return nil
+        }
         // Clamp the requested range to the actual file
         // size.  `absRange.upperBound` may be `Int64.max`
         // for "read to EOF" ranges; clamping here turns
