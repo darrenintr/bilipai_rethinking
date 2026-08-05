@@ -73,6 +73,7 @@
 		500000000000000000000553 /* DownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000552 /* DownloadStore.swift */; };
 		500000000000000000000571 /* PlayProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000570 /* PlayProgressStore.swift */; };
 		500000000000000000000591 /* MP4Fragment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000590 /* MP4Fragment.swift */; };
+		5000000000000000000005D1 /* PlaybackPrefetchManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5000000000000000000005D2 /* PlaybackPrefetchManager.swift */; };
 		500000000000000000000555 /* PaladalaAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000554 /* PaladalaAppDelegate.swift */; };
 		500000000000000000000557 /* DownloadedVideosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000556 /* DownloadedVideosView.swift */; };
 		500000000000000000000558 /* DeepDiagnosticReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500000000000000000000559 /* DeepDiagnosticReportView.swift */; };
@@ -115,6 +116,7 @@
 		76ae5710-119a-49f0-80d3-20d35d8daf1e /* VipBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */; };
 		959e55c70a204884ab4886b2b9189d44 /* VipUpgradeHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7aa739f7420f4cc4bc58eece2de057e9 /* VipUpgradeHint.swift */; };
 		f274babb84a147cba9dff72e040388f0 /* VipUpgradeHintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = aaf91b529efa4218b31e48110709c58d /* VipUpgradeHintTests.swift */; };
+		7E5C0A000000000000000040 /* PlaybackPrefetchManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5C0A000000000000000041 /* PlaybackPrefetchManagerTests.swift */; };
 		OP0000000000000000000F102 /* HMAC.swift in Sources */ = {isa = PBXBuildFile; fileRef = OP0000000000000000000F101 /* HMAC.swift */; };
 		OP0000000000000000000F112 /* ReportPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = OP0000000000000000000F111 /* ReportPayload.swift */; };
 		OP0000000000000000000F122 /* LogReporterConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = OP0000000000000000000F121 /* LogReporterConfig.swift */; };
@@ -194,6 +196,7 @@
 		500000000000000000000552 /* DownloadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStore.swift; sourceTree = "<group>"; };
 		500000000000000000000570 /* PlayProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayProgressStore.swift; sourceTree = "<group>"; };
 		500000000000000000000590 /* MP4Fragment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4Fragment.swift; sourceTree = "<group>"; };
+		5000000000000000000005D2 /* PlaybackPrefetchManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackPrefetchManager.swift; sourceTree = "<group>"; };
 		500000000000000000000554 /* PaladalaAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaladalaAppDelegate.swift; sourceTree = "<group>"; };
 		500000000000000000000556 /* DownloadedVideosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedVideosView.swift; sourceTree = "<group>"; };
 		500000000000000000000559 /* DeepDiagnosticReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepDiagnosticReportView.swift; sourceTree = "<group>"; };
@@ -238,6 +241,7 @@
 		31132272-7f36-4a8e-bd12-5b3ebf1a111d /* VipBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VipBadgeView.swift; sourceTree = "<group>"; };
 		7aa739f7420f4cc4bc58eece2de057e9 /* VipUpgradeHint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VipUpgradeHint.swift; sourceTree = "<group>"; };
 		aaf91b529efa4218b31e48110709c58d /* VipUpgradeHintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VipUpgradeHintTests.swift; sourceTree = "<group>"; };
+		7E5C0A000000000000000041 /* PlaybackPrefetchManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackPrefetchManagerTests.swift; sourceTree = "<group>"; };
 		OP0000000000000000000F101 /* HMAC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HMAC.swift; sourceTree = "<group>"; };
 		OP0000000000000000000F111 /* ReportPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportPayload.swift; sourceTree = "<group>"; };
 		OP0000000000000000000F121 /* LogReporterConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogReporterConfig.swift; sourceTree = "<group>"; };
@@ -342,6 +346,7 @@
 				500000000000000000000552 /* DownloadStore.swift */,
 				500000000000000000000570 /* PlayProgressStore.swift */,
 				500000000000000000000590 /* MP4Fragment.swift */,
+				5000000000000000000005D2 /* PlaybackPrefetchManager.swift */,
 				500000000000000000000554 /* PaladalaAppDelegate.swift */,
 				500000000000000000000556 /* DownloadedVideosView.swift */,
 				500000000000000000000559 /* DeepDiagnosticReportView.swift */,
@@ -509,6 +514,7 @@
 				7E5C0A000000000000000022 /* AppVersionTests.swift */,
 				LS0000000000000000000F003 /* LoadStateTests.swift */,
 				aaf91b529efa4218b31e48110709c58d /* VipUpgradeHintTests.swift */,
+				7E5C0A000000000000000041 /* PlaybackPrefetchManagerTests.swift */,
 			);
 			path = PaladalaTests;
 			sourceTree = "<group>";
@@ -762,6 +768,7 @@
 				500000000000000000000553 /* DownloadStore.swift in Sources */,
 				500000000000000000000571 /* PlayProgressStore.swift in Sources */,
 				500000000000000000000591 /* MP4Fragment.swift in Sources */,
+				5000000000000000000005D1 /* PlaybackPrefetchManager.swift in Sources */,
 				500000000000000000000555 /* PaladalaAppDelegate.swift in Sources */,
 				500000000000000000000557 /* DownloadedVideosView.swift in Sources */,
 				500000000000000000000558 /* DeepDiagnosticReportView.swift in Sources */,
@@ -824,6 +831,7 @@
 				7E5C0A000000000000000021 /* AppVersionTests.swift in Sources */,
 				LS0000000000000000000B003 /* LoadStateTests.swift in Sources */,
 				f274babb84a147cba9dff72e040388f0 /* VipUpgradeHintTests.swift in Sources */,
+				7E5C0A000000000000000040 /* PlaybackPrefetchManagerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
