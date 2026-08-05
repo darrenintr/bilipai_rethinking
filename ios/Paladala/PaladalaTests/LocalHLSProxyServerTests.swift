@@ -328,4 +328,141 @@ final class LocalHLSProxyServerTests: XCTestCase {
         XCTAssertEqual(liveResult, currentGen,
                        "current gen must return the live value")
     }
+
+    // MARK: - master BANDWIDTH attribute (PR-C BANDWIDTH fix)
+
+    /// Build a `MediaFragment` for unit-testing the master
+    /// playlist bandwidth calculator.  `startPrefixHex` is
+    /// not consulted by the formula; pass an empty string
+    /// because it's required by the memberwise init.
+    private func makeMediaFragment(
+        bytes: Int64,
+        duration: Double,
+        startTime: Double = 0
+    ) -> MediaFragment {
+        MediaFragment(
+            byteRange: startTime..<(startTime + bytes),
+            startTime: startTime,
+            duration: duration,
+            startsWithSAP: true,
+            startPrefixHex: ""
+        )
+    }
+
+    func test_masterBANDWIDTH_usesMeasuredPeakWhenSidxAvailable() {
+        // Reproduction of the BV1kN3m6eEPK diagnostic:
+        // declared video=6,311,344 bps + audio=103,120 bps,
+        // sidx peak segment = 5,255,891 bytes / 4.77s ≈
+        // 8,815,308 bps.  The pre-fix code emitted
+        // 6,414,464 bps → AVPlayer's "Segment exceeds
+        // specified bandwidth for variant" check tripped on
+        // the 8.8 Mbps actual peak.  Post-fix, the chosen
+        // value is the larger of:
+        //   1. 8,815,308 * 1.15 = 10,137,604
+        //   2. 6,414,464 * 1.5  =  9,621,696
+        // so 10,137,604 wins.
+        let videoFrags = [
+            makeMediaFragment(bytes: 5_255_891, duration: 4.77),
+            makeMediaFragment(bytes: 4_900_000, duration: 4.50)
+        ]
+        let decision = LocalHLSProxyServer.masterPlaylistBandwidthDecision(
+            declaredVideoBps: 6_311_344,
+            declaredAudioBps: 103_120,
+            videoFragments: videoFrags,
+            audioFragments: []
+        )
+        let expectedPeak = Int64(5_255_891 * 8 / 4)  // integer-truncated
+        XCTAssertEqual(decision.videoPeakBps, expectedPeak)
+        XCTAssertEqual(decision.audioPeakBps, 0)
+        XCTAssertEqual(decision.measuredPeakBps, expectedPeak)
+        XCTAssertEqual(decision.declaredBps, 6_311_344 + 103_120)
+        XCTAssertEqual(
+            decision.bandwidth,
+            Int(Double(expectedPeak) * 1.15),
+            "measured peak * 1.15 must win over declared * 1.5"
+        )
+    }
+
+    func test_masterBANDWIDTH_fallsBackToDeclaredWhenSidxEmpty() {
+        // The sidx-absent path (legacy `durl` MP4, or a
+        // B站 response that omits SegmentBase).  Falls back
+        // to declaredBps * 1.5 so we still over-declare
+        // (better than under) when we have no measured
+        // evidence to compute a peak from.
+        let decision = LocalHLSProxyServer.masterPlaylistBandwidthDecision(
+            declaredVideoBps: 6_311_344,
+            declaredAudioBps: 103_120,
+            videoFragments: [],
+            audioFragments: []
+        )
+        XCTAssertEqual(decision.measuredPeakBps, 0)
+        XCTAssertEqual(decision.declaredBps, 6_414_464)
+        XCTAssertEqual(
+            decision.bandwidth,
+            Int(Double(6_414_464) * 1.5)
+        )
+    }
+
+    func test_masterBANDWIDTH_skipsZeroDurationFragments() {
+        // Some B站 sidx entries publish `d=0` for the
+        // "remainder" fragment at the end of the file.
+        // These must NOT divide-by-zero and must NOT
+        // contribute a spurious peak.
+        let videoFrags = [
+            makeMediaFragment(bytes: 4_000_000, duration: 4.0),
+            makeMediaFragment(bytes: 9_999_999, duration: 0.0)  // d=0
+        ]
+        let decision = LocalHLSProxyServer.masterPlaylistBandwidthDecision(
+            declaredVideoBps: 5_000_000,
+            declaredAudioBps: 100_000,
+            videoFragments: videoFrags,
+            audioFragments: []
+        )
+        XCTAssertEqual(decision.videoPeakBps, 4_000_000 * 8 / 4)
+        // Sanity: the 9,999,999-byte d=0 entry would have
+        // produced an absurdly-high peak; verify we ignored it.
+        XCTAssertLessThan(decision.videoPeakBps, 9_999_999)
+    }
+
+    func test_masterBANDWIDTH_audioPeakDominatesWhenAudioHigher() {
+        // Edge case: an unusually-high-bitrate audio track
+        // (e.g. 320 kbps Hi-Res FLAC) should drive the
+        // variant bandwidth if its per-segment rate exceeds
+        // the video peak.  Master playlist must advertise
+        // enough to cover both tracks.
+        let videoFrags = [
+            makeMediaFragment(bytes: 5_000_000, duration: 5.0)  // 8 Mbps
+        ]
+        let audioFrags = [
+            makeMediaFragment(bytes: 1_000_000, duration: 2.0)  // 4 Mbps
+        ]
+        let decision = LocalHLSProxyServer.masterPlaylistBandwidthDecision(
+            declaredVideoBps: 8_000_000,
+            declaredAudioBps: 4_000_000,
+            videoFragments: videoFrags,
+            audioFragments: audioFrags
+        )
+        XCTAssertEqual(decision.videoPeakBps, 8_000_000)
+        XCTAssertEqual(decision.audioPeakBps, 4_000_000)
+        XCTAssertEqual(decision.measuredPeakBps, 8_000_000)
+    }
+
+    func test_masterBANDWIDTH_neverGoesBelowDeclaredTimesOnePointFive() {
+        // Even on a perfectly flat-rate VBR sample (peak ==
+        // average), the 1.15× safety on measured must not
+        // undercut the 1.5× safety on declared.  This guards
+        // against a future refactor that drops the declared
+        // fallback or swaps the safety multipliers.
+        let videoFrags = [
+            makeMediaFragment(bytes: 6_000_000, duration: 4.0)  // 12 Mbps
+        ]
+        let decision = LocalHLSProxyServer.masterPlaylistBandwidthDecision(
+            declaredVideoBps: 12_000_000,  // matches measured
+            declaredAudioBps: 0,
+            videoFragments: videoFrags,
+            audioFragments: []
+        )
+        // 12M * 1.15 = 13.8M; 12M * 1.5 = 18M; max wins.
+        XCTAssertEqual(decision.bandwidth, Int(Double(12_000_000) * 1.5))
+    }
 }

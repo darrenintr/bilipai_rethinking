@@ -2730,6 +2730,75 @@ final class LocalHLSProxyServer: @unchecked Sendable {
 
     private enum MediaKind { case video, audio }
 
+    /// HLS master playlist `BANDWIDTH` attribute components.
+    /// Returned as a struct (instead of a tuple) so the test
+    /// target can pin the formula without having to import
+    /// tuple shape conventions.  `bandwidth` is the value to
+    /// emit in `EXT-X-STREAM-INF:BANDWIDTH=`; the other fields
+    /// are diagnostic breadcrumbs that the runtime logs.
+    struct MasterBandwidthDecision: Equatable {
+        /// The final `BANDWIDTH=` value (bits/s).
+        let bandwidth: Int
+        /// Peak bits/s observed across the video sidx.
+        let videoPeakBps: Int64
+        /// Peak bits/s observed across the audio sidx.
+        let audioPeakBps: Int64
+        /// `max(videoPeakBps, audioPeakBps)`.
+        let measuredPeakBps: Int64
+        /// `declaredVideoBps + declaredAudioBps` from the
+        /// upstream DASH JSON.
+        let declaredBps: Int64
+    }
+
+    /// Compute the `BANDWIDTH=` attribute for the master
+    /// playlist.  The chosen value is the upper bound of:
+    ///   1. `measuredPeakBps * 1.15` — 1.15× safety covers
+    ///      the per-frame VBR jitter (8–10%) that any single
+    ///      peak sample misses.
+    ///   2. `declaredBps * 1.5` — sidx-absent fallback.  We
+    ///      over-declare rather than under, because
+    ///      under-declaration triggers AVPlayer's
+    ///      `CoreMediaError -12318 "Segment exceeds
+    ///      specified bandwidth for variant"` check and
+    ///      stalls the pipeline.
+    ///
+    /// Exposed as `internal static` so the XCTest target
+    /// can pin the formula against a future refactor.
+    static func masterPlaylistBandwidthDecision(
+        declaredVideoBps: Int,
+        declaredAudioBps: Int,
+        videoFragments: [MediaFragment],
+        audioFragments: [MediaFragment]
+    ) -> MasterBandwidthDecision {
+        func peakBitsPerSec(in fragments: [MediaFragment]) -> Int64 {
+            // bytes * 8 / seconds = bits per second.
+            // Skip zero-duration fragments (sidx entries
+            // with `d=0` are valid but can't be measured).
+            fragments
+                .filter { $0.duration > 0 }
+                .map { frag -> Int64 in
+                    let bytes = Int64(frag.byteRange.upperBound
+                                      - frag.byteRange.lowerBound)
+                    return bytes * 8 / Int64(frag.duration)
+                }
+                .max() ?? 0
+        }
+        let videoPeak = peakBitsPerSec(in: videoFragments)
+        let audioPeak = peakBitsPerSec(in: audioFragments)
+        let measuredPeak = max(videoPeak, audioPeak)
+        let fromMeasured = Int(Double(measuredPeak) * 1.15)
+        let declaredBps = Int64(declaredVideoBps) + Int64(declaredAudioBps)
+        let fromDeclared = Int(Double(declaredBps) * 1.5)
+        let chosen = max(fromMeasured, fromDeclared)
+        return MasterBandwidthDecision(
+            bandwidth: chosen,
+            videoPeakBps: videoPeak,
+            audioPeakBps: audioPeak,
+            measuredPeakBps: measuredPeak,
+            declaredBps: declaredBps
+        )
+    }
+
     private func respondMasterPlaylist(connection: NWConnection,
                                       connID: String) {
         guard let (source, _) = snapshot(),
@@ -2738,8 +2807,42 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                          reason: "no playback", connID: connID)
             return
         }
-        let totalBandwidth = source.video.bandwidth
-            + (source.audio?.bandwidth ?? 0)
+        // BANDWIDTH attribute (HLS RFC 8216 §4.3.4.2) must
+        // be the upper bound across all segments.  B站's
+        // DASH JSON `bandwidth` is the *average* bitrate,
+        // which under-reports VBR peaks by 1.4–2× — especially
+        // for HEVC content, where it triggers AVPlayer's
+        // CoreMediaError -12318 "Segment exceeds specified
+        // bandwidth for variant" check and stalls the
+        // pipeline mid-playback.  Use the actual sidx peak
+        // (or fall back to the declared value) and apply a
+        // small safety margin so the AVPlayer variant check
+        // never trips on a legitimate segment.
+        let (videoSegments, audioSegments): (TrackSegmentIndex?, TrackSegmentIndex?) = {
+            lock.lock(); defer { lock.unlock() }
+            let videoURL = source.video.baseURL
+            let audioURL = source.audio?.baseURL
+            return (trackSegmentIndex[videoURL],
+                    audioURL.flatMap { trackSegmentIndex[$0] })
+        }()
+        let decision = Self.masterPlaylistBandwidthDecision(
+            declaredVideoBps: source.video.bandwidth,
+            declaredAudioBps: source.audio?.bandwidth ?? 0,
+            videoFragments: videoSegments?.fragments ?? [],
+            audioFragments: audioSegments?.fragments ?? []
+        )
+        let totalBandwidth = decision.bandwidth
+        if decision.measuredPeakBps > 0 || decision.declaredBps > 0 {
+            diagLog(.playback,
+                    "LocalHLSProxyServer master BANDWIDTH",
+                    details: [
+                        "videoPeakBps": decision.videoPeakBps,
+                        "audioPeakBps": decision.audioPeakBps,
+                        "measuredPeakBps": decision.measuredPeakBps,
+                        "declaredBps": decision.declaredBps,
+                        "chosenBps": totalBandwidth
+                    ])
+        }
 
         var lines: [String] = [
             "#EXTM3U",
