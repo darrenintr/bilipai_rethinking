@@ -492,6 +492,14 @@ final class PlayerController: ObservableObject {
     /// to `PlayProgressStore` keyed by `bvid`.  `nil` for live
     /// rooms (their streams have no resumable state).
     let nowPlayingBvid: String?
+    /// **PR-C (Phase 2)**: content id for the prefetch
+    /// cache key.  Set in `init` from `video?.cid` (cast
+    /// to `Int64`); passed through to
+    /// `LocalHLSProxyServer.serve(playback:bvid:cid:)`
+    /// so the auto-prefetch fires with the right key.
+    /// `nil` for live playback, downloaded-only playback,
+    /// or any path where the BiliVideo isn't passed in.
+    let nowPlayingCid: Int64?
     /// Cached artwork.  Built once when the coverURL resolves,
     /// then handed to `MPMediaItemArtwork` on every Now Playing
     /// refresh so we don't re-wrap a `UIImage` twice a second.
@@ -518,6 +526,7 @@ final class PlayerController: ObservableObject {
         self.nowPlayingArtist = video?.ownerName ?? "Paladala"
         self.nowPlayingCoverURL = video?.coverURL
         self.nowPlayingBvid = video?.id
+        self.nowPlayingCid = video?.cid.map { Int64($0) }
 
         // Consult the plugin manager for a CDN-pin override
         // before the user-chosen CDN. PluginManager is
@@ -1098,7 +1107,11 @@ final class PlayerController: ObservableObject {
     /// out so the public method reads cleanly.
     private func runLoadPlayback(_ playback: BiliPlayback) async {
         do {
-            let url = try await LocalHLSProxyServer.shared.serve(playback: playback)
+            let url = try await LocalHLSProxyServer.shared.serve(
+                playback: playback,
+                bvid: nowPlayingBvid,
+                cid: nowPlayingCid
+            )
             try Task.checkCancellation()
             diagLog(.playback,
                     "AVPlayerController manifest ready, self-testing endpoints",

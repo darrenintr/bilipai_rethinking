@@ -368,6 +368,15 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// returned URL — it will not see a 503 from a
     /// not-yet-populated SIDX cache.
     ///
+    /// **PR-C (Phase 2)**: when `bvid` and `cid` are both
+    /// non-nil, the call also kicks off a background
+    /// `PlaybackPrefetchManager` download so subsequent
+    /// `/segment` requests can serve from disk instead of
+    /// the B站 CDN.  Prefetch is best-effort: the manifest
+    /// is served regardless of download progress, and the
+    /// segment router falls back to the existing Range
+    /// path until the local file lands.
+    ///
     /// Steps:
     /// 1. `stop()` clears any in-flight prep / listener.
     /// 2. `beginServing()` bumps the generation counter.
@@ -376,12 +385,19 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// 4. `publishAndStart(...)` writes the prepared indices
     ///    to the manifest cache, ensures the listener is
     ///    bound, and waits for the listener to be `.ready`.
-    func serve(playback: BiliPlayback) async throws -> URL {
+    func serve(playback: BiliPlayback,
+               bvid: String? = nil,
+               cid: Int64? = nil) async throws -> URL {
         guard playback.dash != nil else {
             throw PlaybackPreparationError.noDash
         }
         diagLog(.playback, "LocalHLSProxyServer serve started",
-                details: ["hasAudio": playback.dash?.audio != nil])
+                details: [
+                    "hasAudio": playback.dash?.audio != nil,
+                    "bvid": bvid ?? "",
+                    "cid": cid.map(String.init) ?? "",
+                    "prefetchable": bvid != nil && cid != nil
+                ])
         stop()
 
         // Lazy rebuild — `stop()` invalidates `prepSession`.
@@ -420,10 +436,35 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                         ])
                 throw CancellationError()
             }
-            return try await publishAndStart(
+            // **PR-C (Phase 2)**: record the prefetch
+            // identity so the segment router can read from
+            // the on-disk cache once the prefetch finishes.
+            // For the local-mode branch we leave it nil —
+            // the local router reads from `localContext`,
+            // not from the prefetch cache, so we don't want
+            // segment requests to try to look up the wrong
+            // bvid/cid.
+            setCurrentIdentity(bvid: bvid, cid: cid)
+            let url = try await publishAndStart(
                 prepared: prepared,
                 generation: generation
             )
+            // **PR-C (Phase 2)**: kick off the auto-prefetch
+            // in the background.  The segment router will
+            // serve the first few segments from the existing
+            // B站 Range path while the prefetch downloads;
+            // once the file lands on disk the router
+            // automatically switches to the local copy
+            // (commit 2 of this series).  No-op when either
+            // bvid or cid is missing — the caller didn't
+            // have the identity handy, e.g. for the LAN
+            // share helper.
+            triggerPrefetchIfPossible(
+                bvid: bvid, cid: cid,
+                qn: playback.selectedVideoQn,
+                playback: playback
+            )
+            return url
         } else {
             // Local playback: no SIDX prep.  Just ensure
             // the listener, wait for `.ready`, and emit
@@ -471,6 +512,26 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         return PreparedPlayback(video: placeholder, audio: nil)
     }
 
+    /// **PR-C (Phase 2)**: kick off the background auto-
+    /// prefetch for a freshly-served playback.  No-op when
+    /// any of bvid / cid / qn is missing — the caller
+    /// didn't have the identity handy (e.g. LAN share).
+    /// Detached at `.utility` so the segment router isn't
+    /// held up by the download scheduler.
+    private func triggerPrefetchIfPossible(
+        bvid: String?,
+        cid: Int64?,
+        qn: Int?,
+        playback: BiliPlayback
+    ) {
+        guard let bvid, let cid, let qn else { return }
+        Task.detached(priority: .utility) {
+            await PlaybackPrefetchManager.shared.prefetch(
+                bvid: bvid, qn: qn, cid: cid, playback: playback
+            )
+        }
+    }
+
     /// Begin a new serving generation.  Bumps
     /// `currentPrepGeneration` under `lock` and clears any
     /// stale manifest state.  Returns the new generation
@@ -507,6 +568,23 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         lock.lock()
         currentPlayback = playback
         localContext = playback.localContext
+        lock.unlock()
+    }
+
+    /// **PR-C (Phase 2 — local-prefetch routing)**: stash the
+    /// bvid + cid that identify the active prefetch cache
+    /// entry, so the segment router can match incoming
+    /// `/segment` requests to on-disk bytes.  Set under
+    /// `lock` by `serve(playback:bvid:cid:)`; cleared by
+    /// `stop()`.  `nil` for non-prefetchable paths
+    /// (downloaded playback via `serveLocal(playback:)`,
+    /// LAN share, live).
+    private func setCurrentIdentity(
+        bvid: String?, cid: Int64?
+    ) {
+        lock.lock()
+        currentBvid = bvid
+        currentCid = cid
         lock.unlock()
     }
 
@@ -938,6 +1016,12 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         currentPlayback = nil
         localContext = nil
         currentLivePlayback = nil
+        // **PR-C (Phase 2)**: drop the active prefetch
+        // identity so a subsequent `serve(...)` for a
+        // different video doesn't try to read segments from
+        // the previous video's cache entry.
+        currentBvid = nil
+        currentCid = nil
         // Drop cached upstream probes too — after a long
         // background the cached byte sizes may belong to a
         // CDN file that has since been re-ranged.
@@ -1256,6 +1340,13 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     internal func cancelListenerForTest() { listener?.cancel() }
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
+    /// **PR-C (Phase 2)**: identity of the active prefetch
+    /// cache entry.  See `setCurrentIdentity(bvid:cid:)` for
+    /// lifetime.  Read by `proxySegment` / `proxySegmentRange`
+    /// to route a segment request to the on-disk bytes when
+    /// the prefetch has completed.
+    private var currentBvid: String?
+    private var currentCid: Int64?
     /// Live playback state.  Mirrors `currentPlayback` for the
     /// `/live/manifest.m3u8` + `/live/seg` routes; null when the
     /// last `serve(playback:)` was a VOD stream (or nothing).
@@ -2635,8 +2726,16 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                     kind: .initRange, connID: connID
                 )
             } else {
-                proxySegment(req: req, connection: connection,
-                             mode: .initRange, connID: connID)
+                // **PR-C (Phase 2)**: `proxySegment` is now
+                // `async` so the local-cache branch can read
+                // from disk.  Wrap in `Task` because the
+                // NWConnection callback is sync.
+                Task { [weak self] in
+                    await self?.proxySegment(
+                        req: req, connection: connection,
+                        mode: .initRange, connID: connID
+                    )
+                }
             }
         case "/media":
             if isLocal {
@@ -2645,8 +2744,12 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                     kind: .mediaRange, connID: connID
                 )
             } else {
-                proxySegment(req: req, connection: connection,
-                             mode: .mediaRange, connID: connID)
+                Task { [weak self] in
+                    await self?.proxySegment(
+                        req: req, connection: connection,
+                        mode: .mediaRange, connID: connID
+                    )
+                }
             }
         case "/segment":
             // Per-fragment URL emitted by the SIDX-driven
@@ -2661,8 +2764,14 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 respondError(connection: connection, status: 404,
                              reason: "local mode: no /segment", connID: connID)
             } else {
-                proxySegmentRange(req: req, connection: connection,
-                                  connID: connID)
+                // **PR-C (Phase 2)**: `proxySegmentRange` is
+                // now `async` so the local-cache branch can
+                // read from disk.
+                Task { [weak self] in
+                    await self?.proxySegmentRange(
+                        req: req, connection: connection, connID: connID
+                    )
+                }
             }
         default:
             if pathOnly.hasPrefix("/seg") {
@@ -2671,8 +2780,12 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                                  reason: "local mode: no /seg",
                                  connID: connID)
                 } else {
-                    proxySegment(req: req, connection: connection,
-                                 mode: .passthrough, connID: connID)
+                    Task { [weak self] in
+                        await self?.proxySegment(
+                            req: req, connection: connection,
+                            mode: .passthrough, connID: connID
+                        )
+                    }
                 }
             } else if pathOnly == "/live/manifest.m3u8" {
                 respondLiveManifest(connection: connection, connID: connID)
@@ -3144,7 +3257,7 @@ fileprivate func proxySegmentRange(
     req: HTTPRequest,
     connection: NWConnection,
     connID: String
-) {
+) async {
     // **PR-A Group 3 (item 7, D7)**: capture the prep
     // generation at handler entry.  Any subsequent increment
     // (e.g. `stop()` / new session) makes this request stale;
@@ -3238,6 +3351,46 @@ fileprivate func proxySegmentRange(
     }
 
     let frag = index.fragments[idx]
+    // **PR-C (Phase 2)**: try the on-disk prefetch cache
+    // before issuing the B站 Range request.  `frag.byteRange`
+    // is in upstream-file coordinates (the same ones the
+    // cache file was written from), so a hit serves the
+    // exact bytes AVPlayer would have got over the wire.
+    if let (bvid, cid, qn) = currentIdentity(),
+       let kind = kindForTrackKind(params["k"]),
+       let hit = tryLocalSegment(
+            bvid: bvid, qn: qn, cid: cid, kind: kind,
+            absRange: frag.byteRange
+       ) {
+        diagLog(.playback,
+                "LocalHLSProxyServer /segment served from local cache",
+                details: [
+                    "conn": connID,
+                    "kind": params["k"] ?? "?",
+                    "n": idx,
+                    "range": "\(frag.byteRange.lowerBound)"
+                        + "-\(frag.byteRange.upperBound - 1)",
+                    "bytes": hit.data.count,
+                    "fileSize": hit.totalSize
+                ])
+        touchPrefetchEntry(bvid: bvid, qn: qn, cid: cid)
+        // `/segment` uses a 200 OK + full-body response
+        // (not 206 + Content-Range) because each segment
+        // is its own self-contained resource per the
+        // SIDX-driven playlist.  See the original
+        // `StreamingProxyTask` instantiation below.
+        respondBytes(
+            connection: connection,
+            status: 200,
+            contentType: "video/mp4",
+            body: hit.data,
+            extraHeaders: ["Content-Length": "\(hit.data.count)"],
+            connID: connID,
+            label: "LOCAL segment[\(idx)] \(frag.byteRange.lowerBound)"
+                + "-\(frag.byteRange.upperBound - 1)"
+        )
+        return
+    }
     let activeURL = activeUpstream(for: track)
     var upstreamReq = URLRequest(url: activeURL)
     upstreamReq.setValue(referer, forHTTPHeaderField: "Referer")
@@ -3301,7 +3454,7 @@ fileprivate func proxySegmentRange(
         connection: NWConnection,
         mode: ProxyMode,
         connID: String
-    ) {
+    ) async {
         // **PR-A Group 3 (item 7, D7)**: capture the prep
         // generation at handler entry.  See proxySegmentRange
         // for rationale.
@@ -3347,6 +3500,40 @@ fileprivate func proxySegmentRange(
               isAllowedUpstreamHost(host) else {
             respondError(connection: connection, status: 400,
                          reason: "bad upstream host", connID: connID)
+            return
+        }
+        // **PR-C (Phase 2)**: before doing a B站 Range
+        // request, try the on-disk prefetch cache.  A hit
+        // returns the bytes synchronously (FileHandle is
+        // sync) so we never block on the network.  The LRU
+        // touch fires after the response, on a background
+        // Task, so the segment delivery itself stays on
+        // the fast path.
+        if let (bvid, cid, qn) = currentIdentity(),
+           let kind = kindForUpstream(upstream, in: source),
+           let absRange = absoluteByteRange(
+                mode: mode, params: params, clientRange: clientRange
+           ),
+           let hit = tryLocalSegment(
+                bvid: bvid, qn: qn, cid: cid, kind: kind,
+                absRange: absRange
+           ) {
+            diagLog(.playback,
+                    "LocalHLSProxyServer segment served from local cache",
+                    details: [
+                        "conn": connID,
+                        "kind": kind == .video ? "video" : "audio",
+                        "range": "\(absRange.lowerBound)"
+                            + "-\(absRange.upperBound - 1)",
+                        "bytes": hit.data.count,
+                        "fileSize": hit.totalSize
+                    ])
+            touchPrefetchEntry(bvid: bvid, qn: qn, cid: cid)
+            respondLocalSegment(
+                connection: connection, mode: mode,
+                absRange: absRange, totalSize: hit.totalSize,
+                body: hit.data, connID: connID
+            )
             return
         }
         var upstreamReq = URLRequest(url: upstream)
@@ -4202,6 +4389,206 @@ fileprivate func proxySegmentRange(
             return nil
         }
         return current
+    }
+
+    // MARK: - local prefetch cache (PR-C Phase 2)
+
+    /// **PR-C (Phase 2)**: try to read a segment from the
+    /// on-disk prefetch cache.  Returns the bytes plus the
+    /// total file size (needed for the `Content-Range`
+    /// header), or `nil` on a miss — caller falls through
+    /// to the B站 Range path.  Misses are silent (no log);
+    /// the caller logs the success path so the next
+    /// diagnostic dump will show `source: local` vs
+    /// `source: upstream`.
+    private func tryLocalSegment(
+        bvid: String,
+        qn: Int,
+        cid: Int64,
+        kind: PrefetchKind,
+        absRange: Range<Int64>
+    ) -> (data: Data, totalSize: Int64)? {
+        let key = PlaybackPrefetchManager.cacheKey(
+            bvid: bvid, qn: qn, cid: cid
+        )
+        let dir = PlaybackPrefetchManager.shared.cacheDirectory
+            .appendingPathComponent(key, isDirectory: true)
+        let filename = (kind == .video) ? "video.m4s" : "audio.m4s"
+        let fileURL = dir.appendingPathComponent(filename)
+        // `attributesOfItem` is the cheap way to learn the
+        // on-disk size without opening the file twice
+        // (and works even if the file is mid-write from
+        // a concurrent prefetch).
+        guard let attrs = try? FileManager.default
+                .attributesOfItem(atPath: fileURL.path),
+              let totalSize = (attrs[.size] as? Int64)
+        else { return nil }
+        // Clamp the requested range to the actual file
+        // size.  `absRange.upperBound` may be `Int64.max`
+        // for "read to EOF" ranges; clamping here turns
+        // that into a real bound so the FileHandle read
+        // doesn't have to.
+        let clampedEnd = min(absRange.upperBound, totalSize)
+        guard clampedEnd > absRange.lowerBound else { return nil }
+        let clamped = absRange.lowerBound..<clampedEnd
+        guard let handle = try? FileHandle(forReadingFrom: fileURL)
+        else { return nil }
+        defer { try? handle.close() }
+        do {
+            try handle.seek(toOffset: UInt64(clamped.lowerBound))
+            let data = try handle.read(upToCount: Int(clamped.count))
+            return (data, totalSize)
+        } catch {
+            return nil
+        }
+    }
+
+    /// **PR-C (Phase 2)**: respond to a local-cache hit
+    /// with the same 206/Content-Range framing the B站 CDN
+    /// would have returned.  Mirrors what
+    /// `StreamingProxyTask` does on the upstream success
+    /// path so AVPlayer can't tell the difference.
+    private func respondLocalSegment(
+        connection: NWConnection,
+        mode: ProxyMode,
+        absRange: Range<Int64>,
+        totalSize: Int64,
+        body: Data,
+        connID: String
+    ) {
+        let endInclusive = absRange.upperBound - 1
+        let contentRange = "bytes \(absRange.lowerBound)"
+            + "-\(endInclusive)/\(totalSize)"
+        respondBytes(
+            connection: connection,
+            status: 206,
+            contentType: "video/mp4",
+            body: body,
+            extraHeaders: ["Content-Range": contentRange],
+            connID: connID,
+            label: "LOCAL \(mode.logName) \(absRange.lowerBound)"
+                + "-\(endInclusive)"
+        )
+    }
+
+    /// **PR-C (Phase 2)**: read the current prefetch
+    /// identity (bvid + cid + qn) under the proxy's lock.
+    /// Returns `nil` for any of the three missing — caller
+    /// falls through to the B站 Range path.
+    private func currentIdentity() -> (bvid: String, cid: Int64, qn: Int)? {
+        lock.lock(); defer { lock.unlock() }
+        guard let bvid = currentBvid,
+              let cid = currentCid,
+              let qn = currentPlayback?.selectedVideoQn
+        else { return nil }
+        return (bvid, cid, qn)
+    }
+
+    /// **PR-C (Phase 2)**: map an upstream URL back to a
+    /// `PrefetchKind` (video/audio) by matching against
+    /// the active DASH source.  Returns `nil` if the URL
+    /// doesn't correspond to either track (in which case
+    /// the local cache can't help anyway — the request is
+    /// for a different resource).
+    private func kindForUpstream(
+        _ upstream: URL,
+        in source: BiliDashSource
+    ) -> PrefetchKind? {
+        let upstreamString = upstream.absoluteString
+        if source.video.baseURL.absoluteString == upstreamString {
+            return .video
+        }
+        if let audio = source.audio,
+           audio.baseURL.absoluteString == upstreamString {
+            return .audio
+        }
+        // Backup URLs share the same bytes as the primary,
+        // so they can satisfy the same local read.  The
+        // prefetch always downloads the primary (per
+        // `primaryUpstreamURL` in the manager), so a
+        // backup-URL request reads from the same file.
+        if source.video.backupURLs.contains(where: {
+            $0.absoluteString == upstreamString
+        }) {
+            return .video
+        }
+        if let audio = source.audio,
+           audio.backupURLs.contains(where: {
+            $0.absoluteString == upstreamString
+           }) {
+            return .audio
+        }
+        return nil
+    }
+
+    /// **PR-C (Phase 2)**: compute the absolute upstream
+    /// byte range for the current request, in upstream-
+    /// file coordinates.  Each `ProxyMode` derives the
+    /// range differently:
+    ///   - `.initRange`  — from the `range=` query param,
+    ///     already in upstream coordinates.
+    ///   - `.mediaRange` — from `from=` / `to=` query
+    ///     params, upstream coordinates.
+    ///   - `.passthrough` — from the client `Range` header,
+    ///     also upstream coordinates (we never shift the
+    ///     client's Range for passthrough).
+    /// Returns `nil` if the params are missing or
+    /// malformed — caller falls through to the B站 Range
+    /// path so the existing 400 error surface still
+    /// applies.
+    private func absoluteByteRange(
+        mode: ProxyMode,
+        params: [String: String],
+        clientRange: String?
+    ) -> Range<Int64>? {
+        switch mode {
+        case .initRange:
+            guard let rangeStr = params["range"],
+                  let r = parseByteRange(rangeStr) else { return nil }
+            return r.offset..<(r.offset + r.length)
+        case .mediaRange:
+            guard let startStr = params["from"],
+                  let start = Int64(startStr) else { return nil }
+            if let toStr = params["to"], let end = Int64(toStr) {
+                return start..<(end + 1)
+            }
+            // No `to` — read to EOF.  `Int64.max` is
+            // clamped against the actual file size by
+            // `tryLocalSegment` above.
+            return start..<Int64.max
+        case .passthrough:
+            guard let rangeStr = clientRange,
+                  let r = parseByteRange(rangeStr) else { return nil }
+            return r.offset..<(r.offset + r.length)
+        }
+    }
+
+    /// **PR-C (Phase 2)**: fire the LRU `entryAndTouch`
+    /// asynchronously after a local-cache hit.  Best-
+    /// effort; a failure here just means the LRU sees a
+    /// stale timestamp on next launch, which only affects
+    /// eviction order, not correctness.  Fire-and-forget
+    /// so the segment response doesn't wait on the actor
+    /// hop.
+    private func touchPrefetchEntry(bvid: String, qn: Int, cid: Int64) {
+        Task.detached(priority: .background) {
+            _ = await PlaybackPrefetchManager.shared.entryAndTouch(
+                bvid: bvid, qn: qn, cid: cid
+            )
+        }
+    }
+
+    /// **PR-C (Phase 2)**: helper for the `/segment` route,
+    /// which keys its `k=` query param by string instead
+    /// of by upstream URL match.  Returns `nil` for any
+    /// value other than the two we know how to map —
+    /// caller falls through to the B站 Range path.
+    private func kindForTrackKind(_ k: String?) -> PrefetchKind? {
+        switch k {
+        case "video": return .video
+        case "audio": return .audio
+        default: return nil
+        }
     }
 
     private func respondBytes(
