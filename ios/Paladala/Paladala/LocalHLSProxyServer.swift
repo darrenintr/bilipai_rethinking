@@ -2726,16 +2726,8 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                     kind: .initRange, connID: connID
                 )
             } else {
-                // **PR-C (Phase 2)**: `proxySegment` is now
-                // `async` so the local-cache branch can read
-                // from disk.  Wrap in `Task` because the
-                // NWConnection callback is sync.
-                Task { [weak self] in
-                    await self?.proxySegment(
-                        req: req, connection: connection,
-                        mode: .initRange, connID: connID
-                    )
-                }
+                proxySegment(req: req, connection: connection,
+                             mode: .initRange, connID: connID)
             }
         case "/media":
             if isLocal {
@@ -2744,12 +2736,8 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                     kind: .mediaRange, connID: connID
                 )
             } else {
-                Task { [weak self] in
-                    await self?.proxySegment(
-                        req: req, connection: connection,
-                        mode: .mediaRange, connID: connID
-                    )
-                }
+                proxySegment(req: req, connection: connection,
+                             mode: .mediaRange, connID: connID)
             }
         case "/segment":
             // Per-fragment URL emitted by the SIDX-driven
@@ -2764,14 +2752,8 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 respondError(connection: connection, status: 404,
                              reason: "local mode: no /segment", connID: connID)
             } else {
-                // **PR-C (Phase 2)**: `proxySegmentRange` is
-                // now `async` so the local-cache branch can
-                // read from disk.
-                Task { [weak self] in
-                    await self?.proxySegmentRange(
-                        req: req, connection: connection, connID: connID
-                    )
-                }
+                proxySegmentRange(req: req, connection: connection,
+                                  connID: connID)
             }
         default:
             if pathOnly.hasPrefix("/seg") {
@@ -2780,12 +2762,8 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                                  reason: "local mode: no /seg",
                                  connID: connID)
                 } else {
-                    Task { [weak self] in
-                        await self?.proxySegment(
-                            req: req, connection: connection,
-                            mode: .passthrough, connID: connID
-                        )
-                    }
+                    proxySegment(req: req, connection: connection,
+                                 mode: .passthrough, connID: connID)
                 }
             } else if pathOnly == "/live/manifest.m3u8" {
                 respondLiveManifest(connection: connection, connID: connID)
@@ -3257,7 +3235,7 @@ fileprivate func proxySegmentRange(
     req: HTTPRequest,
     connection: NWConnection,
     connID: String
-) async {
+) {
     // **PR-A Group 3 (item 7, D7)**: capture the prep
     // generation at handler entry.  Any subsequent increment
     // (e.g. `stop()` / new session) makes this request stale;
@@ -3454,7 +3432,7 @@ fileprivate func proxySegmentRange(
         connection: NWConnection,
         mode: ProxyMode,
         connID: String
-    ) async {
+    ) {
         // **PR-A Group 3 (item 7, D7)**: capture the prep
         // generation at handler entry.  See proxySegmentRange
         // for rationale.
@@ -3502,6 +3480,14 @@ fileprivate func proxySegmentRange(
                          reason: "bad upstream host", connID: connID)
             return
         }
+        // **PR-C (Phase 2)**: parse the downstream Range
+        // header early so the local-cache branch (below)
+        // can match the same `clientRange` semantics that
+        // the upstream Range branch uses.  `AVPlayer` is
+        // strict about 206/Content-Range for byte-range
+        // requests; pulling this forward keeps the two
+        // branches consistent.
+        let clientRange = req.headers["range"]
         // **PR-C (Phase 2)**: before doing a B站 Range
         // request, try the on-disk prefetch cache.  A hit
         // returns the bytes synchronously (FileHandle is
@@ -3551,7 +3537,6 @@ fileprivate func proxySegmentRange(
         // `Content-Range` header, otherwise it abandons the
         // stream.  When it asks for the whole resource (no
         // Range), we MUST return `200 OK` with the full body.
-        let clientRange = req.headers["range"]
         var contentRangeShift: Int64?
         var passContentRange = false
         switch mode {
@@ -4436,8 +4421,15 @@ fileprivate func proxySegmentRange(
         defer { try? handle.close() }
         do {
             try handle.seek(toOffset: UInt64(clamped.lowerBound))
-            let data = try handle.read(upToCount: Int(clamped.count))
-            return (data, totalSize)
+            // `FileHandle.read(upToCount:)` returns `Data?`
+            // — nil means EOF (which here is also a miss;
+            // the cache file is shorter than the caller
+            // expected, treat as a clean miss instead of
+            // serving a truncated payload).
+            guard let data = try handle.read(
+                upToCount: Int(clamped.count)
+            ) else { return nil }
+            return (data: data, totalSize: totalSize)
         } catch {
             return nil
         }

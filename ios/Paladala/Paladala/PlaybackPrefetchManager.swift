@@ -328,7 +328,7 @@ actor PlaybackPrefetchManager {
         if inFlight[key] != nil {
             return
         }
-        let task = Task { [weak self] in
+        let task: Task<Void, Never> = Task { [weak self] in
             await self?.runPrefetch(
                 bvid: bvid, qn: qn, cid: cid, playback: playback
             )
@@ -418,7 +418,7 @@ actor PlaybackPrefetchManager {
             referer: playback.referer.absoluteString,
             dst: videoStaging
         )
-        let audioResult: Result<Int64?, Error> = await {
+        let audioR: Result<Int64?, Error> = await {
             guard let audioURL else { return .success(nil) }
             return await runDownload(
                 url: audioURL,

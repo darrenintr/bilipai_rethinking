@@ -526,7 +526,7 @@ final class PlayerController: ObservableObject {
         self.nowPlayingArtist = video?.ownerName ?? "Paladala"
         self.nowPlayingCoverURL = video?.coverURL
         self.nowPlayingBvid = video?.id
-        self.nowPlayingCid = video?.cid.map { Int64($0) }
+        self.nowPlayingCid = video.map { Int64($0.cid) }
 
         // Consult the plugin manager for a CDN-pin override
         // before the user-chosen CDN. PluginManager is
