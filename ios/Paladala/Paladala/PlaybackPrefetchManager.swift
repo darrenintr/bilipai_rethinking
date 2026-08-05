@@ -319,6 +319,23 @@ actor PlaybackPrefetchManager {
         playback: BiliPlayback
     ) {
         let key = Self.cacheKey(bvid: bvid, qn: qn, cid: cid)
+        // **PR-C (Phase 2 — fix, take 2)**: route through
+        // `diagLog(.playback, ...)` so this evidence lands
+        // in the persistent `Diagnostic events` stream
+        // instead of being truncated by
+        // `Logger.shared.logs.suffix(100)` in the
+        // diagnostic tail.  Without this, build 327 left
+        // us blind to whether the trigger ever spawned
+        // the prefetch task.
+        diagLog(.playback, "PlaybackPrefetchManager.prefetch entered",
+                details: [
+                    "bvid": bvid,
+                    "qn": String(qn),
+                    "cid": String(cid),
+                    "cacheHit": entries[key] != nil ? "true" : "false",
+                    "inFlight": inFlight[key] != nil ? "true" : "false",
+                    "hasDash": playback.dash != nil ? "true" : "false"
+                ])
         if entries[key] != nil {
             // Already on disk — just touch the entry so
             // the LRU treats this as a fresh use.

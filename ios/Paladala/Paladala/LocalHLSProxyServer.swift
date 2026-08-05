@@ -546,15 +546,46 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             }
             return nil
         }()
+        // **PR-C (Phase 2 — fix, take 2)**: route these
+        // through `diagLog(.playback, ...)` rather than
+        // `bpLog(...)`.  The previous take-1 fix used
+        // `bpLog`, which only writes to
+        // `Logger.shared.logs` (cap 1000, in-memory), and
+        // the diagnostic export only takes the LAST 100
+        // of those via `suffix(100)`.  Build 327 confirmed
+        // the truncation: a hot-path video with hundreds
+        // of `loadedTimeRanges` / `upstream response` log
+        // lines pushed the trigger entry out of the tail
+        // window even though the function ran.  `diagLog`
+        // persists into `DiagnosticLogger.events` and the
+        // on-disk `log.jsonl`, both of which are dumped
+        // verbatim into the diagnostic report's
+        // `Diagnostic events` section.
         guard let bvid, let cid, let resolvedQn else {
-            bpLog("LocalHLSProxyServer triggerPrefetch skipped: "
-                  + "bvid=\(bvid ?? "nil") cid=\(cid.map(String.init) ?? "nil") "
-                  + "qn=\(qn.map(String.init) ?? "nil")")
+            diagLog(.playback, "LocalHLSProxyServer triggerPrefetch skipped",
+                    details: [
+                        "bvid": bvid ?? "nil",
+                        "cid": cid.map(String.init) ?? "nil",
+                        "requestedQn": qn.map(String.init) ?? "nil",
+                        "resolvedQn": resolvedQn.map(String.init) ?? "nil",
+                        "acceptQualityFirst":
+                            playback.acceptQuality?.first.map(String.init)
+                            ?? "nil",
+                        "hasDash": playback.dash != nil ? "true" : "false"
+                    ])
             return
         }
-        bpLog("LocalHLSProxyServer triggerPrefetch firing: "
-              + "bvid=\(bvid) cid=\(cid) qn=\(resolvedQn) "
-              + "(requested qn=\(qn.map(String.init) ?? "nil"))")
+        diagLog(.playback, "LocalHLSProxyServer triggerPrefetch firing",
+                details: [
+                    "bvid": bvid,
+                    "cid": String(cid),
+                    "qn": String(resolvedQn),
+                    "requestedQn": qn.map(String.init) ?? "nil",
+                    "acceptQualityFirst":
+                        playback.acceptQuality?.first.map(String.init)
+                        ?? "nil",
+                    "hasDash": playback.dash != nil ? "true" : "false"
+                ])
         Task.detached(priority: .utility) {
             await PlaybackPrefetchManager.shared.prefetch(
                 bvid: bvid, qn: resolvedQn, cid: cid, playback: playback
