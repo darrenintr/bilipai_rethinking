@@ -524,10 +524,40 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         qn: Int?,
         playback: BiliPlayback
     ) {
-        guard let bvid, let cid, let qn else { return }
+        // **PR-C (Phase 2 — fix)**: B站's playurl response
+        // does not always include the `id` field on the
+        // selected DASH video track, so `playback.selectedVideoQn`
+        // (which we get via `dash.video.qualityId`) is
+        // frequently nil.  Without a qn we have no
+        // stable cache key and the original
+        // `guard let qn else { return }` silently
+        // skipped the prefetch.  Fall back to the
+        // highest qn the upstream is willing to serve
+        // (the first entry of `acceptQuality`, which is
+        // B站's reported ladder).  Different qn values
+        // get separate cache entries anyway, so a wrong
+        // fallback just causes a one-time re-download
+        // the first time the user picks a different
+        // quality — not a correctness issue.
+        let resolvedQn: Int? = {
+            if let qn { return qn }
+            if let first = playback.acceptQuality?.first {
+                return first
+            }
+            return nil
+        }()
+        guard let bvid, let cid, let resolvedQn else {
+            bpLog("LocalHLSProxyServer triggerPrefetch skipped: "
+                  + "bvid=\(bvid ?? "nil") cid=\(cid.map(String.init) ?? "nil") "
+                  + "qn=\(qn.map(String.init) ?? "nil")")
+            return
+        }
+        bpLog("LocalHLSProxyServer triggerPrefetch firing: "
+              + "bvid=\(bvid) cid=\(cid) qn=\(resolvedQn) "
+              + "(requested qn=\(qn.map(String.init) ?? "nil"))")
         Task.detached(priority: .utility) {
             await PlaybackPrefetchManager.shared.prefetch(
-                bvid: bvid, qn: qn, cid: cid, playback: playback
+                bvid: bvid, qn: resolvedQn, cid: cid, playback: playback
             )
         }
     }
