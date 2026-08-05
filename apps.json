@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-04T08:11:57Z",
-    "githubRunId": "30890700152",
-    "githubRunNumber": "609",
-    "githubSha": "0c7b64cc4593942eed949738d20b331c3f8d141f",
+    "generatedAt": "2026-08-05T03:06:05Z",
+    "githubRunId": "30971132807",
+    "githubRunNumber": "611",
+    "githubSha": "3a2588b4151ef7da68d49fabef8b9bdd4fb93fa7",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "326",
+          "date": "2026-08-05T03:06:05Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.26.326/Paladala-unsigned-v0.5.26.326.ipa",
+          "localizedDescription": "7 swift compile errors from the working branch\n\n\nCI run 30970790914 (commit e2a3570e) failed xcodebuild\nwith exit 65.  Pulled the build log artifact\n(xcodebuild-build-log-610) and read the seven error lines\nfrom the swiftc output.\n\nErrors and root causes:\n\n  1. AVPlayerController.swift:529\n     value of type 'Int' has no member 'map'\n     video?.cid is Int?  but the chain was being\n     parsed as video?.cid then .map on Int (no\n     member).  Rewrote as video.map { Int64(.cid) }\n     so the .map is unambiguously Optional.map on\n     BiliVideo?.\n\n  2. LocalHLSProxyServer.swift:3515\n     use of local variable 'clientRange' before its\n     declaration\n     The local-cache branch inserted before the\n     upstream request setup referenced clientRange,\n     but the let clientRange = req.headers[range]\n     line was later.  Hoisted the declaration to\n     right after the host check, before the\n     local-cache branch.\n\n  3 + 4. LocalHLSProxyServer.swift:3692, 3694\n     instance method 'lock' is unavailable from\n     asynchronous contexts\n     Swift 6 strict concurrency forbids lock.lock\n     and lock.unlock inside an async function\n     even with no await between them.  proxySegment\n     and proxySegmentRange did not need to be\n     async — the local-cache read uses sync\n     FileHandle, and the LRU touch is\n     fire-and-forget via Task.detached.  Reverted\n     both functions to sync and unwrapped the 4\n     Task { await ... } wrappers in the route\n     handler.\n\n  5. LocalHLSProxyServer.swift:4440\n     cannot convert return expression of type\n     (Data?, Int64) to return type (data: Data,\n     totalSize: Int64)\n     tryLocalSegment's return was unlabeled but\n     the function declares a labeled tuple.\n     Added labels.  Also unwrapped the FileHandle\n     .read result with guard let so an EOF (nil\n     data) is treated as a clean cache miss\n     instead of a truncated payload.\n\n  6. PlaybackPrefetchManager.swift:336\n     cannot assign value of type Task<()?, Never>\n     to type Task<Void, Never>\n     The inFlight dict is typed Task<Void, Never>\n     but the task literal was inferred as\n     Task<()?, Never> because the await self?...\n     closure returns Optional<Void>.  Annotated\n     the task as Task<Void, Never> explicitly.\n\n  7. PlaybackPrefetchManager.swift:442\n     cannot find 'audioR' in scope\n     The Result-introducing let was named\n     audioResult but the switch used audioR.\n     Renamed the let to audioR for consistency\n     with the parallel videoR.\n\nBehavioural effect: none.  These are pure compile\nfixes — the runtime behaviour is identical to the\nfailing commit e2a3570e.\n\nNet line count: -8 (mostly the unwinding of the\nasync conversion).",
+          "size": 4144574,
+          "version": "0.5.26"
+        },
         {
           "buildVersion": "325",
           "date": "2026-08-04T08:11:57Z",
@@ -237,6 +245,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 326 (3a2588b)",
+      "date": "2026-08-05T03:06:05Z",
+      "identifier": "v0.5.26.326",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.26.326",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.26.326"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 325 (0c7b64c)",
