@@ -400,6 +400,30 @@ actor PlaybackPrefetchManager {
         let key = Self.cacheKey(bvid: bvid, qn: qn, cid: cid)
         defer { inFlight.removeValue(forKey: key) }
 
+        // `BiliDashSource.Track` does not carry an absolute
+        // `size` field - B站 playurl publishes bandwidth
+        // (bps) and total duration (seconds) only; the real
+        // file size is only known after the upstream
+        // Content-Length comes back.  So we estimate the
+        // prefetch target as `bandwidth * totalDuration / 8`
+        // (within plus or minus 5 percent for any real
+        // video) and also log the raw `bandwidth` and
+        // `totalDuration` so the reader can recompute.
+        // Both fields default to 0 when `dash` is nil
+        // (the entry log fires before the
+        // `guard let dash` so a missing dash is still
+        // recorded).
+        let videoTrack = playback.dash?.video
+        let audioTrack = playback.dash?.audio
+        let videoEstimatedBytes: Int64 = {
+            guard let t = videoTrack else { return 0 }
+            return Int64(t.bandwidth) * Int64(t.totalDuration) / 8
+        }()
+        let audioEstimatedBytes: Int64 = {
+            guard let t = audioTrack else { return 0 }
+            return Int64(t.bandwidth) * Int64(t.totalDuration) / 8
+        }()
+
         // **PR-C (Phase 2 — fix, take 3)**: convert the
         // bpLog at this entry to diagLog so the next
         // diagnostic always shows whether `runPrefetch`
@@ -413,10 +437,14 @@ actor PlaybackPrefetchManager {
                     "bvid": bvid,
                     "qn": String(qn),
                     "cid": String(cid),
-                    "videoSizeBytes":
-                        String(playback.dash?.video.size ?? 0),
-                    "audioSizeBytes":
-                        String(playback.dash?.audio?.size ?? 0)
+                    "videoBandwidthBps": String(videoTrack?.bandwidth ?? 0),
+                    "videoTotalDurationS":
+                        String(format: "%.3f", videoTrack?.totalDuration ?? 0),
+                    "videoEstimatedBytes": String(videoEstimatedBytes),
+                    "audioBandwidthBps": String(audioTrack?.bandwidth ?? 0),
+                    "audioTotalDurationS":
+                        String(format: "%.3f", audioTrack?.totalDuration ?? 0),
+                    "audioEstimatedBytes": String(audioEstimatedBytes)
                 ])
 
         guard let dash = playback.dash else {
