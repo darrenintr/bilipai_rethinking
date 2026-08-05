@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-05T03:06:05Z",
-    "githubRunId": "30971132807",
-    "githubRunNumber": "611",
-    "githubSha": "3a2588b4151ef7da68d49fabef8b9bdd4fb93fa7",
+    "generatedAt": "2026-08-05T03:19:57Z",
+    "githubRunId": "30971827435",
+    "githubRunNumber": "612",
+    "githubSha": "487791e80557ea60362542f09f045e7107ea47f4",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "327",
+          "date": "2026-08-05T03:19:57Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.27.327/Paladala-unsigned-v0.5.27.327.ipa",
+          "localizedDescription": "fall back to first acceptQuality qn when selected video id is missing\n\n\nB站 playurl responses do not always populate the id field on the\nselected DASH video track, so playback.selectedVideoQn (resolved\nvia dash.video.qualityId) is frequently nil. The previous\nguard let qn in triggerPrefetchIfPossible silently skipped the\nentire Task.detached spawn, which is why build 326 diagnostics\nshowed serve started with prefetchable true but no subsequent\nPlaybackPrefetchManager log line.\n\nFall back to the first entry of acceptQuality, which is B站's\nreported quality ladder. Different qn values get separate cache\nentries, so a wrong fallback just causes a one-time re-download\non first quality switch.\n\nAlso add bpLog lines on both the skip and fire paths so the next\ndiagnostic shows whether the trigger fired, and with which qn.",
+          "size": 4146544,
+          "version": "0.5.27"
+        },
         {
           "buildVersion": "326",
           "date": "2026-08-05T03:06:05Z",
@@ -245,6 +253,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 327 (487791e)",
+      "date": "2026-08-05T03:19:57Z",
+      "identifier": "v0.5.27.327",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.27.327",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.27.327"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 326 (3a2588b)",
