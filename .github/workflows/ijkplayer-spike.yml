@@ -1,0 +1,245 @@
+name: IJKPlayer Build Spike
+
+# Manual-only workflow.  The IJKPlayer build (FFmpeg + libavcodec
+# compile from source) is a 20-40 minute cold run on the first
+# invocation and a 5-10 minute warm run on cache hit.  Auto-trigger
+# from `working` or `main` would slow every release push to a crawl
+# and burn through Actions minutes; the spike is run on demand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ijkplayer_ref:
+        description: 'IJKPlayer git ref (tag / branch / SHA) to build'
+        required: false
+        default: 'master'
+        type: string
+      clean_ffmpeg:
+        description: 'Force clean FFmpeg build (skip cache)'
+        required: false
+        default: 'false'
+        type: boolean
+
+# Run one spike at a time.  Two parallel IJKPlayer builds would just
+# race for the same `macos-15` cache slot and step on each other's
+# logs.
+concurrency:
+  group: ijkplayer-spike-build
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-ijkplayer:
+    name: Build IJKPlayer.framework on macos-15
+    runs-on: macos-15
+    env:
+      IJKPLAYER_SRC: ${{ runner.temp }}/ijkplayer-src
+      IJKPLAYER_BUILD: ${{ runner.temp }}/ijkplayer-build
+      IJKPLAYER_REF: ${{ inputs.ijkplayer_ref || 'master' }}
+      IJKPLAYER_CLEAN: ${{ inputs.clean_ffmpeg }}
+    steps:
+      - name: Show Xcode toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          sw_vers
+          uname -a
+
+      # ----------------------------------------------------------------
+      # Install Homebrew packages required by compile-ffmpeg.sh.
+      # yasm is the legacy x86 assembler FFmpeg still uses for the
+      # most aggressive inline asm; nasm is the modern alternative
+      # (FFmpeg picks whichever it finds first).  Both are tiny.
+      # ----------------------------------------------------------------
+      - name: Install Homebrew build dependencies
+        run: |
+          set -euo pipefail
+          if ! command -v brew >/dev/null 2>&1; then
+            echo "::error::Homebrew is not installed on the macos-15 runner"
+            exit 1
+          fi
+          brew install yasm nasm 2>&1 | tail -20 || true
+          which yasm nasm
+          yasm --version
+          nasm --version
+
+      # ----------------------------------------------------------------
+      # Clone IJKPlayer.  We pin to the IJKPLAYER_REF input so the
+      # spike is reproducible; `master` follows upstream but anyone
+      # can override to a specific tag (e.g. `k0.8.8` for a stable
+      # release) for debugging.
+      # ----------------------------------------------------------------
+      - name: Clone IJKPlayer
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$IJKPLAYER_REF" \
+            https://github.com/Bilibili/ijkplayer.git \
+            "$IJKPLAYER_SRC"
+          cd "$IJKPLAYER_SRC"
+          git log --oneline -1
+          echo "IJKPlayer HEAD: $(git rev-parse HEAD)"
+
+      # ----------------------------------------------------------------
+      # Configure the IJKPlayer iOS build.  init-ios.sh sets the
+      # shell variables and module-lite flags that compile-ffmpeg.sh
+      # needs; it also writes a default module.sh if one doesn't
+      # exist.  We run it once per clone, before the FFmpeg cache
+      # check, so the cached FFmpeg output is consistent with the
+      # current source.
+      # ----------------------------------------------------------------
+      - name: Configure IJKPlayer iOS build
+        run: |
+          set -euo pipefail
+          cd "$IJKPLAYER_SRC"
+          # init-ios.sh also calls compile-openssl.sh conditionally;
+          # IJKPlayer's DASH-only build doesn't need OpenSSL but
+          # init-ios.sh may try anyway.  Wrap in `|| true` so a
+          # non-essential failure doesn't fail the spike.
+          bash init-ios.sh 2>&1 | tail -30 || true
+
+      # ----------------------------------------------------------------
+      # Cache the FFmpeg build output so subsequent runs skip the
+      # 20-40 minute C compile.  Key on the FFmpeg version + the
+      # hash of module-lite.sh (the config that determines which
+      # codecs are enabled) + the IJKPlayer ref.  When ANY of those
+      # change, the cache misses and we rebuild.
+      # ----------------------------------------------------------------
+      - name: Cache FFmpeg build artifacts
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ijkplayer-build/ffmpeg
+          key: ijkplayer-ffmpeg-${{ env.IJKPLAYER_REF }}-${{ hashFiles(format('{0}/config/module-lite.sh', env.IJKPLAYER_SRC)) }}
+          restore-keys: |
+            ijkplayer-ffmpeg-${{ env.IJKPLAYER_REF }}-
+
+      - name: Build FFmpeg (skipped on cache hit unless clean requested)
+        run: |
+          set -uo pipefail
+          cd "$IJKPLAYER_SRC/ios"
+          if [ "$IJKPLAYER_CLEAN" = "true" ]; then
+            echo "IJKPLAYER_CLEAN=true — forcing FFmpeg rebuild"
+            rm -rf "$IJKPLAYER_BUILD/ffmpeg"
+          fi
+          # compile-ffmpeg.sh writes its output to a hard-coded
+          # location under the IJKPlayer source tree; we move it to
+          # a runner-temp path so the cache key matches and the
+          # source tree stays clean.
+          bash compile-ffmpeg.sh clean
+          bash compile-ffmpeg.sh all 2>&1 | tee "$RUNNER_TEMP/ffmpeg_build.log" | tail -10
+          # compile-ffmpeg.sh leaves the .a files under
+          # $IJKPLAYER_SRC/ios/ffmpeg-arm64/ and similar.  Copy
+          # them to the cache path so actions/cache picks them up
+          # next time.
+          mkdir -p "$IJKPLAYER_BUILD/ffmpeg"
+          cp -R "$IJKPLAYER_SRC/ios"/ffmpeg-* "$IJKPLAYER_BUILD/ffmpeg/" || true
+          ls -la "$IJKPLAYER_BUILD/ffmpeg"
+        env:
+          IJKPLAYER_BUILD: ${{ runner.temp }}/ijkplayer-build
+
+      # ----------------------------------------------------------------
+      # Build IJKMediaPlayer.xcodeproj.  This compiles the ObjC
+      # wrapper around the FFmpeg libs and produces
+      # IJKMediaFramework.framework for arm64.
+      # ----------------------------------------------------------------
+      - name: Build IJKMediaPlayer.xcodeproj
+        run: |
+          set -euo pipefail
+          LOGFILE="$RUNNER_TEMP/ijkmedia_build.log"
+          cd "$IJKPLAYER_SRC/ios"
+          xcodebuild \
+            -project IJKMediaPlayer/IJKMediaPlayer.xcodeproj \
+            -scheme IJKMediaPlayer \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$IJKPLAYER_BUILD/derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > "$LOGFILE" 2>&1
+          XC_EXIT=$?
+          echo "xcodebuild exited with code $XC_EXIT"
+          if [ "$XC_EXIT" -ne 0 ]; then
+            echo "## IJKPlayer spike xcodebuild failed (exit $XC_EXIT)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### First 20 Swift/ObjC error lines" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -E "error:" "$LOGFILE" | head -20 >> "$GITHUB_STEP_SUMMARY" || echo "(no error: lines found)" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Last 60 lines of build log" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 60 "$LOGFILE" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            exit "$XC_EXIT"
+          fi
+          # Locate the built framework and stash it for the upload step.
+          FRAMEWORK=$(find "$IJKPLAYER_BUILD/derived" -name "IJKMediaFramework.framework" -type d | head -1)
+          if [ -z "$FRAMEWORK" ]; then
+            echo "::error::IJKMediaFramework.framework not found in derived data"
+            find "$IJKPLAYER_BUILD/derived" -name "*.framework" -type d
+            exit 1
+          fi
+          echo "BUILT_FRAMEWORK=$FRAMEWORK" >> "$GITHUB_ENV"
+          echo "Built IJKMediaFramework at: $FRAMEWORK"
+          ls -la "$FRAMEWORK"
+
+      - name: Smoke check the framework binary
+        run: |
+          set -euo pipefail
+          FRAMEWORK="$BUILT_FRAMEWORK"
+          test -d "$FRAMEWORK" || { echo "::error::Missing $FRAMEWORK"; exit 1; }
+          test -f "$FRAMEWORK/IJKMediaFramework" || { echo "::error::Missing framework binary"; exit 1; }
+          test -f "$FRAMEWORK/Headers/IJKMediaPlayback.h" || { echo "::error::Missing IJKMediaPlayback.h"; exit 1; }
+          file "$FRAMEWORK/IJKMediaFramework"
+          # Symbol check: confirm FFmpeg demuxer + decoder symbols
+          # are linked in.  If they're not, the FFmpeg build didn't
+          # actually get linked into the framework and the spike
+          # result is misleading.
+          echo "=== Demuxer symbols (avformat) ==="
+          nm "$FRAMEWORK/IJKMediaFramework" 2>/dev/null | grep -E "avformat_open_input|avformat_find_stream_info|av_read_frame" | head -5 || echo "(no avformat symbols — FFmpeg may not be linked)"
+          echo "=== Decoder symbols (avcodec) ==="
+          nm "$FRAMEWORK/IJKMediaFramework" 2>/dev/null | grep -E "avcodec_open2|avcodec_decode|avcodec_send_packet" | head -5 || echo "(no avcodec symbols — FFmpeg may not be linked)"
+          echo "=== Size ==="
+          du -sh "$FRAMEWORK"
+
+      - name: Upload IJKMediaFramework as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ijkplayer-framework-${{ env.IJKPLAYER_REF }}
+          path: ${{ env.BUILT_FRAMEWORK }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ijkplayer-spike-logs-${{ env.IJKPLAYER_REF }}
+          path: |
+            ${{ runner.temp }}/ffmpeg_build.log
+            ${{ runner.temp }}/ijkmedia_build.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Post success summary
+        if: success()
+        run: |
+          FRAMEWORK="$BUILT_FRAMEWORK"
+          {
+            echo "## IJKPlayer spike succeeded"
+            echo ""
+            echo "- **IJKPlayer ref**: \`$IJKPLAYER_REF\` (HEAD: \`$(cd $IJKPLAYER_SRC && git rev-parse --short HEAD)\`)"
+            echo "- **Framework**: \`$FRAMEWORK\`"
+            echo "- **Size**: $(du -sh "$FRAMEWORK" | cut -f1)"
+            echo "- **Artifact**: ijkplayer-framework-$IJKPLAYER_REF (retention 14 days)"
+            echo ""
+            echo "### Next step"
+            echo "Download the framework artifact and link it into the Paladala"
+            echo "target.  The spike does NOT integrate IJKPlayer into the app —"
+            echo "that's Phase 2 of the migration (write \`IJKPlayerWrapper\`"
+            echo "implementing \`MediaPlayer\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
