@@ -58,15 +58,16 @@ jobs:
       # is honored.
       IJKPLAYER_CLEAN: ${{ inputs.clean_ffmpeg || 'false' }}
       # init-ios.sh reads $FF_ALL_ARCHS at module-config time and
-      # compile-ffmpeg.sh propagates it into per-arch build dirs.
-      # IJKPlayer's default (armv7 arm64 i386 x86_64) includes
-      # 32-bit slices that the macos-15 runner's iOS 26 SDK no
-      # longer accepts at FFmpeg's configure-time C compiler
-      # smoke test.  Define it here at job scope so every step's
-      # shell inherits it under `set -u` — the previous attempt
-      # only `echo`'d it into $GITHUB_ENV *after* bash had already
-      # bombed out on the diagnostic `Configured FF_ALL_ARCHS=…`
-      # line at temp-script line 19.
+      # so does compile-ffmpeg.sh (per-arch build dirs iterate
+      # over $FF_ALL_ARCHS).  Define it here at job scope so every
+      # step's shell inherits it under `set -u` — the previous
+      # attempt only `echo`'d it into $GITHUB_ENV *after* bash had
+      # already bombed out on the diagnostic `Configured
+      # FF_ALL_ARCHS=…` line at temp-script line 19.  Note that
+      # compile-ffmpeg.sh unconditionally reassigns FF_ALL_ARCHS
+      # to its built-in iOS-8-SDK default (armv7 arm64 i386
+      # x86_64); the "Build FFmpeg" step sed-rewrites that
+      # assignment to honour this env var instead.
       FF_ALL_ARCHS: arm64
     steps:
       - name: Set up paths
@@ -183,6 +184,16 @@ jobs:
             echo "IJKPLAYER_CLEAN=true — forcing FFmpeg rebuild"
             rm -rf "$IJKPLAYER_BUILD/ffmpeg"
           fi
+          # compile-ffmpeg.sh unconditionally reassigns FF_ALL_ARCHS
+          # to the iOS-8-SDK default ("armv7 arm64 i386 x86_64") on
+          # line 26, blowing away any FF_ALL_ARCHS we exported from
+          # the job env.  Apple Silicon + Xcode 26 SDK cannot build
+          # armv7 (clang bombs out at the configure-time smoke test
+          # with `xcrun -sdk iphoneos clang is unable to create an
+          # executable file`), so we have to rewrite the assignment
+          # to honour the env var and fall back to arm64 if unset.
+          sed -i.bak 's|^FF_ALL_ARCHS=\$FF_ALL_ARCHS_IOS8_SDK$|FF_ALL_ARCHS=${FF_ALL_ARCHS:-arm64}|' compile-ffmpeg.sh
+          grep -E "^FF_ALL_ARCHS=" compile-ffmpeg.sh | head -3
           # compile-ffmpeg.sh writes its output to a hard-coded
           # location under the IJKPlayer source tree; we move it to
           # a runner-temp path so the cache key matches and the
