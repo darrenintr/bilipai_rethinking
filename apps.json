@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-08-05T03:58:30Z",
-    "githubRunId": "30973669145",
-    "githubRunNumber": "613",
-    "githubSha": "7696858a8d76f5277a6115d956dc4bc2593bc203",
+    "generatedAt": "2026-08-06T04:29:10Z",
+    "githubRunId": "31071262515",
+    "githubRunNumber": "615",
+    "githubSha": "10e7e74b06a0709179ca1e27da67428a3494e208",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "329",
+          "date": "2026-08-06T04:29:10Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.29.329/Paladala-unsigned-v0.5.29.329.ipa",
+          "localizedDescription": "estimate prefetch target size from bandwidth and duration\n\n\nBuild 329 build failed: BiliDashSource.Track has no member\nnamed size. The PlaybackPrefetchManager.runPrefetch started\ndiagLog I added in the previous commit referenced\nplayback.dash?.video.size and playback.dash?.audio?.size,\nwhich do not exist on the BiliDashSource.Track struct.\n\nB站 playurl publishes bandwidth (bps) and total duration\n(seconds) per track but never the absolute file size - the\nreal Content-Length only becomes known after the upstream\nHEAD/Range request returns. So estimate the prefetch target\nas Int64(bandwidth) * Int64(totalDuration) / 8 (within plus\nor minus 5 percent for any real video) and also log the raw\nbandwidth and totalDuration so the reader can recompute.\nBoth fields default to 0 when dash is nil, which preserves\nthe entry log behavior on the missing-dash path.\n\nThis unblocks CI for the v0.5.29.329 build that needs the\nrunPrefetch started and committed diagLog entries to\ndiagnose the playback stall.",
+          "size": 4149717,
+          "version": "0.5.29"
+        },
         {
           "buildVersion": "328",
           "date": "2026-08-05T03:58:30Z",
@@ -261,6 +269,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 329 (10e7e74)",
+      "date": "2026-08-06T04:29:10Z",
+      "identifier": "v0.5.29.329",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.29.329",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.29.329"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 328 (7696858)",
