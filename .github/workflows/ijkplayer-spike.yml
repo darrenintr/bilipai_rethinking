@@ -7,6 +7,16 @@ name: IJKPlayer Build Spike
 # and burn through Actions minutes; the spike is run on demand.
 
 on:
+  # Auto-trigger on push to the spike branch.  This is the primary
+  # path because the user has no way to manually click "Run
+  # workflow" in the GitHub Actions UI; every push (including
+  # empty / no-op commits) re-runs the spike.
+  push:
+    branches:
+      - ijkplayer-spike
+  # Manual trigger via the Actions UI is also kept so anyone with
+  # repo access can override the inputs without touching the
+  # workflow file.
   workflow_dispatch:
     inputs:
       ijkplayer_ref:
@@ -25,7 +35,7 @@ on:
 # logs.
 concurrency:
   group: ijkplayer-spike-build
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -43,7 +53,10 @@ jobs:
     # this job.
     env:
       IJKPLAYER_REF: ${{ inputs.ijkplayer_ref || 'master' }}
-      IJKPLAYER_CLEAN: ${{ inputs.clean_ffmpeg }}
+      # \`inputs.*\` is only defined for workflow_dispatch.  For
+      # push-triggered runs we fall back to 'false' so the cache
+      # is honored.
+      IJKPLAYER_CLEAN: ${{ inputs.clean_ffmpeg || 'false' }}
     steps:
       - name: Set up paths
         env:
