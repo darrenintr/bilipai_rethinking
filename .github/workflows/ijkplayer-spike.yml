@@ -135,6 +135,18 @@ jobs:
           # init-ios.sh may try anyway.  Wrap in `|| true` so a
           # non-essential failure doesn't fail the spike.
           bash init-ios.sh 2>&1 | tail -30 || true
+          # init-ios.sh sets FF_ALL_ARCHS=armv7 arm64 i386 x86_64
+          # by default.  On the macos-15 GitHub Actions runner
+          # (Apple Silicon host with Xcode 26's iOS SDK) the 32-bit
+          # archs (armv7 device, i386 simulator) are no longer
+          # supported, and FFmpeg's configure-time C compiler
+          # smoke test fails with
+          #   `xcrun -sdk iphoneos clang is unable to create an
+          #    executable file.`
+          # Override to arm64 only — the spike only needs the
+          # device slice; simulator coverage is a separate concern.
+          echo "FF_ALL_ARCHS=arm64" >> "$GITHUB_ENV"
+          echo "Configured FF_ALL_ARCHS=$FF_ALL_ARCHS (overrode default armv7 arm64 i386 x86_64)"
 
       # ----------------------------------------------------------------
       # Cache the FFmpeg build output so subsequent runs skip the
