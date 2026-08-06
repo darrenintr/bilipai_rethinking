@@ -73,10 +73,21 @@ jobs:
       # job env into every step's shell, then picked up by
       # tools/do-compile-ffmpeg.sh (after the "Build FFmpeg" step
       # sed-rewrites line 76 to honour it instead of zeroing it).
-      # Downgrades the stale-fork incompatible-function-pointer-
-      # types warning to non-error — see the comment above the
-      # second sed in the "Build FFmpeg" step for the rationale.
-      FFMPEG_EXTRA_CFLAGS: -Wno-error=incompatible-function-pointer-types
+      # We pass `-Wno-error` to downgrade *all* warnings to non-
+      # error so the spike only fails on real errors, not stale-
+      # fork cosmetic drift.  IJKPlayer's bundled FFmpeg fork
+      # predates upstream API evolutions that modern clang now
+      # flags (`-Wincompatible-function-pointer-types` in
+      # libavcodec/aarch64/h264dsp_init_aarch64.c,
+      # `-Wformat` mismatches in libavutil/dict.c, etc.).  Pinning
+      # a specific `-Wno-error=…` flag is whack-a-mole — each new
+      # translation unit surfaces a different class.  For the
+      # production migration we'd want to either (a) update the
+      # fork to track upstream, (b) pin to a working tag, or
+      # (c) switch to a maintained community fork.  The spike's
+      # job is just to verify the framework binary links, not to
+      # audit the embedded FFmpeg tree.
+      FFMPEG_EXTRA_CFLAGS: -Wno-error
     steps:
       - name: Set up paths
         run: |
