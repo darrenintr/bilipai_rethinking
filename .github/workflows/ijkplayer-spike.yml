@@ -59,14 +59,23 @@ jobs:
       IJKPLAYER_CLEAN: ${{ inputs.clean_ffmpeg || 'false' }}
     steps:
       - name: Set up paths
-        env:
-          IJKPLAYER_SRC: ${{ runner.temp }}/ijkplayer-src
-          IJKPLAYER_BUILD: ${{ runner.temp }}/ijkplayer-build
         run: |
           set -euo pipefail
+          # `$RUNNER_TEMP` is exported by the GitHub Actions runner
+          # itself before this shell starts (it points at the
+          # runner-specific temp dir, e.g.
+          # /Users/runner/work/_temp/ on macOS).  Resolving the
+          # two paths here and pushing them to `$GITHUB_ENV` makes
+          # them available to every subsequent step as
+          # `env.IJKPLAYER_SRC` / `env.IJKPLAYER_BUILD` (and as
+          # `$IJKPLAYER_SRC` / `$IJKPLAYER_BUILD` in shell).
+          IJKPLAYER_SRC="$RUNNER_TEMP/ijkplayer-src"
+          IJKPLAYER_BUILD="$RUNNER_TEMP/ijkplayer-build"
           mkdir -p "$IJKPLAYER_SRC" "$IJKPLAYER_BUILD"
           echo "IJKPLAYER_SRC=$IJKPLAYER_SRC"
           echo "IJKPLAYER_BUILD=$IJKPLAYER_BUILD"
+          echo "IJKPLAYER_SRC=$IJKPLAYER_SRC" >> "$GITHUB_ENV"
+          echo "IJKPLAYER_BUILD=$IJKPLAYER_BUILD" >> "$GITHUB_ENV"
 
       - name: Show Xcode toolchain
         run: |
