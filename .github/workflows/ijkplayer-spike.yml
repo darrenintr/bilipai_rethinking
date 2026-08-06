@@ -34,12 +34,27 @@ jobs:
   build-ijkplayer:
     name: Build IJKPlayer.framework on macos-15
     runs-on: macos-15
+    # NOTE: IJKPLAYER_SRC / IJKPLAYER_BUILD cannot live in the
+    # job-level `env:` block because GitHub Actions does not expose
+    # the `runner` context there — only `secrets.*`, `vars.*`,
+    # `github.*`, `inputs.*`, and the like.  We define them in a
+    # dedicated setup step (which can use `runner.temp` in its
+    # `env:` block) and they persist to all subsequent steps in
+    # this job.
     env:
-      IJKPLAYER_SRC: ${{ runner.temp }}/ijkplayer-src
-      IJKPLAYER_BUILD: ${{ runner.temp }}/ijkplayer-build
       IJKPLAYER_REF: ${{ inputs.ijkplayer_ref || 'master' }}
       IJKPLAYER_CLEAN: ${{ inputs.clean_ffmpeg }}
     steps:
+      - name: Set up paths
+        env:
+          IJKPLAYER_SRC: ${{ runner.temp }}/ijkplayer-src
+          IJKPLAYER_BUILD: ${{ runner.temp }}/ijkplayer-build
+        run: |
+          set -euo pipefail
+          mkdir -p "$IJKPLAYER_SRC" "$IJKPLAYER_BUILD"
+          echo "IJKPLAYER_SRC=$IJKPLAYER_SRC"
+          echo "IJKPLAYER_BUILD=$IJKPLAYER_BUILD"
+
       - name: Show Xcode toolchain
         run: |
           xcodebuild -version
@@ -136,8 +151,6 @@ jobs:
           mkdir -p "$IJKPLAYER_BUILD/ffmpeg"
           cp -R "$IJKPLAYER_SRC/ios"/ffmpeg-* "$IJKPLAYER_BUILD/ffmpeg/" || true
           ls -la "$IJKPLAYER_BUILD/ffmpeg"
-        env:
-          IJKPLAYER_BUILD: ${{ runner.temp }}/ijkplayer-build
 
       # ----------------------------------------------------------------
       # Build IJKMediaPlayer.xcodeproj.  This compiles the ObjC
