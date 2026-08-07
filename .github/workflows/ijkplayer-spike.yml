@@ -229,15 +229,19 @@ jobs:
           sed -i.bak 's|^FFMPEG_EXTRA_CFLAGS=$|FFMPEG_EXTRA_CFLAGS=${FFMPEG_EXTRA_CFLAGS:-}|' tools/do-compile-ffmpeg.sh
           grep -E "^FFMPEG_EXTRA_CFLAGS=" tools/do-compile-ffmpeg.sh | head -3
           # Inject the diagnostic pragma into the offending file.
-          # '1i' inserts the block *before* the first existing line
-          # so it applies to the whole translation unit.  The
-          # source tree is freshly cloned on every push so the
-          # insertion always starts from the same baseline.
-          sed -i.bak -E '1i\
-#pragma clang diagnostic push\
-#pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"\
-#pragma clang diagnostic pop\
-' libavcodec/aarch64/h264dsp_init_aarch64.c
+          # We can't use `sed -i -E '1i\\<newline>...'` here because
+          # YAML eats the trailing-backslash line-continuation
+          # before bash ever sees the string.  Use a heredoc-to-tmp
+          # + mv instead — same effect, YAML-safe.
+          tmp="$(mktemp)"
+          {
+            printf '%s\n' \
+              '#pragma clang diagnostic push' \
+              '#pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"' \
+              '#pragma clang diagnostic pop'
+            cat libavcodec/aarch64/h264dsp_init_aarch64.c
+          } > "$tmp"
+          mv "$tmp" libavcodec/aarch64/h264dsp_init_aarch64.c
           head -5 libavcodec/aarch64/h264dsp_init_aarch64.c
           # compile-ffmpeg.sh writes its output to a hard-coded
           # location under the IJKPlayer source tree; we move it to
