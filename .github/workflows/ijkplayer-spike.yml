@@ -220,12 +220,25 @@ jobs:
           # `h264_biweight_func` whose stride arg widened from `int`
           # to `ptrdiff_t` (= `long` on arm64) upstream.  Modern
           # clang flags the assignment as
-          # `-Wincompatible-function-pointer-types` (a warning, but
-          # fatal under the default `-Werror`).  We downgrade that
-          # specific warning to non-error with `-Wno-error=…` so the
-          # diagnostic stays visible but doesn't fail the build.
+          # `-Wincompatible-function-pointer-types`.  **Xcode 16+
+          # *platform-hardcodes* this warning as error**, which
+          # overrides any `-Wno-error`/`-Wno-error=…` we set in
+          # CFLAGS (the runtime confirms other TUs compile clean
+          # with `-Wno-error` while this one still trips).  We have
+          # to silence it at the source level via a per-TU pragma.
           sed -i.bak 's|^FFMPEG_EXTRA_CFLAGS=$|FFMPEG_EXTRA_CFLAGS=${FFMPEG_EXTRA_CFLAGS:-}|' tools/do-compile-ffmpeg.sh
           grep -E "^FFMPEG_EXTRA_CFLAGS=" tools/do-compile-ffmpeg.sh | head -3
+          # Inject the diagnostic pragma into the offending file.
+          # '1i' inserts the block *before* the first existing line
+          # so it applies to the whole translation unit.  The
+          # source tree is freshly cloned on every push so the
+          # insertion always starts from the same baseline.
+          sed -i.bak -E '1i\
+#pragma clang diagnostic push\
+#pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"\
+#pragma clang diagnostic pop\
+' libavcodec/aarch64/h264dsp_init_aarch64.c
+          head -5 libavcodec/aarch64/h264dsp_init_aarch64.c
           # compile-ffmpeg.sh writes its output to a hard-coded
           # location under the IJKPlayer source tree; we move it to
           # a runner-temp path so the cache key matches and the
