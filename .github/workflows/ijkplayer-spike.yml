@@ -239,10 +239,10 @@ jobs:
               '#pragma clang diagnostic push' \
               '#pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"' \
               '#pragma clang diagnostic pop'
-            cat libavcodec/aarch64/h264dsp_init_aarch64.c
+            cat ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
           } > "$tmp"
-          mv "$tmp" libavcodec/aarch64/h264dsp_init_aarch64.c
-          head -5 libavcodec/aarch64/h264dsp_init_aarch64.c
+          mv "$tmp" ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
+          head -5 ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
           # compile-ffmpeg.sh writes its output to a hard-coded
           # location under the IJKPlayer source tree; we move it to
           # a runner-temp path so the cache key matches and the
