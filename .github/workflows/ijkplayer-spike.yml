@@ -243,6 +243,19 @@ jobs:
           } > "$tmp"
           mv "$tmp" ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
           head -5 ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
+          # FFmpeg 4.0's private intptr helpers use NULL in uintptr_t
+          # contexts. Clang 17 treats that as a hard conversion error;
+          # NULL is zero for these integer-valued APIs.
+          python3 - ffmpeg-arm64/libavutil/dict.c <<'PY_FFMPEG_PATCH'
+from pathlib import Path
+p = Path('libavutil/dict.c')
+s = p.read_text()
+s = s.replace('    uintptr_t ptr = NULL;\n', '')
+s = s.replace('    return NULL;\n', '    return 0;\n', 1)
+s = s.replace('   uintptr_t ptr = NULL;\n', '')
+s = s.replace('        return NULL;\n', '        return 0;\n', 2)
+p.write_text(s)
+PY_FFMPEG_PATCH
           # compile-ffmpeg.sh writes its output to a hard-coded
           # location under the IJKPlayer source tree; we move it to
           # a runner-temp path so the cache key matches and the
