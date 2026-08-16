@@ -1,4 +1,4 @@
-name: IJKPlayer Build Spike
+name: IJKPlayer FFmpeg Compatibility Build
 
 # Manual-only workflow.  The IJKPlayer build (FFmpeg + libavcodec
 # compile from source) is a 20-40 minute cold run on the first
