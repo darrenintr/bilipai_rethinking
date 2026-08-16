@@ -38,7 +38,7 @@ jobs:
           s = s.replace('FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK', 'FF_ALL_ARCHS=arm64')
           p.write_text(s)
           PATCH_INIT
-          bash init-ios.sh
+          bash -x init-ios.sh
           test -f ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
       - name: Patch FFmpeg ABI
         run: |
