@@ -87,7 +87,7 @@ jobs:
       # (c) switch to a maintained community fork.  The spike's
       # job is just to verify the framework binary links, not to
       # audit the embedded FFmpeg tree.
-      FFMPEG_EXTRA_CFLAGS: -Wno-error
+      FFMPEG_EXTRA_CFLAGS: "-Wno-error -Wno-error=deprecated-declarations -Wno-error=incompatible-function-pointer-types"
     steps:
       - name: Set up paths
         run: |
@@ -248,7 +248,8 @@ jobs:
           # a runner-temp path so the cache key matches and the
           # source tree stays clean.
           bash compile-ffmpeg.sh clean
-          bash compile-ffmpeg.sh all 2>&1 | tee "$RUNNER_TEMP/ffmpeg_build.log" | tail -10
+          bash compile-ffmpeg.sh all > "$RUNNER_TEMP/ffmpeg_build.log" 2>&1 || { tail -100 "$RUNNER_TEMP/ffmpeg_build.log"; exit 1; }
+          tail -10 "$RUNNER_TEMP/ffmpeg_build.log"
           # compile-ffmpeg.sh leaves the .a files under
           # $IJKPLAYER_SRC/ios/ffmpeg-arm64/ and similar.  Copy
           # them to the cache path so actions/cache picks them up
