@@ -237,9 +237,9 @@ jobs:
           {
             printf '%s\n' \
               '#pragma clang diagnostic push' \
-              '#pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"' \
-              '#pragma clang diagnostic pop'
+              '#pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"'
             cat ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
+            printf '%s\n' '#pragma clang diagnostic pop'
           } > "$tmp"
           mv "$tmp" ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
           head -5 ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
