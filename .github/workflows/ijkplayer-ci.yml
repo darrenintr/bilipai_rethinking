@@ -30,6 +30,13 @@ jobs:
           set -euo pipefail
           git clone --depth 1 --branch master https://github.com/Bilibili/ijkplayer.git "$IJKPLAYER_SRC"
           cd "$IJKPLAYER_SRC"
+          python3 - <<'PATCH_INIT_SED'
+          from pathlib import Path
+          p = Path('init-ios.sh')
+          s = p.read_text()
+          s = s.replace("sed -i '' 's/static const char \\*kIJKFFRequiredFFmpegVersion\\ \\=\\ .*/static const char *kIJKFFRequiredFFmpegVersion = \\\"ff4.0--ijk0.8.8--20210426--001\\\";/g'", "python3 - <<'PY_FF_VERSION'\nfrom pathlib import Path\nimport re\np = Path('ios/IJKMediaPlayer/IJKMediaPlayer/IJKFFMoviePlayerController.m')\ns = p.read_text()\ns = re.sub(r'static const char \\*kIJKFFRequiredFFmpegVersion\\s*=\\s*\\\"[^\\\"]*\\\";', 'static const char *kIJKFFRequiredFFmpegVersion = \\\"ff4.0--ijk0.8.8--20210426--001\\\";', s, count=1)\np.write_text(s)\nPY_FF_VERSION")
+          p.write_text(s)
+          PATCH_INIT_SED
           python3 - <<'PATCH_INIT'
           from pathlib import Path
           p = Path('init-ios.sh')
