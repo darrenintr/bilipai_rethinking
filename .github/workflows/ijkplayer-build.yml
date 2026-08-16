@@ -59,6 +59,21 @@ jobs:
           git clone --depth 1 --branch master https://github.com/Bilibili/ijkplayer.git "$IJKPLAYER_SRC"
           test -x "$IJKPLAYER_SRC/init-ios.sh"
           echo "IJKPlayer clone verified"
-      - name: Show toolchain
+      - name: Configure IJKPlayer iOS build
         run: |
-          xcodebuild -version
+          set -euo pipefail
+          cd "$IJKPLAYER_SRC"
+          brew install yasm nasm 2>&1 | tail -20 || true
+          command -v yasm
+          command -v nasm
+          FF_ALL_ARCHS=arm64 bash init-ios.sh
+          test -d "$IJKPLAYER_SRC/ios/ffmpeg-arm64"
+          echo "IJKPlayer iOS configuration verified"
+      - name: Build FFmpeg arm64
+        run: |
+          set -euo pipefail
+          cd "$IJKPLAYER_SRC/ios"
+          FF_ALL_ARCHS=arm64 FFMPEG_EXTRA_CFLAGS="-Wno-error" bash compile-ffmpeg.sh arm64
+          test -f "build/ffmpeg-arm64/output/lib/libavformat.a"
+          test -f "build/ffmpeg-arm64/output/lib/libavcodec.a"
+          echo "FFmpeg arm64 build verified"
