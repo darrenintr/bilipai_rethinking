@@ -38,7 +38,17 @@ jobs:
           s = s.replace('FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK', 'FF_ALL_ARCHS=arm64')
           p.write_text(s)
           PATCH_INIT
-          bash -x init-ios.sh
+          bash -x init-ios.sh || { rc=$?; echo "init-ios.sh failed with rc=$rc"; find "$IJKPLAYER_SRC/ios" -maxdepth 2 -type f -name 'IJKFFMoviePlayerController.m' -print; exit $rc; }
+          python3 - <<'PATCH_VERSION'
+          from pathlib import Path
+          p = Path('ios/IJKMediaPlayer/IJKMediaPlayer/IJKFFMoviePlayerController.m')
+          s = p.read_text()
+          import re
+          s, n = re.subn(r'static const char \*kIJKFFRequiredFFmpegVersion\s*=\s*"[^"]*";', 'static const char *kIJKFFRequiredFFmpegVersion = "ff4.0--ijk0.8.8--20210426--001";', s, count=1)
+          if n != 1:
+              raise SystemExit('failed to patch IJKFFRequiredFFmpegVersion')
+          p.write_text(s)
+          PATCH_VERSION
           test -f ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
       - name: Patch FFmpeg ABI
         run: |
