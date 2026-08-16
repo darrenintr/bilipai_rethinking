@@ -30,6 +30,14 @@ jobs:
           set -euo pipefail
           git clone --depth 1 --branch master https://github.com/Bilibili/ijkplayer.git "$IJKPLAYER_SRC"
           cd "$IJKPLAYER_SRC"
+          python3 - <<'PATCH_INIT'
+          from pathlib import Path
+          p = Path('init-ios.sh')
+          s = p.read_text()
+          s = s.replace('FF_ALL_ARCHS_IOS8_SDK="armv7 arm64 i386 x86_64"', 'FF_ALL_ARCHS_IOS8_SDK="arm64"')
+          s = s.replace('FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK', 'FF_ALL_ARCHS=arm64')
+          p.write_text(s)
+          PATCH_INIT
           bash init-ios.sh
           test -f ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
       - name: Patch FFmpeg ABI
