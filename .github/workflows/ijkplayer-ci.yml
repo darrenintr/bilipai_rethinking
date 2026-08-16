@@ -38,7 +38,20 @@ jobs:
           s = s.replace('FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK', 'FF_ALL_ARCHS=arm64')
           p.write_text(s)
           PATCH_INIT
-          bash -x init-ios.sh || { rc=$?; echo "init-ios.sh failed with rc=$rc"; find "$IJKPLAYER_SRC/ios" -maxdepth 2 -type f -name 'IJKFFMoviePlayerController.m' -print; exit $rc; }
+          python3 - <<'PATCH_INIT_SED'
+          from pathlib import Path
+          p = Path('init-ios.sh')
+          s = p.read_text()
+          start = s.find("function sync_ff_version()")
+          end = s.find("sync_ff_version", start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit('sync_ff_version block not found')
+          block = s[start:end]
+          block = block.replace("sed -i '' 's/static const char \\(\\*kIJKFFRequiredFFmpegVersion\\)\\' \\\\=\\.\\*/", "python3 - <<'PY_FF_VERSION'\nfrom pathlib import Path\nimport re\np = Path('ios/IJKMediaPlayer/IJKMediaPlayer/IJKFFMoviePlayerController.m')\ns = p.read_text()\ns = re.sub(r'static const char \\*kIJKFFRequiredFFmpegVersion\\s*=\\s*\"[^\"]*\";', 'static const char *kIJKFFRequiredFFmpegVersion = \"ff4.0--ijk0.8.8--20210426--001\";', s, count=1)\np.write_text(s)\nPY_FF_VERSION")
+          s = s[:start] + block + s[end:]
+          p.write_text(s)
+          PATCH_INIT_SED
+          bash -x init-ios.sh
           python3 - <<'PATCH_VERSION'
           from pathlib import Path
           p = Path('ios/IJKMediaPlayer/IJKMediaPlayer/IJKFFMoviePlayerController.m')
