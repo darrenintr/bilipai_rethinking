@@ -30,12 +30,7 @@ jobs:
           set -euo pipefail
           git clone --depth 1 --branch master https://github.com/Bilibili/ijkplayer.git "$IJKPLAYER_SRC"
           cd "$IJKPLAYER_SRC"
-          python3 - <<'PATCH_INIT'
-          from pathlib import Path
-          p = Path('init-ios.sh')
-          p.write_text(p.read_text().replace('FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK', 'FF_ALL_ARCHS=arm64'))
-          PATCH_INIT
-          FF_ALL_ARCHS=arm64 bash init-ios.sh
+          bash init-ios.sh
           test -f ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
       - name: Patch FFmpeg ABI
         run: |
@@ -59,6 +54,12 @@ jobs:
         run: |
           set -euo pipefail
           cd "$IJKPLAYER_SRC/ios"
+          python3 - <<'PATCH_CFLAGS'
+          from pathlib import Path
+          p = Path('tools/do-compile-ffmpeg.sh')
+          s = p.read_text().replace('FFMPEG_EXTRA_CFLAGS=', 'FFMPEG_EXTRA_CFLAGS=${FFMPEG_EXTRA_CFLAGS:-}', 1)
+          p.write_text(s)
+          PATCH_CFLAGS
           FFMPEG_EXTRA_CFLAGS='-Wno-error -Wno-error=incompatible-function-pointer-types' bash compile-ffmpeg.sh arm64
           test -f build/ffmpeg-arm64/output/lib/libavformat.a
           test -f build/ffmpeg-arm64/output/lib/libavcodec.a
