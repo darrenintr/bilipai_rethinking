@@ -1,0 +1,120 @@
+name: One-shot playback and IJK repair
+
+on:
+  push:
+    branches: [working]
+    paths:
+      - '.github/workflows/one-shot-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch playback proxy and IJK compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one patch site, found {count}")
+              path.write_text(text.replace(old, new, 1))
+
+          proxy = Path("ios/Paladala/Paladala/LocalHLSProxyServer.swift")
+          proxy_text = proxy.read_text()
+          old_serve = '''        stop()
+
+        // Lazy rebuild — `stop()` invalidates `prepSession`.
+        if prepSession == nil {
+            prepSession = Self.makePrepSession()
+        }
+'''
+          new_serve = '''        // Keep the process-wide loopback listener alive across VOD sessions.
+        // Cold-start prewarm may already have published its port; cancelling
+        // that NWListener here races its late cancellation callback with the
+        // replacement listener and can invalidate the new session while the
+        // manifest is being published. `beginServing()` below invalidates the
+        // previous manifest generation, while explicit `stop()` remains the
+        // full teardown path for background/recovery handling.
+        if prepSession == nil {
+            prepSession = Self.makePrepSession()
+        }
+'''
+          if old_serve not in proxy_text:
+              raise SystemExit("LocalHLSProxyServer: serve() stop/restart block not found")
+          proxy_text = proxy_text.replace(old_serve, new_serve, 1)
+          old_prewarm = "try await server.waitForListener(timeoutMs: 500, pollIntervalMs: 5)"
+          new_prewarm = "try await server.waitForListener(timeoutMs: 1_200, pollIntervalMs: 5)"
+          if old_prewarm not in proxy_text:
+              raise SystemExit("LocalHLSProxyServer: prewarm timeout site not found")
+          proxy.write_text(proxy_text.replace(old_prewarm, new_prewarm, 1))
+
+          injection = '''          audiokit = Path("ios/IJKMediaPlayer/IJKMediaPlayer/IJKAudioKit.m")
+          text = audiokit.read_text()
+          method_start = text.index("- (BOOL)setActive:(BOOL)active")
+          method_end_marker = "\\n}\\n\\n- (void)handleInterruption:"
+          method_end = text.index(method_end_marker, method_start)
+          if "return YES;" not in text[method_start:method_end]:
+              text = text[:method_end] + "\\n    return YES;" + text[method_end:]
+          audiokit.write_text(text)
+
+'''
+
+          for workflow_name in (
+              ".github/workflows/ijkplayer-ci.yml",
+              ".github/workflows/ios-unsigned-ipa.yml",
+          ):
+              workflow = Path(workflow_name)
+              text = workflow.read_text()
+              if 'audiokit = Path("ios/IJKMediaPlayer/IJKMediaPlayer/IJKAudioKit.m")' in text:
+                  continue
+              anchor = '''          version.write_text(updated)
+
+          h264 = Path("ios/ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c")
+'''
+              if anchor not in text:
+                  raise SystemExit(f"{workflow}: IJK compatibility anchor not found")
+              replacement = '''          version.write_text(updated)
+
+''' + injection + '''          h264 = Path("ios/ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c")
+'''
+              workflow.write_text(text.replace(anchor, replacement, 1))
+          PY
+
+      - name: Verify patch shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -n 'Keep the process-wide loopback listener alive' ios/Paladala/Paladala/LocalHLSProxyServer.swift
+          grep -n 'timeoutMs: 1_200' ios/Paladala/Paladala/LocalHLSProxyServer.swift
+          grep -n 'audiokit = Path' .github/workflows/ijkplayer-ci.yml
+          grep -n 'audiokit = Path' .github/workflows/ios-unsigned-ipa.yml
+          git diff --check
+
+      - name: Commit repair to working
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Darren"
+          git config user.email "168272439+darrenintr@users.noreply.github.com"
+          git add ios/Paladala/Paladala/LocalHLSProxyServer.swift \
+                  .github/workflows/ijkplayer-ci.yml \
+                  .github/workflows/ios-unsigned-ipa.yml
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "fix: stabilize playback proxy and IJKPlayer CI"
+          git push origin HEAD:working
