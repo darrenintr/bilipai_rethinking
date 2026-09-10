@@ -113,9 +113,9 @@ jobs:
             -target IJKMediaFramework \
             -configuration Release \
             -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$IJKPLAYER_BUILD/derived" \
             ARCHS=arm64 \
+            SYMROOT="$IJKPLAYER_BUILD/derived/Build/Products" \
+            OBJROOT="$IJKPLAYER_BUILD/derived/Build/Intermediates.noindex" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
             build 2>&1 | tee "$RUNNER_TEMP/ijkmedia-build.log"
           framework="$(find "$IJKPLAYER_BUILD/derived" -name IJKMediaFramework.framework -type d -print -quit)"

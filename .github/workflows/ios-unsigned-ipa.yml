@@ -45,11 +45,11 @@ jobs:
           git clone --depth 1 --branch master https://github.com/Bilibili/ijkplayer.git "$IJKPLAYER_SRC"
           cd "$IJKPLAYER_SRC"
           python3 - <<'PATCH_INIT'
-from pathlib import Path
-p = Path('init-ios.sh')
-s = p.read_text().replace('FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK', 'FF_ALL_ARCHS=arm64')
-p.write_text(s)
-PATCH_INIT
+          from pathlib import Path
+          p = Path('init-ios.sh')
+          s = p.read_text().replace('FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK', 'FF_ALL_ARCHS=arm64')
+          p.write_text(s)
+          PATCH_INIT
           FF_ALL_ARCHS=arm64 bash init-ios.sh
           test -f ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
           echo "IJKPlayer source configured"
@@ -58,21 +58,21 @@ PATCH_INIT
           set -euo pipefail
           cd "$IJKPLAYER_SRC"
           python3 - <<'PATCH_FFMPEG'
-from pathlib import Path
-p = Path('ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c')
-s = p.read_text()
-if '#include <stddef.h>\n' not in s:
-    s = s.replace('#include <stdint.h>\n', '#include <stdint.h>\n#include <stddef.h>\n')
-s = s.replace('int stride, int height', 'ptrdiff_t stride, int height')
-p.write_text(s)
-p = Path('ffmpeg-arm64/libavutil/dict.c')
-s = p.read_text()
-s = s.replace('    uintptr_t ptr = NULL;\n', '')
-s = s.replace('   uintptr_t ptr = NULL;\n', '')
-s = s.replace('    return NULL;\n', '    return 0;\n', 1)
-s = s.replace('        return NULL;\n', '        return 0;\n', 2)
-p.write_text(s)
-PATCH_FFMPEG
+          from pathlib import Path
+          p = Path('ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c')
+          s = p.read_text()
+          if '#include <stddef.h>\n' not in s:
+              s = s.replace('#include <stdint.h>\n', '#include <stdint.h>\n#include <stddef.h>\n')
+          s = s.replace('int stride, int height', 'ptrdiff_t stride, int height')
+          p.write_text(s)
+          p = Path('ffmpeg-arm64/libavutil/dict.c')
+          s = p.read_text()
+          s = s.replace('    uintptr_t ptr = NULL;\n', '')
+          s = s.replace('   uintptr_t ptr = NULL;\n', '')
+          s = s.replace('    return NULL;\n', '    return 0;\n', 1)
+          s = s.replace('        return NULL;\n', '        return 0;\n', 2)
+          p.write_text(s)
+          PATCH_FFMPEG
       - name: Build FFmpeg arm64
         run: |
           set -euo pipefail
@@ -86,7 +86,7 @@ PATCH_FFMPEG
         run: |
           set -euo pipefail
           cd "$IJKPLAYER_SRC/ios"
-          xcodebuild -project IJKMediaPlayer/IJKMediaPlayer.xcodeproj -scheme IJKMediaPlayer -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$IJKPLAYER_BUILD/derived" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build
+          xcodebuild -project IJKMediaPlayer/IJKMediaPlayer.xcodeproj -target IJKMediaFramework -configuration Release -sdk iphoneos ARCHS=arm64 SYMROOT="$IJKPLAYER_BUILD/derived/Build/Products" OBJROOT="$IJKPLAYER_BUILD/derived/Build/Intermediates.noindex" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build
           FRAMEWORK="$(find "$IJKPLAYER_BUILD/derived" -name IJKMediaFramework.framework -type d | head -1)"
           test -n "$FRAMEWORK"
           echo "FRAMEWORK=$FRAMEWORK" >> "$GITHUB_ENV"
@@ -400,44 +400,28 @@ PATCH_FFMPEG
 
       # ------------------------------------------------------------------
       # Phase 2: Paladala Portal reporter — write the gitignored
-      # `Opspad.{Debug,Release}.xcconfig` files from the
-      # `OPSPAD_HMAC_SECRET` repo secret so the iOS reporter has a
-      # signing key at build time.  Without this step, both xcconfigs
-      # stay empty (they're gitignored) and the LogReporter actor is a
-      # permanent no-op (`OPSPAD_HMAC_SECRET == ""` fails the start()
-      # guard).
-      #
-      # Required repo secret: `OPSPAD_HMAC_SECRET` (64-char hex from
-      # `openssl rand -hex 32`).  Add at Settings → Secrets → Actions.
-      # Same value must also be set as `HMAC_SECRET` on the Worker via
-      # `wrangler secret put HMAC_SECRET`.
-      #
-      # The secret is passed via the step's `env:` block (not inline
-      # `${{ ... }}`) so a value containing `$`, backticks, or newlines
-      # cannot be parsed as live shell syntax.  Printf is used instead
-      # of heredoc to avoid the same injection surface.
+      # `Opspad.{Debug,Release}.xcconfig` files. A public unsigned IPA
+      # must not contain the server's HMAC signing key, so these builds
+      # deliberately keep `OPSPAD_HMAC_SECRET` empty. The reporter stays
+      # inactive until a maintainer supplies the key through a private
+      # build channel; the endpoint and enablement key remain available
+      # for local configuration and schema validation.
       # ------------------------------------------------------------------
-      - name: Write Opspad xcconfig from secret
-        env:
-          OPSPAD_HMAC_SECRET: ${{ secrets.OPSPAD_HMAC_SECRET }}
+      - name: Write Opspad xcconfig without signing secret
         run: |
           set -euo pipefail
-          if [ -z "$OPSPAD_HMAC_SECRET" ]; then
-            echo "::error::OPSPAD_HMAC_SECRET repo secret is not set. Add it in Settings → Secrets and Variables → Actions, or the Paladala Portal reporter will be a silent no-op in the shipped IPA."
-            exit 1
-          fi
           mkdir -p ios/Paladala/Config
           {
-            printf 'OPSPAD_HMAC_SECRET = %s\n'  "$OPSPAD_HMAC_SECRET"
+            printf 'OPSPAD_HMAC_SECRET =\n'
             printf 'OPSPAD_ENDPOINT = https://paladala-portal.darrenintr.workers.dev\n'
             printf 'OPSPAD_ENABLED_KEY = diag.ops.enabled\n'
           } > ios/Paladala/Config/Opspad.Release.xcconfig
           {
-            printf 'OPSPAD_HMAC_SECRET = %s\n'  "$OPSPAD_HMAC_SECRET"
+            printf 'OPSPAD_HMAC_SECRET =\n'
             printf 'OPSPAD_ENDPOINT = http://localhost:8787\n'
             printf 'OPSPAD_ENABLED_KEY = diag.ops.enabled\n'
           } > ios/Paladala/Config/Opspad.Debug.xcconfig
-          echo "Wrote Opspad.{Debug,Release}.xcconfig from OPSPAD_HMAC_SECRET secret (length=${#OPSPAD_HMAC_SECRET})"
+          echo "Wrote Opspad.{Debug,Release}.xcconfig with an empty OPSPAD_HMAC_SECRET"
 
       - name: Build device app without signing
         run: |
