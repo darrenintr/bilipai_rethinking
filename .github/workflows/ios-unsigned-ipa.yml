@@ -51,7 +51,7 @@ jobs:
           p.write_text(s)
           PATCH_INIT
           FF_ALL_ARCHS=arm64 bash init-ios.sh
-          test -f ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
+          test -f ios/ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
           echo "IJKPlayer source configured"
       - name: Patch legacy FFmpeg arm64 ABI
         run: |
@@ -59,13 +59,13 @@ jobs:
           cd "$IJKPLAYER_SRC"
           python3 - <<'PATCH_FFMPEG'
           from pathlib import Path
-          p = Path('ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c')
+          p = Path('ios/ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c')
           s = p.read_text()
           if '#include <stddef.h>\n' not in s:
               s = s.replace('#include <stdint.h>\n', '#include <stdint.h>\n#include <stddef.h>\n')
           s = s.replace('int stride, int height', 'ptrdiff_t stride, int height')
           p.write_text(s)
-          p = Path('ffmpeg-arm64/libavutil/dict.c')
+          p = Path('ios/ffmpeg-arm64/libavutil/dict.c')
           s = p.read_text()
           s = s.replace('    uintptr_t ptr = NULL;\n', '')
           s = s.replace('   uintptr_t ptr = NULL;\n', '')
