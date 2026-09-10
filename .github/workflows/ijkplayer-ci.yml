@@ -60,6 +60,15 @@ jobs:
               raise SystemExit("IJK FFmpeg version declaration not found")
           version.write_text(updated)
 
+          audiokit = Path("ios/IJKMediaPlayer/IJKMediaPlayer/IJKAudioKit.m")
+          text = audiokit.read_text()
+          method_start = text.index("- (BOOL)setActive:(BOOL)active")
+          method_end_marker = "\n}\n\n- (void)handleInterruption:"
+          method_end = text.index(method_end_marker, method_start)
+          if "return YES;" not in text[method_start:method_end]:
+              text = text[:method_end] + "\n    return YES;" + text[method_end:]
+          audiokit.write_text(text)
+
           h264 = Path("ios/ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c")
           text = h264.read_text()
           if '#pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"'  not in text:
