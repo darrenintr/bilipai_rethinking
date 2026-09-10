@@ -83,6 +83,15 @@ jobs:
           text = text[:start] + text[start:end].replace("       return NULL;\n", "       return 0;\n") + text[end:]
           dictionary.write_text(text)
 
+          ijkdict = Path("ijkmedia/ijkplayer/ijkavutil/ijkdict.c")
+          text = ijkdict.read_text()
+          text = text.replace(
+              "if ((t = av_dict_get(m, key, NULL, 0)))",
+              "if ((t = ijk_av_dict_get(m, key, NULL, 0)))",
+              1,
+          )
+          ijkdict.write_text(text)
+
           compile = Path("ios/tools/do-compile-ffmpeg.sh")
           text = compile.read_text()
           text = text.replace("FFMPEG_EXTRA_CFLAGS=\n", "FFMPEG_EXTRA_CFLAGS=${FFMPEG_EXTRA_CFLAGS:-}\n", 1)

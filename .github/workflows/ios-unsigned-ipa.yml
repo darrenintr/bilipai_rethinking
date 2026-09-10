@@ -44,14 +44,11 @@ jobs:
           set -euo pipefail
           git clone --depth 1 --branch master https://github.com/Bilibili/ijkplayer.git "$IJKPLAYER_SRC"
           cd "$IJKPLAYER_SRC"
-          python3 - <<'PATCH_INIT'
-          from pathlib import Path
-          p = Path('init-ios.sh')
-          s = p.read_text().replace('FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK', 'FF_ALL_ARCHS=arm64')
-          p.write_text(s)
-          PATCH_INIT
-          FF_ALL_ARCHS=arm64 bash init-ios.sh
-          test -f ios/ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
+          # The arm64-only initializer avoids obsolete 32-bit and simulator
+          # forks that modern Xcode cannot compile.
+          bash init-ios.sh arm64
+          test -d ios/ffmpeg-arm64
+          test -f ios/IJKMediaPlayer/IJKMediaPlayer/IJKFFMoviePlayerController.m
           echo "IJKPlayer source configured"
       - name: Patch legacy FFmpeg arm64 ABI
         run: |
@@ -59,25 +56,55 @@ jobs:
           cd "$IJKPLAYER_SRC"
           python3 - <<'PATCH_FFMPEG'
           from pathlib import Path
-          p = Path('ios/ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c')
+          import re
+
+          version = Path("ios/IJKMediaPlayer/IJKMediaPlayer/IJKFFMoviePlayerController.m")
+          source = version.read_text()
+          updated, count = re.subn(
+              r'(static const char \*kIJKFFRequiredFFmpegVersion\s*=\s*)"[^"]*";',
+              r'\1"ff4.0--ijk0.8.8--20210426--001";', source, count=1,
+          )
+          if count != 1:
+              raise SystemExit("IJK FFmpeg version declaration not found")
+          version.write_text(updated)
+
+          h264 = Path("ios/ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c")
+          text = h264.read_text()
+          if '#pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"' not in text:
+              text = ("#pragma clang diagnostic push\n"
+                      "#pragma clang diagnostic ignored \"-Wincompatible-function-pointer-types\"\n"
+                      + text + "\n#pragma clang diagnostic pop\n")
+          h264.write_text(text.replace("#include <stdint.h>\n", "#include <stdint.h>\n#include <stddef.h>\n", 1)
+                              .replace("int stride, int height", "ptrdiff_t stride, int height"))
+
+          dictionary = Path("ios/ffmpeg-arm64/libavutil/dict.c")
+          text = dictionary.read_text()
+          text = text.replace("    uintptr_t ptr = NULL;", "    uintptr_t ptr = 0;")
+          text = text.replace("   uintptr_t ptr = NULL;", "   uintptr_t ptr = 0;")
+          text = text.replace("    return NULL;\n}\n\nuintptr_t av_dict_strtoptr", "    return 0;\n}\n\nuintptr_t av_dict_strtoptr", 1)
+          start = text.index("uintptr_t av_dict_strtoptr")
+          end = text.index("char * av_dict_ptrtostr", start)
+          text = text[:start] + text[start:end].replace("       return NULL;\n", "       return 0;\n") + text[end:]
+          dictionary.write_text(text)
+
+          p = Path('ijkmedia/ijkplayer/ijkavutil/ijkdict.c')
           s = p.read_text()
-          if '#include <stddef.h>\n' not in s:
-              s = s.replace('#include <stdint.h>\n', '#include <stdint.h>\n#include <stddef.h>\n')
-          s = s.replace('int stride, int height', 'ptrdiff_t stride, int height')
+          s = s.replace(
+              'if ((t = av_dict_get(m, key, NULL, 0)))',
+              'if ((t = ijk_av_dict_get(m, key, NULL, 0)))',
+              1,
+          )
           p.write_text(s)
-          p = Path('ios/ffmpeg-arm64/libavutil/dict.c')
-          s = p.read_text()
-          s = s.replace('    uintptr_t ptr = NULL;\n', '')
-          s = s.replace('   uintptr_t ptr = NULL;\n', '')
-          s = s.replace('    return NULL;\n', '    return 0;\n', 1)
-          s = s.replace('        return NULL;\n', '        return 0;\n', 2)
-          p.write_text(s)
+          compile = Path("ios/tools/do-compile-ffmpeg.sh")
+          text = compile.read_text()
+          text = text.replace("FFMPEG_EXTRA_CFLAGS=\n", "FFMPEG_EXTRA_CFLAGS=${FFMPEG_EXTRA_CFLAGS:-}\n", 1)
+          compile.write_text(text)
           PATCH_FFMPEG
       - name: Build FFmpeg arm64
         run: |
           set -euo pipefail
           cd "$IJKPLAYER_SRC/ios"
-          FFMPEG_EXTRA_CFLAGS="-Wno-error -Wno-error=incompatible-function-pointer-types" bash compile-ffmpeg.sh arm64
+          FFMPEG_EXTRA_CFLAGS="-Wno-error" bash compile-ffmpeg.sh arm64
           test -f build/ffmpeg-arm64/output/lib/libavformat.a
           test -f build/ffmpeg-arm64/output/lib/libavcodec.a
           test -f build/ffmpeg-arm64/output/lib/libavutil.a
@@ -717,21 +744,41 @@ jobs:
           } > "$NOTES_FILE"
           echo "Wrote $NOTES_FILE:"
           sed 's/^/  /' "$NOTES_FILE"
+          # Build the notes commit in a clean temporary clone. The
+          # workspace has generated Info.plist changes from the build,
+          # so rebasing it in place could accidentally carry those
+          # changes into the bot commit. A fresh clone also lets us
+          # retry safely if another workflow updates `working` first.
+          NOTES_CLONE="$(mktemp -d)"
+          git clone --depth 1 --branch working \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "$NOTES_CLONE"
+          cp "$NOTES_FILE" "$NOTES_CLONE/$NOTES_FILE"
+          cd "$NOTES_CLONE"
           git config user.name  "ci-release-notes-bot"
           git config user.email "ci-release-notes-bot@users.noreply.github.com"
-          # `-f` (force-add) is a safety net: the `release-notes/`
-          # whitelist in .gitignore is the primary mechanism, but if
-          # a future change to the ignore rules accidentally re-blocks
-          # these files the CI would fail loudly with the explicit
-          # "ignored by .gitignore" hint rather than silently
-          # skipping the commit. The intent is clear — the file is
-          # meant to be committed.
           git add -f "$NOTES_FILE"
           if git diff --cached --quiet; then
             echo "release-notes file unchanged, skipping commit"
           else
             git commit -m "ci: release notes for v${MARKET_VERSION}.${BUNDLE_VERSION}"
-            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:working
+            PUSHED=false
+            for attempt in 1 2 3; do
+              if git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:working; then
+                PUSHED=true
+                break
+              fi
+              echo "working advanced during release-notes push; rebasing attempt $attempt"
+              git fetch origin working
+              git reset --hard origin/working
+              cp "$GITHUB_WORKSPACE/$NOTES_FILE" "$NOTES_FILE"
+              git add -f "$NOTES_FILE"
+              git commit -m "ci: release notes for v${MARKET_VERSION}.${BUNDLE_VERSION}"
+            done
+            if [ "$PUSHED" != true ]; then
+              echo "::error::Could not push release notes after three attempts"
+              exit 1
+            fi
             echo "Pushed release notes to working"
           fi
 

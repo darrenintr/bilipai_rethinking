@@ -243,6 +243,20 @@ jobs:
           } > "$tmp"
           mv "$tmp" ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
           head -5 ffmpeg-arm64/libavcodec/aarch64/h264dsp_init_aarch64.c
+          # The IJK dictionary wrapper must call its own namespaced
+          # lookup. Modern FFmpeg no longer exposes av_dict_get() to
+          # this translation unit.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("../ijkmedia/ijkplayer/ijkavutil/ijkdict.c")
+          text = p.read_text()
+          text = text.replace(
+              "if ((t = av_dict_get(m, key, NULL, 0)))",
+              "if ((t = ijk_av_dict_get(m, key, NULL, 0)))",
+              1,
+          )
+          p.write_text(text)
+          PY
           # compile-ffmpeg.sh writes its output to a hard-coded
           # location under the IJKPlayer source tree; we move it to
           # a runner-temp path so the cache key matches and the
