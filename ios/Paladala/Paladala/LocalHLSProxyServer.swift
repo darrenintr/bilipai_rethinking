@@ -314,16 +314,21 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             // purpose so the Task can resume it; the listener
             // check is the only self access.
             Task { @MainActor [weak self] in
-                while Date() < deadline {
+                while true {
                     guard let self else {
                         cont.resume(throwing: CancellationError()); return
                     }
+                    // Check readiness before the deadline. The MainActor task
+                    // can be scheduled after the nominal timeout even though
+                    // NWListener already became ready on its own queue.
                     if let listener = self.listener, listener.state == .ready {
                         cont.resume(); return
                     }
+                    if Date() >= deadline {
+                        cont.resume(throwing: ProxyServerError.listenerTimeout); return
+                    }
                     try? await Task.sleep(nanoseconds: UInt64(pollIntervalMs) * 1_000_000)
                 }
-                cont.resume(throwing: ProxyServerError.listenerTimeout)
             }
         }
     }
@@ -378,7 +383,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// path until the local file lands.
     ///
     /// Steps:
-    /// 1. `stop()` clears any in-flight prep / listener.
+    /// 1. Reset the previous playback state while keeping the listener bound.
     /// 2. `beginServing()` bumps the generation counter.
     /// 3. `preparePlayback(...)` fetches and validates SIDX
     ///    for both tracks in parallel.
@@ -398,9 +403,13 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                     "cid": cid.map(String.init) ?? "",
                     "prefetchable": bvid != nil && cid != nil
                 ])
-        stop()
+        // Reset the previous VOD session without cancelling the process-wide
+        // loopback listener. Cold-start prewarm may already have published
+        // this port; cancelling it here lets the old NWListener's delayed
+        // .cancelled callback race the replacement listener and clear the
+        // new baseURL while manifest preparation is in flight.
+        resetPlaybackStateKeepingListener()
 
-        // Lazy rebuild — `stop()` invalidates `prepSession`.
         if prepSession == nil {
             prepSession = Self.makePrepSession()
         }
@@ -1062,6 +1071,42 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Clear per-playback state while retaining the process-wide loopback
+    /// listener and its stable base URL. `serve(playback:)` uses this when
+    /// switching VOD sessions; full lifecycle teardown still goes through
+    /// `stop()`. Keeping the listener avoids an old NWListener cancellation
+    /// callback clearing the URL published by a newly-created listener.
+    private func resetPlaybackStateKeepingListener() {
+        var streamsToCancel: [StreamingProxyTask] = []
+        lock.lock()
+        currentPlayback = nil
+        localContext = nil
+        currentLivePlayback = nil
+        currentBvid = nil
+        currentCid = nil
+        currentQn = nil
+        probedSizes.removeAll()
+        probeInFlight.removeAll()
+        failedProbes.removeAll()
+        failoverIndex.removeAll()
+        trackSegmentIndex.removeAll()
+        decidedModes.removeAll()
+        inFlightRanges.removeAll()
+        streamsToCancel = Array(activeStreams.values)
+        activeStreams.removeAll()
+        if baseURL != nil, port != 0 {
+            state = .listening(port: port)
+        } else {
+            state = .idle
+        }
+        lock.unlock()
+        for stream in streamsToCancel {
+            stream.cancel()
+        }
+        diagLog(.playback, "LocalHLSProxyServer playback state reset",
+                details: ["keptListener": listener != nil])
     }
 
     /// Stop the server.  After this call `baseURL` is `nil`
