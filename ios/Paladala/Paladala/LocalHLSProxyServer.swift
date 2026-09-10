@@ -444,7 +444,20 @@ final class LocalHLSProxyServer: @unchecked Sendable {
             // not from the prefetch cache, so we don't want
             // segment requests to try to look up the wrong
             // bvid/cid.
-            setCurrentIdentity(bvid: bvid, cid: cid)
+            // Keep the same quality fallback used by the prefetch
+            // trigger.  Some playurl responses omit the selected
+            // track's `id`; in that case `selectedVideoQn` is nil,
+            // but the prefetch is keyed by the first accept-quality
+            // value.  Persisting the resolved qn here lets the
+            // segment router find that cache entry after it lands.
+            setCurrentIdentity(
+                bvid: bvid,
+                cid: cid,
+                qn: Self.resolvedPrefetchQuality(
+                    requested: playback.selectedVideoQn,
+                    acceptQuality: playback.acceptQuality
+                )
+            )
             let url = try await publishAndStart(
                 prepared: prepared,
                 generation: generation
@@ -539,13 +552,10 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         // fallback just causes a one-time re-download
         // the first time the user picks a different
         // quality — not a correctness issue.
-        let resolvedQn: Int? = {
-            if let qn { return qn }
-            if let first = playback.acceptQuality?.first {
-                return first
-            }
-            return nil
-        }()
+        let resolvedQn = Self.resolvedPrefetchQuality(
+            requested: qn,
+            acceptQuality: playback.acceptQuality
+        )
         // **PR-C (Phase 2 — fix, take 2)**: route these
         // through `diagLog(.playback, ...)` rather than
         // `bpLog(...)`.  The previous take-1 fix used
@@ -591,6 +601,18 @@ final class LocalHLSProxyServer: @unchecked Sendable {
                 bvid: bvid, qn: resolvedQn, cid: cid, playback: playback
             )
         }
+    }
+
+    /// Resolves the quality used in the prefetch cache key. Bilibili
+    /// sometimes omits the selected track's representation id, while
+    /// still returning `accept_quality`; both the trigger and the
+    /// segment router must use this exact fallback to address the same
+    /// cache entry.
+    static func resolvedPrefetchQuality(
+        requested: Int?,
+        acceptQuality: [Int]?
+    ) -> Int? {
+        requested ?? acceptQuality?.first
     }
 
     /// Begin a new serving generation.  Bumps
@@ -641,11 +663,12 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     /// (downloaded playback via `serveLocal(playback:)`,
     /// LAN share, live).
     private func setCurrentIdentity(
-        bvid: String?, cid: Int64?
+        bvid: String?, cid: Int64?, qn: Int?
     ) {
         lock.lock()
         currentBvid = bvid
         currentCid = cid
+        currentQn = qn
         lock.unlock()
     }
 
@@ -1083,6 +1106,7 @@ final class LocalHLSProxyServer: @unchecked Sendable {
         // the previous video's cache entry.
         currentBvid = nil
         currentCid = nil
+        currentQn = nil
         // Drop cached upstream probes too — after a long
         // background the cached byte sizes may belong to a
         // CDN file that has since been re-ranged.
@@ -1402,12 +1426,16 @@ final class LocalHLSProxyServer: @unchecked Sendable {
     private var port: UInt16 = 0
     private var currentPlayback: BiliPlayback?
     /// **PR-C (Phase 2)**: identity of the active prefetch
-    /// cache entry.  See `setCurrentIdentity(bvid:cid:)` for
+    /// cache entry.  See `setCurrentIdentity(bvid:cid:qn:)` for
     /// lifetime.  Read by `proxySegment` / `proxySegmentRange`
     /// to route a segment request to the on-disk bytes when
     /// the prefetch has completed.
     private var currentBvid: String?
     private var currentCid: Int64?
+    /// Resolved video quality used by the active prefetch entry.
+    /// This is usually `dash.video.qualityId`, but falls back to
+    /// `acceptQuality.first` when Bilibili omits the track id.
+    private var currentQn: Int?
     /// Live playback state.  Mirrors `currentPlayback` for the
     /// `/live/manifest.m3u8` + `/live/seg` routes; null when the
     /// last `serve(playback:)` was a VOD stream (or nothing).
@@ -4557,7 +4585,7 @@ fileprivate func proxySegmentRange(
         lock.lock(); defer { lock.unlock() }
         guard let bvid = currentBvid,
               let cid = currentCid,
-              let qn = currentPlayback?.selectedVideoQn
+              let qn = currentQn
         else { return nil }
         return (bvid, cid, qn)
     }
