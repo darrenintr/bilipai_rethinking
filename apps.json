@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "generatedAt": "2026-09-10T03:49:40Z",
-    "githubRunId": "34434563568",
-    "githubRunNumber": "636",
-    "githubSha": "4af71b100cc2571a4fc0f86e463984c077dc5053",
+    "generatedAt": "2026-09-10T03:53:13Z",
+    "githubRunId": "34434750947",
+    "githubRunNumber": "637",
+    "githubSha": "b3afd2808aad982c8d58e741f73c697e3baa53e2",
     "sourceScript": "scripts/generate_apps_json.py"
   },
   "apps": [
@@ -23,6 +23,14 @@
       "subtitle": "純淨嘅第三方嗶哩嗶哩 iOS 客戶端",
       "tintColor": "#FB7299",
       "versions": [
+        {
+          "buildVersion": "336",
+          "date": "2026-09-10T03:53:13Z",
+          "downloadURL": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/download/v0.5.36.336/Paladala-unsigned-v0.5.36.336.ipa",
+          "localizedDescription": "fix one-shot repair workflow",
+          "size": 4149922,
+          "version": "0.5.36"
+        },
         {
           "buildVersion": "335",
           "date": "2026-09-10T03:49:40Z",
@@ -293,6 +301,15 @@
   "description": "Paladala 嘅官方 AltStore / SideStore 源。每次 push 到 working 分支都會自動出新版本,呢個 apps.json 都會同步更新。",
   "name": "Paladala",
   "news": [
+    {
+      "appID": "com.dt.paladala",
+      "caption": "Build 336 (b3afd28)",
+      "date": "2026-09-10T03:53:13Z",
+      "identifier": "v0.5.36.336",
+      "tintColor": "#FB7299",
+      "title": "Paladala v0.5.36.336",
+      "url": "https://github.com/darrenintr/pure-bilibili-rethinking/releases/tag/v0.5.36.336"
+    },
     {
       "appID": "com.dt.paladala",
       "caption": "Build 335 (4af71b1)",
